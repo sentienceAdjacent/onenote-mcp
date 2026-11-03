@@ -1,0 +1,5 @@
+# build and environment output of the spike hosts
+host-csharp/bin/
+host-csharp/obj/
+host-python/.venv/
+host-python/__pycache__/

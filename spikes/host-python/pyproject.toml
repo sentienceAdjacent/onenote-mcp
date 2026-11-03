@@ -1,0 +1,14 @@
+[project]
+name = "host-python-spike"
+version = "0.0.0"
+description = "Spike (ticket 1): minimal stdio MCP server calling OneNote GetHierarchy over COM"
+requires-python = ">=3.13"
+# Versions confirmed on pypi.org 2026-11-03: mcp 2.3.0, pywin32 312, comtypes 1.4.17 (all latest).
+dependencies = [
+    "mcp==2.3.0",
+    "pywin32==312",
+    "comtypes==1.4.17",
+]
+
+[tool.uv]
+package = false

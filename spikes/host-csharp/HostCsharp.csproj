@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HostCsharp</RootNamespace>
+    <!-- stdout is the MCP channel; keep build chatter and logs off it. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Versions confirmed on nuget.org 2026-11-03: ModelContextProtocol 2.3.1 (latest stable),
+         Microsoft.Extensions.Hosting 10.0.14 (latest stable 10.x). -->
+    <PackageReference Include="ModelContextProtocol" Version="2.3.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Early-bound (vtable) COM through the OneNote 15 interop assembly in the GAC. Late binding
+         (dynamic / IDispatch) is avoided: OneNote's IDispatch fails on this machine for 64-bit
+         clients (see findings). The interop types cannot be embedded (CS1756: IApplication lacks
+         ComImport), so the DLL is copied to the output. -->
+    <Reference Include="Microsoft.Office.Interop.OneNote">
+      <HintPath>C:\WINDOWS\assembly\GAC_MSIL\Microsoft.Office.Interop.OneNote\15.0.0.0__71e9bce111e9429c\Microsoft.Office.Interop.OneNote.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
