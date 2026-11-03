@@ -19,7 +19,7 @@ evidence: 'spikes/results/*.jsonl'
 
 Evidence: each row cites a probe name. Search for it in `spikes/results/<log>.jsonl`. Probe code lives in `spikes/com-capabilities/` (PowerShell), `spikes/host-csharp/` and `spikes/host-python/`. The spike notebooks are `%LOCALAPPDATA%\OneNoteMcpSpike\MCP Spike` (Publish output goes to its `publish\` folder) and, for the search re-run, `%USERPROFILE%\OneNoteMcpSpikeIndexed\MCP Spike Indexed`.
 
-**Open:** Phill's acceptance.
+**Open:** nothing. Phill accepted the findings on 2026-11-03 after the Fable final review (see the ticket's Notes).
 
 ## Constraints for the architecture
 
