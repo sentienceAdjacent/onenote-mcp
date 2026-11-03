@@ -1,6 +1,7 @@
 ---
 title: 'Findings: what can the OneNote desktop COM API do on this machine?'
-ticket: '1'
+type: 'spike-findings'
+findings_for: '1'
 status: 'final'
 created: '2026-11-03'
 machine: 'ONENOTE.EXE 16.0.20527.20112 (M365 Click-to-Run; 64-bit inferred from the Program Files path), Windows 11 Pro 10.0.26300, not elevated'

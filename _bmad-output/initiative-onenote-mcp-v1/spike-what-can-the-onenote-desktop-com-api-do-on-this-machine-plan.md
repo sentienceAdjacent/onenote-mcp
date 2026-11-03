@@ -3,7 +3,7 @@ title: 'Spike: what can the OneNote desktop COM API do on this machine?'
 type: 'chore'
 ticket: '1'
 created: '2026-11-03'
-status: 'built'
+status: done
 baseline_revision: 'be551c4ce51d292e8b1deeac4a536fcf3a71a1b4'
 route: 'full'
 route_source: 'auto'
