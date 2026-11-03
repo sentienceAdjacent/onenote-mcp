@@ -19,6 +19,9 @@ Set-StrictMode -Version 2
 $script:Ns = 'http://schemas.microsoft.com/office/onenote/2013/onenote'
 $script:SpikeRoot = Join-Path $env:LOCALAPPDATA 'OneNoteMcpSpike'
 $script:SpikeNotebookName = 'MCP Spike'
+# Second spike notebook (ticket 1 search re-run): inside the Windows Search crawl scope, outside OneDrive and the repo.
+$script:IndexedSpikeRoot = Join-Path $env:USERPROFILE 'OneNoteMcpSpikeIndexed'
+$script:IndexedSpikeNotebookName = 'MCP Spike Indexed'
 $script:ResultsDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'results'
 $script:Worker = $null   # @{ Runspace = ...; Id = n }
 $script:WorkerSeq = 0
@@ -99,6 +102,9 @@ $script:HResultNames = @{
 function Get-OneNoteNamespace { $script:Ns }
 function Get-SpikeRoot { $script:SpikeRoot }
 function Get-SpikeNotebookPath { Join-Path $script:SpikeRoot $script:SpikeNotebookName }
+function Get-IndexedSpikeRoot { $script:IndexedSpikeRoot }
+function Get-IndexedSpikeNotebookPath { Join-Path $script:IndexedSpikeRoot $script:IndexedSpikeNotebookName }
+function Get-SpikeNotebookPaths { @((Get-SpikeNotebookPath), (Get-IndexedSpikeNotebookPath)) }
 function Get-OneNoteEnum { param([ValidateSet('Scope', 'PageInfo', 'CreateFileType', 'PublishFormat', 'NewPageStyle')][string]$Name) (Get-Variable -Scope Script -Name $Name).Value }
 
 function Use-WindowsPowerShell {
@@ -301,11 +307,12 @@ $script:GetHierarchyCode = 'param($on, $a) $x = ""; $on.GetHierarchy($a.id, $a.s
 function Get-HierarchyCode { $script:GetHierarchyCode }
 
 function Get-SpikeNotebookId {
-    # Resolve the spike notebook by its on-disk path (never by name -- names are not unique).
+    # Resolve a spike notebook by its on-disk path (never by name -- names are not unique).
+    param([string]$NotebookPath = (Get-SpikeNotebookPath))
     $r = Invoke-OneNote -Code $script:GetHierarchyCode -A @{ id = ''; scope = $script:Scope.Notebooks }
     if (-not $r.ok) { throw "guard: cannot read notebook list ($($r.hresult))" }
     $x = ConvertTo-OneNoteXml $r.value
-    $want = (Get-SpikeNotebookPath).TrimEnd('\')
+    $want = $NotebookPath.TrimEnd('\')
     foreach ($nb in $x.Doc.SelectNodes('//one:Notebook', $x.Ns)) {
         if ($nb.path.TrimEnd('\') -ieq $want) { return $nb.ID }
     }
@@ -314,7 +321,8 @@ function Get-SpikeNotebookId {
 
 function Get-SpikeHierarchy {
     # GetHierarchy(spikeNotebookId, hsPages) -- the guard's source of truth.
-    $nbId = Get-SpikeNotebookId
+    param([string]$NotebookPath = (Get-SpikeNotebookPath))
+    $nbId = Get-SpikeNotebookId -NotebookPath $NotebookPath
     if (-not $nbId) { return $null }
     $r = Invoke-OneNote -Code $script:GetHierarchyCode -A @{ id = $nbId; scope = $script:Scope.Pages }
     if (-not $r.ok) { throw "guard: cannot read spike hierarchy ($($r.hresult))" }
@@ -331,19 +339,25 @@ function Test-SpikeTarget {
     #>
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Id)
     if ([string]::IsNullOrWhiteSpace($Id)) { return $false }
-    $h = Get-SpikeHierarchy
-    if (-not $h) { return $false }
-    if ($Id -eq $h.NotebookId) { return $true }
-    foreach ($n in $h.Doc.SelectNodes('//*[@ID]', $h.Ns)) { if ($n.ID -eq $Id) { return $true } }
+    # Either spike notebook qualifies (MCP Spike, MCP Spike Indexed); each is resolved by path.
+    foreach ($nbPath in Get-SpikeNotebookPaths) {
+        $h = Get-SpikeHierarchy -NotebookPath $nbPath
+        if (-not $h) { continue }
+        if ($Id -eq $h.NotebookId) { return $true }
+        foreach ($n in $h.Doc.SelectNodes('//*[@ID]', $h.Ns)) { if ($n.ID -eq $Id) { return $true } }
+    }
     $false
 }
 
 function Test-SpikePath {
-    # True only for a file-system path under %LOCALAPPDATA%\OneNoteMcpSpike.
+    # True only for a file-system path under %LOCALAPPDATA%\OneNoteMcpSpike or %USERPROFILE%\OneNoteMcpSpikeIndexed.
     param([Parameter(Mandatory)][string]$Path)
     try { $full = [IO.Path]::GetFullPath($Path) } catch { return $false }
-    $root = [IO.Path]::GetFullPath($script:SpikeRoot).TrimEnd('\') + '\'
-    $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)
+    foreach ($r in $script:SpikeRoot, $script:IndexedSpikeRoot) {
+        $root = [IO.Path]::GetFullPath($r).TrimEnd('\') + '\'
+        if ($full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    $false
 }
 
 function Invoke-GuardedWrite {
@@ -385,4 +399,4 @@ function Invoke-GuardedWrite {
     $r
 }
 
-Export-ModuleMember -Function Get-OneNoteNamespace, Get-SpikeRoot, Get-SpikeNotebookPath, Get-OneNoteEnum, Use-WindowsPowerShell, Test-Elevated, Format-HResult, Write-ProbeResult, Get-ComWorker, Reset-ComWorker, Invoke-OneNote, Invoke-Probe, ConvertTo-OneNoteXml, Get-HierarchyCode, Get-SpikeNotebookId, Get-SpikeHierarchy, Test-SpikeTarget, Test-SpikePath, Invoke-GuardedWrite
+Export-ModuleMember -Function Get-OneNoteNamespace, Get-SpikeRoot, Get-SpikeNotebookPath, Get-IndexedSpikeRoot, Get-IndexedSpikeNotebookPath, Get-SpikeNotebookPaths, Get-OneNoteEnum, Use-WindowsPowerShell, Test-Elevated, Format-HResult, Write-ProbeResult, Get-ComWorker, Reset-ComWorker, Invoke-OneNote, Invoke-Probe, ConvertTo-OneNoteXml, Get-HierarchyCode, Get-SpikeNotebookId, Get-SpikeHierarchy, Test-SpikeTarget, Test-SpikePath, Invoke-GuardedWrite

@@ -60,3 +60,5 @@ Good enough: every probe in step 2 has a result (works, fails with a HRESULT, or
 - Decision (2026-11-03, Phill): risk stays medium. Deletes only target the spike notebook, behind the ID guard in Approach step 1.
 - Decision (2026-11-03, Phill): the speed probe reads his largest real notebook, read-only.
 - Decision (2026-11-03, Phill): ticket approved as refined.
+- Decision (2026-11-03, Phill): confirmed he edited none of his own notebooks during the spike. Together with the guard logs and the before/after comparison at 13:07 and 13:50 (0 of 35 changed), this closes AC3.
+- Decision (2026-11-03, Phill): accepted the findings doc after the Fable final review. Every confirmed Fable finding was fixed, including an indexed-location search re-run, and CLAUDE.md's COM constraints were updated to match. The findings doc is marked final. Recommended stack: C# with a hand-declared `[ComImport]` IApplication. The architecture run makes the final call.
