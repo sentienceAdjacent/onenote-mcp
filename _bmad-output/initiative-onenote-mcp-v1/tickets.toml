@@ -1,0 +1,14 @@
+# tickets.toml — initiative-onenote-mcp-v1. No epics yet; epics are sliced after the architecture spine lands.
+
+[[entry]]
+id = 1
+type = "spike"
+title = "What can the OneNote desktop COM API do on this machine?"
+description = "Probes the OneNote COM API for read, write, search and failure behaviour, and compares C# and Python MCP hosts calling it, so the architecture spine can commit to facts."
+verify = "The findings doc has a capability matrix with a probe result per row, the HRESULTs observed, and a stack recommendation; its constraints are logged in the architecture memlog."
+covers = []
+after = []
+hitl = true
+risk = "medium"
+unknown = "Whether the M365 COM API still supports every IApplication method, and how each MCP SDK hosts an STA COM object."
+references = ["architecture-onenote-mcp/architecture-onenote-mcp.md"]

@@ -1,0 +1,3 @@
+# Owner rule: Fable high-effort review before any planning doc is final.
+[workflow]
+persistent_facts = ["file:_bmad/custom/fable-final-review.md"]
