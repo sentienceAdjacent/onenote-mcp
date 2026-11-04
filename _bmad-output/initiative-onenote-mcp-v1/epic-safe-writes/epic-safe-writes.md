@@ -56,7 +56,7 @@ Out of scope: move, merge, exports and recycle-bin restore (epic 3), and app-sta
 - Unknown (OneMore lessons, `../epic-read-only-release/research-onemore-lessons.md` rows 1, 2, 4, 5, 6, 12, 13): settle these at inception.
   - Updates merge by objectID and never remove omitted content, so a replace needs explicit `DeletePageContent`.
   - Some edits are silently ignored, so AD-7 needs a read-back check after each write.
-  - Notebook close/reopen regenerates all IDs. Key grants by `path`, closing the spine's Deferred grant-key item, and expect journal IDs to go stale.
+  - Notebook close/reopen regenerates all IDs. Settled in the spine on 2026-11-03: grants key on `NotebookKey` (AD-6), and restore uses `notebookPath`/`parentNamePath` (AD-8). The open part is verifying that `path` is stable (Deferred).
   - Merged cells are flattened through the 2013 schema. Spike: does a 2013 round-trip unmerge cells, and does `UpdatePageContent` accept `xs2026`? Decide AD-4's schema before write stories.
   - Side effects on untouched content (child `lastModifiedTime`, dropped local styles, equation corruption across a live selection).
   - HRESULTs to add to AD-9, `0x80042022` content loss first.

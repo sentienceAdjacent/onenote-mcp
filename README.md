@@ -34,6 +34,7 @@ The tools map roughly one-to-one onto OneNote's COM API (`get_hierarchy`, `get_p
 
 **Limits, stated honestly:**
 - Grants guard against mistakes and casual misuse, not against hostile software already running as you.
+- A grant belongs to the notebook's location (its folder or OneDrive URL), not to the notebook itself. If you delete a granted notebook and a different one later appears at the same location, it inherits the grant. Revoke grants you no longer need with `OneNoteMcp grant --revoke`.
 - A Claude Code hook can auto-answer confirmation dialogs.
 - The journal holds copies of your note content on disk.
 - Search results may be incomplete when Windows Search is behind. Results say so.
