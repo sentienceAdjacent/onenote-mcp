@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OneNoteMcp.Core/OneNoteMcp.Core.csproj" />
+    <Project Path="src/OneNoteMcp.Xml/OneNoteMcp.Xml.csproj" />
+    <Project Path="src/OneNoteMcp.Com/OneNoteMcp.Com.csproj" />
+    <Project Path="src/OneNoteMcp.Server/OneNoteMcp.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OneNoteMcp.Tests/OneNoteMcp.Tests.csproj" />
+    <Project Path="tests/OneNoteMcp.Integration/OneNoteMcp.Integration.csproj" />
+  </Folder>
+</Solution>

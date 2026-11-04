@@ -1,0 +1,3 @@
+<Project>
+  <!-- Spike code is frozen evidence: keep it out of the root build settings (warnings as errors, analyzers). -->
+</Project>

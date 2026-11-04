@@ -34,6 +34,7 @@ The tools map roughly one-to-one onto OneNote's COM API (`get_hierarchy`, `get_p
 
 **Limits, stated honestly:**
 - Grants guard against mistakes and casual misuse, not against hostile software already running as you.
+- A grant belongs to the notebook's location (its folder or OneDrive URL), not to the notebook itself. If you delete a granted notebook and a different one later appears at the same location, it inherits the grant. Revoke grants you no longer need with `OneNoteMcp grant --revoke`.
 - A Claude Code hook can auto-answer confirmation dialogs.
 - The journal holds copies of your note content on disk.
 - Search results may be incomplete when Windows Search is behind. Results say so.
@@ -124,6 +125,10 @@ MCP client ──stdio──► OneNoteMcp.exe ──COM (one STA thread)──�
 - **COM calls go one at a time,** with timeouts. If OneNote restarts, the server reconnects.
 
 The design decisions are in the [architecture spine](_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md).
+
+## Acknowledgements
+
+Much of what this project knows about OneNote's COM API, its XML and its quirks comes from [OneMore](https://github.com/stevencohn/OneMore) by Steven M Cohn and its [developer documentation](https://onemoreaddin.com/developers/Setup.htm). OneMore is a long-lived OneNote add-in, and its write-ups of measured behaviour and API defects saved us a lot of rediscovery. This project's code is its own. No OneMore source is included.
 
 ## License
 

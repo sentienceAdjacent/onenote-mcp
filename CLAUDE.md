@@ -6,7 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A local MCP server that lets an MCP client (Claude Code, Claude Desktop) read and manage OneNote desktop notebooks on this Windows machine. It drives the installed OneNote desktop app through its COM automation API (`OneNote.Application`).
 
-**Status:** architecture final, no code yet. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-19), with its rationale in the `.memlog.md` beside it. It covers C# on .NET 10 with ModelContextProtocol 2.3.1, the hexagonal layout with one STA gateway, raw XML, write grants, the journal, and the plugin distribution. Spike 1's evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`. The initiative is sliced into four epics, and epic 1 (`epic-read-only-release/`) is incepted into entries 2–14 in its `tickets.toml`. Next: build entry 1.2 (scaffold, CI and COM tracer bullet) with `bmad-build`. Replace this note with real build/test/run commands once they exist.
+**Status:** epic 1 (read-only release) is in progress. Story 1.2 (scaffold, CI, hand-declared `IApplication`, and the `get_hierarchy` tracer tool) is done. Stories 1.3 and 1.10 are next. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-19), with its rationale in the `.memlog.md` beside it. The ticket tree is under `_bmad-output/initiative-onenote-mcp-v1/`. Spike evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`.
+
+## Build, test, run
+
+- Build: `dotnet build OneNoteMcp.slnx -warnaserror`. Warnings are errors, and the SDK is pinned by `global.json`.
+- Unit tests (CI): `dotnet test tests/OneNoteMcp.Tests`
+- Integration tests (opt-in, real OneNote must already be running, read-only): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration`
+- Run the server: `src/OneNoteMcp.Server/bin/Debug/net10.0-windows/OneNoteMcp.Server.exe` speaks MCP over stdio. It's registered locally as `onenote` (`claude mcp add`). Don't rebuild while a Claude session has it running: the exe is locked.
+- Layout: `src/OneNoteMcp.{Core,Xml,Com,Server}` and `tests/OneNoteMcp.{Tests,Integration}`. COM interop types are `internal` to Com (AD-2).
 
 ## Workflow: BMAD
 
@@ -32,6 +40,15 @@ This project uses BMAD (core-tools + method 6.13.0-next, set up in `_bmad/`). Af
   - `0x8004200f`: the binary content isn't available, as with cloud-notebook images. Degrade the read; don't fail it.
   - `0x80042010`: the last-modified date didn't match.
 - **Search:** `FindPages` with indexed pages only can miss or lag new pages. Including unindexed pages returns everything unfiltered, recycle-bin pages too. Post-filter the results, and report them as possibly incomplete.
+
+## Prior art: OneMore (check it before inventing)
+
+[OneMore](https://github.com/stevencohn/OneMore) (MPL-2.0) is a mature OneNote add-in on the same COM API and 2013 schema, and its [developer docs](https://onemoreaddin.com/developers/Setup.htm) record measured OneNote behaviour and API defects. Our findings from it so far are in `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/research-onemore-lessons.md`.
+
+- When a story touches COM behaviour, page XML, IDs, search or a OneNote quirk, check OneMore's docs (especially "OneNote Defects", "OneNote ID Stability", "COM Layer", "Editing Text") and its code before designing a workaround. Do this especially when stuck.
+- Learn from it and write our own code. Don't copy its source. If copying is ever unavoidable, the copied file keeps OneMore's MPL-2.0 header and copyright and gets listed in a third-party notices file.
+- Credit it in the README for what we learned. When a story uses a new lesson, add it to the research note.
+- We deliberately differ on concurrency: OneMore writes with `force:true` and retries writes; we keep AD-7/AD-17's basis check and never auto-retry writes.
 
 ## Testing note
 
