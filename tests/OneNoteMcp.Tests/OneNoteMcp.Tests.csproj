@@ -13,6 +13,10 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Lets tests read source-tree files (the psm1 HRESULT table, the contract snapshot) from any output folder. -->
+    <AssemblyMetadata Include="RepoRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\OneNoteMcp.Core\OneNoteMcp.Core.csproj" />
     <ProjectReference Include="..\..\src\OneNoteMcp.Com\OneNoteMcp.Com.csproj" />
     <ProjectReference Include="..\..\src\OneNoteMcp.Server\OneNoteMcp.Server.csproj" />

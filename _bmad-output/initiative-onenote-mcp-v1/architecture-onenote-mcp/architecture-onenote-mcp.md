@@ -7,7 +7,7 @@ paradigm: 'hexagonal (ports and adapters) with a single-STA actor per process'
 scope: 'Local stdio MCP server that reads and manages OneNote desktop notebooks over COM, plus its Claude Code plugin (skill + server config)'
 status: final
 created: '2026-11-03'
-updated: '2026-11-03'
+updated: '2026-11-04'
 binds: [all]
 sources:
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md
@@ -189,8 +189,10 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Prevents:** each tool inventing its own result or error shape; fakes and the real adapter disagreeing.
 - **Rule:**
   - **Envelope:** every tool returns `structuredContent`, with `isError` matching:
-    - `{ok: true, xml?, meta, warnings[]}`
-    - `{ok: false, error: {code, hresult?, retryable, outcomeUnknown?, userAction, message}}`
+    - `{ok: true, xml?, meta: {correlationId, ...}, warnings[]}`
+    - `{ok: false, error: {code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta: {correlationId}}`
+    - The text content block carries the same JSON. Story 1.3's manual check verifies what Claude Code shows the model; if it shows both, the text block carries the envelope without `xml`.
+    - Errors the MCP SDK raises before a tool runs (unknown tool, input-schema rejection) are JSON-RPC errors outside the envelope.
   - **Who throws what:**
     - Tools never throw.
     - `ErrorCode` and `OneNoteException` live in Core. `ComGateway` and `FakeGateway` throw only `OneNoteException`.
@@ -211,9 +213,9 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 | `ModalDialogOpen` | `0x80042030` | yes, after the user closes the dialog |
 | `SectionLocked` | `0x8004201B`, or `locked="true"` | after the user unlocks it |
 | `StaleWrite` | `0x80042010`, basis mismatch | no; re-read |
-| `ObjectNotFound` | `0x80042014`; AD-8 restore when no open notebook matches `notebookPath` | no, after the user opens the notebook |
-| `UnknownObjectId` | validation: `objectID` absent | no |
-| `InvalidXml` | XSD or namespace validation | no |
+| `ObjectNotFound` | the object does-not-exist HRESULTs: `0x80042004`, `0x80042005`, `0x8004200E`, `0x80042011`, `0x80042012`, `0x80042014`, `0x80042015`, as reported by OneNote; AD-8 restore when no open notebook matches `notebookPath` | no; re-read the hierarchy or page and use a current ID. For `0x80042015` and the AD-8 restore case, after the user opens the notebook |
+| `UnknownObjectId` | the server's own validation: `objectID` absent (the same stale ID reported by OneNote is `ObjectNotFound`) | no |
+| `InvalidXml` | XSD or namespace validation; `0x80042000`, `0x80042001`, `0x80042020` | no |
 | `InvalidQuery` | `0x80042019` | no |
 | `FileExists` | `0x8004201A` | no |
 | `WriteNotGranted` / `PermanentDeleteNotGranted` | AD-6 | after the user grants |
@@ -221,7 +223,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 | `SettingsInvalid` | AD-10 | after the user fixes it |
 | `JournalFailed` / `BackupFailed` | AD-8 | no |
 | `NotSupported` | method not in this release | no |
-| `Internal` | anything unmapped (HRESULT kept) | no |
+| `Internal` | anything unmapped (HRESULT kept). Deliberately unmapped: `0x80042006` hrFileDoesNotExist and `0x80042018` hrFolderDoesNotExist (paths, not objects); `0x8004200F` hrBinaryObjectDoesNotExist (reads turn it into the `BinaryUnavailable` warning); `0x800706BE` (can mean bad XML) | no |
 
 ### AD-10 — Shared state across processes [ADOPTED]
 
@@ -280,12 +282,14 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ### AD-14 — Tool contract versioning [ADOPTED]
 
-- **Binds:** Server, plugin, skill
+- **Binds:** Server, plugin, skill, release
 - **Prevents:** silent breaking changes for clients and skill recipes.
 - **Rule:**
   - Tool names are the `snake_case` of the COM method (`get_page_content`). Tools with no COM method use `verb_noun` (`restore_from_journal`, `list_grants`).
   - Names, parameter schemas and the AD-9 envelope are a public contract.
-  - An addition bumps the minor version. A rename or removal bumps the major version.
+  - An addition bumps the minor version. A rename or removal bumps the major version. Before 1.0.0, any contract change bumps the minor version.
+  - There is one version number: `<Version>` in `Directory.Build.props`. It is the release tag (AD-19) and `serverInfo.version`, and these rules apply to its major.minor. The release job refuses a tag that differs from it.
+  - A checked-in snapshot of tool names and schemas, with that major.minor, fails the unit tests when the contract changes. The test detects the change; the PR reviewer checks the size of the bump.
 
 ### AD-15 — Distribution [ADOPTED]
 
@@ -416,7 +420,7 @@ flowchart LR
 | Item | Why it can wait / revisit when |
 | --- | --- |
 | v1 tool list and later rounds | Work slicing, for `bmad-ticket`. The whole COM surface is the target, and AD-5/AD-7 make each round additive |
-| Release pipeline, code signing, SmartScreen | Packaging story |
+| Release pipeline, code signing, SmartScreen | Packaging story. The release job refuses a tag that differs from `<Version>` (AD-14) |
 | How the plugin fetches the exe (`.mcpb` bundle vs launcher) | Packaging story. Both are documented in plugins-reference; whether a `.mcpb` can carry a self-contained .NET exe is unchecked |
 | Events (`OnHierarchyChange`, `OnNavigate`) | A later round. Microsoft says events can't be added in managed code, so this may need a native sink or be dropped |
 | Move semantics via `UpdateHierarchy`; `MergeSections` and `MergeFiles` behaviour | Not probed. Verify in the stories that add them. `restore_from_recycle_bin` depends on move |
