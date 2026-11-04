@@ -6,7 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A local MCP server that lets an MCP client (Claude Code, Claude Desktop) read and manage OneNote desktop notebooks on this Windows machine. It drives the installed OneNote desktop app through its COM automation API (`OneNote.Application`).
 
-**Status:** architecture final, no code yet. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-19), with its rationale in the `.memlog.md` beside it. It covers C# on .NET 10 with ModelContextProtocol 2.3.1, the hexagonal layout with one STA gateway, raw XML, write grants, the journal, and the plugin distribution. Spike 1's evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`. The initiative is sliced into four epics, and epic 1 (`epic-read-only-release/`) is incepted into entries 2–14 in its `tickets.toml`. Next: build entry 1.2 (scaffold, CI and COM tracer bullet) with `bmad-build`. Replace this note with real build/test/run commands once they exist.
+**Status:** epic 1 (read-only release) is in progress. Story 1.2 (scaffold, CI, hand-declared `IApplication`, and the `get_hierarchy` tracer tool) is done. Stories 1.3 and 1.10 are next. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-19), with its rationale in the `.memlog.md` beside it. The ticket tree is under `_bmad-output/initiative-onenote-mcp-v1/`. Spike evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`.
+
+## Build, test, run
+
+- Build: `dotnet build OneNoteMcp.slnx -warnaserror`. Warnings are errors, and the SDK is pinned by `global.json`.
+- Unit tests (CI): `dotnet test tests/OneNoteMcp.Tests`
+- Integration tests (opt-in, real OneNote must already be running, read-only): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration`
+- Run the server: `src/OneNoteMcp.Server/bin/Debug/net10.0-windows/OneNoteMcp.Server.exe` speaks MCP over stdio. It's registered locally as `onenote` (`claude mcp add`). Don't rebuild while a Claude session has it running: the exe is locked.
+- Layout: `src/OneNoteMcp.{Core,Xml,Com,Server}` and `tests/OneNoteMcp.{Tests,Integration}`. COM interop types are `internal` to Com (AD-2).
 
 ## Workflow: BMAD
 
