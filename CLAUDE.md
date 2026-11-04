@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A local MCP server that lets an MCP client (Claude Code, Claude Desktop) read and manage OneNote desktop notebooks on this Windows machine. It drives the installed OneNote desktop app through its COM automation API (`OneNote.Application`).
 
-**Status:** pre-architecture. Spike 1 is done; `spikes/` holds its probes and evidence, and `_bmad-output/initiative-onenote-mcp-v1/spike-*-findings.md` holds the results. The spike recommends C# (.NET 10 + ModelContextProtocol). `bmad-architecture` resumes next and makes the final stack call. Replace this note with real build/test/run commands once they exist.
+**Status:** architecture final, no code yet. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-19), with its rationale in the `.memlog.md` beside it. It covers C# on .NET 10 with ModelContextProtocol 2.3.1, the hexagonal layout with one STA gateway, raw XML, write grants, the journal, and the plugin distribution. Spike 1's evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`. The initiative is sliced into four epics, and epic 1 (`epic-read-only-release/`) is incepted into entries 2–14 in its `tickets.toml`. Next: build entry 1.2 (scaffold, CI and COM tracer bullet) with `bmad-build`. Replace this note with real build/test/run commands once they exist.
 
 ## Workflow: BMAD
 

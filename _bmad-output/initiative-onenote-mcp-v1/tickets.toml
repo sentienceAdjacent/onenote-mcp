@@ -1,14 +1,28 @@
-# tickets.toml — initiative-onenote-mcp-v1. No epics yet; epics are sliced after the architecture spine lands.
+# tickets.toml — initiative-onenote-mcp-v1. One table per epic; table order is the build order.
 
-[[entry]]
+[[epic]]
 id = 1
-type = "spike"
-title = "What can the OneNote desktop COM API do on this machine?"
-description = "Probes the OneNote COM API for read, write, search and failure behaviour, and compares C# and Python MCP hosts calling it, so the architecture spine can commit to facts."
-verify = "The findings doc has a capability matrix with a probe result per row, the HRESULTs observed, and a stack recommendation; its constraints are logged in the architecture memlog."
-covers = []
-after = []
-hitl = true
-risk = "medium"
-unknown = "Whether the M365 COM API still supports every IApplication method, and how each MCP SDK hosts an STA COM object."
-references = ["architecture-onenote-mcp/architecture-onenote-mcp.md"]
+slug = "epic-read-only-release"
+title = "Read-only release"
+covers = ["R1", "R2", "R3", "R7"]
+
+[[epic]]
+id = 2
+slug = "epic-safe-writes"
+title = "Safe writes"
+covers = ["R4", "R5", "R6"]
+after = [{ epic = 1, needs = "the gateway, result envelope and error map, settings schema, XML model with ElementHash, test harnesses, and the release pipeline and plugin" }]
+
+[[epic]]
+id = 3
+slug = "epic-round-2-external-and-structural"
+title = "Round 2: exports, move and merge"
+covers = ["R5", "R8"]
+after = [{ epic = 2, needs = "the operation-class pipeline, grants, write lock and journal" }]
+
+[[epic]]
+id = 4
+slug = "epic-round-3-app-state-and-ui"
+title = "Round 3: app state and UI"
+covers = ["R9"]
+after = [{ epic = 3, needs = "the class dispatch, tool registration and skill as left by round 2 (same files)" }]

@@ -13,7 +13,7 @@ lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/CLAUDE.md'
-  - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine.md'
+  - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine.md'
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
@@ -65,7 +65,7 @@ The repo has no code yet. Tooling confirmed on 2026-11-03:
 - [x] `spikes/host-csharp/` -- minimal stdio MCP server (ModelContextProtocol), one `get_hierarchy` tool, with COM on a dedicated STA thread -- host comparison
 - [x] `spikes/host-python/` -- minimal stdio MCP server (`mcp`, run with uv) with the same tool, using pywin32 on an STA worker thread -- host comparison
 - [x] `spikes/results/*.jsonl` -- the probe logs, IDs and counts only -- evidence
-- [x] `_bmad-output/initiative-onenote-mcp-v1/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md` -- capability matrix, failure-mode table, HRESULT list, host comparison and stack recommendation -- the deliverable
+- [x] `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md` -- capability matrix, failure-mode table, HRESULT list, host comparison and stack recommendation -- the deliverable
 - [x] the architecture `.memlog.md` -- one `constraint` entry per finding that binds the architecture -- feeds the paused spine
 
 **Acceptance Criteria:**

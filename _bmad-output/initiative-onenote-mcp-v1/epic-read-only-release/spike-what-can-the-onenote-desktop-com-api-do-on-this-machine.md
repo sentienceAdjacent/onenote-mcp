@@ -2,7 +2,7 @@
 id: 1
 type: spike
 title: "What can the OneNote desktop COM API do on this machine?"
-parent: initiative-onenote-mcp-v1
+parent: epic-read-only-release
 covers: []
 after: []
 refined: true
@@ -49,7 +49,7 @@ Good enough: every probe in step 2 has a result (works, fails with a HRESULT, or
 
 ## References
 
-- parent — _bmad-output/initiative-onenote-mcp-v1/initiative-onenote-mcp-v1.md
+- parent — _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/epic-read-only-release.md
 - architecture (paused) — _bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/.memlog.md
 - project constraints — CLAUDE.md, section "OneNote COM constraints the design has to respect"
 - Fable final-review rule — _bmad/custom/fable-final-review.md

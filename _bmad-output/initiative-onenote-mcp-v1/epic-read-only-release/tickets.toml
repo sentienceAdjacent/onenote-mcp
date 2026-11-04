@@ -1,0 +1,233 @@
+# tickets.toml — epic-read-only-release. Table order is the build order.
+
+[[entry]]
+id = 1
+type = "spike"
+title = "What can the OneNote desktop COM API do on this machine?"
+description = "Probes the OneNote COM API for read, write, search and failure behaviour, and compares C# and Python MCP hosts calling it, so the architecture spine can commit to facts."
+verify = "The findings doc has a capability matrix with a probe result per row, the HRESULTs observed, and a stack recommendation; its constraints are logged in the architecture memlog."
+covers = ["R3"]
+after = []
+hitl = true
+risk = "medium"
+unknown = "Whether the M365 COM API still supports every IApplication method, and how each MCP SDK hosts an STA COM object."
+references = ["_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Scaffold, CI and COM tracer bullet"
+description = "Creates the private GitHub repo pmcormier/onenote-mcp, the Server/Core/Xml/Com and two test projects, a CI workflow, the IOneNoteGateway port, a hand-declared [ComImport] IApplication with a smoke test calling read methods across the vtable including the last-declared one, a minimal STA thread with an ONENOTE.EXE-running check, and one get_hierarchy tool (notebooks scope) over stdio."
+verify = "From Claude Code the local build's get_hierarchy lists Phill's notebooks, it returns OneNoteNotRunning instead of starting OneNote when OneNote is closed, the smoke test passes against real OneNote, and the CI run on the pushed commit is green."
+covers = ["R1", "R3"]
+after = []
+hitl = true
+risk = "medium"
+unknown = "Whether the hand-declared vtable matches the OneNote 15 type library; on failure fall back to the GAC PIA and record a Decision (AD-1)."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-1--runtime-and-com-binding-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-2--only-comgateway-touches-com-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md",
+  "spikes/host-csharp/",
+  "CLAUDE.md#onenote-com-constraints-checked-by-spike-1-2026-11-03-details-in-the-spike-findings-doc",
+]
+notes = ["Repo private to start, then public (Phill, 2026-11-03).", "Name: OneNote MCP."]
+
+[[entry]]
+id = 3
+type = "story"
+title = "Result envelope, error codes, operation classes and tool contract"
+description = "Adds the AD-9 envelope with isError and correlationId, ErrorCode and OneNoteException in Core, the HRESULT-to-code table in Com taken from the learn.microsoft.com list in OneNoteProbe.psm1, the OperationClass enum with one use case per tool (AD-5), and a snapshot test of tool names and schemas with the contract version in serverInfo (AD-14); get_hierarchy adopts all of it."
+verify = "Unit tests map every HRESULT in the spike's table to its AD-9 code, the tool-contract snapshot test fails on a renamed tool, and a forced failure from Claude Code returns the envelope with isError true."
+covers = ["R3", "R7"]
+after = [2]
+hitl = false
+risk = "medium"
+unknown = "None beyond keeping the HRESULT names exactly as Microsoft lists them (a from-memory list was shifted by one code)."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-9--one-result-envelope-and-error-set-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-5--thin-tools-layered-tasks-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-14--tool-contract-versioning-adopted",
+  "spikes/com-capabilities/OneNoteProbe.psm1",
+]
+
+[[entry]]
+id = 4
+type = "story"
+title = "Settings (read side) and logging"
+description = "Adds the Settings type that owns settings.json at schemaVersion 1 (defaults when absent, SettingsInvalid when malformed, read-only mode on a newer schemaVersion) and reads timeouts, allowSilentActivation, journal and exportRoots; adds stderr and rolling-file logging (10 MB x 5) that records IDs, HRESULTs and timings only."
+verify = "Unit tests cover absent, malformed and newer-schema files, and a run from Claude Code leaves a log under %LOCALAPPDATA%\\OneNoteMcp\\logs with IDs and no XML."
+covers = ["R3"]
+after = [3]
+hitl = false
+risk = "low"
+unknown = "None."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-10--shared-state-across-processes-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-13--logging-adopted",
+]
+
+[[entry]]
+id = 5
+type = "story"
+title = "Gateway lifecycle, read-side port and integration harness"
+description = "Implements AD-3 in ComGateway (timeouts, poison-and-replace, bounded abandoned threads, reconnect, busy backoff, not-running and integrity checks, idle release), declares all ten Read-class methods on IOneNoteGateway and ComGateway, and adds the opt-in integration suite with an MCP Test notebook created in a scratch folder through a guarded test-only write path compiled into the integration suite only."
+verify = "The integration suite passes not-running, modal dialog, OneNote restart (reconnect), forced hang (replacement) and elevation mismatch (refused) scenarios against real OneNote, and unit tests cover the lifecycle state machine with a fake COM layer."
+covers = ["R3"]
+after = [3, 4]
+hitl = true
+risk = "medium"
+unknown = "Whether an abandoned STA thread is ever reclaimed once its COM call returns; the bound on abandoned threads (AD-3) covers the case where it is not."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-3--gateway-lifecycle-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md",
+  "spikes/com-capabilities/04-failure-modes.ps1",
+]
+
+[[entry]]
+id = 6
+type = "story"
+title = "XML model, vendored XSD, ElementHash and FakeGateway"
+description = "Adds OneNoteMcp.Xml with 2013 namespace handling, the vendored XSD with provenance and SHA-256, ElementHash and pageHash per AD-17, an image-count comparison helper, and a FakeGateway implementing the full read-side port from fixtures captured from the MCP Test notebook plus one sanitised cloud-notebook image capture; it records whether the XSD accepts partial-update XML."
+verify = "Unit tests validate every fixture against the XSD and show hashes unchanged when only lastModifiedTime changes, and the partial-update acceptance result is a dated Decision in the epic's Notes."
+covers = ["R1", "R3"]
+after = [5]
+hitl = true
+risk = "medium"
+unknown = "Whether the XSD accepts partial-update XML, which decides AD-16's hard gate for epic 2."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-4--raw-xml-is-the-content-contract-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-16--test-seam-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-17--caller-basis-and-elementhash",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/reviews/review-verification.md",
+]
+notes = ["Fixtures come only from the MCP Test notebook and one sanitised cloud capture; nothing from Phill's notebooks (Phill, 2026-11-03)."]
+
+[[entry]]
+id = 7
+type = "story"
+title = "Hierarchy read tools"
+description = "Adds get_hierarchy at every scope, get_hierarchy_parent (the throw at a notebook ends the chain), get_special_location, format_date, get_hyperlink_to_object and get_web_hyperlink_to_object, each in its own file with its own use case, reporting locked sections in warnings."
+verify = "FakeGateway tests per tool assert the returned XML equals the gateway's byte for byte, and the integration suite reads the MCP Test notebook at every scope."
+covers = ["R1"]
+after = [5, 6]
+hitl = false
+risk = "low"
+unknown = "GetSpecialLocation and GetWebHyperlinkToObject were never probed."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-4--raw-xml-is-the-content-contract-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-6--server-enforced-write-grants-adopted",
+]
+
+[[entry]]
+id = 8
+type = "story"
+title = "Page content read tools"
+description = "Adds get_page_content (binary off by default, meta.binaryUnavailable from the image-count comparison, meta.lastModifiedTime, pageHash and elementHashes) and get_binary_page_content (0x8004200F becomes a BinaryUnavailable warning)."
+verify = "Fixture tests, including the cloud-image fixture, assert unchanged XML and the basis in meta, and an integration read of a page holding a sentinel string leaves no trace of it in the log file."
+covers = ["R1"]
+after = [5, 6]
+hitl = false
+risk = "low"
+unknown = "Whether piBasic vs piBinaryData image counts differ only for cloud images, or also for other content."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-4--raw-xml-is-the-content-contract-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-17--caller-basis-and-elementhash",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-13--logging-adopted",
+]
+
+[[entry]]
+id = 9
+type = "story"
+title = "Search tools"
+description = "Adds find_pages and find_meta with a required startNodeId (fromRoot flag for the root), unindexed pages included, recycle-bin pages removed and listed in meta.filtered, metadata-first filtering, fDisplay=false, and possiblyIncomplete true."
+verify = "Fixture tests show only whole Page elements removed and each listed in meta.filtered, and an integration search in MCP Test finds a page the harness created."
+covers = ["R2"]
+after = [5, 6]
+hitl = false
+risk = "medium"
+unknown = "FindMeta was never probed."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-12--search-semantics-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-11--calls-the-user-sees-and-exports-adopted",
+  "spikes/com-capabilities/06-search-indexed.ps1",
+]
+
+[[entry]]
+id = 10
+type = "story"
+title = "Plugin packaging and exe delivery"
+description = "Adds .claude-plugin/marketplace.json and plugin/ with the server config and no top-level bin/, settles and builds the exe-fetch route (.mcpb bundle or launcher into a per-version location) using plugin-dev, and adds claude plugin validate to story 2's CI workflow."
+verify = "/plugin marketplace add on the local repo plus /plugin install starts the server from a locally built package and get_hierarchy works, and CI runs claude plugin validate green."
+covers = ["R7"]
+after = [2]
+hitl = true
+risk = "medium"
+unknown = "Whether a .mcpb bundle can carry a self-contained .NET exe."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-15--distribution-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-19--install-lifecycle",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/reviews/review-verification.md",
+]
+
+[[entry]]
+id = 11
+type = "story"
+title = "Release pipeline"
+description = "Adds a tag-triggered workflow that requires CI tests and claude plugin validate green on the tagged commit, builds the self-contained win-x64 exe versioned from the tag, attaches it to a GitHub Release, and bumps plugin and contract versions in lockstep."
+verify = "Tagging v0.1.0-rc1 then rc2 produces two releases; the plugin installs rc1, and upgrading to rc2 with a Claude Code session open succeeds without overwriting the running exe."
+covers = ["R7"]
+after = [10]
+hitl = true
+risk = "medium"
+unknown = "Code signing and SmartScreen; Phill decides here."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-19--install-lifecycle",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-14--tool-contract-versioning-adopted",
+]
+
+[[entry]]
+id = 12
+type = "story"
+title = "The onenote skill: read recipes"
+description = "Writes plugin/skills/onenote/SKILL.md: the tool overview, XML patterns for reading, search caveats (possiblyIncomplete), how to act on each error's userAction, and the AD-11 user-visible rule."
+verify = "The plugin-dev skill-reviewer passes it, and in Claude Code a request to list the sections of the MCP Test notebook uses the tools as the skill describes."
+covers = ["R7", "R1", "R2"]
+after = [7, 8, 9, 10]
+hitl = false
+risk = "low"
+unknown = "None."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-11--calls-the-user-sees-and-exports-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-9--one-result-envelope-and-error-set-adopted",
+]
+
+[[entry]]
+id = 13
+type = "story"
+title = "README, uninstall --purge and clean-machine install"
+description = "Adds uninstall --purge (removes the OneNoteMcp settings, logs and journal-named files only, and refuses root-like journal paths), makes the repo public, rewrites the README from planned to real steps with pmcormier/onenote-mcp, and runs the clean-machine install as the epic's end-to-end check."
+verify = "On a clean Windows profile an agent following the README alone installs from the release and lists notebooks, the manual-client and build-from-source routes both work, and a scripted before/after directory snapshot shows purge removed only OneNoteMcp files."
+covers = ["R7"]
+after = [11, 12]
+hitl = true
+risk = "high"
+unknown = "None beyond what a clean profile turns up."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-19--install-lifecycle",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-15--distribution-adopted",
+  "README.md",
+]
+notes = ["Repo private to start, then public (Phill, 2026-11-03)."]
+
+[[entry]]
+id = 14
+type = "story"
+title = "Refactor sweep"
+description = "Cleans up what the epic's build records and deferred review findings list; its scope is set when it starts and takes cleanup only."
+verify = "The CI and integration suites stay green and every deferred finding from the epic is closed or moved to a new story."
+covers = ["R3"]
+after = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+hitl = false
+risk = "low"
+unknown = "Scope is unknown until the other stories finish."
