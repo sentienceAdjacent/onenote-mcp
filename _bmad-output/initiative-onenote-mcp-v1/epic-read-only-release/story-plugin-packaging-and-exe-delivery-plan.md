@@ -3,7 +3,7 @@ title: 'Plugin packaging and exe delivery'
 type: 'feature'
 ticket: '10'
 created: '2026-11-04'
-status: 'built'
+status: done
 route: 'full'
 route_source: 'auto'
 review: 'quick'
