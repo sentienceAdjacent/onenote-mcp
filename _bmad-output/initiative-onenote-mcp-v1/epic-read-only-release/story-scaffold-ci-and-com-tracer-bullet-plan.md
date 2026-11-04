@@ -3,7 +3,7 @@ title: 'Scaffold, CI and COM tracer bullet'
 type: 'feature'
 ticket: '2'
 created: '2026-11-03'
-status: 'in-review'
+status: 'built'
 baseline_revision: '89edc756faf98ce27c4e6654b44e1cb5711a349d'
 route: 'full'
 route_source: 'auto'
@@ -112,6 +112,7 @@ context:
 - Edge-case audit: the call-path `COMException` wrap had no suite test, so `tests/OneNoteMcp.Integration/ComGatewayIntegrationTests.cs` was added. It covers the real gateway's happy path and an unknown start ID giving `Internal` with the HRESULT.
 - CI actions bumped to `checkout@v5` and `setup-dotnet@v5`, because GitHub is retiring the Node 20 runner that v4 uses.
 - Verified: build with 0 warnings; 17/17 unit tests; 12/12 integration tests with the flag; a stdio JSON-RPC exchange returns 4 notebooks, with only JSON-RPC on stdout; CI run 41762125551 green on `dd1a52a`.
+- After review patches: 20/20 unit, 12/12 integration, 0 warnings; CI green on `1ac13bc`.
 
 ## Plan Change Log
 
