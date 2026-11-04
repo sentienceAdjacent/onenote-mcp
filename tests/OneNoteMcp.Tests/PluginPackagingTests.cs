@@ -24,20 +24,20 @@ public sealed class PluginPackagingTests
         XDocument.Load(RepoPaths.Combine("Directory.Build.props")).Descendants("Version").Single().Value.Trim();
 
     [Fact]
-    public void Checked_in_plugin_manifest_has_no_version()
+    public void PluginManifest_HasNoVersion()
     {
         // The pack script writes <Version> into the staged copy; a checked-in version would drift (research note, Release flow 2).
         Assert.False(ReadJson(PluginManifest).TryGetProperty("version", out _), $"{PluginManifest} must not carry a 'version'.");
     }
 
     [Fact]
-    public void Marketplace_entry_has_no_version()
+    public void MarketplaceEntry_HasNoVersion()
     {
         Assert.False(SinglePluginEntry().TryGetProperty("version", out _), $"{Marketplace} entry must not carry a 'version'.");
     }
 
     [Fact]
-    public void Plugin_name_matches_marketplace_entry()
+    public void PluginName_MatchesTheMarketplaceEntry()
     {
         var name = ReadJson(PluginManifest).GetProperty("name").GetString();
         Assert.Equal("onenote-mcp", name);
@@ -46,7 +46,7 @@ public sealed class PluginPackagingTests
     }
 
     [Fact]
-    public void Mcp_config_runs_OneNoteMcp_exe_from_plugin_root()
+    public void McpConfig_RunsOneNoteMcpExeFromThePluginRoot()
     {
         var server = ReadJson(McpConfig).GetProperty("mcpServers").GetProperty("onenote");
         var command = server.GetProperty("command").GetString();
@@ -57,7 +57,7 @@ public sealed class PluginPackagingTests
     }
 
     [Fact]
-    public void Marketplace_entry_is_archive_for_props_version()
+    public void MarketplaceEntry_IsAnArchiveForThePropsVersion()
     {
         var ver = PropsVersion();
         var source = SinglePluginEntry().GetProperty("source");
@@ -73,7 +73,7 @@ public sealed class PluginPackagingTests
     }
 
     [Fact]
-    public void Plugin_source_has_no_bin_folder()
+    public void PluginSource_HasNoBinFolder()
     {
         Assert.False(Directory.Exists(RepoPaths.Combine("plugin", "bin")), "plugin/bin must not exist (AD-15).");
     }
