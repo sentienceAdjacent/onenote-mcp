@@ -26,3 +26,22 @@ jobs:
       # Unit tests only: the integration suite needs a real OneNote and is opt-in (AD-16).
       - name: Test
         run: dotnet test tests/OneNoteMcp.Tests --no-build -c Release
+
+      # Plugin packaging (AD-15): pack the zip, then validate the marketplace and the staged plugin.
+      # A marketplace validate checks only an archive entry's fields, so the staged plugin is validated too.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Pinned so a validator change can't break a green build unannounced. Bump it deliberately.
+      - name: Install Claude Code
+        run: npm i -g @anthropic-ai/claude-code@2.1.318
+
+      - name: Pack plugin
+        run: pwsh -NoProfile -File scripts/pack-plugin.ps1
+
+      - name: Validate marketplace
+        run: claude plugin validate --strict .
+
+      - name: Validate staged plugin
+        run: claude plugin validate --strict dist/stage/onenote-mcp

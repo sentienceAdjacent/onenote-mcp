@@ -1,0 +1,19 @@
+{
+  "name": "onenote-mcp",
+  "owner": {
+    "name": "pmcormier",
+    "url": "https://github.com/pmcormier"
+  },
+  "description": "OneNote MCP: a local MCP server for OneNote desktop on Windows.",
+  "plugins": [
+    {
+      "name": "onenote-mcp",
+      "description": "Read and manage OneNote desktop notebooks on this Windows machine through OneNote's COM automation API.",
+      "source": {
+        "source": "archive",
+        "url": "https://github.com/pmcormier/onenote-mcp/releases/download/v0.1.0/onenote-0.1.0-win-x64.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  ]
+}

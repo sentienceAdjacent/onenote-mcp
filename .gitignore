@@ -7,3 +7,6 @@ obj/
 *.user
 .vs/
 TestResults/
+
+# Plugin pack output (scripts/pack-plugin.ps1)
+dist/
