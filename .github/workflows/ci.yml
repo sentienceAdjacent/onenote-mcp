@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore OneNoteMcp.slnx
+
+      - name: Build
+        run: dotnet build OneNoteMcp.slnx --no-restore -c Release -warnaserror
+
+      # Unit tests only: the integration suite needs a real OneNote and is opt-in (AD-16).
+      - name: Test
+        run: dotnet test tests/OneNoteMcp.Tests --no-build -c Release

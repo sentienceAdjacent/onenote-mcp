@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OneNoteMcp.Core\OneNoteMcp.Core.csproj" />
+    <ProjectReference Include="..\OneNoteMcp.Xml\OneNoteMcp.Xml.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The interop types are internal (AD-2); only the test assemblies may see them. -->
+    <InternalsVisibleTo Include="OneNoteMcp.Tests" />
+    <InternalsVisibleTo Include="OneNoteMcp.Integration" />
+  </ItemGroup>
+</Project>

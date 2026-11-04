@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- xunit.v3 4.x defaults to Microsoft.Testing.Platform, which the .NET 10 SDK rejects under VSTest. Opt out so `dotnet test <dir>` runs via xunit.runner.visualstudio. -->
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\OneNoteMcp.Com\OneNoteMcp.Com.csproj" />
+    <ProjectReference Include="..\..\src\OneNoteMcp.Xml\OneNoteMcp.Xml.csproj" />
+  </ItemGroup>
+</Project>
