@@ -8,17 +8,36 @@ public interface IProcessProbe
     bool IsOneNoteRunning();
 }
 
-/// <summary>Looks for an <c>ONENOTE.EXE</c> process in this session's process list.</summary>
+/// <summary>
+/// Looks for an <c>ONENOTE.EXE</c> process in the current Windows session only. Another user's OneNote
+/// (in another session) doesn't count, because COM activation from here would start a new one in ours.
+/// </summary>
 public sealed class ProcessProbe : IProcessProbe
 {
     public bool IsOneNoteRunning()
     {
-        var processes = Process.GetProcessesByName("ONENOTE");
-        foreach (var process in processes)
+        int sessionId;
+        using (var current = Process.GetCurrentProcess())
         {
-            process.Dispose();
+            sessionId = current.SessionId;
         }
 
-        return processes.Length > 0;
+        var found = false;
+        foreach (var process in Process.GetProcessesByName("ONENOTE"))
+        {
+            using (process)
+            {
+                try
+                {
+                    found |= process.SessionId == sessionId;
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process exited while we looked.
+                }
+            }
+        }
+
+        return found;
     }
 }

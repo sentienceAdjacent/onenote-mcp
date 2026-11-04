@@ -38,6 +38,56 @@ public sealed class ComGatewayTests
         Assert.IsType<COMException>(ex.InnerException);
     }
 
+    [Fact]
+    public async Task ServerUnavailable_DropsReference_SoNextCallRecreatesApplication()
+    {
+        var created = 0;
+        var app = new FakeApplication(() => throw new COMException("gone", unchecked((int)0x800706BA)));
+        using var gateway = new ComGateway(new FixedProbe(true), () =>
+        {
+            created++;
+            return app;
+        });
+
+        var first = await Assert.ThrowsAsync<OneNoteException>(
+            () => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
+        Assert.Equal(unchecked((int)0x800706BA), first.ComHResult);
+
+        app.OnGetHierarchy = () => "<ok/>";
+        var xml = await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken);
+
+        Assert.Equal("<ok/>", xml);
+        Assert.Equal(2, created);
+    }
+
+    [Fact]
+    public async Task NonComException_FromCall_IsWrappedAsInternal_WithHResult()
+    {
+        var inner = new ArgumentException("bad arg");
+        var app = new FakeApplication(() => throw inner);
+        using var gateway = new ComGateway(new FixedProbe(true), () => app);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(
+            () => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.Internal, ex.Code);
+        Assert.Equal(inner.HResult, ex.ComHResult);
+        Assert.Contains($"0x{inner.HResult:X8}", ex.Message, StringComparison.Ordinal);
+        Assert.Same(inner, ex.InnerException);
+    }
+
+    [Fact]
+    public async Task NonComException_FromActivation_IsWrappedAsInternal()
+    {
+        using var gateway = new ComGateway(new FixedProbe(true), () => throw new UnauthorizedAccessException("denied"));
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(
+            () => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.Internal, ex.Code);
+        Assert.IsType<UnauthorizedAccessException>(ex.InnerException);
+    }
+
     [Theory]
     [InlineData(HierarchyScope.Self, 0)]
     [InlineData(HierarchyScope.Children, 1)]

@@ -9,10 +9,14 @@ namespace OneNoteMcp.Com;
 /// <summary>
 /// The only real <see cref="IOneNoteGateway"/> adapter (AD-2): every COM call runs on one STA thread, which
 /// owns the single COM reference. This is the minimal story-2 actor; timeouts, reconnect and idle release
-/// (AD-3) and the named HRESULT map (AD-9) come in later stories, so every COMException maps to Internal.
+/// (AD-3) and the named HRESULT map (AD-9) come in later stories, so every exception maps to Internal.
+/// On a disconnect HRESULT the reference is dropped (no retry) so the next call re-activates.
 /// </summary>
 public sealed class ComGateway : IOneNoteGateway, IDisposable
 {
+    private const int RpcServerUnavailable = unchecked((int)0x800706BA); // RPC_S_SERVER_UNAVAILABLE
+    private const int RpcDisconnected = unchecked((int)0x80010108); // RPC_E_DISCONNECTED
+
     private readonly IProcessProbe _probe;
     private readonly Func<object> _createApplication;
     private readonly StaThread _sta = new("OneNote-STA");
@@ -82,8 +86,14 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 {
                     return call(app);
                 }
-                catch (COMException ex)
+                catch (Exception ex) when (ex is not OneNoteException)
                 {
+                    // A dead RCW (OneNote restarted) fails forever; drop it so the next call re-activates.
+                    if (ex.HResult is RpcServerUnavailable or RpcDisconnected)
+                    {
+                        ReleaseApplication();
+                    }
+
                     throw new OneNoteException(
                         ErrorCode.Internal,
                         $"{method} failed with HRESULT 0x{ex.HResult:X8}.",
@@ -114,7 +124,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         {
             _app = (IApplication)_createApplication();
         }
-        catch (Exception ex) when (ex is COMException or InvalidCastException)
+        catch (Exception ex) when (ex is not OneNoteException)
         {
             throw new OneNoteException(
                 ErrorCode.Internal,
