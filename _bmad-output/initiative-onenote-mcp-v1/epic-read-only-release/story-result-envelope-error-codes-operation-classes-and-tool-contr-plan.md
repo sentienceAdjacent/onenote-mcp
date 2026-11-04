@@ -3,7 +3,7 @@ title: 'Result envelope, error codes, operation classes and tool contract'
 type: 'feature'
 ticket: '3'
 created: '2026-11-04'
-status: 'built'
+status: done
 baseline_revision: 'b5d430e814825fb0ad376be1608690da1252e25e'
 route: 'full'
 route_source: 'auto'
