@@ -80,7 +80,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Disconnects (`RPC_S_SERVER_UNAVAILABLE` or `RPC_E_DISCONNECTED`):**
     - Drop the reference. Reactivation follows the same rules as a first activation.
     - A read is retried once. A write is never retried automatically, and returns `ComUnavailable` with `outcomeUnknown: true`.
-  - **Busy (`RPC_E_CALL_REJECTED` or `RETRYLATER`):** retry with backoff, up to the call's timeout, then return `ComBusy`. `0x8004201D` hrNotYetSynchronized is not a busy code for this rule: it returns `ComBusy` at once, with no backoff, because a notebook syncing can take longer than one call (AD-9).
+  - **Busy (`RPC_E_CALL_REJECTED` or `RETRYLATER`):** retry with backoff, up to the call's timeout, then return `ComBusy`. `0x8004201D` hrNotYetSynchronized is not a busy code for this rule: it returns `ComBusy` at once, with no backoff, because a notebook sync can take longer than one call (AD-9).
   - **Activation:**
     - If `ONENOTE.EXE` is not running, return `OneNoteNotRunning`, unless `allowSilentActivation` is set.
     - Check the integrity level at startup and at every activation. A mismatch returns `IntegrityMismatch` and never calls COM.
@@ -361,7 +361,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Binds:** plugin, release, settings, journal
 - **Prevents:** a plugin and exe that don't match; an upgrade blocked by a running exe; leftover note content after uninstall.
 - **Rule:**
-  - **Versions:** the plugin version and the exe version are the same release tag. A version string is never reused: a rebuild or hotfix is a new patch version, because users already on a version never re-download it.
+  - **Versions:** the plugin version and the exe version are the same release tag. A version string is never reused: a rebuild, release candidate or hotfix gets a new version string, at least a patch bump (AD-14 sets the size), because users already on a version never re-download it.
   - **Install and upgrade:**
     - The plugin installs the exe for its own version into a location specific to that version. Which location is the packaging story's choice: `${CLAUDE_PLUGIN_ROOT}` (an `archive` plugin source, where Claude Code keeps one directory per installed version and removes an old one 14 days after an update), `${CLAUDE_PLUGIN_DATA}`, or the `.mcpb` cache. Story 1.10 is set to use `${CLAUDE_PLUGIN_ROOT}` (`research-plugin-exe-delivery.md`).
     - An upgrade adds a new copy and never overwrites an exe that is running.
@@ -430,8 +430,8 @@ flowchart LR
 | --- | --- |
 | v1 tool list and later rounds | Work slicing, for `bmad-ticket`. The whole COM surface is the target, and AD-5/AD-7 make each round additive |
 | Release pipeline, code signing, SmartScreen | Release story (1.11). The release job refuses a tag that differs from `<Version>` (AD-14) |
-| How the plugin fetches the exe | Packaging story (1.10). The research recommends an `archive` plugin source: a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`). The release job (1.11) must also update `marketplace.json`'s `sha256` after the build |
-| HRESULT triage | Epic 2. The untriaged OneNote codes and the write-side deliberate-`Internal` codes (AD-9); epic 1 reports them as `Internal` |
+| How the plugin fetches the exe | Decided: an `archive` plugin source, a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`). Packaging story (1.10) implements it. The release job (1.11) must also update `marketplace.json`'s `sha256` after the build |
+| HRESULT triage | Epic 2. The untriaged OneNote codes, the write-side deliberate-`Internal` codes and `hrDisabledByPolicy` (AD-9); epic 1 reports them as `Internal` |
 | Events (`OnHierarchyChange`, `OnNavigate`) | A later round. Microsoft says events can't be added in managed code, so this may need a native sink or be dropped |
 | Move semantics via `UpdateHierarchy`; `MergeSections` and `MergeFiles` behaviour | Not probed. Verify in the stories that add them. `restore_from_recycle_bin` depends on move |
 | `DeleteHierarchy` on a whole notebook; permanent delete of a section group | Not probed. Verify in the permanent-delete story |
