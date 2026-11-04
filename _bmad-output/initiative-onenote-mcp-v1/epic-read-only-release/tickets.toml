@@ -157,13 +157,13 @@ references = [
 id = 10
 type = "story"
 title = "Plugin packaging and exe delivery"
-description = "Adds .claude-plugin/marketplace.json and plugin/ with the server config and no top-level bin/, settles and builds the exe-fetch route (.mcpb bundle or launcher into a per-version location) using plugin-dev, and adds claude plugin validate to story 2's CI workflow."
-verify = "/plugin marketplace add on the local repo plus /plugin install starts the server from a locally built package and get_hierarchy works, and CI runs claude plugin validate green."
+description = "Adds .claude-plugin/marketplace.json and plugin/ with the server config and no top-level bin/, builds the exe-fetch route (an archive plugin source: a SHA-256-pinned release zip whose root is the plugin, per research-plugin-exe-delivery.md) using plugin-dev, sets <AssemblyName>OneNoteMcp</AssemblyName> so the exe is OneNoteMcp.exe as the docs name it, and adds claude plugin validate to story 2's CI workflow."
+verify = "claude --plugin-dir on a locally built plugin zip starts the server and get_hierarchy works, and CI runs claude plugin validate green on the repo root and on the staged plugin folder; CLAUDE.md's run path and the local onenote MCP registration point at the renamed OneNoteMcp.exe."
 covers = ["R7"]
 after = [2]
 hitl = true
 risk = "medium"
-unknown = "Whether a .mcpb bundle can carry a self-contained .NET exe."
+unknown = "None left from the route choice (research-plugin-exe-delivery.md, final 2026-11-04)."
 references = [
   "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-15--distribution-adopted",
   "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-19--install-lifecycle",
@@ -180,7 +180,7 @@ covers = ["R7"]
 after = [10]
 hitl = true
 risk = "medium"
-unknown = "Code signing and SmartScreen; Phill decides here."
+unknown = "Code signing and SmartScreen; Phill decides here. Also: how marketplace.json gets the new sha256 after the build (a bot commit to main, hashing before tagging, or a url marketplace source); whether each release also attaches the bare exe for other MCP clients; and the release job refusing a tag that differs from <Version> (AD-14)."
 references = [
   "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-19--install-lifecycle",
   "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-14--tool-contract-versioning-adopted",

@@ -8,9 +8,9 @@ namespace OneNoteMcp.Com;
 
 /// <summary>
 /// The only real <see cref="IOneNoteGateway"/> adapter (AD-2): every COM call runs on one STA thread, which
-/// owns the single COM reference. This is the minimal story-2 actor; timeouts, reconnect and idle release
-/// (AD-3) and the named HRESULT map (AD-9) come in later stories, so every exception maps to Internal.
-/// On a disconnect HRESULT the reference is dropped (no retry) so the next call re-activates.
+/// owns the single COM reference. Failures map through <see cref="HResultMap"/> (AD-9). This is still the minimal
+/// actor: timeouts, reconnect and idle release (AD-3) come in story 5. On a disconnect HRESULT the reference is
+/// dropped (no retry) so the next call re-activates.
 /// </summary>
 public sealed class ComGateway : IOneNoteGateway, IDisposable
 {
@@ -94,11 +94,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                         ReleaseApplication();
                     }
 
-                    throw new OneNoteException(
-                        ErrorCode.Internal,
-                        $"{method} failed with HRESULT 0x{ex.HResult:X8}.",
-                        ex.HResult,
-                        ex);
+                    throw HResultMap.ToException(method, ex);
                 }
             },
             ct);
@@ -126,11 +122,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
         catch (Exception ex) when (ex is not OneNoteException)
         {
-            throw new OneNoteException(
-                ErrorCode.Internal,
-                $"Connecting to OneNote failed with HRESULT 0x{ex.HResult:X8}.",
-                ex.HResult,
-                ex);
+            throw HResultMap.ToException("Connecting to OneNote", ex);
         }
 
         return _app;

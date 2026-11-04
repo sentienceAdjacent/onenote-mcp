@@ -25,17 +25,44 @@ public sealed class ComGatewayTests
     }
 
     [Fact]
-    public async Task ActivationComFailure_IsWrappedAsInternal_WithHResult()
+    public async Task ActivationComFailure_IsMapped_WithNamedHResult()
     {
         using var gateway = new ComGateway(new FixedProbe(true), () => throw new COMException("fail", unchecked((int)0x80080005)));
 
         var ex = await Assert.ThrowsAsync<OneNoteException>(
             () => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
 
-        Assert.Equal(ErrorCode.Internal, ex.Code);
+        Assert.Equal(ErrorCode.IntegrityMismatch, ex.Code);
         Assert.Equal(unchecked((int)0x80080005), ex.ComHResult);
-        Assert.Contains("0x80080005", ex.Message, StringComparison.Ordinal);
+        Assert.Equal("Connecting to OneNote failed: CO_E_SERVER_EXEC_FAILURE (0x80080005).", ex.Message);
         Assert.IsType<COMException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task CallComFailure_IsMappedByFamily_WithNamedHResult()
+    {
+        var app = new FakeApplication(() => throw new COMException("nope", unchecked((int)0x80042014)));
+        using var gateway = new ComGateway(new FixedProbe(true), () => app);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(
+            () => gateway.GetHierarchyAsync("{nope}", HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.ObjectNotFound, ex.Code);
+        Assert.Equal("GetHierarchy failed: hrObjectDoesNotExist (0x80042014).", ex.Message);
+        Assert.False(ex.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task ServerUnavailable_IsComUnavailable()
+    {
+        var app = new FakeApplication(() => throw new COMException("gone", unchecked((int)0x800706BA)));
+        using var gateway = new ComGateway(new FixedProbe(true), () => app);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(
+            () => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Contains("RPC_S_SERVER_UNAVAILABLE", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -73,6 +100,7 @@ public sealed class ComGatewayTests
         Assert.Equal(ErrorCode.Internal, ex.Code);
         Assert.Equal(inner.HResult, ex.ComHResult);
         Assert.Contains($"0x{inner.HResult:X8}", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("E_INVALIDARG", ex.Message, StringComparison.Ordinal);
         Assert.Same(inner, ex.InnerException);
     }
 

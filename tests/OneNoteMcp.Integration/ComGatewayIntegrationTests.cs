@@ -8,7 +8,7 @@ namespace OneNoteMcp.Integration;
 
 /// <summary>
 /// Opt-in: the real <see cref="ComGateway"/> against an already running OneNote. Read-only.
-/// Covers the gateway's call path (a COMException raised by a COM call is wrapped as Internal with its HRESULT).
+/// Covers the gateway's call path (a COMException raised by a COM call is mapped through the HRESULT map, AD-9).
 /// </summary>
 public sealed class ComGatewayIntegrationTests
 {
@@ -29,7 +29,7 @@ public sealed class ComGatewayIntegrationTests
     }
 
     [Fact]
-    public async Task GetHierarchy_UnknownStartId_IsInternalWithHResult()
+    public async Task GetHierarchy_UnknownStartId_IsObjectNotFound()
     {
         Assert.SkipUnless(VtableSmokeTests.OneNoteFixture.Enabled, "Set ONENOTE_MCP_INTEGRATION=1 to run against a real OneNote.");
         Assert.True(new ProcessProbe().IsOneNoteRunning(), "OneNote desktop must already be running.");
@@ -38,8 +38,8 @@ public sealed class ComGatewayIntegrationTests
         var ex = await Assert.ThrowsAsync<OneNoteException>(() =>
             gateway.GetHierarchyAsync("{00000000-0000-0000-0000-000000000000}{1}{B0}", HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
 
-        Assert.Equal(ErrorCode.Internal, ex.Code);
-        Assert.NotNull(ex.ComHResult);
-        Assert.Contains($"0x{ex.ComHResult:X8}", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(ErrorCode.ObjectNotFound, ex.Code);
+        Assert.Equal(unchecked((int)0x80042014), ex.ComHResult);
+        Assert.Equal("GetHierarchy failed: hrObjectDoesNotExist (0x80042014).", ex.Message);
     }
 }

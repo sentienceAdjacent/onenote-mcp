@@ -1,0 +1,143 @@
+{
+  "contractVersion": "0.1",
+  "tools": [
+    {
+      "name": "get_hierarchy",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "startNodeId": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      }
+    }
+  ]
+}
