@@ -27,22 +27,26 @@ public sealed partial class ToolRunner(ILogger<ToolRunner> logger)
         var context = new ToolCallContext(Guid.NewGuid().ToString("N"));
         var stopwatch = Stopwatch.StartNew();
         ToolEnvelope envelope;
+        Exception? failure = null;
         try
         {
             envelope = ToolEnvelope.Success(await run(context, cancellationToken).ConfigureAwait(false));
         }
         catch (OneNoteException ex)
         {
+            failure = ex;
             envelope = Failure(ex, useCase.Class, context);
         }
         catch (OperationCanceledException ex)
         {
+            failure = ex;
             envelope = Failure(new OneNoteException(ErrorCode.Internal, "The call was cancelled.", innerException: ex), useCase.Class, context);
         }
 #pragma warning disable CA1031 // Tools never throw (AD-9): anything unexpected becomes Internal.
         catch (Exception ex)
 #pragma warning restore CA1031
         {
+            failure = ex;
             envelope = Failure(new OneNoteException(ErrorCode.Internal, $"Unexpected {ex.GetType().Name}.", innerException: ex), useCase.Class, context);
         }
 
@@ -54,6 +58,11 @@ public sealed partial class ToolRunner(ILogger<ToolRunner> logger)
             envelope.Error is { } e ? e.Code.ToString() : "ok",
             envelope.Error?.HResult ?? "-",
             stopwatch.ElapsedMilliseconds);
+        if (envelope.Error?.Code == ErrorCode.Internal && failure is not null)
+        {
+            // Unmapped failures keep their exception in the log so a reported correlationId can be traced.
+            LogInternal(logger, context.CorrelationId, tool, failure);
+        }
 
         return ToResult(envelope);
     }
@@ -77,4 +86,7 @@ public sealed partial class ToolRunner(ILogger<ToolRunner> logger)
 
     [LoggerMessage(Level = LogLevel.Information, Message = "tool call correlationId={CorrelationId} tool={Tool} result={Result} hresult={HResult} ms={ElapsedMs}")]
     private static partial void LogCall(ILogger logger, string correlationId, string tool, string result, string hresult, long elapsedMs);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "tool call failed with an unmapped error correlationId={CorrelationId} tool={Tool}")]
+    private static partial void LogInternal(ILogger logger, string correlationId, string tool, Exception exception);
 }

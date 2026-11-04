@@ -135,3 +135,33 @@ context:
 
 **Manual checks (if no CLI):**
 - After `/mcp` reconnect: `get_hierarchy` with `startNodeId` `{00000000-0000-0000-0000-000000000000}{1}{B0}` returns the error envelope with `isError: true`; a plain call returns `ok: true` with `meta.correlationId`. Read-only.
+
+## Code Review
+
+### 2026-11-04
+
+PR #2, pass 2 (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment). 3 decision-needed, 2 patch, 5 defer, 11 rejected.
+
+- [x] [Review][Decision] Unmapped OneNote HRESULTs have no recorded decision — `0x80042023` hrTimeOut falls to `Internal` though `Timeout` exists; `0x8004200B`/`0x8004200C` read-only, `0x8004201D` not yet synchronized, `0x80042024` recording in progress and `0x8004201C` disabled by policy also fall to `Internal` ("Report this error"), while AD-9's deliberate-Internal list names only four codes. Research note row 13 says story 3 decides these and wasn't updated. Resolved (Phill, 1a): `0x80042023` maps to `Timeout`; the other five plus row 13's `0x80042022` and `0x8004202E` join AD-9's deliberate-Internal list; row 13 updated. Then, after the Fable review of that amendment (Phill, a): `0x8004201D` maps to `ComBusy`, and the deliberate list is grouped by reason in AD-9's Codes bullets.
+- [x] [Review][Decision] Cancellation is reported as `Internal` ("Report this error", not retryable) — `ToolRunner.cs:38-41`. A client cancel or a pre-story-5 deadline is not a defect; a cancelled future write also gets no `outcomeUnknown`. Resolved (Phill, 2a): deferred to story 5 (timeouts and cancellation), recorded in deferred-work.
+- [x] [Review][Decision] The output schema doesn't distinguish the two envelope shapes — SDK-generated: `ok` is a plain boolean, `error`/`xml`/`warnings` all optional and nullable, so the schema accepts a success without `warnings` or with `error`. Public contract (AD-14). Resolved (Phill, 3a): accepted; both shapes spelled out in the tool description.
+- [x] [Review][Patch] Unexpected exceptions leave no diagnostic trail — `ToolRunner.cs:43-47` keeps only the type name; message, stack and inner exception are dropped from envelope and log, though the userAction asks the user to report it [src/OneNoteMcp.Server/ToolRunner.cs:46]
+- [x] [Review][Patch] Restore the startNodeId pass-through assertion removed with `BadStartId_PassesIdThrough_AndReturnsHResult` — no remaining test shows a non-empty id reaches the gateway [tests/OneNoteMcp.Tests/GetHierarchyToolTests.cs:171]
+- [x] [Review][Defer] One-line stderr log format is untested [src/OneNoteMcp.Server/Program.cs:11] — deferred: story 4 (logging) adds a captured-logger test of the host setup.
+- [x] [Review][Defer] A contract change without a version bump passes the tests [tests/OneNoteMcp.Tests/ToolContractTests.cs] — deferred: AD-14 gives the bump-size check to the PR reviewer by design; a tools-section hash guard is possible but bypassable.
+- [x] [Review][Defer] `0x80080005` from any call becomes `IntegrityMismatch` advice [src/OneNoteMcp.Com/HResultMap.cs:90] — deferred: follows AD-9's row; revisit when story 5 builds the startup/activation integrity check, which may then own the code.
+- [x] [Review][Defer] AD-14's "release job refuses a mismatched tag" isn't in entry 1.11's description [tickets.toml:177] — deferred: ticket-tree edit; add when 1.11 is refined.
+- [x] [Review][Defer] No automated test runs `tools/call` through the SDK [tests/OneNoteMcp.Tests/GetHierarchyToolTests.cs] — deferred: wire path covered by the manual check; an in-process MCP client test fits when a second tool lands (story 7).
+
+Rejected:
+- `ToResult`/`LogCall` outside the try — low: serialising a fixed DTO and console logging don't realistically throw; a fallback adds a branch.
+- Required-properties test isn't full schema validation — low: needs a JSON Schema validator dependency.
+- Version fallback / `parts[1]` index in the serverInfo test — low: the test fails loudly, which is correct.
+- Descriptions not snapshotted — by design in this plan's Design Notes; fixing it means editing the plan.
+- `IUseCase` has no execute shape; duplicate `?? string.Empty` — low, already triaged in pass 1 (revisit at entry 14).
+- `description` under `$defs`/`patternProperties` — low: no such schema exists.
+- `Single()` breaks when a second tool registers — loud failure, correct behaviour.
+- psm1 parser has no end-of-table guard — low: test-only, fails loudly.
+- No runner-level `ComUnavailable` test for `0x800706BA`/`0x80010108` — low: the map theory and the code×class matrix cover both halves.
+- `ObjectNotFound` userAction is two sentences, not "short" — cosmetic; Phill confirmed the wording.
+- `0x80042015` (notebook not open) is `retryable: false` — low: the userAction already says to open it; per-HRESULT retryability adds complexity.

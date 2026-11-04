@@ -202,14 +202,23 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - The HRESULT map lives only in Com, and names come from learn.microsoft.com "Error codes (OneNote)" (copied in `OneNoteProbe.psm1`), never from memory.
     - `BinaryUnavailable` is a warning, never an error.
     - `outcomeUnknown: true` always comes with `retryable: false` and `userAction`: "re-read, then retry if the change is absent".
+    - `hrTimeOut` (`0x80042023`) is an error OneNote returns, not our deadline: AD-3's timed-out-call rules (abandon the thread, count it toward the abandoned-thread limit) apply only to the gateway's own deadline.
+    - The write pipeline (AD-7) sets `outcomeUnknown` on a write that fails with `Timeout` or `ComUnavailable`, whatever the source, since the HRESULT map alone can't know the call wrote.
+    - Deliberately `Internal`, by reason:
+      - Paths, not objects: `0x80042006` hrFileDoesNotExist, `0x80042018` hrFolderDoesNotExist.
+      - Degraded instead: `0x8004200F` hrBinaryObjectDoesNotExist (reads turn it into the `BinaryUnavailable` warning).
+      - Ambiguous: `0x800706BE` (can mean bad XML).
+      - Write-side, no fitting code until epic 2's write tools: `0x8004200B` hrSectionReadOnly, `0x8004200C` hrPageReadOnly, `0x80042024` hrRecordingInProgress, `0x8004202E` hrRecycleBinEditFailed.
+      - State or policy, reads can hit them, no fitting code: `0x8004201C` hrDisabledByPolicy, `0x80042022` hrFutureContentLoss.
+    - The remaining OneNote codes are untriaged and fall to `Internal` by the default rule; epic 2 triages them.
 
 | Code | Source | Retryable |
 | --- | --- | --- |
 | `OneNoteNotRunning` | process check | yes |
 | `IntegrityMismatch` | integrity check; `0x80080005` | no |
 | `ComUnavailable` | `0x800706BA`, `RPC_E_DISCONNECTED`, too many abandoned threads | read yes; write no (`outcomeUnknown`) |
-| `ComBusy` | `0x80010001` / RETRYLATER after backoff; write-lock timeout; abandoned write outstanding | yes |
-| `Timeout` | call or pipeline deadline | read yes; write no (`outcomeUnknown`) |
+| `ComBusy` | `0x80010001` / RETRYLATER after backoff; `0x8004201D` hrNotYetSynchronized; write-lock timeout; abandoned write outstanding | yes |
+| `Timeout` | call or pipeline deadline; `0x80042023` hrTimeOut | read yes; write no (`outcomeUnknown`) |
 | `ModalDialogOpen` | `0x80042030` | yes, after the user closes the dialog |
 | `SectionLocked` | `0x8004201B`, or `locked="true"` | after the user unlocks it |
 | `StaleWrite` | `0x80042010`, basis mismatch | no; re-read |
@@ -223,7 +232,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 | `SettingsInvalid` | AD-10 | after the user fixes it |
 | `JournalFailed` / `BackupFailed` | AD-8 | no |
 | `NotSupported` | method not in this release | no |
-| `Internal` | anything unmapped (HRESULT kept). Deliberately unmapped: `0x80042006` hrFileDoesNotExist and `0x80042018` hrFolderDoesNotExist (paths, not objects); `0x8004200F` hrBinaryObjectDoesNotExist (reads turn it into the `BinaryUnavailable` warning); `0x800706BE` (can mean bad XML) | no |
+| `Internal` | anything unmapped (HRESULT kept); the deliberate list is in the Codes bullets above | no |
 
 ### AD-10 — Shared state across processes [ADOPTED]
 
@@ -354,7 +363,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Rule:**
   - **Versions:** the plugin version and the exe version are the same release tag.
   - **Install and upgrade:**
-    - The plugin installs the exe for its own version into a location specific to that version. Which location is the packaging story's choice: `${CLAUDE_PLUGIN_DATA}` or the `.mcpb` cache.
+    - The plugin installs the exe for its own version into a location specific to that version. Which location is the packaging story's choice: `${CLAUDE_PLUGIN_ROOT}` (an `archive` plugin source, where Claude Code keeps one directory per installed version and removes an old one 14 days after an update), `${CLAUDE_PLUGIN_DATA}`, or the `.mcpb` cache. Story 1.10 is set to use `${CLAUDE_PLUGIN_ROOT}` (`research-plugin-exe-delivery.md`).
     - An upgrade adds a new copy and never overwrites an exe that is running.
   - **Schema migration:** only forward, done by the newer server when it writes. Older servers fall back to read-only (AD-10).
   - **Uninstall:** `OneNoteMcp uninstall --purge` removes settings, the journal and the logs. The README documents it, and says the journal holds copies of note content.
@@ -421,7 +430,7 @@ flowchart LR
 | --- | --- |
 | v1 tool list and later rounds | Work slicing, for `bmad-ticket`. The whole COM surface is the target, and AD-5/AD-7 make each round additive |
 | Release pipeline, code signing, SmartScreen | Packaging story. The release job refuses a tag that differs from `<Version>` (AD-14) |
-| How the plugin fetches the exe (`.mcpb` bundle vs launcher) | Packaging story. Both are documented in plugins-reference; whether a `.mcpb` can carry a self-contained .NET exe is unchecked |
+| How the plugin fetches the exe | Packaging story. The research recommends an `archive` plugin source: a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`). The release job must also update `marketplace.json`'s `sha256` after the build |
 | Events (`OnHierarchyChange`, `OnNavigate`) | A later round. Microsoft says events can't be added in managed code, so this may need a native sink or be dropped |
 | Move semantics via `UpdateHierarchy`; `MergeSections` and `MergeFiles` behaviour | Not probed. Verify in the stories that add them. `restore_from_recycle_bin` depends on move |
 | `DeleteHierarchy` on a whole notebook; permanent delete of a section group | Not probed. Verify in the permanent-delete story |

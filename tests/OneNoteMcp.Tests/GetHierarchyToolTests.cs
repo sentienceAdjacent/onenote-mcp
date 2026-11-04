@@ -60,6 +60,16 @@ public sealed class GetHierarchyToolTests
     }
 
     [Fact]
+    public async Task StartNodeId_ReachesTheGatewayUnchanged()
+    {
+        var gateway = new FakeGateway { HierarchyXml = NotebooksXml };
+
+        await Tool(gateway).GetHierarchy("{nope}", TestContext.Current.CancellationToken);
+
+        Assert.Equal([("{nope}", HierarchyScope.Notebooks)], gateway.Calls);
+    }
+
+    [Fact]
     public async Task NotRunning_IsRetryableError_WithoutHResult()
     {
         var gateway = new FakeGateway

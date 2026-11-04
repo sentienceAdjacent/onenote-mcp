@@ -22,7 +22,10 @@ public sealed class GetHierarchyTool(ToolRunner runner, GetHierarchyUseCase useC
         OpenWorld = false,
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope))]
-    [Description("Read-only. Returns the OneNote notebooks list as OneNote 2013-schema hierarchy XML, unchanged.")]
+    [Description(
+        "Read-only. Returns the OneNote notebooks list as OneNote 2013-schema hierarchy XML, unchanged. "
+        + "Success: {ok:true, xml, meta:{correlationId}, warnings:[]}. "
+        + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> GetHierarchy(
         [Description("OneNote object ID to start from. Omit or leave empty for all notebooks.")] string startNodeId = "",
         CancellationToken cancellationToken = default) =>

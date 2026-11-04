@@ -81,18 +81,18 @@ internal static class HResultMap
     internal static string? Name(int hresult) => Names.GetValueOrDefault(hresult);
 
     /// <summary>
-    /// Maps by family (AD-9). Deliberately <see cref="ErrorCode.Internal"/>: <c>hrFileDoesNotExist</c> and
-    /// <c>hrFolderDoesNotExist</c> (paths, not objects), <c>hrBinaryObjectDoesNotExist</c> (a read degrades it to the
-    /// <c>BinaryUnavailable</c> warning instead), and <c>RPC_S_CALL_FAILED</c> (can also mean bad XML, per OneMore).
+    /// Maps by family (AD-9). The codes left deliberately <see cref="ErrorCode.Internal"/>, and why, are listed in AD-9;
+    /// everything else unmapped falls to <see cref="ErrorCode.Internal"/> by the default arm.
     /// </summary>
     internal static ErrorCode ToErrorCode(int hresult) => unchecked((uint)hresult) switch
     {
         0x80080005 => ErrorCode.IntegrityMismatch,
         0x800706BA or 0x80010108 => ErrorCode.ComUnavailable,
-        0x80010001 or 0x8001010A => ErrorCode.ComBusy,
+        0x80010001 or 0x8001010A or 0x8004201D => ErrorCode.ComBusy,
         0x80042030 => ErrorCode.ModalDialogOpen,
         0x8004201B => ErrorCode.SectionLocked,
         0x80042010 => ErrorCode.StaleWrite,
+        0x80042023 => ErrorCode.Timeout,
         0x80042004 or 0x80042005 or 0x8004200E or 0x80042011 or 0x80042012 or 0x80042014 or 0x80042015 => ErrorCode.ObjectNotFound,
         0x80042000 or 0x80042001 or 0x80042020 => ErrorCode.InvalidXml,
         0x80042019 => ErrorCode.InvalidQuery,
