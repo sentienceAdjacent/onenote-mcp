@@ -80,7 +80,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Disconnects (`RPC_S_SERVER_UNAVAILABLE` or `RPC_E_DISCONNECTED`):**
     - Drop the reference. Reactivation follows the same rules as a first activation.
     - A read is retried once. A write is never retried automatically, and returns `ComUnavailable` with `outcomeUnknown: true`.
-  - **Busy (`RPC_E_CALL_REJECTED` or `RETRYLATER`):** retry with backoff, up to the call's timeout, then return `ComBusy`.
+  - **Busy (`RPC_E_CALL_REJECTED` or `RETRYLATER`):** retry with backoff, up to the call's timeout, then return `ComBusy`. `0x8004201D` hrNotYetSynchronized is not a busy code for this rule: it returns `ComBusy` at once, with no backoff, because a notebook syncing can take longer than one call (AD-9).
   - **Activation:**
     - If `ONENOTE.EXE` is not running, return `OneNoteNotRunning`, unless `allowSilentActivation` is set.
     - Check the integrity level at startup and at every activation. A mismatch returns `IntegrityMismatch` and never calls COM.
@@ -149,7 +149,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     4. Validate.
     5. Optimistic check (AD-17). The server compares the basis date and hashes against step 3's read itself, for every class AD-17 binds. It also passes the date to the COM methods that take one: `UpdatePageContent`, `DeletePageContent` and `DeleteHierarchy`. `UpdateHierarchy` takes no date, so its check is the server's comparison alone.
     6. Snapshot (AD-8).
-    7. COM call.
+    7. COM call. A failure here with `Timeout` or `ComUnavailable` sets `outcomeUnknown` (AD-9).
     8. Release the lock.
   - Creating a notebook adds a step between 7 and 8: write the automatic grant (AD-6) under `Local\OneNoteMcp.Settings`. The lock order is always `Local\OneNoteMcp.Write` outside and `Local\OneNoteMcp.Settings` inside. If the path can't be read back, the result is `ok: true` with the warning `createdNotGranted`, and its `userAction` names the grant CLI.
   - Each pipeline has a deadline: 120 s by default, 600 s for classes that publish.
@@ -208,9 +208,9 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
       - Paths, not objects: `0x80042006` hrFileDoesNotExist, `0x80042018` hrFolderDoesNotExist.
       - Degraded instead: `0x8004200F` hrBinaryObjectDoesNotExist (reads turn it into the `BinaryUnavailable` warning).
       - Ambiguous: `0x800706BE` (can mean bad XML).
-      - Write-side, no fitting code until epic 2's write tools: `0x8004200B` hrSectionReadOnly, `0x8004200C` hrPageReadOnly, `0x80042024` hrRecordingInProgress, `0x8004202E` hrRecycleBinEditFailed.
-      - State or policy, reads can hit them, no fitting code: `0x8004201C` hrDisabledByPolicy, `0x80042022` hrFutureContentLoss.
-    - The remaining OneNote codes are untriaged and fall to `Internal` by the default rule; epic 2 triages them.
+      - Write-side, no fitting code until epic 2's write tools: `0x8004200B` hrSectionReadOnly, `0x8004200C` hrPageReadOnly, `0x80042022` hrFutureContentLoss (content loss on update), `0x80042024` hrRecordingInProgress, `0x8004202E` hrRecycleBinEditFailed.
+      - Policy, no fitting code: `0x8004201C` hrDisabledByPolicy.
+    - The remaining OneNote codes are untriaged and fall to `Internal` by the default rule (see Deferred). Epic 1 accepts `Internal` for the ones its read tools can hit, such as `0x80042003` hrOpeningSection, `0x8004201E` hrLegacySection and `0x8004202B` hrUnreadDisabledForNotebook; epic 2 triages them all.
 
 | Code | Source | Retryable |
 | --- | --- | --- |
@@ -361,7 +361,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Binds:** plugin, release, settings, journal
 - **Prevents:** a plugin and exe that don't match; an upgrade blocked by a running exe; leftover note content after uninstall.
 - **Rule:**
-  - **Versions:** the plugin version and the exe version are the same release tag.
+  - **Versions:** the plugin version and the exe version are the same release tag. A version string is never reused: a rebuild or hotfix is a new patch version, because users already on a version never re-download it.
   - **Install and upgrade:**
     - The plugin installs the exe for its own version into a location specific to that version. Which location is the packaging story's choice: `${CLAUDE_PLUGIN_ROOT}` (an `archive` plugin source, where Claude Code keeps one directory per installed version and removes an old one 14 days after an update), `${CLAUDE_PLUGIN_DATA}`, or the `.mcpb` cache. Story 1.10 is set to use `${CLAUDE_PLUGIN_ROOT}` (`research-plugin-exe-delivery.md`).
     - An upgrade adds a new copy and never overwrites an exe that is running.
@@ -429,8 +429,9 @@ flowchart LR
 | Item | Why it can wait / revisit when |
 | --- | --- |
 | v1 tool list and later rounds | Work slicing, for `bmad-ticket`. The whole COM surface is the target, and AD-5/AD-7 make each round additive |
-| Release pipeline, code signing, SmartScreen | Packaging story. The release job refuses a tag that differs from `<Version>` (AD-14) |
-| How the plugin fetches the exe | Packaging story. The research recommends an `archive` plugin source: a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`). The release job must also update `marketplace.json`'s `sha256` after the build |
+| Release pipeline, code signing, SmartScreen | Release story (1.11). The release job refuses a tag that differs from `<Version>` (AD-14) |
+| How the plugin fetches the exe | Packaging story (1.10). The research recommends an `archive` plugin source: a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`). The release job (1.11) must also update `marketplace.json`'s `sha256` after the build |
+| HRESULT triage | Epic 2. The untriaged OneNote codes and the write-side deliberate-`Internal` codes (AD-9); epic 1 reports them as `Internal` |
 | Events (`OnHierarchyChange`, `OnNavigate`) | A later round. Microsoft says events can't be added in managed code, so this may need a native sink or be dropped |
 | Move semantics via `UpdateHierarchy`; `MergeSections` and `MergeFiles` behaviour | Not probed. Verify in the stories that add them. `restore_from_recycle_bin` depends on move |
 | `DeleteHierarchy` on a whole notebook; permanent delete of a section group | Not probed. Verify in the permanent-delete story |
