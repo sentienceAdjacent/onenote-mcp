@@ -191,7 +191,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Envelope:** every tool returns `structuredContent`, with `isError` matching:
     - `{ok: true, xml?, meta: {correlationId, ...}, warnings[]}`
     - `{ok: false, error: {code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta: {correlationId}}`
-    - The text content block carries the same JSON. Story 1.3's manual check verifies what Claude Code shows the model; if it shows both, the text block carries the envelope without `xml`.
+    - The text content block carries the same JSON. Story 1.3's manual check found that Claude Code shows the model one copy, so the text block keeps `xml`; if a client is found that shows both, the text block drops `xml`.
     - Errors the MCP SDK raises before a tool runs (unknown tool, input-schema rejection) are JSON-RPC errors outside the envelope.
   - **Who throws what:**
     - Tools never throw.

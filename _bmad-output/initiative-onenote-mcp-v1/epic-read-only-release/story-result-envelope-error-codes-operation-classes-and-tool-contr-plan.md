@@ -101,6 +101,8 @@ context:
 - `ObjectNotFound` userAction (orchestrator, after the Fable spine review): "Re-read the hierarchy or page and use a current ID. If the notebook itself is missing, open it in OneNote."
 - Spine AD-9/AD-14 amended (orchestrator), Fable-reviewed: 9 findings, all applied with Phill's approval; memlog entries 104-107.
 
+- Manual checks (2026-11-04, Phill's machine, OneNote running, read-only): integration suite 12/12 pass against the rebuilt Debug exe. From Claude Code after `/mcp` reconnect: `get_hierarchy` with `{00000000-0000-0000-0000-000000000000}{1}{B0}` returned `isError` with `{ok:false, error:{code:ObjectNotFound, hresult:0x80042014, retryable:false, ...}, meta:{correlationId}}`; a plain call returned `ok:true` with the notebooks XML, `meta.correlationId` and `warnings:[]`. Claude Code showed the model one copy of the envelope, so the XML is not duplicated; the text block keeps `xml`.
+
 ## Plan Change Log
 
 ## Review Triage Log
