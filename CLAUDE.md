@@ -33,6 +33,15 @@ This project uses BMAD (core-tools + method 6.13.0-next, set up in `_bmad/`). Af
   - `0x80042010`: the last-modified date didn't match.
 - **Search:** `FindPages` with indexed pages only can miss or lag new pages. Including unindexed pages returns everything unfiltered, recycle-bin pages too. Post-filter the results, and report them as possibly incomplete.
 
+## Prior art: OneMore (check it before inventing)
+
+[OneMore](https://github.com/stevencohn/OneMore) (MPL-2.0) is a mature OneNote add-in on the same COM API and 2013 schema, and its [developer docs](https://onemoreaddin.com/developers/Setup.htm) record measured OneNote behaviour and API defects. Our findings from it so far are in `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/research-onemore-lessons.md`.
+
+- When a story touches COM behaviour, page XML, IDs, search or a OneNote quirk, check OneMore's docs (especially "OneNote Defects", "OneNote ID Stability", "COM Layer", "Editing Text") and its code before designing a workaround. Do this especially when stuck.
+- Learn from it and write our own code. Don't copy its source. If copying is ever unavoidable, the copied file keeps OneMore's MPL-2.0 header and copyright and gets listed in a third-party notices file.
+- Credit it in the README for what we learned. When a story uses a new lesson, add it to the research note.
+- We deliberately differ on concurrency: OneMore writes with `force:true` and retries writes; we keep AD-7/AD-17's basis check and never auto-retry writes.
+
 ## Testing note
 
 Anything that touches COM needs a real OneNote install and a test notebook, so it can't run in plain CI. Keep XML parsing and generation separate from COM calls so that logic can be unit-tested against captured XML fixtures.

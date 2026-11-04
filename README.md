@@ -125,6 +125,10 @@ MCP client ──stdio──► OneNoteMcp.exe ──COM (one STA thread)──�
 
 The design decisions are in the [architecture spine](_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md).
 
+## Acknowledgements
+
+Much of what this project knows about OneNote's COM API, its XML and its quirks comes from [OneMore](https://github.com/stevencohn/OneMore) by Steven M Cohn and its [developer documentation](https://onemoreaddin.com/developers/Setup.htm). OneMore is a long-lived OneNote add-in, and its write-ups of measured behaviour and API defects saved us a lot of rediscovery. This project's code is its own. No OneMore source is included.
+
 ## License
 
 To be decided.

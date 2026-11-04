@@ -53,4 +53,11 @@ Out of scope: move, merge, exports and recycle-bin restore (epic 3), and app-sta
 - Decision (2026-11-03, Phill): permanent delete is in v1, here, with the backup.
 - Unknown: `Publish` to OneNote format (`pfOneNote`/`pfOneNotePackage`) as the backup, and `DeleteHierarchy` on a whole notebook or section group. Neither was probed; this epic settles both.
 - Unknown: how elicitation behaves in Claude Code (interactive only, and hooks can auto-answer it). Tested here.
+- Unknown (OneMore lessons, `../epic-read-only-release/research-onemore-lessons.md` rows 1, 2, 4, 5, 6, 12, 13): settle these at inception.
+  - Updates merge by objectID and never remove omitted content, so a replace needs explicit `DeletePageContent`.
+  - Some edits are silently ignored, so AD-7 needs a read-back check after each write.
+  - Notebook close/reopen regenerates all IDs. Key grants by `path`, closing the spine's Deferred grant-key item, and expect journal IDs to go stale.
+  - Merged cells are flattened through the 2013 schema. Spike: does a 2013 round-trip unmerge cells, and does `UpdatePageContent` accept `xs2026`? Decide AD-4's schema before write stories.
+  - Side effects on untouched content (child `lastModifiedTime`, dropped local styles, equation corruption across a live selection).
+  - HRESULTs to add to AD-9, `0x80042022` content loss first.
 - Unknown: whether `UpdatePageContent` drops an image with no local binary when its Outline is replaced (the basis for the AD-7 refusal). It's verified here with a cloud-page fixture.

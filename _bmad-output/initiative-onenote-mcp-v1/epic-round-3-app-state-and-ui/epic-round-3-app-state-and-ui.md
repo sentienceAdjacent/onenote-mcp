@@ -42,3 +42,4 @@ The `AppState` class, its tools, any event sink on the STA thread, and the skill
 
 - Waits on epic 3 because both change the class dispatch, the tool registration and the skill.
 - Unknown: Microsoft says events can't be added in managed code, so this may need a native sink or be dropped.
+- Unknown (OneMore lessons, `../epic-read-only-release/research-onemore-lessons.md` row 14): `NavigateToUrl` fails with `0x80042014` if called again within about 2 s, and with two windows open on one page the API targets the first window.
