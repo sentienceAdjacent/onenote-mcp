@@ -1,0 +1,424 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "method": "FindMeta",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}",
+        "onenote-mcp-fixture",
+        "true"
+      ],
+      "file": "mcp-test/search/findmeta-fixture.xml",
+      "source": "mcp-test",
+      "note": "unindexed included (AD-12)"
+    },
+    {
+      "method": "FindPages",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}",
+        "Fixture",
+        "true"
+      ],
+      "file": "mcp-test/search/findpages-fixture.xml",
+      "source": "mcp-test",
+      "note": "unindexed included (AD-12)"
+    },
+    {
+      "method": "GetBinaryPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        "{00000000-0000-0000-0000-000000000000}{1}{B0}"
+      ],
+      "error": {
+        "code": "Internal",
+        "hResult": "0x8004200F",
+        "message": "GetBinaryPageContent failed: hrBinaryObjectDoesNotExist (0x8004200F)."
+      },
+      "source": "mcp-test",
+      "note": "an unknown callbackID"
+    },
+    {
+      "method": "GetBinaryPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        "{B870D211-3A03-48F1-BA23-6F34D7A02B73}{40}{B0}"
+      ],
+      "file": "mcp-test/binary/image.b64.txt",
+      "source": "mcp-test",
+      "note": "the seeded PNG, as OneNote re-encoded it"
+    },
+    {
+      "method": "GetBinaryPageContent",
+      "args": [
+        "{C10D0000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000001}",
+        "{C10D0000-0000-4000-8000-000000000001}{107}{B2}"
+      ],
+      "error": {
+        "code": "Internal",
+        "hResult": "0x8004200F",
+        "message": "GetBinaryPageContent failed: hrBinaryObjectDoesNotExist (0x8004200F)."
+      },
+      "source": "cloud",
+      "note": "the cloud image with no local binary (expected 0x8004200F)"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}",
+        "Children"
+      ],
+      "file": "mcp-test/hierarchy/notebook-Children.xml",
+      "source": "mcp-test",
+      "note": "MCP Test, Children"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}",
+        "Notebooks"
+      ],
+      "file": "mcp-test/hierarchy/notebook-Notebooks.xml",
+      "source": "mcp-test",
+      "note": "MCP Test, Notebooks"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}",
+        "Pages"
+      ],
+      "file": "mcp-test/hierarchy/notebook-Pages.xml",
+      "source": "mcp-test",
+      "note": "MCP Test, Pages"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}",
+        "Sections"
+      ],
+      "file": "mcp-test/hierarchy/notebook-Sections.xml",
+      "source": "mcp-test",
+      "note": "MCP Test, Sections"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}",
+        "Self"
+      ],
+      "file": "mcp-test/hierarchy/notebook-Self.xml",
+      "source": "mcp-test",
+      "note": "MCP Test, Self"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{B0}",
+        "Pages"
+      ],
+      "file": "mcp-test/hierarchy/section-Pages.xml",
+      "source": "mcp-test",
+      "note": "Fixtures section"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{B0}",
+        "Self"
+      ],
+      "file": "mcp-test/hierarchy/section-Self.xml",
+      "source": "mcp-test",
+      "note": "Fixtures section"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        "Self"
+      ],
+      "file": "mcp-test/hierarchy/page-Self.xml",
+      "source": "mcp-test",
+      "note": "Fixture Image"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "",
+        "Notebooks"
+      ],
+      "file": "mcp-test/hierarchy/root-notebooks.xml",
+      "source": "mcp-test",
+      "note": "all notebooks, sanitised to MCP Test only"
+    },
+    {
+      "method": "GetHierarchy",
+      "args": [
+        "",
+        "Pages"
+      ],
+      "file": "mcp-test/hierarchy/root-pages.xml",
+      "source": "mcp-test",
+      "note": "everything, sanitised to MCP Test only"
+    },
+    {
+      "method": "GetHierarchyParent",
+      "args": [
+        "{23721455-FC92-4E64-B884-2F75D1649A2C}{1}{B0}"
+      ],
+      "file": "mcp-test/parent/notebook.txt",
+      "source": "mcp-test",
+      "note": "notebook: the end of the chain (AD-6)"
+    },
+    {
+      "method": "GetHierarchyParent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{B0}"
+      ],
+      "file": "mcp-test/parent/section.txt",
+      "source": "mcp-test",
+      "note": "section -\u003E MCP Test"
+    },
+    {
+      "method": "GetHierarchyParent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}"
+      ],
+      "file": "mcp-test/parent/page.txt",
+      "source": "mcp-test",
+      "note": "page -\u003E Fixtures section"
+    },
+    {
+      "method": "GetHyperlinkToObject",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{B0}",
+        ""
+      ],
+      "file": "mcp-test/link/section.txt",
+      "source": "mcp-test",
+      "note": "Fixtures section"
+    },
+    {
+      "method": "GetHyperlinkToObject",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        ""
+      ],
+      "file": "mcp-test/link/page.txt",
+      "source": "mcp-test",
+      "note": "Fixture Image"
+    },
+    {
+      "method": "GetHyperlinkToObject",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19516938799045219860520175612925891145658211}",
+        "{BF3D1BA7-E142-41A6-9B2B-F860B51A5615}{34}{B0}"
+      ],
+      "file": "mcp-test/link/page-object.txt",
+      "source": "mcp-test",
+      "note": "an OE on the probe page"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19478355080928453447520102198986629748415351}",
+        "Basic"
+      ],
+      "file": "mcp-test/page/nested-Basic.xml",
+      "source": "mcp-test",
+      "note": "Fixture Nested"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19478355080928453447520102198986629748415351}",
+        "BinaryData"
+      ],
+      "file": "mcp-test/page/nested-BinaryData.xml",
+      "source": "mcp-test",
+      "note": "Fixture Nested"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        "All"
+      ],
+      "file": "mcp-test/page/image-All.xml",
+      "source": "mcp-test",
+      "note": "Fixture Image"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        "Basic"
+      ],
+      "file": "mcp-test/page/image-Basic.xml",
+      "source": "mcp-test",
+      "note": "Fixture Image"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        "BinaryData"
+      ],
+      "file": "mcp-test/page/image-BinaryData.xml",
+      "source": "mcp-test",
+      "note": "Fixture Image"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19516938799045219860520175612925891145658211}",
+        "Basic"
+      ],
+      "file": "mcp-test/page/probe-Basic.xml",
+      "source": "mcp-test",
+      "note": "Fixture Probe"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19516938799045219860520175612925891145658211}",
+        "BinaryData"
+      ],
+      "file": "mcp-test/page/probe-BinaryData.xml",
+      "source": "mcp-test",
+      "note": "Fixture Probe"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19565193393940819141020118324689590846097081}",
+        "Basic"
+      ],
+      "file": "mcp-test/page/table-Basic.xml",
+      "source": "mcp-test",
+      "note": "Fixture Table"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19565193393940819141020118324689590846097081}",
+        "BinaryData"
+      ],
+      "file": "mcp-test/page/table-BinaryData.xml",
+      "source": "mcp-test",
+      "note": "Fixture Table"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19576028730475398412520134068976138901756251}",
+        "Basic"
+      ],
+      "file": "mcp-test/page/subpage-Basic.xml",
+      "source": "mcp-test",
+      "note": "Fixture Subpage"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19576028730475398412520134068976138901756251}",
+        "BinaryData"
+      ],
+      "file": "mcp-test/page/subpage-BinaryData.xml",
+      "source": "mcp-test",
+      "note": "Fixture Subpage"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{C10D0000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000001}",
+        "Basic"
+      ],
+      "file": "cloud/page-Basic.xml",
+      "source": "cloud",
+      "note": "the cloud page, piBasic, sanitised"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{C10D0000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000001}",
+        "BinaryData"
+      ],
+      "file": "cloud/page-BinaryData.xml",
+      "source": "cloud",
+      "note": "the cloud page, piBinaryData, sanitised: images without a local binary are dropped"
+    },
+    {
+      "method": "GetSpecialLocation",
+      "args": [
+        "BackUpFolder"
+      ],
+      "file": "mcp-test/special/BackUpFolder.txt",
+      "source": "mcp-test",
+      "note": "BackUpFolder; outside MCP Test, so a OneDrive URL\u0027s account ID and folder names are placeholders"
+    },
+    {
+      "method": "GetSpecialLocation",
+      "args": [
+        "DefaultNotebookFolder"
+      ],
+      "file": "mcp-test/special/DefaultNotebookFolder.txt",
+      "source": "mcp-test",
+      "note": "DefaultNotebookFolder; outside MCP Test, so a OneDrive URL\u0027s account ID and folder names are placeholders"
+    },
+    {
+      "method": "GetSpecialLocation",
+      "args": [
+        "UnfiledNotesSection"
+      ],
+      "file": "mcp-test/special/UnfiledNotesSection.txt",
+      "source": "mcp-test",
+      "note": "UnfiledNotesSection; outside MCP Test, so a OneDrive URL\u0027s account ID and folder names are placeholders"
+    },
+    {
+      "method": "GetWebHyperlinkToObject",
+      "args": [
+        "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
+        ""
+      ],
+      "file": "mcp-test/link/web-page.txt",
+      "source": "mcp-test",
+      "note": "local notebook: empty (observed 2026-11-04)"
+    }
+  ],
+  "probe": {
+    "capturedOn": "2026-11-04",
+    "beforeFile": "mcp-test/probe/probe-before.xml",
+    "pageId": "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19516938799045219860520175612925891145658211}",
+    "editedObjectId": "{BF3D1BA7-E142-41A6-9B2B-F860B51A5615}{34}{B0}",
+    "untouchedOutlineId": "{BF3D1BA7-E142-41A6-9B2B-F860B51A5615}{39}{B0}",
+    "changedAttributesOnUntouched": [
+      "Size@width"
+    ],
+    "unexcludedChanges": [
+      "Size@width"
+    ],
+    "callbackIdStable": true,
+    "seedResults": {
+      "Fixture Nested": "OneNote accepted the partial UpdatePageContent (2026-11-04); XSD: valid",
+      "Fixture Table": "OneNote accepted the partial UpdatePageContent (2026-11-04); XSD: valid",
+      "Fixture Image": "OneNote accepted the partial UpdatePageContent (2026-11-04); XSD: valid",
+      "Fixture Probe": "OneNote accepted the partial UpdatePageContent (2026-11-04); XSD: valid",
+      "Fixture Subpage": "OneNote accepted the partial UpdatePageContent (2026-11-04); XSD: valid",
+      "Fixture Subpage (level)": "UpdateHierarchy set pageLevel; read back: 2"
+    },
+    "notes": [
+      "untouched Outline hash equal after the edit: True",
+      "edited OE hash changed: True",
+      "callbackIDs seen: {B870D211-3A03-48F1-BA23-6F34D7A02B73}{40}{B0}, {B870D211-3A03-48F1-BA23-6F34D7A02B73}{40}{B0}, {B870D211-3A03-48F1-BA23-6F34D7A02B73}{40}{B0}"
+    ]
+  },
+  "cloud": {
+    "capturedOn": "2026-11-04",
+    "source": "cloud",
+    "pageId": "{C10D0000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000001}",
+    "basicImageCount": 2,
+    "binaryImageCount": 0,
+    "notes": []
+  }
+}

@@ -2,4 +2,11 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The vendored 2013 XSD, byte-for-byte (Schema/PROVENANCE.md). The manifest name is fixed so a folder rename can't break the lookup. -->
+    <EmbeddedResource Include="Schema\OneNoteApplication_2013.xsd" LogicalName="OneNoteMcp.Xml.OneNoteApplication_2013.xsd" />
+  </ItemGroup>
 </Project>

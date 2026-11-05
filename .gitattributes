@@ -1,0 +1,5 @@
+# Byte-exact files: never normalise line endings (core.autocrlf would otherwise rewrite them).
+# The vendored XSD is pinned by SHA-256 (src/OneNoteMcp.Xml/Schema/PROVENANCE.md).
+*.xsd -text
+# Captured OneNote output, served byte for byte by FakeGateway.
+tests/OneNoteMcp.Tests/Fixtures/** -text

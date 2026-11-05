@@ -27,6 +27,10 @@ jobs:
       - name: Test
         run: dotnet test tests/OneNoteMcp.Tests --no-build -c Release
 
+      # The integration project's pure tests (sanitiser, guard). Its OneNote tests skip without ONENOTE_MCP_INTEGRATION.
+      - name: Test (integration project, offline tests)
+        run: dotnet test tests/OneNoteMcp.Integration --no-build -c Release
+
       # Plugin packaging (AD-15): pack the zip, then validate the marketplace and the staged plugin.
       # A marketplace validate checks only an archive entry's fields, so the staged plugin is validated too.
       - uses: actions/setup-node@v5
