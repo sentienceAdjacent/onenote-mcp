@@ -3,7 +3,7 @@ title: 'XML model, vendored XSD, ElementHash and FakeGateway'
 type: 'feature'
 ticket: '6'
 created: '2026-11-04'
-status: 'built'
+status: done
 baseline_revision: '694bb57a67f7e6258da34d4e61fcbf79dfbac6c4'
 route: 'full'
 route_source: 'auto'
