@@ -11,8 +11,8 @@
       "description": "Read and manage OneNote desktop notebooks on this Windows machine through OneNote's COM automation API.",
       "source": {
         "source": "archive",
-        "url": "https://github.com/pmcormier/onenote-mcp/releases/download/v0.4.0/onenote-0.4.0-win-x64.zip",
-        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        "url": "https://github.com/pmcormier/onenote-mcp/releases/download/v0.4.0-rc.1/onenote-0.4.0-rc.1-win-x64.zip",
+        "sha256": "c71f08b9572dea29054a6b3f2dd072d8624560657d5fd572a73f070cd7252ba7"
       }
     }
   ]
