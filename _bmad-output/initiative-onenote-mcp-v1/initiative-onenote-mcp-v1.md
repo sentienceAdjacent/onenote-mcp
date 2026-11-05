@@ -25,7 +25,7 @@ Phill, and anyone who installs the plugin, can have Claude read, search and chan
 
 ## Requirements
 
-- **R1 — Read.** `GetHierarchy` at every scope, `GetHierarchyParent`, `GetPageContent` (binary only when asked), `GetBinaryPageContent`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`, `FormatDate`. Returned XML is unchanged, and degradations are reported in `meta`. Reads return the basis (`lastModifiedTime`, `pageHash`, `elementHashes`). (AD-4, AD-5, AD-17 read side)
+- **R1 — Read.** `GetHierarchy` at every scope, `GetHierarchyParent`, `GetPageContent` (binary only when asked), `GetBinaryPageContent`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`. Returned XML is unchanged, and degradations are reported in `meta`. Reads return the basis (`lastModifiedTime`, `pageHash`, `elementHashes`). (AD-4, AD-5, AD-17 read side)
 - **R2 — Search.** `FindPages` and `FindMeta` include unindexed pages, drop recycle-bin pages, require `startNodeId`, pass `fDisplay=false`, and mark results `possiblyIncomplete`. (AD-11 search part, AD-12)
 - **R3 — Robust operation.**
   - The COM binding and the vtable smoke test (AD-1).

@@ -7,7 +7,7 @@ paradigm: 'hexagonal (ports and adapters) with a single-STA actor per process'
 scope: 'Local stdio MCP server that reads and manages OneNote desktop notebooks over COM, plus its Claude Code plugin (skill + server config)'
 status: final
 created: '2026-11-03'
-updated: '2026-11-04'
+updated: '2026-11-05'
 binds: [all]
 sources:
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md
@@ -124,7 +124,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - No tool can create a grant. The read-only `list_grants` tool shows grants and how each was created.
     - The plugin blocks the model from editing `settings.json`.
   - **Notebook resolution:**
-    - The owning notebook is resolved through the gateway, never from the ID string: a `GetHierarchyParent` chain, where the throw at the notebook marks the end of the chain, or a hierarchy lookup. Resolution ends by reading that notebook's `one:Notebook@path` live from `GetHierarchy`.
+    - The owning notebook is resolved through the gateway, never from the ID string: a `GetHierarchyParent` chain, where the empty string OneNote returns at the notebook marks the end of the chain, or a hierarchy lookup. An exception from `GetHierarchyParent` is an ordinary error (AD-9) and never ends the chain. (Observed 2026-11-04 on the local MCP Test notebook, `tests/OneNoteMcp.Tests/Fixtures/mcp-test/parent/notebook.txt`. Microsoft's documentation says it throws.) Resolution ends by reading that notebook's `one:Notebook@path` live from `GetHierarchy`.
     - A payload with several IDs, such as a move or a merge, needs a grant for every notebook it touches.
   - **Grant key:**
     - A grant is keyed by the notebook's path, never by its ID, because closing and reopening a notebook regenerates every ID.
@@ -158,7 +158,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 | Class | COM methods | Grant | Validate | Snapshot |
 | --- | --- | --- | --- | --- |
-| `Read` | `GetHierarchy`, `GetHierarchyParent`, `GetPageContent`, `GetBinaryPageContent`, `FindPages`, `FindMeta`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`, `FormatDate`; the server-only `list_grants` | none | none | none |
+| `Read` | `GetHierarchy`, `GetHierarchyParent`, `GetPageContent`, `GetBinaryPageContent`, `FindPages`, `FindMeta`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`; the server-only `list_grants` | none | none | none |
 | `PageWrite` | `UpdatePageContent`, `DeletePageContent` | write | XSD; referenced `objectID`s exist; section not locked; refuse to replace an Outline holding an image with no local binary | full page, with binary |
 | `Create` | `CreateNewPage`; `OpenHierarchy` creating a section or section group by parent object ID (`bstrRelativeToObjectID`) plus a relative name, or a notebook at an absolute path verified empty; `restore_from_journal`. A section or section group is never created from an absolute path | write on the parent's notebook. A new notebook needs none and gets a write grant automatically (`grantedVia: created`), keyed by the `NotebookKey` of the path read back from `GetHierarchy` after creation | XSD; parent exists and isn't locked | none |
 | `HierarchyWrite` | `UpdateHierarchy` (add, rename, reorder or move); `MergeSections`; `restore_from_recycle_bin` | write on every notebook touched | XSD; IDs exist | hierarchy XML of the affected nodes |
@@ -335,7 +335,10 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - Element edits compare `elementHashes`.
     - A section, section group or notebook delete or hierarchy write compares only the `lastModifiedTime` from `GetHierarchy`, best effort.
   - **The hash:**
-    - `ElementHash` is lowercase hex SHA-256 over the C14N of the element, with `lastModifiedTime`, `creationTime` and `lastModifiedBy` attributes and binary data removed.
+    - `ElementHash` is lowercase hex SHA-256 over the inclusive C14N (no comments) of the element's subtree. Two things are removed throughout the subtree first:
+      - Attributes that record time, authorship, selection or view state, not content: `lastModifiedTime`, `creationTime`, `lastModifiedBy`, `lastModifiedByInitials`, `lastModifiedByResolutionID`, `selected`, `isCurrentlyViewed` and `isUnread`.
+      - The binary elements `one:Data` and `one:CallbackID`, so that a piBasic read and a piBinaryData read of a local page hash the same.
+    - Layout stays in the hash: `one:Size` and `one:Position` are content. Resizing or moving an Outline, with no text change, changes that Outline's hash and `pageHash`, but no OE's. So a page delete, or an edit that names that Outline, made with an older basis returns `StaleWrite`. An edit that names only its OEs goes through.
     - Only `OneNoteMcp.Xml` computes it. Callers never do.
   - **Writes check the basis:**
     - Write tools take an optional `basis: {lastModifiedTime?, pageHash?, elementHashes?}`.
