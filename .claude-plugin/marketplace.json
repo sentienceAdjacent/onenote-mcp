@@ -1,8 +1,8 @@
 {
   "name": "onenote-mcp",
   "owner": {
-    "name": "pmcormier",
-    "url": "https://github.com/pmcormier"
+    "name": "sentienceAdjacent",
+    "url": "https://github.com/sentienceAdjacent"
   },
   "description": "OneNote MCP: a local MCP server for OneNote desktop on Windows.",
   "plugins": [
@@ -11,8 +11,8 @@
       "description": "Read and manage OneNote desktop notebooks on this Windows machine through OneNote's COM automation API.",
       "source": {
         "source": "archive",
-        "url": "https://github.com/pmcormier/onenote-mcp/releases/download/v0.4.0-rc.2/onenote-0.4.0-rc.2-win-x64.zip",
-        "sha256": "3e31a8441f5952080a194b89ac124206b8dc0e36c103393aebe713f5d44de7da"
+        "url": "https://github.com/sentienceAdjacent/onenote-mcp/releases/download/v0.4.0-rc.2/onenote-0.4.0-rc.2-win-x64.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     }
   ]

@@ -3,7 +3,7 @@ title: 'Search tools'
 type: 'feature'
 ticket: '9'
 created: '2026-11-05'
-status: 'built'
+status: done
 baseline_revision: '09abe0593bcc3bc6ae635b95268282bba5894a6f'
 route: 'full'
 route_source: 'auto'

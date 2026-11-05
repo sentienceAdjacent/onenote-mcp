@@ -3,9 +3,9 @@
   "displayName": "OneNote MCP",
   "description": "Read and manage OneNote desktop notebooks on this Windows machine through OneNote's COM automation API.",
   "author": {
-    "name": "pmcormier",
-    "url": "https://github.com/pmcormier"
+    "name": "sentienceAdjacent",
+    "url": "https://github.com/sentienceAdjacent"
   },
-  "homepage": "https://github.com/pmcormier/onenote-mcp",
-  "repository": "https://github.com/pmcormier/onenote-mcp"
+  "homepage": "https://github.com/sentienceAdjacent/onenote-mcp",
+  "repository": "https://github.com/sentienceAdjacent/onenote-mcp"
 }
