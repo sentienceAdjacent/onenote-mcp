@@ -3,7 +3,7 @@ title: 'Settings (read side) and logging'
 type: 'feature'
 ticket: '4'
 created: '2026-11-04'
-status: 'built'
+status: done
 route: 'full'
 route_source: 'auto'
 baseline_revision: '9b7ef5d8c5d2d0ee772f80d943b88f9f8f0fd7b9'
