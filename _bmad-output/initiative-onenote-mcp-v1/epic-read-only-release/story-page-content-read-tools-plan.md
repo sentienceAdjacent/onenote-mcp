@@ -92,6 +92,8 @@ context:
 
 - Build and test with `-c Release --artifacts-path <temp dir>`, because the running `onenote` MCP session locks the Debug output. Don't run the integration suite: it writes to MCP Test, so the lead runs it with Phill. Just make sure it compiles.
 
+- Integration run with Phill (2026-11-05): `PageContentToolsIntegrationTests` passed twice in a row against real OneNote (1.0 s, then 0.4 s). The first run wrote the sentinel to MCP Test's seed page, and the second rewrote it. The sentinel was in the XML and never in the log.
+
 ## Plan Change Log
 
 ## Review Triage Log
