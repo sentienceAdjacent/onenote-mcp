@@ -126,6 +126,26 @@ MCP client ──stdio──► OneNoteMcp.exe ──COM (one STA thread)──�
 
 The design decisions are in the [architecture spine](_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md).
 
+## Cutting a release (maintainers)
+
+1. **Bump `<Version>`** in `Directory.Build.props`, in a PR. Use a new string every time, with a prerelease suffix for candidates (`0.4.0-rc.1`, `0.4.0-rc.2`, then `0.4.0`). Never reuse one: users who already have a version never download it again, even when it was rebuilt. Leave `marketplace.json` alone; the release workflow updates it.
+2. **Merge** the PR to `main`.
+3. **Tag** the merge commit `v<Version>` and push the tag:
+
+   ```powershell
+   git tag v0.4.0-rc.1 origin/main
+   git push origin v0.4.0-rc.1
+   ```
+
+`.github/workflows/release.yml` then:
+
+- refuses the tag unless it is exactly `v<Version>` and its commit is on `main`, before building anything. It also refuses a version that already has a release;
+- reruns every CI check on the tagged commit: the build with warnings as errors, the unit tests, the offline integration tests, `scripts/pack-plugin.ps1`, and both `claude plugin validate --strict` runs;
+- publishes a GitHub Release, marked as a prerelease when the version has a suffix, with notes generated from the commits. Its assets are the plugin zip, the bare `OneNoteMcp.exe`, and a `.sha256` for each. It downloads them back and checks the hashes;
+- commits the zip's `url` and `sha256` to `.claude-plugin/marketplace.json` on `main`, as `github-actions[bot]`. The tagged commit keeps the previous release's values. That commit doesn't trigger CI. Each tag gets its own run, so tags pushed close together all release, and the catalog only moves forward: a run whose version isn't newer than the one `main` pins fails that step and leaves the catalog alone.
+
+If a check fails, nothing is published: fix the cause and release a new version. Don't move the tag, and don't upload a rebuilt zip under an existing version. If only the final catalog commit fails, the release itself is good: pin `marketplace.json` by hand from the published `.sha256`. Release builds are unsigned for now.
+
 ## Acknowledgements
 
 Much of what this project knows about OneNote's COM API, its XML and its quirks comes from [OneMore](https://github.com/stevencohn/OneMore) by Steven M Cohn and its [developer documentation](https://onemoreaddin.com/developers/Setup.htm). OneMore is a long-lived OneNote add-in, and its write-ups of measured behaviour and API defects saved us a lot of rediscovery. This project's code is its own. No OneMore source is included.

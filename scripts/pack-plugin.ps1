@@ -6,7 +6,11 @@
 .DESCRIPTION
   Publishes OneNoteMcp.exe (self-contained, single-file, win-x64), stages it with plugin/,
   writes <Version> from Directory.Build.props into the staged plugin.json, and zips the
-  staged plugin root. Prints the zip path and its SHA-256. Story 1.11's release job reuses it.
+  staged plugin root. Writes the zip's SHA-256 beside it as dist/onenote-<ver>-win-x64.zip.sha256
+  (sha256sum format: "<hex>  <file name>"), and prints the zip path and the hash. The release
+  workflow (.github/workflows/release.yml) runs it and uploads exactly these bytes.
+
+  <Version> is semver, optionally with a prerelease suffix (0.4.0-rc.1). No build metadata.
 
   Validate the staged plugin with: claude plugin validate --strict dist/stage/onenote-mcp
 #>
@@ -35,12 +39,16 @@ function Invoke-Native([string]$what, [scriptblock]$call) {
 
 $version = (Invoke-Native 'Reading <Version>' { dotnet msbuild $project -nologo -getProperty:Version }) | Select-Object -Last 1
 $version = "$version".Trim()
-if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Unexpected <Version> '$version'." }
+# Keep in sync with VERSION_PATTERN in .github/workflows/release.yml (PluginPackagingTests checks it).
+$versionPattern = '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+if ($version -cnotmatch $versionPattern) { throw "Unexpected <Version> '$version': expected semver, optionally with a prerelease suffix." }
 
-$zip = Join-Path $dist "onenote-$version-win-x64.zip"
+$zipName = "onenote-$version-win-x64.zip"
+$zip = Join-Path $dist $zipName
+$shaFile = "$zip.sha256"
 
 # Start clean: stale publish output, staging or zip from an earlier run never leaks in.
-foreach ($path in @($publishDir, (Join-Path $dist 'stage'), $zip)) {
+foreach ($path in @($publishDir, (Join-Path $dist 'stage'), $zip, $shaFile)) {
     if (Test-Path $path) { Remove-Item -Recurse -Force $path }
 }
 
@@ -67,5 +75,7 @@ foreach ($key in $manifest.Keys) { if ($key -notin 'name', 'version') { $ordered
 Compress-Archive -Path (Get-ChildItem -Force $stageDir | ForEach-Object FullName) -DestinationPath $zip -CompressionLevel Optimal
 
 $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+"$hash  $zipName`n" | Set-Content -NoNewline -Encoding utf8NoBOM $shaFile
 Write-Output "zip:    $zip"
+Write-Output "sha256 file: $shaFile"
 Write-Output "sha256: $hash"
