@@ -14,7 +14,7 @@ public sealed class PluginPackagingTests
     private const string ReleaseWorkflow = ".github/workflows/release.yml";
     private const string CiWorkflow = ".github/workflows/ci.yml";
     private const string PackScript = "scripts/pack-plugin.ps1";
-    private const string RepoUrl = "https://github.com/pmcormier/onenote-mcp";
+    private const string RepoUrl = "https://github.com/sentienceAdjacent/onenote-mcp";
     private const string NoReleaseYetSha = "0000000000000000000000000000000000000000000000000000000000000000";
 
     private static readonly Regex ArchiveUrlVersion =
@@ -114,7 +114,7 @@ public sealed class PluginPackagingTests
     public void ArchiveUrl_ForAPrereleaseVersion_IsTheExpectedUrl()
     {
         var url = RepoUrl + ArchiveUrlSuffix("0.4.0-rc.1");
-        Assert.Equal("https://github.com/pmcormier/onenote-mcp/releases/download/v0.4.0-rc.1/onenote-0.4.0-rc.1-win-x64.zip", url);
+        Assert.Equal("https://github.com/sentienceAdjacent/onenote-mcp/releases/download/v0.4.0-rc.1/onenote-0.4.0-rc.1-win-x64.zip", url);
         Assert.Equal("0.4.0-rc.1", VersionOfArchiveUrl(url));
     }
 

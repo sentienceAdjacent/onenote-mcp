@@ -3,7 +3,7 @@ title: 'Release pipeline'
 type: 'feature'
 ticket: '11'
 created: '2026-11-05'
-status: 'built'
+status: done
 baseline_revision: '6031ab0799e34de49eaa07701b8dd21c3b2076e1'
 route: 'full'
 route_source: 'auto'
