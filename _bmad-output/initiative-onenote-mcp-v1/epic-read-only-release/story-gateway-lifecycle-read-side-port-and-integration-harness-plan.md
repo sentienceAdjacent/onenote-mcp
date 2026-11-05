@@ -3,7 +3,7 @@ title: 'Gateway lifecycle, read-side port and integration harness'
 type: 'feature'
 ticket: '5'
 created: '2026-11-04'
-status: 'built'
+status: done
 baseline_revision: '116c53856deb44652a3d37bb6e6f496763514cef'
 route: 'full'
 route_source: 'auto'
