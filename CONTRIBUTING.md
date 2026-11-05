@@ -16,7 +16,7 @@ This project is licensed under the PolyForm Noncommercial License 1.0.0, with an
 By submitting a contribution (a pull request, patch, or any other material) you agree that:
 
 1. **It's yours to give.** You wrote it, or you have the right to submit it under these terms. If your employer has rights to your work, you have their permission.
-2. **License to the licensor.** You grant the licensor (Phill, sentienceAdjacent) and anyone who receives the software from the licensor a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, copy, modify, distribute, sublicense and relicense your contribution, under any terms, including commercial terms.
+2. **License to the licensor.** You grant the licensor (Phillip Cormier, sentienceAdjacent) and anyone who receives the software from the licensor a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, copy, modify, distribute, sublicense and relicense your contribution, under any terms, including commercial terms.
 3. **Patents.** You grant the same parties a perpetual, worldwide, royalty-free, irrevocable license under any of your patents that your contribution infringes, to make, use, sell and distribute it as part of this project.
 4. **You keep your copyright.** This agreement doesn't transfer ownership. You can use your own contribution however you like.
 5. **No warranty.** Your contribution is provided as is.

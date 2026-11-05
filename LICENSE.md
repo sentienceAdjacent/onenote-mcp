@@ -1,8 +1,8 @@
 # License
 
-Copyright 2026 Phill (sentienceAdjacent). All rights not granted below are reserved.
+Copyright 2026 Phillip Cormier (sentienceAdjacent). All rights not granted below are reserved.
 
-Required Notice: Copyright 2026 Phill (sentienceAdjacent) (https://github.com/sentienceAdjacent/onenote-mcp)
+Required Notice: Copyright 2026 Phillip Cormier (sentienceAdjacent) (https://github.com/sentienceAdjacent/onenote-mcp)
 
 This software is licensed under the PolyForm Noncommercial License 1.0.0, reproduced in full below, together with the additional permission in the next section.
 
