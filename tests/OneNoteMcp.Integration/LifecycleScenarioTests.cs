@@ -102,15 +102,8 @@ public sealed class LifecycleScenarioTests : IDisposable
 
         // The seed page has no binary object and MCP Test is local: both fail, mapped (never a raw COMException).
         await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetBinaryPageContentAsync(notebook.PageId, "{00000000-0000-0000-0000-000000000000}", Ct));
-        try
-        {
-            var web = await gateway.GetWebHyperlinkToObjectAsync(notebook.PageId, string.Empty, Ct);
-            Assert.False(string.IsNullOrWhiteSpace(web));
-        }
-        catch (OneNoteException)
-        {
-            // Expected for a local notebook.
-        }
+        // Observed 2026-11-04: for a local notebook OneNote returns an empty link rather than an error.
+        Assert.Equal(string.Empty, await gateway.GetWebHyperlinkToObjectAsync(notebook.PageId, string.Empty, Ct));
     }
 
     // --- Hitl -----------------------------------------------------------------------------------------------------
@@ -146,15 +139,21 @@ public sealed class LifecycleScenarioTests : IDisposable
         var sectionId = TestNotebookGuard.FindSectionId(tree, TestNotebook.SeedSectionName);
         Assert.SkipWhen(sectionId is null, "MCP Test has no Seed section. Run the unattended suite once first to seed it.");
 
+        var pageId = TestNotebookGuard.FirstPageId(tree, sectionId!);
+        Assert.SkipWhen(pageId is null, "MCP Test's Seed section has no page. Run the unattended suite once first to seed it.");
+
+        // UpdatePageContent is the call the spike saw blocked (0x80042030). Observed 2026-11-04: CreateNewPage is not
+        // blocked by File > Options, so it can't probe this.
+        var xml = $"""<?xml version="1.0"?><one:Page xmlns:one="{OneNoteXml.Namespace2013}" ID="{pageId}"><one:Outline><one:OEChildren><one:OE><one:T><![CDATA[modal-dialog probe]]></one:T></one:OE></one:OEChildren></one:Outline></one:Page>""";
         var ex = await Assert.ThrowsAsync<OneNoteException>(() => TestNotebook.WriteAsync(
             gateway,
-            sectionId!,
+            pageId!,
             app =>
             {
-                app.CreateNewPage(sectionId!, out var id, NewPageStyle.npsBlankPageWithTitle);
-                return id;
+                app.UpdatePageContent(xml, DateTime.MinValue, XMLSchema.xs2013, force: false);
+                return true;
             },
-            "CreateNewPage(modal-dialog probe)",
+            "UpdatePageContent(modal-dialog probe)",
             Ct));
 
         Assert.Equal(ErrorCode.ModalDialogOpen, ex.Code);

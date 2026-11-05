@@ -91,6 +91,10 @@ context:
 - Build and test with `-c Release` only: a running `onenote` MCP session locks the Debug output folder.
 - Don't run the integration suite: it creates the MCP Test notebook in Phill's OneNote, so the lead runs it with him. Make sure it compiles.
 
+- Integration run with Phill (2026-11-04): unattended suite 34 passed; scenarios not-running, restart (reconnect, 40 s), modal-dialog and elevated (refused in < 1 s, no HRESULT) all passed against real OneNote.
+- Finding: with File > Options open, `CreateNewPage` is **not** blocked, while `UpdatePageContent` fails `0x80042030` (as in the spike). The modal probe now uses `UpdatePageContent`; the first run left one extra blank page in MCP Test. Epic 2's write pipeline can't assume every write is blocked by a modal dialog.
+- Finding: `GetWebHyperlinkToObject` on a local notebook returns an empty string, not an error. Story 7's `get_web_hyperlink_to_object` must handle that.
+
 ## Plan Change Log
 
 ## Review Triage Log
