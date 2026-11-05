@@ -10,7 +10,7 @@ public interface IOneNoteGateway
     /// <summary>Returns hierarchy XML. An empty <paramref name="startNodeId"/> means all notebooks.</summary>
     Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct);
 
-    /// <summary>Returns the parent's ID. OneNote throws at a notebook, which marks the end of the chain (AD-6).</summary>
+    /// <summary>Returns the parent's ID. At a notebook OneNote returns an empty string (observed 2026-11-04, story 6), which marks the end of the chain (AD-6).</summary>
     Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct);
 
     /// <summary>Returns page XML with the detail <paramref name="pageInfo"/> asks for.</summary>

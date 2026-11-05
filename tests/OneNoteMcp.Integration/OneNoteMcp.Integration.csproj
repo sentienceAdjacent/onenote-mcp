@@ -13,6 +13,12 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
   </ItemGroup>
   <ItemGroup>
+    <!-- FixtureCapture writes the unit suite's fixtures into the source tree, from any output folder. -->
+    <AssemblyMetadata Include="RepoRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))" />
+    <!-- One manifest shape for the writer (FixtureCapture) and the reader (FakeGateway). -->
+    <Compile Include="..\OneNoteMcp.Tests\FixtureManifest.cs" Link="FixtureManifest.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\OneNoteMcp.Com\OneNoteMcp.Com.csproj" />
     <ProjectReference Include="..\..\src\OneNoteMcp.Xml\OneNoteMcp.Xml.csproj" />
   </ItemGroup>
