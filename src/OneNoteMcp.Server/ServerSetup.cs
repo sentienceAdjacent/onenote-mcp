@@ -28,7 +28,8 @@ public static class ServerSetup
         // Read side of settings.json (AD-10): every Read() re-reads the file, so one instance serves the process.
         services.AddSingleton(_ => new SettingsStore());
         services.AddSingleton<IProcessProbe, ProcessProbe>();
-        services.AddSingleton<IOneNoteGateway, ComGateway>();
+        // The gateway re-reads timeouts and allowSilentActivation from settings.json at every activation (AD-3).
+        services.AddSingleton<IOneNoteGateway>(sp => new ComGateway(sp.GetRequiredService<IProcessProbe>(), sp.GetRequiredService<SettingsStore>()));
         services.AddSingleton<ToolRunner>();
         services.AddSingleton<GetHierarchyUseCase>();
 

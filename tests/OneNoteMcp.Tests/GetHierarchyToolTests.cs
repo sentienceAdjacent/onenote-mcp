@@ -200,10 +200,28 @@ public sealed class GetHierarchyToolTests
     private sealed class ThrowingGateway(Exception exception) : IOneNoteGateway
     {
         public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) => throw exception;
+
+        public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => throw exception;
+
+        public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) => throw exception;
+
+        public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct) => throw exception;
+
+        public Task<string> FindPagesAsync(string startNodeId, string query, bool includeUnindexed, CancellationToken ct) => throw exception;
+
+        public Task<string> FindMetaAsync(string startNodeId, string name, bool includeUnindexed, CancellationToken ct) => throw exception;
+
+        public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => throw exception;
+
+        public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => throw exception;
+
+        public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => throw exception;
     }
 
     private sealed class FixedProbe(bool running) : IProcessProbe
     {
         public bool IsOneNoteRunning() => running;
+
+        public IntegrityReport CheckIntegrity() => new(0x2000, []);
     }
 }
