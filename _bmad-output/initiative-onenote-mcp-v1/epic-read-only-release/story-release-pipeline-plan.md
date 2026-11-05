@@ -83,6 +83,13 @@ context:
 - Build and test with `-c Release --artifacts-path <temp dir>`, because the running `onenote` MCP session locks the Debug output.
 - Don't push tags or create releases: the lead does those with Phill.
 
+- Release-candidate runs with Phill (2026-11-05):
+  - **rc.1:** tagged after PR #12 bumped the version. Release run 42112551163 passed both jobs. It produced a prerelease with four assets (the zip at 34.0 MB, the bare exe, and a `.sha256` for each), and every hash checked OK after `gh release download`. Bot commit `af7578b` pinned `marketplace.json` to rc.1, with the sha equal to the zip's.
+  - **rc.1 load:** a headless `claude -p --plugin-dir <rc.1 zip>` saw all nine tools, and `get_special_location` returned `ok:true`.
+  - **rc.2:** PR #13, then the tag. The release passed, and `76a5f44` pinned rc.2. The forward-only check passed because rc.2 is newer than rc.1.
+  - **Upgrade while running:** with an rc.1 server process running from its own folder, unpacking rc.2 into a separate folder left rc.1's exe untouched and locked, and rc.1 kept running. A new process reported `serverInfo.version` 0.4.0-rc.2.
+  - **Mark-of-the-Web:** none on the files `gh` downloaded, none on the zips, and none on a copy Claude Code had extracted earlier. Claude Code's own marketplace download wasn't checked, because the repo is private. That check moves to 1.13.
+
 ## Plan Change Log
 
 - 2026-11-05: `MarketplaceEntry_IsAnArchiveForThePropsVersion` became `MarketplaceEntry_IsAnArchiveOfAReleaseNoNewerThanTheProps`. Under the sha256 Decision the tagged commit and later bumps keep the previous release's values, so "URL == `<Version>`" would fail every bump PR. The test now requires the URL's tag and file name to agree, the version to fit `VERSION_PATTERN`, and, unless the sha256 is the all-zero "no release yet" placeholder, the pinned version to be no newer than `<Version>` by semver precedence.
