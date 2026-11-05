@@ -54,3 +54,8 @@ This project uses BMAD (core-tools + method 6.13.0-next, set up in `_bmad/`). Af
 ## Testing note
 
 Anything that touches COM needs a real OneNote install and a test notebook, so it can't run in plain CI. Keep XML parsing and generation separate from COM calls so that logic can be unit-tested against captured XML fixtures.
+
+<!-- claude-reflect: learned rules (saved from the band; edit freely) -->
+## Learned rules
+- Do not insist on running bmad-walkthrough before merging; suggest it only when it seems important and leave the decision to the user.
+<!-- end claude-reflect -->
