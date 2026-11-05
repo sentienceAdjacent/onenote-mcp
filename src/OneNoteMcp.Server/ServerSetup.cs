@@ -36,6 +36,8 @@ public static class ServerSetup
         services.AddSingleton<GetSpecialLocationUseCase>();
         services.AddSingleton<GetHyperlinkToObjectUseCase>();
         services.AddSingleton<GetWebHyperlinkToObjectUseCase>();
+        services.AddSingleton<GetPageContentUseCase>();
+        services.AddSingleton<GetBinaryPageContentUseCase>();
 
         return services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
@@ -43,7 +45,9 @@ public static class ServerSetup
             .WithTools<GetHierarchyParentTool>(EnvelopeJson.Options)
             .WithTools<GetSpecialLocationTool>(EnvelopeJson.Options)
             .WithTools<GetHyperlinkToObjectTool>(EnvelopeJson.Options)
-            .WithTools<GetWebHyperlinkToObjectTool>(EnvelopeJson.Options);
+            .WithTools<GetWebHyperlinkToObjectTool>(EnvelopeJson.Options)
+            .WithTools<GetPageContentTool>(EnvelopeJson.Options)
+            .WithTools<GetBinaryPageContentTool>(EnvelopeJson.Options);
     }
 
     private static string ReadVersion()

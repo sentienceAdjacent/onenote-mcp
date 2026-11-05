@@ -78,12 +78,12 @@ public sealed class ToolContractTests
     }
 
     [Fact]
-    public void Server_ListsTheFiveHierarchyReadTools()
+    public void Server_ListsTheSevenReadTools()
     {
         using var services = BuildServer();
 
         Assert.Equal(
-            ["get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_special_location", "get_web_hyperlink_to_object"],
+            ["get_binary_page_content", "get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_page_content", "get_special_location", "get_web_hyperlink_to_object"],
             services.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order(StringComparer.Ordinal));
     }
 

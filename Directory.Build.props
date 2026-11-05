@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- One number: the release tag (AD-19) and serverInfo.version. Its major.minor is the tool contract version (AD-14). -->
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
