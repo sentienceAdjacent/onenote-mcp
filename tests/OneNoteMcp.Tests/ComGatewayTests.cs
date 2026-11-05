@@ -83,8 +83,9 @@ public sealed class ComGatewayTests
         app.OnGetHierarchy = () => "<ok/>";
         var xml = await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken);
 
+        // The first call activated, failed, re-activated for its one retry and failed again; the next call re-activates.
         Assert.Equal("<ok/>", xml);
-        Assert.Equal(2, created);
+        Assert.Equal(3, created);
     }
 
     [Fact]
@@ -128,5 +129,7 @@ public sealed class ComGatewayTests
     private sealed class FixedProbe(bool running) : IProcessProbe
     {
         public bool IsOneNoteRunning() => running;
+
+        public IntegrityReport CheckIntegrity() => new(0x2000, []);
     }
 }

@@ -1,6 +1,7 @@
 using System.Xml.Linq;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Xml;
 using Xunit;
 
@@ -19,7 +20,7 @@ public sealed class ComGatewayIntegrationTests
     {
         Assert.SkipUnless(VtableSmokeTests.OneNoteFixture.Enabled, "Set ONENOTE_MCP_INTEGRATION=1 to run against a real OneNote.");
         Assert.True(new ProcessProbe().IsOneNoteRunning(), "OneNote desktop must already be running.");
-        using var gateway = new ComGateway(new ProcessProbe());
+        using var gateway = new ComGateway(new ProcessProbe(), new SettingsStore());
 
         var xml = await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken);
 
@@ -33,7 +34,7 @@ public sealed class ComGatewayIntegrationTests
     {
         Assert.SkipUnless(VtableSmokeTests.OneNoteFixture.Enabled, "Set ONENOTE_MCP_INTEGRATION=1 to run against a real OneNote.");
         Assert.True(new ProcessProbe().IsOneNoteRunning(), "OneNote desktop must already be running.");
-        using var gateway = new ComGateway(new ProcessProbe());
+        using var gateway = new ComGateway(new ProcessProbe(), new SettingsStore());
 
         var ex = await Assert.ThrowsAsync<OneNoteException>(() =>
             gateway.GetHierarchyAsync("{00000000-0000-0000-0000-000000000000}{1}{B0}", HierarchyScope.Notebooks, TestContext.Current.CancellationToken));

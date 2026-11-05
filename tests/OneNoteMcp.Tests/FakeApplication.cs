@@ -2,13 +2,87 @@ using OneNoteMcp.Com.Interop;
 
 namespace OneNoteMcp.Tests;
 
-/// <summary>Managed stand-in for the OneNote COM object. Only GetHierarchy is scripted; the rest throw.</summary>
-internal sealed class FakeApplication(Func<string> onGetHierarchy) : IApplication
+/// <summary>One call the fake received: the method name, its arguments, and the thread it ran on.</summary>
+internal sealed record FakeCall(string Method, object?[] Args, int ThreadId);
+
+/// <summary>
+/// Managed stand-in for the OneNote COM object. The read methods are programmable: <see cref="OnCall"/>, when set,
+/// answers every one of them (hang on a gate, throw a sequence, return a value); otherwise GetHierarchy answers from
+/// <see cref="OnGetHierarchy"/> and the rest throw. Every read call is recorded. <see cref="Factory"/> counts activations.
+/// Write and app-state methods always throw.
+/// </summary>
+internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IApplication
 {
-    public Func<string> OnGetHierarchy { get; set; } = onGetHierarchy;
+    private readonly Lock _gate = new();
+    private readonly List<FakeCall> _calls = [];
+    private int _activations;
+
+    public Func<string> OnGetHierarchy { get; set; } = onGetHierarchy ?? (() => throw new NotSupportedException());
+
+    public Func<FakeCall, string>? OnCall { get; set; }
+
+    public int Activations => Volatile.Read(ref _activations);
+
+    /// <summary>A <c>createApplication</c> seam that counts each activation and returns this fake.</summary>
+    public Func<object> Factory => () =>
+    {
+        Interlocked.Increment(ref _activations);
+        return this;
+    };
+
+    public IReadOnlyList<FakeCall> Calls
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _calls];
+            }
+        }
+    }
 
     public void GetHierarchy(string bstrStartNodeID, HierarchyScope hsScope, out string pbstrHierarchyXmlOut, XMLSchema xsSchema) =>
-        pbstrHierarchyXmlOut = OnGetHierarchy();
+        pbstrHierarchyXmlOut = Answer(nameof(GetHierarchy), [bstrStartNodeID, hsScope, xsSchema], OnGetHierarchy);
+
+    public void GetHierarchyParent(string bstrObjectID, out string pbstrParentID) =>
+        pbstrParentID = Answer(nameof(GetHierarchyParent), [bstrObjectID]);
+
+    public void GetPageContent(string bstrPageID, out string pbstrPageXmlOut, PageInfo pageInfoToExport, XMLSchema xsSchema) =>
+        pbstrPageXmlOut = Answer(nameof(GetPageContent), [bstrPageID, pageInfoToExport, xsSchema]);
+
+    public void GetBinaryPageContent(string bstrPageID, string bstrCallbackID, out string pbstrBinaryObjectB64Out) =>
+        pbstrBinaryObjectB64Out = Answer(nameof(GetBinaryPageContent), [bstrPageID, bstrCallbackID]);
+
+    public void GetHyperlinkToObject(string bstrHierarchyID, string bstrPageContentObjectID, out string pbstrHyperlinkOut) =>
+        pbstrHyperlinkOut = Answer(nameof(GetHyperlinkToObject), [bstrHierarchyID, bstrPageContentObjectID]);
+
+    public void FindPages(string bstrStartNodeID, string bstrSearchString, out string pbstrHierarchyXmlOut, bool fIncludeUnindexedPages, bool fDisplay, XMLSchema xsSchema) =>
+        pbstrHierarchyXmlOut = Answer(nameof(FindPages), [bstrStartNodeID, bstrSearchString, fIncludeUnindexedPages, fDisplay, xsSchema]);
+
+    public void FindMeta(string bstrStartNodeID, string bstrSearchStringName, out string pbstrHierarchyXmlOut, bool fIncludeUnindexedPages, XMLSchema xsSchema) =>
+        pbstrHierarchyXmlOut = Answer(nameof(FindMeta), [bstrStartNodeID, bstrSearchStringName, fIncludeUnindexedPages, xsSchema]);
+
+    public void GetSpecialLocation(SpecialLocation slToGet, out string pbstrSpecialLocationPath) =>
+        pbstrSpecialLocationPath = Answer(nameof(GetSpecialLocation), [slToGet]);
+
+    public void GetWebHyperlinkToObject(string bstrHierarchyID, string bstrPageContentObjectID, out string pbstrHyperlinkOut) =>
+        pbstrHyperlinkOut = Answer(nameof(GetWebHyperlinkToObject), [bstrHierarchyID, bstrPageContentObjectID]);
+
+    private string Answer(string method, object?[] args, Func<string>? fallback = null)
+    {
+        var call = new FakeCall(method, args, Environment.CurrentManagedThreadId);
+        lock (_gate)
+        {
+            _calls.Add(call);
+        }
+
+        if (OnCall is { } onCall)
+        {
+            return onCall(call);
+        }
+
+        return fallback is not null ? fallback() : throw new NotSupportedException($"{method} is not scripted.");
+    }
 
     public void UpdateHierarchy(string bstrChangesXmlIn, XMLSchema xsSchema) => throw new NotSupportedException();
 
@@ -20,13 +94,7 @@ internal sealed class FakeApplication(Func<string> onGetHierarchy) : IApplicatio
 
     public void CloseNotebook(string bstrNotebookID, bool force) => throw new NotSupportedException();
 
-    public void GetHierarchyParent(string bstrObjectID, out string pbstrParentID) => throw new NotSupportedException();
-
-    public void GetPageContent(string bstrPageID, out string pbstrPageXmlOut, PageInfo pageInfoToExport, XMLSchema xsSchema) => throw new NotSupportedException();
-
     public void UpdatePageContent(string bstrPageChangesXmlIn, DateTime dateExpectedLastModified, XMLSchema xsSchema, bool force) => throw new NotSupportedException();
-
-    public void GetBinaryPageContent(string bstrPageID, string bstrCallbackID, out string pbstrBinaryObjectB64Out) => throw new NotSupportedException();
 
     public void DeletePageContent(string bstrPageID, string bstrObjectID, DateTime dateExpectedLastModified, bool force) => throw new NotSupportedException();
 
@@ -37,14 +105,6 @@ internal sealed class FakeApplication(Func<string> onGetHierarchy) : IApplicatio
     public void Publish(string bstrHierarchyID, string bstrTargetFilePath, PublishFormat pfPublishFormat, string bstrCLSIDofExporter) => throw new NotSupportedException();
 
     public void OpenPackage(string bstrPathPackage, string bstrPathDest, out string pbstrPathOut) => throw new NotSupportedException();
-
-    public void GetHyperlinkToObject(string bstrHierarchyID, string bstrPageContentObjectID, out string pbstrHyperlinkOut) => throw new NotSupportedException();
-
-    public void FindPages(string bstrStartNodeID, string bstrSearchString, out string pbstrHierarchyXmlOut, bool fIncludeUnindexedPages, bool fDisplay, XMLSchema xsSchema) => throw new NotSupportedException();
-
-    public void FindMeta(string bstrStartNodeID, string bstrSearchStringName, out string pbstrHierarchyXmlOut, bool fIncludeUnindexedPages, XMLSchema xsSchema) => throw new NotSupportedException();
-
-    public void GetSpecialLocation(SpecialLocation slToGet, out string pbstrSpecialLocationPath) => throw new NotSupportedException();
 
     public void MergeFiles(string bstrBaseFile, string bstrClientFile, string bstrServerFile, string bstrTargetFile) => throw new NotSupportedException();
 
@@ -63,6 +123,4 @@ internal sealed class FakeApplication(Func<string> onGetHierarchy) : IApplicatio
     public object COMAddIns => throw new NotSupportedException();
 
     public object LanguageSettings => throw new NotSupportedException();
-
-    public void GetWebHyperlinkToObject(string bstrHierarchyID, string bstrPageContentObjectID, out string pbstrHyperlinkOut) => throw new NotSupportedException();
 }
