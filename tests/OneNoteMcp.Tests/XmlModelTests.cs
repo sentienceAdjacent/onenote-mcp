@@ -211,6 +211,45 @@ public sealed partial class XmlModelTests
         }
     }
 
+    /// <summary>
+    /// Layout stays in the hash (Phill, 2026-11-05). Resizing or moving an Outline, with no text change, changes that
+    /// Outline's hash and the page hash, and no OE's. So an element edit whose basis predates a resize or a move gets
+    /// <c>StaleWrite</c> if it names the Outline, and goes through if it names only OEs. The test prints the before and
+    /// after hashes so the consequence can be read in the output.
+    /// </summary>
+    [Theory]
+    [InlineData("resize", "Size", "width", "300")]
+    [InlineData("move", "Position", "x", "200.0")]
+    public void LayoutOnlyChange_ChangesTheOutlineAndThePage_NotItsOes(string what, string element, string attribute, string value)
+    {
+        var original = Fixture("GetPageContent", NestedPageId(), "Basic");
+        var changed = XDocument.Parse(original);
+        var outline = changed.Descendants(One + "Outline").Single();
+        var layout = outline.Element(One + element)!;
+        var oldValue = (string)layout.Attribute(attribute)!;
+        layout.SetAttributeValue(attribute, value);
+
+        var before = PageBasis.From(original);
+        var after = PageBasis.From(changed.ToString());
+        var outlineId = (string)outline.Attribute("objectID")!;
+
+        var log = TestContext.Current.TestOutputHelper;
+        log?.WriteLine($"{what}: one:{element}@{attribute} {oldValue} -> {value}; no text changed");
+        log?.WriteLine($"  page    {before.PageHash[..12]} -> {after.PageHash[..12]}  {Verdict(before.PageHash, after.PageHash)}");
+        foreach (var (id, hash) in before.ElementHashes)
+        {
+            var kind = id == outlineId ? "Outline" : "OE     ";
+            log?.WriteLine($"  {kind} {hash[..12]} -> {after.ElementHashes[id][..12]}  {Verdict(hash, after.ElementHashes[id])}  {id}");
+        }
+
+        Assert.Equal(before.LastModifiedTime, after.LastModifiedTime);
+        Assert.NotEqual(before.PageHash, after.PageHash);
+        Assert.NotEqual(before.ElementHashes[outlineId], after.ElementHashes[outlineId]);
+        Assert.All(before.ElementHashes.Where(e => e.Key != outlineId), e => Assert.Equal(e.Value, after.ElementHashes[e.Key]));
+
+        static string Verdict(string a, string b) => a == b ? "same    (an edit on the old basis goes through)" : "CHANGED (an edit on the old basis gets StaleWrite)";
+    }
+
     [Fact]
     public void BinaryVsBasic_OnALocalPage_HashEqual()
     {
