@@ -3,7 +3,7 @@ title: 'Page content read tools'
 type: 'feature'
 ticket: '8'
 created: '2026-11-05'
-status: 'built'
+status: done
 baseline_revision: '5ef349226351b61ff1e1dfd289ba48456e115a17'
 route: 'full'
 route_source: 'auto'

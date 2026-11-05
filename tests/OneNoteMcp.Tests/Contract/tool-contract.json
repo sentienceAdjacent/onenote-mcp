@@ -1,6 +1,488 @@
 {
-  "contractVersion": "0.3",
+  "contractVersion": "0.4",
   "tools": [
+    {
+      "name": "find_meta",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "startNodeId": {
+            "type": "string",
+            "default": ""
+          },
+          "fromRoot": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "pageHash",
+                  "elementHashes"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "find_pages",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "startNodeId": {
+            "type": "string",
+            "default": ""
+          },
+          "fromRoot": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "pageHash",
+                  "elementHashes"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      }
+    },
     {
       "name": "get_binary_page_content",
       "inputSchema": {
@@ -159,6 +641,35 @@
               "binary": {
                 "type": [
                   "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
                   "null"
                 ],
                 "default": null
@@ -375,6 +886,35 @@
                   "null"
                 ],
                 "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -576,6 +1116,35 @@
               "binary": {
                 "type": [
                   "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
                   "null"
                 ],
                 "default": null
@@ -787,6 +1356,35 @@
                   "null"
                 ],
                 "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -992,6 +1590,35 @@
               "binary": {
                 "type": [
                   "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
                   "null"
                 ],
                 "default": null
@@ -1204,6 +1831,35 @@
                   "null"
                 ],
                 "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -1409,6 +2065,35 @@
               "binary": {
                 "type": [
                   "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
                   "null"
                 ],
                 "default": null
