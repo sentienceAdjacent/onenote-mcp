@@ -10,12 +10,14 @@ public sealed class OneNoteException : Exception
         string message,
         int? hresult = null,
         Exception? innerException = null,
-        bool outcomeUnknown = false)
+        bool outcomeUnknown = false,
+        string? userAction = null)
         : base(message, innerException)
     {
         Code = code;
         ComHResult = hresult;
         OutcomeUnknown = outcomeUnknown;
+        UserAction = userAction;
     }
 
     public ErrorCode Code { get; }
@@ -28,4 +30,10 @@ public sealed class OneNoteException : Exception
     /// It forces <c>retryable: false</c> in the envelope (AD-9).
     /// </summary>
     public bool OutcomeUnknown { get; }
+
+    /// <summary>
+    /// A userAction more specific than the code's default, for a server-side check that knows exactly what the caller
+    /// must change. An unknown outcome's userAction still wins (AD-9). Never carries page content.
+    /// </summary>
+    public string? UserAction { get; }
 }

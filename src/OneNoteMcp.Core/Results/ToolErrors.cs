@@ -19,7 +19,7 @@ public static class ToolErrors
         return new ToolError(
             Code: exception.Code,
             Retryable: !outcomeUnknown && IsRetryable(exception.Code, operationClass),
-            UserAction: outcomeUnknown ? OutcomeUnknownUserAction : UserAction(exception.Code),
+            UserAction: outcomeUnknown ? OutcomeUnknownUserAction : exception.UserAction ?? UserAction(exception.Code),
             Message: exception.Message,
             HResult: exception.ComHResult is { } hr ? FormatHResult(hr) : null,
             OutcomeUnknown: outcomeUnknown ? true : null);
