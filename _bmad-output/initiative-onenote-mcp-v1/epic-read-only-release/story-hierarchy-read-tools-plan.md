@@ -3,7 +3,7 @@ title: 'Hierarchy read tools'
 type: 'feature'
 ticket: '7'
 created: '2026-11-05'
-status: 'built'
+status: done
 baseline_revision: 'aaf06fce78afe6af4f1c3ef0730aabd475be3cda'
 route: 'full'
 route_source: 'auto'
