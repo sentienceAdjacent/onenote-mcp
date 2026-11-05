@@ -96,6 +96,7 @@ context:
   - `locked="1"` also counts, because it is a valid `xs:boolean`.
 - `marketplace.json`'s release URL moved to v0.2.0, because `PluginPackagingTests` ties it to `<Version>`. Its sha256 is still the zero placeholder (story 1.11).
 - The integration project now references Server, so it can call the tools over the real gateway. The new class hasn't been run yet; it needs a run with Phill.
+- Integration run with Phill (2026-11-05): `HierarchyToolsIntegrationTests` passed against real OneNote (1/1, 0.8 s). MCP Test already existed, so there were no writes.
 
 ## Plan Change Log
 
