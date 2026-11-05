@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
 using OneNoteMcp.Server.Tools;
 
@@ -24,6 +25,8 @@ public static class ServerSetup
 
     public static IMcpServerBuilder AddOneNoteMcp(this IServiceCollection services)
     {
+        // Read side of settings.json (AD-10): every Read() re-reads the file, so one instance serves the process.
+        services.AddSingleton(_ => new SettingsStore());
         services.AddSingleton<IProcessProbe, ProcessProbe>();
         services.AddSingleton<IOneNoteGateway, ComGateway>();
         services.AddSingleton<ToolRunner>();
