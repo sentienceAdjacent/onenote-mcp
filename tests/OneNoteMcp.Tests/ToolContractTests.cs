@@ -51,17 +51,40 @@ public sealed class ToolContractTests
         // Nulls are omitted on the wire, so a schema property marked required but null would make clients that
         // validate structuredContent reject the result.
         using var services = BuildServer();
-        var schema = JsonNode.Parse(services.GetServices<McpServerTool>().Single().ProtocolTool.OutputSchema!.Value.GetRawText())!;
         var meta = new Core.Results.ToolMeta("c");
         var success = ToolRunner.ToResult(ToolEnvelope.Success(Core.Results.ToolSuccess.WithXml("<x/>", meta)));
+        var scalar = ToolRunner.ToResult(ToolEnvelope.Success(new Core.Results.ToolSuccess(null, meta with { Link = string.Empty }, [])));
         var failure = ToolRunner.ToResult(ToolEnvelope.Failure(
             Core.Results.ToolErrors.From(new Core.OneNoteException(Core.ErrorCode.OneNoteNotRunning, "m"), Core.OperationClass.Read),
             meta));
 
-        AssertRequiredPresent(schema, JsonNode.Parse(success.StructuredContent!.Value.GetRawText())!);
-        var failureNode = JsonNode.Parse(failure.StructuredContent!.Value.GetRawText())!;
-        AssertRequiredPresent(schema, failureNode);
-        AssertRequiredPresent(schema["properties"]!["error"]!, failureNode["error"]!);
+        var tools = services.GetServices<McpServerTool>().ToList();
+        Assert.NotEmpty(tools);
+        foreach (var tool in tools)
+        {
+            var schema = JsonNode.Parse(tool.ProtocolTool.OutputSchema!.Value.GetRawText())!;
+            foreach (var result in new[] { success, scalar })
+            {
+                var node = JsonNode.Parse(result.StructuredContent!.Value.GetRawText())!;
+                AssertRequiredPresent(schema, node);
+                AssertRequiredPresent(schema["properties"]!["meta"]!, node["meta"]!);
+            }
+
+            var failureNode = JsonNode.Parse(failure.StructuredContent!.Value.GetRawText())!;
+            AssertRequiredPresent(schema, failureNode);
+            AssertRequiredPresent(schema["properties"]!["meta"]!, failureNode["meta"]!);
+            AssertRequiredPresent(schema["properties"]!["error"]!, failureNode["error"]!);
+        }
+    }
+
+    [Fact]
+    public void Server_ListsTheFiveHierarchyReadTools()
+    {
+        using var services = BuildServer();
+
+        Assert.Equal(
+            ["get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_special_location", "get_web_hyperlink_to_object"],
+            services.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order(StringComparer.Ordinal));
     }
 
     private static void AssertRequiredPresent(JsonNode schema, JsonNode payload)

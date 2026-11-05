@@ -64,7 +64,7 @@ public sealed class GetHierarchyToolTests
     {
         var gateway = new FakeGateway { HierarchyXml = NotebooksXml };
 
-        await Tool(gateway).GetHierarchy("{nope}", TestContext.Current.CancellationToken);
+        await Tool(gateway).GetHierarchy("{nope}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal([("{nope}", HierarchyScope.Notebooks)], gateway.Calls);
     }
@@ -183,7 +183,7 @@ public sealed class GetHierarchyToolTests
         var app = new FakeApplication(() => throw new COMException("com", hresult));
         using var gateway = new ComGateway(new FixedProbe(true), () => app);
 
-        var result = await Tool(gateway).GetHierarchy(startNodeId, TestContext.Current.CancellationToken);
+        var result = await Tool(gateway).GetHierarchy(startNodeId, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.IsError);
         return Structured(result).GetProperty("error");

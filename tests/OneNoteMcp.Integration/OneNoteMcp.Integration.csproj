@@ -21,5 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\OneNoteMcp.Com\OneNoteMcp.Com.csproj" />
     <ProjectReference Include="..\..\src\OneNoteMcp.Xml\OneNoteMcp.Xml.csproj" />
+    <!-- Story 7 calls the tools themselves over the real gateway. -->
+    <ProjectReference Include="..\..\src\OneNoteMcp.Server\OneNoteMcp.Server.csproj" />
   </ItemGroup>
 </Project>

@@ -32,10 +32,18 @@ public static class ServerSetup
         services.AddSingleton<IOneNoteGateway>(sp => new ComGateway(sp.GetRequiredService<IProcessProbe>(), sp.GetRequiredService<SettingsStore>()));
         services.AddSingleton<ToolRunner>();
         services.AddSingleton<GetHierarchyUseCase>();
+        services.AddSingleton<GetHierarchyParentUseCase>();
+        services.AddSingleton<GetSpecialLocationUseCase>();
+        services.AddSingleton<GetHyperlinkToObjectUseCase>();
+        services.AddSingleton<GetWebHyperlinkToObjectUseCase>();
 
         return services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
-            .WithTools<GetHierarchyTool>(EnvelopeJson.Options);
+            .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
+            .WithTools<GetHierarchyParentTool>(EnvelopeJson.Options)
+            .WithTools<GetSpecialLocationTool>(EnvelopeJson.Options)
+            .WithTools<GetHyperlinkToObjectTool>(EnvelopeJson.Options)
+            .WithTools<GetWebHyperlinkToObjectTool>(EnvelopeJson.Options);
     }
 
     private static string ReadVersion()
