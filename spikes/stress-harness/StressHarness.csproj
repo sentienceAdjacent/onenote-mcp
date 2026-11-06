@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Spike 1.15: drives the real OneNoteMcp.exe over stdio and compares every result with ComGateway (the oracle).
+       Kept out of OneNoteMcp.slnx; spikes/Directory.*.props opt it out of the root build settings and central versions. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>StressHarness</RootNamespace>
+    <AssemblyName>StressHarness</AssemblyName>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.3.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The oracle: ComGateway's public read methods, the same COM calls the server makes. -->
+    <ProjectReference Include="..\..\src\OneNoteMcp.Com\OneNoteMcp.Com.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The nine contract tool names for the startup check, from the one contract file. -->
+    <EmbeddedResource Include="..\..\tests\OneNoteMcp.Tests\Contract\tool-contract.json" LogicalName="tool-contract.json" />
+  </ItemGroup>
+
+</Project>
