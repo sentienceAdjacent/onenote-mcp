@@ -54,11 +54,30 @@ Only preview builds (`0.x` prereleases) exist so far.
 ### Claude Code plugin (recommended)
 
 ```text
-/plugin marketplace add sentienceAdjacent/onenote-mcp
-/plugin install onenote-mcp@onenote-mcp
+/plugin marketplace add sentienceAdjacent/plugins
+/plugin install onenote@sentienceadjacent
 ```
 
-This installs the MCP server and fetches the matching pre-built `OneNoteMcp.exe` from GitHub Releases, pinned by SHA-256. No .NET SDK is needed. Updates come from `/plugin marketplace update onenote-mcp`.
+If you added `sentienceAdjacent/onenote-mcp` as a marketplace before, first run `/plugin uninstall onenote-mcp@onenote-mcp` and `/plugin marketplace remove onenote-mcp`.
+
+This installs the MCP server and fetches the matching pre-built `OneNoteMcp.exe` from GitHub Releases, pinned by SHA-256. No .NET SDK is needed. Updates come from `/plugin marketplace update sentienceadjacent`. The catalog lives in [sentienceAdjacent/plugins](https://github.com/sentienceAdjacent/plugins), and its tools appear as `mcp__plugin_onenote_desktop__*`.
+
+### Your own marketplace
+
+To pin a version yourself, for example in a team marketplace, add an `archive` entry that points at a release zip and the hash from its `.sha256` asset:
+
+```json
+{
+  "name": "onenote",
+  "source": {
+    "source": "archive",
+    "url": "https://github.com/sentienceAdjacent/onenote-mcp/releases/download/v<ver>/onenote-<ver>-win-x64.zip",
+    "sha256": "<the hex hash from onenote-<ver>-win-x64.zip.sha256>"
+  }
+}
+```
+
+Use `0.4.0-rc.4` or later: earlier releases ship a plugin named `onenote-mcp`. You can also host the zip internally and point `url` at your copy: keep the same bytes, so the hash still matches.
 
 ### Other MCP clients
 
@@ -89,7 +108,7 @@ Then point your client at the published `OneNoteMcp.exe`, as in the previous sec
 
 ### Uninstall
 
-Remove the plugin with `/plugin uninstall onenote-mcp`, or delete the exe and its MCP config entry. *(planned)* `OneNoteMcp uninstall --purge` will also remove settings, grants, the journal and logs. Until then, delete `%APPDATA%\OneNoteMcp` and `%LOCALAPPDATA%\OneNoteMcp` by hand.
+Remove the plugin with `/plugin uninstall onenote@sentienceadjacent`, or delete the exe and its MCP config entry. *(planned)* `OneNoteMcp uninstall --purge` will also remove settings, grants, the journal and logs. Until then, delete `%APPDATA%\OneNoteMcp` and `%LOCALAPPDATA%\OneNoteMcp` by hand.
 
 ## For agents installing this
 
@@ -127,7 +146,7 @@ Issues and pull requests are welcome. Every pull request needs the contributor a
 
 ## Cutting a release (maintainers)
 
-1. **Bump `<Version>`** in `Directory.Build.props`, in a PR. Use a new string every time, with a prerelease suffix for candidates (`0.4.0-rc.1`, `0.4.0-rc.2`, then `0.4.0`). Never reuse one: users who already have a version never download it again, even when it was rebuilt. Leave `marketplace.json` alone; the release workflow updates it.
+1. **Bump `<Version>`** in `Directory.Build.props`, in a PR. Use a new string every time, with a prerelease suffix for candidates (`0.4.0-rc.1`, `0.4.0-rc.2`, then `0.4.0`). Never reuse one: users who already have a version never download it again, even when it was rebuilt.
 2. **Merge** the PR to `main`.
 3. **Tag** the merge commit `v<Version>` and push the tag:
 
@@ -139,11 +158,12 @@ Issues and pull requests are welcome. Every pull request needs the contributor a
 `.github/workflows/release.yml` then:
 
 - refuses the tag unless it is exactly `v<Version>` and its commit is on `main`, before building anything. It also refuses a version that already has a release;
-- reruns every CI check on the tagged commit: the build with warnings as errors, the unit tests, the offline integration tests, `scripts/pack-plugin.ps1`, and both `claude plugin validate --strict` runs;
-- publishes a GitHub Release, marked as a prerelease when the version has a suffix, with notes generated from the commits. Its assets are the plugin zip, the bare `OneNoteMcp.exe`, and a `.sha256` for each. It downloads them back and checks the hashes;
-- commits the zip's `url` and `sha256` to `.claude-plugin/marketplace.json` on `main`, as `github-actions[bot]`. The tagged commit keeps the previous release's values. That commit doesn't trigger CI. Each tag gets its own run, so tags pushed close together all release, and the catalog only moves forward: a run whose version isn't newer than the one `main` pins fails that step and leaves the catalog alone.
+- reruns every CI check on the tagged commit: the build with warnings as errors, the unit tests, the offline integration tests, `scripts/pack-plugin.ps1`, and `claude plugin validate --strict` on the staged plugin;
+- publishes a GitHub Release, marked as a prerelease when the version has a suffix, with notes generated from the commits. Its assets are the plugin zip, the bare `OneNoteMcp.exe`, and a `.sha256` for each. It downloads them back and checks the hashes.
 
-If a check fails, nothing is published: fix the cause and release a new version. Don't move the tag, and don't upload a rebuilt zip under an existing version. If only the final catalog commit fails, the release itself is good: pin `marketplace.json` by hand from the published `.sha256`. Release builds are unsigned for now.
+**Then pin the catalog:** run the `sync` workflow in [sentienceAdjacent/plugins](https://github.com/sentienceAdjacent/plugins) with `gh workflow run sync -R sentienceAdjacent/plugins`. Its daily run is only a backstop: GitHub pauses scheduled workflows in a public repo after 60 days without activity (re-enable it from the Actions tab). It checks the new zip against its `.sha256` and commits the pin to that repo's `main`. The pin only moves forward by semver, so an older release never replaces a newer one.
+
+If a check fails, nothing is published: fix the cause and release a new version. Don't move the tag, and don't upload a rebuilt zip under an existing version. If only the sync fails, the release itself is good: fix the cause and run `sync` again. Release builds are unsigned for now.
 
 ## Acknowledgements
 

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "onenote": {
+    "desktop": {
       "type": "stdio",
       "command": "${CLAUDE_PLUGIN_ROOT}/OneNoteMcp.exe"
     }

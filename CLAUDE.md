@@ -14,7 +14,7 @@ A local MCP server that lets an MCP client (Claude Code, Claude Desktop) read an
 - Unit tests (CI): `dotnet test tests/OneNoteMcp.Tests`
 - Integration tests (opt-in, real OneNote must already be running, read-only): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration`
 - Run the server: `src/OneNoteMcp.Server/bin/Debug/net10.0-windows/OneNoteMcp.exe` speaks MCP over stdio. It's registered locally as `onenote` (`claude mcp add`). Don't rebuild while a Claude session has it running: the exe is locked.
-- Pack the plugin: `pwsh -File scripts/pack-plugin.ps1` publishes the self-contained exe and writes `dist/onenote-<ver>-win-x64.zip` (plugin at the zip root, version from `Directory.Build.props`). Validate with `claude plugin validate --strict .` and `claude plugin validate --strict dist/stage/onenote-mcp`. Local loop: `claude --plugin-dir dist/onenote-<ver>-win-x64.zip` loads the zip for one session.
+- Pack the plugin: `pwsh -File scripts/pack-plugin.ps1` publishes the self-contained exe and writes `dist/onenote-<ver>-win-x64.zip` (plugin at the zip root, version from `Directory.Build.props`). Validate with `claude plugin validate --strict dist/stage/onenote`. The marketplace catalog lives in its own repo, `sentienceAdjacent/plugins` (local clone `D:\Development\sentienceAdjacent-plugins`); validate it there with `claude plugin validate --strict .`. Local loop: `claude --plugin-dir dist/onenote-<ver>-win-x64.zip` loads the zip for one session.
 - Layout: `src/OneNoteMcp.{Core,Xml,Com,Server}` and `tests/OneNoteMcp.{Tests,Integration}`. COM interop types are `internal` to Com (AD-2).
 
 ## Workflow: BMAD

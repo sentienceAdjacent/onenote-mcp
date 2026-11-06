@@ -302,10 +302,32 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ### AD-15 — Distribution [ADOPTED]
 
-- **Binds:** repo layout, release
-- **Prevents:** installs that differ between the plugin route and manual setup.
+- **Binds:** repo layout, release, the plugin, server, skill and marketplace names
+- **Prevents:**
+  - installs that differ between the plugin route and manual setup;
+  - a token in one repo that can write to another;
+  - a catalog pin whose zip holds a differently named plugin;
+  - renamed tools that break users' permission allowlists.
 - **Rule:**
-  - The repo is a Claude Code plugin marketplace. One plugin bundles the server config and the `onenote` skill, and has no top-level `bin/` folder.
+  - The repo holds one Claude Code plugin, `onenote`, in `plugin/`.
+    - It bundles the server config and the `guide` skill (`/onenote:guide`).
+    - Its single MCP server is `desktop`.
+    - It has no top-level `bin/` folder.
+  - The plugin name and the server key make up the tool names (`mcp__plugin_onenote_desktop__*`). They are frozen: renaming either is a breaking change under AD-14.
+  - The marketplace is a separate public repo, `sentienceAdjacent/plugins`, whose marketplace name is `sentienceadjacent`. This repo holds no marketplace, and no token that writes to another repo.
+  - The catalog pins each plugin itself, through its own sync workflow:
+    - it pulls this repo's releases;
+    - it checks the zip against the release's `.sha256`;
+    - it commits with its own `GITHUB_TOKEN`, straight to its `main`, so that branch accepts bot pushes.
+  - The pin moves forward only, by semver. It includes prereleases until 1.0 (see Deferred), and it never goes below a `since` floor of `0.4.0-rc.4`. Earlier zips hold a plugin named `onenote-mcp`. The plugin name inside a pinned zip must equal its catalog entry's name, and `claude plugin validate` doesn't open the zip, so the floor is what enforces it.
+  - **The contract between the two repos:**
+    - releases come from the public `sentienceAdjacent/onenote-mcp`, because an `archive` install can't authenticate;
+    - tags are `v<semver>`;
+    - the asset is `onenote-<ver>-win-x64.zip` at `https://github.com/sentienceAdjacent/onenote-mcp/releases/download/v<ver>/<asset>`;
+    - the sidecar `<asset>.sha256` holds `<hex>  <asset>`.
+    - Changing any of these burns a version (AD-19).
+  - A published release is never deleted. Retract one by releasing a newer version.
+  - The pin moves when the maintainer runs `gh workflow run sync -R sentienceAdjacent/plugins` after a release. A daily scheduled run is the backstop. Users pick up a new pin with `/plugin marketplace update sentienceadjacent`.
   - The server ships as a self-contained win-x64 exe on GitHub Releases.
   - The README gives install steps that a user or an agent can follow, plus manual config for other MCP clients and a route to build from source.
 
@@ -410,13 +432,14 @@ flowchart LR
   S1 & S2 --- CFG[("%APPDATA%\OneNoteMcp\settings.json")]
   S1 & S2 --- JR[("journal + logs<br/>%LOCALAPPDATA%\OneNoteMcp")]
   S1 & S2 --- EX[("Documents\OneNote Exports")]
-  GH["GitHub: plugin marketplace + Releases (exe)"] -. install .-> CC1
+  GH["GitHub: sentienceAdjacent/onenote-mcp Releases (zip, exe)"] -. pinned by .-> MP["GitHub: sentienceAdjacent/plugins (marketplace)"]
+  MP -. catalog .-> CC1
+  GH -. zip download .-> CC1
 ```
 
 ```text
 /
-  .claude-plugin/marketplace.json
-  plugin/                       # plugin manifest, server config, skills/onenote/SKILL.md
+  plugin/                       # manifest `onenote`, server `desktop`, skill `guide`
   src/OneNoteMcp.Server/        # MCP host, tool definitions (thin), grant/uninstall CLI
   src/OneNoteMcp.Core/          # use cases, pipelines, access, journal, settings, errors, IOneNoteGateway
   src/OneNoteMcp.Xml/           # 2013-schema model, vendored XSD, ElementHash
@@ -433,7 +456,8 @@ flowchart LR
 | --- | --- |
 | v1 tool list and later rounds | Work slicing, for `bmad-ticket`. The whole COM surface is the target, and AD-5/AD-7 make each round additive |
 | Release pipeline, code signing, SmartScreen | Release story (1.11). The release job refuses a tag that differs from `<Version>` (AD-14) |
-| How the plugin fetches the exe | Decided: an `archive` plugin source, a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`). Packaging story (1.10) implements it. The release job (1.11) must also update `marketplace.json`'s `sha256` after the build |
+| How the plugin fetches the exe | Decided, see AD-15: an `archive` plugin source, a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`, story 1.10) |
+| Stable-only catalog channel | Open. The catalog pins prereleases until 1.0. At 1.0, decide whether it moves to stable releases only, so a `1.0.1-rc.1` doesn't move every user onto an rc |
 | HRESULT triage | Epic 2. The untriaged OneNote codes, the write-side deliberate-`Internal` codes and `hrDisabledByPolicy` (AD-9); epic 1 reports them as `Internal` |
 | Events (`OnHierarchyChange`, `OnNavigate`) | A later round. Microsoft says events can't be added in managed code, so this may need a native sink or be dropped |
 | Move semantics via `UpdateHierarchy`; `MergeSections` and `MergeFiles` behaviour | Not probed. Verify in the stories that add them. `restore_from_recycle_bin` depends on move |

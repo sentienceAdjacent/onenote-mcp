@@ -31,8 +31,8 @@ jobs:
       - name: Test (integration project, offline tests)
         run: dotnet test tests/OneNoteMcp.Integration --no-build -c Release
 
-      # Plugin packaging (AD-15): pack the zip, then validate the marketplace and the staged plugin.
-      # A marketplace validate checks only an archive entry's fields, so the staged plugin is validated too.
+      # Plugin packaging (AD-15): pack the zip, then validate the staged plugin. The marketplace that
+      # pins the zip lives in sentienceAdjacent/plugins, which validates its own catalog.
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
@@ -44,8 +44,5 @@ jobs:
       - name: Pack plugin
         run: pwsh -NoProfile -File scripts/pack-plugin.ps1
 
-      - name: Validate marketplace
-        run: claude plugin validate --strict .
-
       - name: Validate staged plugin
-        run: claude plugin validate --strict dist/stage/onenote-mcp
+        run: claude plugin validate --strict dist/stage/onenote

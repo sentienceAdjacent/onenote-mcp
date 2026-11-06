@@ -2,9 +2,10 @@ name: release
 
 # Story 1.11. Push a tag v<Version> (Directory.Build.props) on a commit that is on main.
 # The build job refuses any other tag (AD-14), reruns every CI check on the tagged commit, and
-# packs the release assets. The publish job uploads those exact bytes as a GitHub Release, then
-# commits the zip's url and sha256 to marketplace.json on main. A version string is never reused
-# (AD-19), so a failed release is retried with a new version, not by moving the tag.
+# packs the release assets. The publish job uploads those exact bytes as a GitHub Release. The
+# catalog in sentienceAdjacent/plugins pins it from there: its own sync workflow reads this repo's
+# releases (AD-15). A version string is never reused (AD-19), so a failed release is retried with
+# a new version, not by moving the tag.
 
 on:
   push:
@@ -13,7 +14,7 @@ on:
 permissions: {}
 
 # One group per tag, so quickly pushed tags never cancel each other's pending runs. Runs for
-# different tags can finish out of order; the pin step only ever moves the catalog forward.
+# different tags can finish out of order; the catalog's sync only ever moves its pin forward.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -54,7 +55,7 @@ jobs:
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
           Write-Output "Releasing $version (prerelease: $prerelease)."
 
-      # The publish job commits the catalog to main, so only a commit already on main is released.
+      # Only a commit already on main is released (release discipline, story 1.11).
       - name: Check the tagged commit is on main
         shell: pwsh
         run: |
@@ -89,11 +90,8 @@ jobs:
       - name: Pack plugin
         run: pwsh -NoProfile -File scripts/pack-plugin.ps1
 
-      - name: Validate marketplace
-        run: claude plugin validate --strict .
-
       - name: Validate staged plugin
-        run: claude plugin validate --strict dist/stage/onenote-mcp
+        run: claude plugin validate --strict dist/stage/onenote
 
       # The assets: the zip and its .sha256 from the pack script, the bare exe that is inside the
       # zip, and a .sha256 for it. Every hash is of these bytes; nothing is rebuilt after this.
@@ -106,7 +104,7 @@ jobs:
           $zipName = "onenote-$version-win-x64.zip"
           $out = New-Item -ItemType Directory -Force dist/release
           Copy-Item "dist/$zipName", "dist/$zipName.sha256" $out
-          Copy-Item dist/stage/onenote-mcp/OneNoteMcp.exe $out
+          Copy-Item dist/stage/onenote/OneNoteMcp.exe $out
           $exeHash = (Get-FileHash -Algorithm SHA256 (Join-Path $out OneNoteMcp.exe)).Hash.ToLowerInvariant()
           "$exeHash  OneNoteMcp.exe`n" | Set-Content -NoNewline -Encoding utf8NoBOM (Join-Path $out OneNoteMcp.exe.sha256)
           $zipHash = (Get-FileHash -Algorithm SHA256 (Join-Path $out $zipName)).Hash.ToLowerInvariant()
@@ -126,7 +124,7 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    # The only job that writes: it creates the release and commits the catalog to main.
+    # The only job that writes: it creates the release.
     permissions:
       contents: write
     env:
@@ -173,73 +171,3 @@ jobs:
           cd served
           sha256sum -c "$ZIP.sha256" OneNoteMcp.exe.sha256
           test "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "$ZIP_SHA256"
-
-      # The tagged commit keeps the previous release's values; main gets this release's.
-      - uses: actions/checkout@v5
-        with:
-          ref: main
-          path: repo
-
-      - name: Pin marketplace.json to this release
-        working-directory: repo
-        run: |
-          export LC_ALL=C
-          # semver_gt A B: success when A > B by semver precedence (major.minor.patch[-prerelease]).
-          semver_gt() {
-            local a=$1 b=$2 ap= bp= i x y
-            [[ $a == *-* ]] && ap=${a#*-}
-            [[ $b == *-* ]] && bp=${b#*-}
-            local -a ac bc ai bi
-            IFS=. read -ra ac <<< "${a%%-*}"
-            IFS=. read -ra bc <<< "${b%%-*}"
-            for i in 0 1 2; do
-              (( 10#${ac[i]} > 10#${bc[i]} )) && return 0
-              (( 10#${ac[i]} < 10#${bc[i]} )) && return 1
-            done
-            [[ -z $ap ]] && { [[ -n $bp ]]; return; }  # a release outranks its prereleases
-            [[ -z $bp ]] && return 1
-            IFS=. read -ra ai <<< "$ap"
-            IFS=. read -ra bi <<< "$bp"
-            for (( i = 0; i < ${#ai[@]} && i < ${#bi[@]}; i++ )); do
-              x=${ai[i]} y=${bi[i]}
-              [[ $x == "$y" ]] && continue
-              if [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]]; then (( 10#$x > 10#$y )); return; fi
-              [[ $x =~ ^[0-9]+$ ]] && return 1  # numeric identifiers rank below alphanumeric ones
-              [[ $y =~ ^[0-9]+$ ]] && return 0
-              [[ $x > $y ]]; return
-            done
-            (( ${#ai[@]} > ${#bi[@]} ))
-          }
-
-          url="https://github.com/${GH_REPO}/releases/download/${TAG}/${ZIP}"
-          file=.claude-plugin/marketplace.json
-
-          # Only ever move the catalog forward: runs for different tags can finish out of order.
-          current_url=$(jq -r '.plugins[] | select(.name == "onenote-mcp") | .source.url' "$file")
-          current_sha=$(jq -r '.plugins[] | select(.name == "onenote-mcp") | .source.sha256' "$file")
-          if [[ $current_sha != 0000000000000000000000000000000000000000000000000000000000000000 ]]; then
-            if [[ ! $current_url =~ /releases/download/v([^/]+)/onenote-([^/]+)-win-x64\.zip$ ]] \
-              || [[ ${BASH_REMATCH[1]} != "${BASH_REMATCH[2]}" ]]; then
-              echo "Can't read the pinned version from '$current_url'."; exit 1
-            fi
-            current=${BASH_REMATCH[1]}
-            if ! semver_gt "$VERSION" "$current"; then
-              echo "main pins $current; $VERSION is not newer, so the catalog is left alone. Pin it by hand if that is intended."
-              exit 1
-            fi
-          fi
-
-          jq --indent 2 --arg url "$url" --arg sha "$ZIP_SHA256" \
-            '(.plugins[] | select(.name == "onenote-mcp") | .source) |= (.url = $url | .sha256 = $sha)' \
-            "$file" > "$file.tmp"
-          mv "$file.tmp" "$file"
-          jq -e --arg url "$url" --arg sha "$ZIP_SHA256" \
-            '[.plugins[] | select(.name == "onenote-mcp") | .source | select(.url == $url and .sha256 == $sha)] | length == 1' \
-            "$file" > /dev/null || { echo "marketplace.json has no single onenote-mcp entry to pin."; exit 1; }
-          if git diff --quiet; then echo "marketplace.json already pins $url."; exit 0; fi
-          git diff
-          git config user.name "github-actions[bot]"
-          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore(release): pin marketplace to ${TAG}"
-          # main may have moved while this ran: rebase once and retry.
-          git push origin HEAD:main || { git pull --rebase origin main && git push origin HEAD:main; }
