@@ -38,4 +38,4 @@
   evidence: `--diag-page` on a real work-notebook page: six back-to-back raw reads gave `A B A B A B`. Lengths were identical; the only difference was two column widths trading 1.5658 pt with the same total. `ElementHash.cs` ignore list doesn't include `width`. Fix in the AD-17 hash rule (ignore or normalise unlocked Column/@width) when the write pipeline lands. OneMore's defects page has no record of it (checked 2026-11-06; `research-onemore-lessons.md` row 15).
 - source_plan: same
   summary: `get_binary_page_content` can't read the CallbackIDs of `one:XPSFile` (File Printout backgrounds): OneNote returns ObjectNotFound (0x80042014), both raw and through the tool.
-  evidence: `--diag-callbacks` on notebooks A and B: all 6 XPSFile CallbackIDs (A 4, B 2) ObjectNotFound, and no other element gave ObjectNotFound. Say so in the tool description, or map it to binaryUnavailable, in 1.13.
+  evidence: `--diag-callbacks` on notebooks A and B: all 6 XPSFile CallbackIDs (A 4, B 2) ObjectNotFound, and no other element gave ObjectNotFound. Say so in the tool description, or map it to binaryUnavailable, in 1.21.

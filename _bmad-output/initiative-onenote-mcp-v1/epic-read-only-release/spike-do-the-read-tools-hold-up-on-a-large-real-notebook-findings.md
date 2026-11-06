@@ -18,7 +18,7 @@ evidence: 'spikes/stress-harness/ (harness, diag modes, cap probe, image-downloa
    - unlocked table column widths alternate on every read of one page;
    - `one:XPSFile` CallbackIDs give `ObjectNotFound`;
    - `SyncHierarchy` doesn't fetch images that aren't on this PC.
-5. **Seven recommendations:** large results (new story, before 1.14), find_pages cost (new story or part of rec 1), a read grant for protected sections (new story and spine amendment, before 1.14), missing images (1.13), XPSFile (1.13), column widths (epic 2), and a synthetic size fixture (new story).
+5. **Seven recommendations:** large results (1.16 spine amendment, then 1.18), find_pages cost (1.19), a read grant for protected sections (1.16, then 1.20), missing images and XPSFile (1.21), column widths (epic 2), and a synthetic size fixture (1.17). All come before 1.13, the epic's clean-machine install.
 
 **Status:** final (2026-11-06). Fable-reviewed, all 18 findings applied, and Phill reviewed it for content. The real-notebook runs used three work notebooks, called A, B and C here.
 
@@ -233,7 +233,7 @@ These notebooks aren't a forecast for other users (Phill, 2026-11-06). What they
 
 ### Recommendations
 
-1. **Large results must stay fully usable.** New story, before 1.14.
+1. **Large results must stay fully usable.** 1.16 (spine amendment), then 1.18; before 1.13.
    - **The problem (measured):** 11–34% of page reads, two of the three notebooks' pages-scope listings (A 56.7k, B 72.5k) and the root pages listing (198k) reach the model only as a 2 KB preview or a notice. C's pages-scope listing (38.6k) fits.
    - **Phill's rule (2026-11-06):** no functionality may be lost because of size. Writing results to disk and reading them from there is acceptable, and so is adding an XML library so the model reads them semantically.
    - **First a spine amendment** to choose the delivery design. Candidates:
@@ -249,14 +249,14 @@ These notebooks aren't a forecast for other users (Phill, 2026-11-06). What they
      - be documented in the README.
 
      Claude Code's own spill files under `~/.claude/projects/` are acceptable to Phill, but they should also be documented.
-2. **find_pages cost grows with page count.** New story, or part of recommendation 1.
+2. **find_pages cost grows with page count.** 1.19.
    - **The problem:** it takes about 100 times as long as the raw `FindPages` (measured), because with unindexed pages included it reads every candidate page whose name doesn't match (code reading). At about 190 pages that's 5 s (measured). A notebook ten times larger would take about a minute, by linear extrapolation (inferred, not measured).
    - **Timeouts don't stop it (code reading).** Our 30 s `timeouts.call` bounds each COM call, not the tool, so it doesn't stop a long find_pages. Claude Code's per-tool MCP timeout (`MCP_TOOL_TIMEOUT`) has a documented default of about 28 hours (code.claude.com/docs/en/mcp, read 2026-11-06), and the plugin's `.mcp.json` sets no `timeout`. So neither limit would cut off a one-minute call. The cost is the user's wait, unless a user sets a short `MCP_TOOL_TIMEOUT`.
    - **Options:**
      - use indexed results first and read only the remainder;
      - cache page text by `lastModifiedTime`;
      - set a time budget that returns partial results flagged `possiblyIncomplete`, which AD-12 already promises.
-3. **Password-protected sections need an explicit read grant.** New story and spine amendment, before 1.14.
+3. **Password-protected sections need an explicit read grant.** 1.16 (spine amendment), then 1.20; before 1.13.
    - **Phill's rule (2026-11-06):** these sections stay unreadable without explicit permission, even while unlocked.
    - **Detection is reliable:** `encrypted="true"` is present whether the section is locked or not (spike 1).
    - **Scope:** the grant must cover every read path:
@@ -264,15 +264,15 @@ These notebooks aren't a forecast for other users (Phill, 2026-11-06). What they
      - page names in the hierarchy;
      - `get_hyperlink_to_object` and `get_web_hyperlink_to_object`, because the onenote: link embeds the section file name and the page title (measured on MCP Test's captured link fixture);
      - `get_hierarchy_parent`, which confirms where a page sits.
-4. **Images that aren't on this PC.** 1.13.
+4. **Images that aren't on this PC.** 1.21.
    - **The probe (measured, quirk 3):** `SyncHierarchy` on the page, and then on its section, returned S_OK at once. Neither brought the image down within 60 s per attempt.
    - **What to build (Phill chose the opt-in route, 2026-11-06):**
      - an opt-in fetch: on the user's explicit request, `NavigateTo` the page so OneNote downloads its images, then read the binary again. It stays user-requested only, because it takes focus (AD-11). Whether showing the page actually downloads the images is unverified (inferred), so 1.13 must measure it first.
      - The `binaryUnavailable` warning's `userAction` offers that fetch and also points to OneNote's Options > Sync > "Download all files and images".
    - **Calling `SyncHierarchy` from a read tool is not an option without a spine amendment.** It is an `AppState` operation under AD-7, bound by AD-11, so the amendment would have to reclassify or allow it. Given quirk 3, it's not worth it either.
-5. **XPSFile CallbackIDs.** 1.13. All 6 `ObjectNotFound`s (A 4, B 2) were page-level `one:XPSFile` (quirk 2). Either map ObjectNotFound for `one:XPSFile` to `binaryUnavailable`, or say in get_binary_page_content's description that printout backgrounds can't be read.
+5. **XPSFile CallbackIDs.** 1.21. All 6 `ObjectNotFound`s (A 4, B 2) were page-level `one:XPSFile` (quirk 2). Either map ObjectNotFound for `one:XPSFile` to `binaryUnavailable`, or say in get_binary_page_content's description that printout backgrounds can't be read.
 6. **Alternating column widths.** Epic 2, logged in `deferred-work.md`. AD-17's ElementHash must ignore or normalise unlocked `one:Column/@width`. Otherwise, by the parity argument under quirk 1 (inferred), a plain read-then-write on such a page is refused as StaleWrite every time.
-7. **A synthetic size fixture.** New story, alongside recommendation 1. Generate these in MCP Test, covering what the real notebooks didn't, at sizes the design must handle:
+7. **A synthetic size fixture.** 1.17. Generate these in MCP Test, covering what the real notebooks didn't, at sizes the design must handle:
    - an oversized page;
    - a page with many large images and attachments;
    - a deep, wide hierarchy;
