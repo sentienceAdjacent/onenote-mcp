@@ -120,6 +120,13 @@ context:
 - The release job keeps its "tagged commit is on main" check (release discipline), with its comment reworded; only the catalog checkout and pin steps are gone.
 - `sync.sh` was exercised locally against the real rc.3 release with `since` lowered, using a test-only Python stand-in for `jq` (no jq on this machine): first pin wrote rc.3's url and the sha `3483722d…` (equal to the old in-repo pin), a rerun changed nothing, an older-than-pinned release left the catalog alone with exit 0, a wrong asset name failed naming the release, and a corrupted download failed with the catalog untouched. With the real `since`, it reports no release yet and exits 0. Real jq runs first in the sync workflow.
 
+- 2026-11-05, remote tasks:
+  - PR #2 merged, then PR #3 (the 0.4.0-rc.4 bump) merged.
+  - The `v0.4.0-rc.4` release run was green.
+  - `sentienceAdjacent/plugins` was created public. Its CI is green.
+  - The first sync pinned rc.4, with sha `b02fbb79…a344` matching the release `.sha256`. The second sync reported "already pins v0.4.0-rc.4" and made no commit.
+  - The real install passed (see the epic Finding).
+
 ## Plan Change Log
 
 ## Review Triage Log
