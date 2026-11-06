@@ -204,6 +204,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
         Shuffle(all);
         var chosen = all.Take(options.MaxBinaries).ToList();
         var done = 0;
+        int returned = 0, unavailable = 0, notFound = 0;
         foreach (var (page, callback) in chosen)
         {
             var (rec, raw, tool) = await CompareAsync(
@@ -222,12 +223,29 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
                 rec.Counts["base64Chars"] = b.Length;
             }
 
+            // Counted from the oracle's outcome, so a tool that disagrees shows up as a mismatch, not here.
+            if (raw is { Ok: true, Value.Length: > 0 })
+            {
+                returned++;
+            }
+            else if (raw.HResult == BinaryObjectDoesNotExist)
+            {
+                unavailable++;
+            }
+            else if (raw.Code == nameof(ErrorCode.ObjectNotFound))
+            {
+                notFound++;
+            }
+
             recorder.Add(rec);
             Progress.Report(Phase, ++done, chosen.Count);
         }
 
-        recorder.NotebookCounts["binariesAvailable"] = all.Count;
+        recorder.NotebookCounts["callbackIdsFound"] = all.Count;
         recorder.NotebookCounts["binariesCompared"] = chosen.Count;
+        recorder.NotebookCounts["binariesReturned"] = returned;
+        recorder.NotebookCounts["binariesUnavailable"] = unavailable;
+        recorder.NotebookCounts["binariesNotFound"] = notFound;
     }
 
     // ---- search ----
@@ -603,7 +621,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
     private static bool Same(RawOutcome r, ToolOutcome t, string? toolValue) =>
         r.Ok ? t.Ok && string.Equals(toolValue, r.Value, StringComparison.Ordinal) : !t.Ok && t.Code == r.Code;
 
-    private static async Task<(CallRecord Record, RawOutcome Raw, ToolOutcome Tool)> CompareAsync(
+    internal static async Task<(CallRecord Record, RawOutcome Raw, ToolOutcome Tool)> CompareAsync(
         string phase,
         string tool,
         string kind,
@@ -622,17 +640,52 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
         }
 
         rec.Retried = true;
+
+        // Two raw reads back to back, with no tool call between them: OneNote can alternate a page's XML on every
+        // read (one:Column/@width, spike 1.15), which a raw/tool/raw/tool order would line up with and hide.
         var raw2 = await raw();
+        var raw3 = await raw();
+        if (raw2.Key != raw3.Key)
+        {
+            rec.Match = Match.UnstableRead;
+            rec.RawResult = raw3;
+            rec.Counts["rawReads"] = 3;
+            if (raw2 is { Ok: true, Value: { } v2 } && raw3 is { Ok: true, Value: { } v3 })
+            {
+                var at = FirstDifference(v2, v3);
+                var (path, attr) = Diag.PathAt(v2, at);
+                rec.Counts["unstableOffset"] = at;
+                rec.Labels["unstablePath"] = path;
+                if (attr is not null)
+                {
+                    rec.Labels["unstableAttr"] = attr;
+                }
+            }
+
+            return (rec, raw3, tool1);
+        }
+
         var tool2 = await call();
         rec.Match = raw1.Key != raw2.Key
             ? Match.ChangedDuringRun
-            : equal(raw2, tool2) ? Match.Recovered : Match.Mismatch;
+            : equal(raw3, tool2) ? Match.Recovered : Match.Mismatch;
         // The record carries the second attempt, the one the match state describes; the first's size and time stay as counts.
-        rec.RawResult = raw2;
+        rec.RawResult = raw3;
         rec.ToolResult = tool2;
         rec.Counts["firstBytes"] = tool1.Bytes;
         rec.Counts["firstMs"] = tool1.Ms;
-        return (rec, raw2, tool2);
+        return (rec, raw3, tool2);
+    }
+
+    internal static int FirstDifference(string a, string b)
+    {
+        var i = 0;
+        while (i < a.Length && i < b.Length && a[i] == b[i])
+        {
+            i++;
+        }
+
+        return i;
     }
 
     /// <summary>Runs an XML fact-gathering step; a parse failure is counted by exception type, never its message.</summary>

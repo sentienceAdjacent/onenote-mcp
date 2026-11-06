@@ -45,6 +45,20 @@ internal sealed class ToolClient(McpClient client)
     // A tool can make many COM calls (find_pages reads every candidate page), so the harness's own wait is generous.
     private static readonly TimeSpan CallLimit = TimeSpan.FromMinutes(15);
 
+    /// <summary>The unreduced result, for the diag modes; null on a protocol failure.</summary>
+    public async Task<CallToolResult?> CallRawAsync(string tool, Dictionary<string, object?> args)
+    {
+        using var cts = new CancellationTokenSource(CallLimit);
+        try
+        {
+            return await client.CallToolAsync(tool, args, cancellationToken: cts.Token);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public async Task<ToolOutcome> CallAsync(string tool, Dictionary<string, object?> args)
     {
         using var cts = new CancellationTokenSource(CallLimit);

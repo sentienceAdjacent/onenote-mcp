@@ -32,16 +32,22 @@ catch (Exception ex)
 static async Task<int> MainAsync(string[] args)
 {
     var options = Options.Parse(args);
+
+    if (options.ProbeSync)
+    {
+        return ProbeSync.Run(options.NotebookId!, options.ProbePage);
+    }
+
     var contract = ContractToolNames();
     if (options.FakeServerChars is { } chars)
     {
         return await FakeServer.RunAsync(chars, options.FakeVariant, options.FakeFiller, contract);
     }
 
-    // --out must resolve outside the repo, checked before anything starts.
-    var outDir = Path.GetFullPath(options.Out!);
+    // --out must resolve outside the repo, checked before anything starts. The diag modes write no files.
+    var outDir = options.IsDiag ? "" : Path.GetFullPath(options.Out!);
     var roots = RepoPaths.Roots();
-    if (roots.Any(r => RepoPaths.IsInside(outDir, r)))
+    if (!options.IsDiag && roots.Any(r => RepoPaths.IsInside(outDir, r)))
     {
         throw new RefusalException(Exit.Usage, "--out resolves inside the repo; choose a folder outside it");
     }
@@ -88,6 +94,14 @@ static async Task<int> MainAsync(string[] args)
     var settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-stress", Guid.NewGuid().ToString("N"));
     try
     {
+        if (options.IsDiag)
+        {
+            using var diagGateway = new ComGateway(probe, new SettingsStore(Path.Combine(settingsDir, "settings.json")));
+            return options.DiagPage is { } page
+                ? await Diag.PageAsync(diagGateway, new ToolClient(client), page)
+                : await Diag.CallbacksAsync(diagGateway, await ResolveNotebookAsync(diagGateway, options));
+        }
+
         return await RunAsync(options, client, exe, probe, settingsDir, outDir, () => serverStderrLines);
     }
     finally
@@ -150,7 +164,8 @@ static async Task<int> RunAsync(Options options, McpClient client, string exe, P
     recorder.WriteSummary(notebookId, options, sw.ElapsedMilliseconds, abortedBy);
     var mismatches = recorder.Records.Count(r => r.Match == Match.Mismatch);
     var changed = recorder.Records.Count(r => r.Match == Match.ChangedDuringRun);
-    Console.Error.WriteLine($"done: {recorder.Records.Count} comparisons, {mismatches} mismatches, {changed} changedDuringRun, {sw.ElapsedMilliseconds} ms");
+    var unstable = recorder.Records.Count(r => r.Match == Match.UnstableRead);
+    Console.Error.WriteLine($"done: {recorder.Records.Count} comparisons, {mismatches} mismatches, {changed} changedDuringRun, {unstable} unstableRead, {sw.ElapsedMilliseconds} ms");
     return abortedBy is not null ? Exit.Crashed : mismatches > 0 ? Exit.Mismatches : Exit.Ok;
 }
 
@@ -188,3 +203,4 @@ static IReadOnlyList<string> ContractToolNames()
     using var doc = JsonDocument.Parse(stream);
     return [.. doc.RootElement.GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!)];
 }
+

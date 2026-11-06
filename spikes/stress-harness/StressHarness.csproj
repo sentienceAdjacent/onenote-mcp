@@ -24,6 +24,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The image-download probe calls SyncHierarchy, which ComGateway doesn't expose: a private compiled-in copy of the
+         hand-declared interop (internal to this assembly; src/ is unchanged). -->
+    <Compile Include="..\..\src\OneNoteMcp.Com\Interop\*.cs" Link="Interop\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The nine contract tool names for the startup check, from the one contract file. -->
     <EmbeddedResource Include="..\..\tests\OneNoteMcp.Tests\Contract\tool-contract.json" LogicalName="tool-contract.json" />
   </ItemGroup>

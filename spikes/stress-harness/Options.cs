@@ -35,6 +35,9 @@ internal sealed record Options
           --max-binaries <n>        binaries to compare (default 200)
           --queries <n>             find_pages queries (default 20)
           --seed <n>                random seed for queries and samples (default 1)
+          --diag-page <pageId>      diagnose a get_page_content (basic) mismatch on one page (no --out)
+          --diag-callbacks          with --notebook*: CallbackIDs by parent element and raw outcome (no --out)
+          --probe-sync              with --notebook <ID> [--page <ID>]: SyncHierarchy image-download probe (no server)
           --fake-server <chars>     run as a one-tool MCP server returning <chars> (13 or more) of filler (the cap probe)
         """;
 
@@ -61,6 +64,19 @@ internal sealed record Options
     public string FakeVariant { get; init; } = "filler";
 
     public string FakeFiller { get; init; } = "words";
+
+    /// <summary>Diagnose one page's get_page_content (Basic) mismatch: prints positions, codepoints and element names only.</summary>
+    public string? DiagPage { get; init; }
+
+    /// <summary>Count the notebook's CallbackIDs by parent element name and raw binary outcome. Names of elements only.</summary>
+    public bool DiagCallbacks { get; init; }
+
+    /// <summary>The image-download probe: SyncHierarchy on one page (approved for notebook A only). Needs --notebook.</summary>
+    public bool ProbeSync { get; init; }
+
+    public string? ProbePage { get; init; }
+
+    public bool IsDiag => DiagPage is not null || DiagCallbacks;
 
     public static Options Parse(string[] args)
     {
@@ -102,6 +118,10 @@ internal sealed record Options
                 "--seed" => o with { Seed = NextInt(int.MinValue) },
                 "--fake-server" => o with { FakeServerChars = NextInt(FakeServer.EndMarker.Length) },
                 "--fake-filler" => o with { FakeFiller = Next() },
+                "--diag-page" => o with { DiagPage = Next() },
+                "--diag-callbacks" => o with { DiagCallbacks = true },
+                "--probe-sync" => o with { ProbeSync = true },
+                "--page" => o with { ProbePage = Next() },
                 "--fake-variant" => o with { FakeVariant = Next() },
                 // The unknown argument itself is never echoed: it could be a name typed in the wrong place.
                 _ => throw new RefusalException(Exit.Usage, $"unknown argument at position {i + 1}"),
@@ -124,6 +144,26 @@ internal sealed record Options
             return o;
         }
 
+        if (o.DiagPage is not null)
+        {
+            if (o.DiagPage.Length == 0 || o.DiagCallbacks)
+            {
+                throw new RefusalException(Exit.Usage, "--diag-page takes a page ID and runs alone");
+            }
+
+            return o;
+        }
+
+        if (o.ProbeSync)
+        {
+            if (string.IsNullOrEmpty(o.NotebookId))
+            {
+                throw new RefusalException(Exit.Usage, "--probe-sync needs --notebook <ID>");
+            }
+
+            return o;
+        }
+
         if (o.NotebookId is null == (o.NotebookName is null))
         {
             throw new RefusalException(Exit.Usage, "give exactly one of --notebook or --notebook-name");
@@ -134,7 +174,7 @@ internal sealed record Options
             throw new RefusalException(Exit.Usage, "the notebook option is empty");
         }
 
-        if (string.IsNullOrWhiteSpace(o.Out))
+        if (!o.DiagCallbacks && string.IsNullOrWhiteSpace(o.Out))
         {
             throw new RefusalException(Exit.Usage, "--out is required");
         }

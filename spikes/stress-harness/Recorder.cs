@@ -15,6 +15,12 @@ internal static class Match
     /// <summary>The first tool read differed, the raw reads agreed, and the retried tool read matched them.</summary>
     public const string Recovered = "recovered";
 
+    /// <summary>
+    /// Two back-to-back raw reads differed with nothing in between: OneNote itself returns unstable XML for the object
+    /// (not an edit or sync, which is <see cref="ChangedDuringRun"/>; not a server fault, which is <see cref="Mismatch"/>).
+    /// </summary>
+    public const string UnstableRead = "unstableRead";
+
     /// <summary>Nothing to compare (for example, a search whose prediction depends on an unreadable page).</summary>
     public const string NotApplicable = "n/a";
 }
@@ -43,6 +49,9 @@ internal sealed class CallRecord
     public bool Retried { get; set; }
 
     public Dictionary<string, long> Counts { get; } = [];
+
+    /// <summary>Schema element and attribute names only (an element path such as one:Page/one:Outline/...).</summary>
+    public Dictionary<string, string> Labels { get; } = [];
 }
 
 internal sealed class Recorder : IDisposable
@@ -133,6 +142,11 @@ internal sealed class Recorder : IDisposable
         foreach (var (k, v) in r.Counts)
         {
             _writer.WriteNumber(k, v);
+        }
+
+        foreach (var (k, v) in r.Labels)
+        {
+            _writer.WriteString(k, v);
         }
 
         _writer.WriteEndObject();
