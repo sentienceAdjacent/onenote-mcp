@@ -48,7 +48,7 @@ Phill, and anyone who installs the plugin, can have Claude read, search and chan
   - `restore_from_recycle_bin`. (AD-8)
 - **R6 — Core writes.** `CreateNewPage`, `UpdatePageContent`, `DeletePageContent`, `OpenHierarchy` creating a section, section group or notebook at an empty path, `UpdateHierarchy` add, rename and reorder, `DeleteHierarchy` soft and permanent. (AD-7 rows `PageWrite`, `Create`, `HierarchyWrite` (not move), `SoftDelete`, `PermanentDelete`)
 - **R7 — Distribution.**
-  - A plugin marketplace with the `onenote` skill and the server config.
+  - A plugin marketplace with the `guide` skill and the server config.
   - A self-contained release exe built by CI, plus `claude plugin validate`.
   - A README with install steps for users and agents.
   - `uninstall --purge`.

@@ -5,17 +5,17 @@ using Xunit;
 
 namespace OneNoteMcp.Tests;
 
-/// <summary>AD-14/AD-15/AD-19: the checked-in plugin source, marketplace entry and release workflow stay consistent with the pack script's output.</summary>
+/// <summary>AD-14/AD-15/AD-19: the checked-in plugin source and release workflow stay consistent with the pack script's output.
+/// The catalog lives in sentienceAdjacent/plugins, which pins our release zips by the asset name checked here.</summary>
 public sealed class PluginPackagingTests
 {
     private const string PluginManifest = "plugin/.claude-plugin/plugin.json";
     private const string McpConfig = "plugin/.mcp.json";
-    private const string Marketplace = ".claude-plugin/marketplace.json";
+    private const string RemovedMarketplace = ".claude-plugin/marketplace.json";
     private const string ReleaseWorkflow = ".github/workflows/release.yml";
     private const string CiWorkflow = ".github/workflows/ci.yml";
     private const string PackScript = "scripts/pack-plugin.ps1";
     private const string RepoUrl = "https://github.com/sentienceAdjacent/onenote-mcp";
-    private const string NoReleaseYetSha = "0000000000000000000000000000000000000000000000000000000000000000";
 
     private static readonly Regex ArchiveUrlVersion =
         new(@"/releases/download/v(?<ver>[^/]+)/onenote-\k<ver>-win-x64\.zip$", RegexOptions.CultureInvariant);
@@ -28,13 +28,10 @@ public sealed class PluginPackagingTests
         return doc.RootElement.Clone();
     }
 
-    private static JsonElement SinglePluginEntry() =>
-        Assert.Single(ReadJson(Marketplace).GetProperty("plugins").EnumerateArray());
-
     private static string PropsVersion() =>
         XDocument.Load(RepoPaths.Combine("Directory.Build.props")).Descendants("Version").Single().Value.Trim();
 
-    /// <summary>The URL suffix the release workflow pins for a version (release.yml, "Pin marketplace.json").</summary>
+    /// <summary>The release-asset URL suffix for a version, which the sentienceAdjacent/plugins catalog pins.</summary>
     private static string ArchiveUrlSuffix(string version) => $"/releases/download/v{version}/onenote-{version}-win-x64.zip";
 
     /// <summary>The version an archive URL names, or null when its tag and file name disagree.</summary>
@@ -59,55 +56,34 @@ public sealed class PluginPackagingTests
     }
 
     [Fact]
-    public void MarketplaceEntry_HasNoVersion()
+    public void PluginName_IsOnenote()
     {
-        Assert.False(SinglePluginEntry().TryGetProperty("version", out _), $"{Marketplace} entry must not carry a 'version'.");
+        Assert.Equal("onenote", ReadJson(PluginManifest).GetProperty("name").GetString());
     }
 
     [Fact]
-    public void PluginName_MatchesTheMarketplaceEntry()
+    public void McpConfig_DeclaresTheSingleServerDesktop()
     {
-        var name = ReadJson(PluginManifest).GetProperty("name").GetString();
-        Assert.Equal("onenote-mcp", name);
-        Assert.Equal(name, SinglePluginEntry().GetProperty("name").GetString());
-        Assert.Equal("onenote-mcp", ReadJson(Marketplace).GetProperty("name").GetString());
+        var name = Assert.Single(ReadJson(McpConfig).GetProperty("mcpServers").EnumerateObject()).Name;
+        Assert.Equal("desktop", name);
+    }
+
+    [Fact]
+    public void Repo_IsNotAMarketplace()
+    {
+        // The catalog moved to sentienceAdjacent/plugins (AD-15).
+        Assert.False(File.Exists(RepoPaths.Combine(RemovedMarketplace.Split('/'))), $"{RemovedMarketplace} must not exist in this repo.");
     }
 
     [Fact]
     public void McpConfig_RunsOneNoteMcpExeFromThePluginRoot()
     {
-        var server = ReadJson(McpConfig).GetProperty("mcpServers").GetProperty("onenote");
+        var server = ReadJson(McpConfig).GetProperty("mcpServers").GetProperty("desktop");
         var command = server.GetProperty("command").GetString();
         Assert.NotNull(command);
         Assert.StartsWith("${CLAUDE_PLUGIN_ROOT}/", command, StringComparison.Ordinal);
         Assert.EndsWith("/OneNoteMcp.exe", command, StringComparison.Ordinal);
         Assert.DoesNotContain("/bin/", command, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void MarketplaceEntry_IsAnArchiveOfAReleaseNoNewerThanTheProps()
-    {
-        // The release workflow commits url and sha256 to main after publishing, so the tagged commit and any
-        // later <Version> bump carry the previous release's values: the catalog may lag the props, never lead them.
-        var props = PropsVersion();
-        var source = SinglePluginEntry().GetProperty("source");
-        Assert.Equal("archive", source.GetProperty("source").GetString());
-
-        var url = source.GetProperty("url").GetString();
-        Assert.NotNull(url);
-        Assert.StartsWith(RepoUrl + "/", url, StringComparison.Ordinal);
-        var pinned = VersionOfArchiveUrl(url);
-        Assert.True(pinned is not null, $"'{url}' must end with {ArchiveUrlSuffix("<ver>")}, the same <ver> twice.");
-        Assert.Matches(WorkflowVersionPattern(), pinned);
-
-        var sha = source.GetProperty("sha256").GetString();
-        Assert.Matches("^[0-9a-f]{64}$", sha);
-
-        // All zeros means no release has been published yet; the first release replaces it.
-        if (sha != NoReleaseYetSha)
-        {
-            Assert.True(SemVer.Compare(pinned, props) <= 0, $"{Marketplace} pins {pinned}, newer than <Version> {props}.");
-        }
     }
 
     [Fact]
@@ -200,12 +176,17 @@ public sealed class PluginPackagingTests
             "dotnet test tests/OneNoteMcp.Tests --no-build -c Release",
             "dotnet test tests/OneNoteMcp.Integration --no-build -c Release",
             "pwsh -NoProfile -File scripts/pack-plugin.ps1",
-            "claude plugin validate --strict .",
-            "claude plugin validate --strict dist/stage/onenote-mcp",
         })
         {
             Assert.Contains(line, ci, StringComparison.Ordinal);
             Assert.Contains(line, release, StringComparison.Ordinal);
+        }
+
+        // The repo root is no longer a marketplace, so neither workflow validates it as one.
+        foreach (var yaml in new[] { ci, release })
+        {
+            Assert.Matches(@"(?m)claude plugin validate --strict dist/stage/onenote\s*$", yaml);
+            Assert.DoesNotMatch(@"(?m)claude plugin validate --strict \.\s*$", yaml);
         }
 
         var pin = new Regex(@"@anthropic-ai/claude-code@(?<v>\S+)");
@@ -241,66 +222,9 @@ public sealed class PluginPackagingTests
         Assert.Single(Regex.Matches(yaml, @"(?m)^\s+contents:\s*write\s*$"));
     }
 
-    [Theory]
-    [InlineData("0.4.0-rc.1", "0.4.0-rc.2", -1)]
-    [InlineData("0.4.0-rc.2", "0.4.0-rc.10", -1)]
-    [InlineData("0.4.0-rc.1", "0.4.0", -1)]
-    [InlineData("0.4.0", "0.4.0", 0)]
-    [InlineData("0.4.1", "0.4.0", 1)]
-    [InlineData("0.10.0", "0.9.9", 1)]
-    [InlineData("1.0.0-alpha", "1.0.0-alpha.1", -1)]
-    [InlineData("1.0.0-alpha.beta", "1.0.0-alpha.1", 1)]
-    public void SemVer_ComparesByPrecedence(string a, string b, int expected)
-    {
-        Assert.Equal(expected, Math.Sign(SemVer.Compare(a, b)));
-    }
-
     [Fact]
     public void PluginSource_HasNoBinFolder()
     {
         Assert.False(Directory.Exists(RepoPaths.Combine("plugin", "bin")), "plugin/bin must not exist (AD-15).");
-    }
-
-    /// <summary>Semver 2.0 precedence for major.minor.patch[-prerelease]; enough for the catalog's lag check.</summary>
-    private static class SemVer
-    {
-        public static int Compare(string a, string b)
-        {
-            var (coreA, preA) = Split(a);
-            var (coreB, preB) = Split(b);
-            for (var i = 0; i < 3; i++)
-            {
-                var c = coreA[i].CompareTo(coreB[i]);
-                if (c != 0) return c;
-            }
-
-            // A release outranks its prereleases.
-            if (preA.Length == 0 || preB.Length == 0) return preB.Length.CompareTo(preA.Length);
-            for (var i = 0; i < Math.Min(preA.Length, preB.Length); i++)
-            {
-                var c = ComparePart(preA[i], preB[i]);
-                if (c != 0) return c;
-            }
-
-            return preA.Length.CompareTo(preB.Length);
-        }
-
-        private static (long[] Core, string[] Pre) Split(string version)
-        {
-            var dash = version.IndexOf('-', StringComparison.Ordinal);
-            var core = (dash < 0 ? version : version[..dash]).Split('.').Select(long.Parse).ToArray();
-            string[] pre = dash < 0 ? [] : version[(dash + 1)..].Split('.');
-            return (core, pre);
-        }
-
-        private static int ComparePart(string a, string b)
-        {
-            var aNumeric = long.TryParse(a, out var x);
-            var bNumeric = long.TryParse(b, out var y);
-            if (aNumeric && bNumeric) return x.CompareTo(y);
-            // Numeric identifiers rank below alphanumeric ones.
-            if (aNumeric != bNumeric) return aNumeric ? -1 : 1;
-            return string.CompareOrdinal(a, b);
-        }
     }
 }

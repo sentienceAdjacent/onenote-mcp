@@ -12,7 +12,7 @@
 
   <Version> is semver, optionally with a prerelease suffix (0.4.0-rc.1). No build metadata.
 
-  Validate the staged plugin with: claude plugin validate --strict dist/stage/onenote-mcp
+  Validate the staged plugin with: claude plugin validate --strict dist/stage/onenote
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +26,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $root 'src/OneNoteMcp.Server/OneNoteMcp.Server.csproj'
 $dist = Join-Path $root 'dist'
 $publishDir = Join-Path $dist 'publish'
-$stageDir = Join-Path $dist 'stage/onenote-mcp'
+$stageDir = Join-Path $dist 'stage/onenote'
 
 function Invoke-Native([string]$what, [scriptblock]$call) {
     $output = & $call

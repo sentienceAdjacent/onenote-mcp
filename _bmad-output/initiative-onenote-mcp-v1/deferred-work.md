@@ -21,3 +21,12 @@
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-gateway-lifecycle-read-side-port-and-integration-harness-plan.md`
   summary: AD-3's write-side timeout rules are not built: a timed-out write reporting `outcomeUnknown: true`, and "while an abandoned write is still outstanding, new non-read pipelines return `ComBusy`". Epic 2's first write story adds them.
   evidence: Story 1.5 puts no write methods on `IOneNoteGateway` (plan, Never). `ComGateway` counts abandoned workers but doesn't record whether the abandoned call was a write; the raw seam `ComGateway.InvokeAsync(..., retryOnDisconnect: false)` used by the integration suite's guarded writes only skips the disconnect retry. Busy (`RPC_E_CALL_REJECTED`, `RETRYLATER`) is currently retried with backoff for writes too, on the basis that a rejected call never ran; epic 2 should confirm that.
+- source_plan: `plan-marketplace-repo-and-plugin-rename.md`
+  summary: Nothing checks that the Claude Code validator pin (2.1.318) in sentienceAdjacent/plugins (ci.yml, sync.yml) stays equal to onenote-mcp's.
+  evidence: Fable review of AD-15, finding 10. PluginPackagingTests only compares ci.yml and release.yml in this repo. The catalog's copies are kept in step by comments alone.
+- source_plan: `plan-marketplace-repo-and-plugin-rename.md`
+  summary: Branch protection on sentienceAdjacent/plugins main would break sync.yml's direct bot push. It would need a PR-based sync, or a bypass for github-actions.
+  evidence: Fable review of AD-15, finding 13. sync.yml pushes straight to main with GITHUB_TOKEN. AD-15 now states the precondition.
+- source_plan: `plan-marketplace-repo-and-plugin-rename.md`
+  summary: Nothing stops a pinned release from being deleted. The catalog would point at a 404 until a newer release exists.
+  evidence: Fable review of AD-15, finding 12. AD-15 now says a published release is never deleted, but that rule is by convention only, with no check or tag protection.

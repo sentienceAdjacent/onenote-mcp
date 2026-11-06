@@ -1,5 +1,5 @@
 {
-  "name": "onenote-mcp",
+  "name": "onenote",
   "displayName": "OneNote MCP",
   "description": "Read and manage OneNote desktop notebooks on this Windows machine through OneNote's COM automation API.",
   "author": {
