@@ -203,13 +203,38 @@ references = [
 ]
 
 [[entry]]
+id = 15
+type = "spike"
+title = "Do the read tools hold up on a large real notebook?"
+description = "Stress-tests the nine read tools, read-only, against Phill's largest real work notebook. A harness drives OneNoteMcp.exe over stdio and compares each result with raw COM. It records only IDs, sizes, timings, counts and pass/fail, never note text, titles or names, so no content reaches the model. Phill picks the notebook and starts each run (hitl). Stories 1.13 and 1.14 wait on the answer. The answer is recorded in spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md beside this file."
+verify = """The findings doc reports, with numbers and no content:
+- accuracy: get_page_content matches raw COM GetPageContent byte for byte on every page; get_hierarchy at each scope lists every section and page raw COM GetHierarchy lists; find_pages and find_meta match what the post-filter rules predict, recycle-bin pages excluded;
+- limits: the largest pages, the pages with the most and largest binaries, response sizes against Claude Code's MCP tool-result limit, timings against the per-call timeouts, and the whole notebook at pages scope;
+- a recommendation, such as paging, a size cap or a warning, for each limit hit, filed as a change to 1.13 or 1.14 or as a new story."""
+covers = ["R1", "R2", "R3"]
+after = [7, 8, 9]
+hitl = true
+risk = "medium"
+unknown = "How large the real notebook's results get, and where they break. That includes Claude Code's MCP tool-result cap (MAX_MCP_OUTPUT_TOKENS, about 25k tokens by default) and what the client does past it."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md",
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/research-onemore-lessons.md",
+]
+notes = [
+  "Decision (Phill, 2026-11-05): read-only on the real notebook. No copy, no writes. A copied scratch notebook waits for epic 2, where writes need it.",
+  "Decision (Phill, 2026-11-05): content stays out of the model's context. Raw harness output stays outside the repo; only aggregate numbers go in the findings doc.",
+  "Never close or kill OneNote, never call NavigateTo, never write to the notebook.",
+  "Risk medium: a real notebook with work content. Check outside the ticket: Phill reviews the findings doc for content before it is committed.",
+]
+
+[[entry]]
 id = 13
 type = "story"
 title = "README, uninstall --purge and clean-machine install"
 description = "Adds uninstall --purge (removes the OneNoteMcp settings, logs and journal-named files only, and refuses root-like journal paths), makes the repo public, rewrites the README from planned to real steps with sentienceAdjacent/onenote-mcp and the sentienceAdjacent/plugins marketplace, and runs the clean-machine install as the epic's end-to-end check."
 verify = "On a clean Windows profile an agent following the README alone installs from the release and lists notebooks, the manual-client and build-from-source routes both work, and a scripted before/after directory snapshot shows purge removed only OneNoteMcp files."
 covers = ["R7"]
-after = [11, 12]
+after = [11, 12, 15]
 hitl = true
 risk = "high"
 unknown = "None beyond what a clean profile turns up."
@@ -227,7 +252,7 @@ title = "Refactor sweep"
 description = "Cleans up what the epic's build records and deferred review findings list; its scope is set when it starts and takes cleanup only."
 verify = "The CI and integration suites stay green and every deferred finding from the epic is closed or moved to a new story."
 covers = ["R3"]
-after = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+after = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15]
 hitl = false
 risk = "low"
 unknown = "Scope is unknown until the other stories finish."
