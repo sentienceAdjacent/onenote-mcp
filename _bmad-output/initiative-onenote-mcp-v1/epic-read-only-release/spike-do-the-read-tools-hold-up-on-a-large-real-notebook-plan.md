@@ -3,7 +3,7 @@ title: 'Spike: do the read tools hold up on a large real notebook?'
 type: 'chore'
 ticket: '15'
 created: '2026-11-05'
-status: 'built'
+status: done
 route: 'full'
 route_source: 'auto'
 baseline_revision: '85ddad7d6066fa3e8241cf0c7f14d1320c2b3e14'
