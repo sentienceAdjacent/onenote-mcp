@@ -222,6 +222,53 @@ public sealed class PluginPackagingTests
         Assert.Single(Regex.Matches(yaml, @"(?m)^\s+contents:\s*write\s*$"));
     }
 
+    private const string GuideSkill = "plugin/skills/guide/SKILL.md";
+    private const string ToolContract = "tests/OneNoteMcp.Tests/Contract/tool-contract.json";
+    private const string ToolPrefix = "mcp__plugin_onenote_desktop__";
+
+    private static IReadOnlyList<string> ContractToolNames() =>
+        ReadJson(ToolContract).GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToList();
+
+    [Fact]
+    public void GuideSkill_HasFrontmatterNamedGuide()
+    {
+        var lines = ReadText(GuideSkill).ReplaceLineEndings("\n").Split('\n');
+        Assert.Equal("---", lines[0]);
+        var end = Array.IndexOf(lines, "---", 1);
+        Assert.True(end > 0, $"{GuideSkill} must close its YAML frontmatter with '---'.");
+
+        var frontmatter = lines[1..end];
+        Assert.Contains("name: guide", frontmatter);
+        var description = Assert.Single(frontmatter, l => l.StartsWith("description:", StringComparison.Ordinal));
+        Assert.NotEqual("", description["description:".Length..].Trim());
+    }
+
+    [Fact]
+    public void GuideSkill_MentionsEveryContractTool()
+    {
+        // AD-14: a tool added to the contract snapshot fails here until the skill covers it.
+        // Whole names only, so get_hierarchy isn't satisfied by get_hierarchy_parent.
+        var named = NamedTools();
+        var names = ContractToolNames();
+        Assert.NotEmpty(names);
+        Assert.All(names, name => Assert.True(named.Contains(name), $"{GuideSkill} must name {ToolPrefix}{name}."));
+    }
+
+    [Fact]
+    public void GuideSkill_NamesOnlyContractTools()
+    {
+        var names = ContractToolNames().ToHashSet(StringComparer.Ordinal);
+        var named = NamedTools();
+        Assert.NotEmpty(named);
+        Assert.All(named, name => Assert.True(names.Contains(name), $"{GuideSkill} names '{ToolPrefix}{name}', which is not in the tool contract."));
+    }
+
+    /// <summary>Every whole tool name the skill writes after <see cref="ToolPrefix"/>.</summary>
+    private static HashSet<string> NamedTools() =>
+        Regex.Matches(ReadText(GuideSkill), Regex.Escape(ToolPrefix) + @"(?<name>\w+)")
+            .Select(m => m.Groups["name"].Value)
+            .ToHashSet(StringComparer.Ordinal);
+
     [Fact]
     public void PluginSource_HasNoBinFolder()
     {

@@ -1,0 +1,172 @@
+---
+name: guide
+description: This skill should be used when the user asks about their OneNote notebooks, sections, section groups, pages or subpages, for example "list my OneNote notebooks", "what sections are in my Work notebook", "find the page called Trip plan", "read my meeting notes page", "search OneNote for budget", "show my To Do items on that page", "find pages tagged with project", "what's in Quick Notes", "where is the OneNote backup folder", "get a link to this OneNote page", "show the image on that page" or "which notebook is this page in". Also use it when the user asks to create, edit, move, rename or delete anything in OneNote, because this release is read-only. It covers tool choice and scope, reading OneNote 2013 XML, search caveats, and errors.
+---
+
+# OneNote desktop: reading notebooks
+
+The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has nine read tools and no write tools.
+
+The tools are thin wrappers over COM. Their descriptions say what each parameter means; this guide says which tool to pick, in what order, and how to interpret what comes back.
+
+## When to use
+
+Use this guide for any OneNote read: listing notebooks, section groups, sections and pages, reading pages, searching, getting links, and looking up special locations such as Quick Notes.
+
+If the user asks to change a notebook (add, edit, move, rename or delete a page or section), say that this release can only read OneNote, and that they can make the change in OneNote themselves. Don't work around it: never edit `.one` files or other notebook files, never script or automate the OneNote window, and never use any other route to change a notebook.
+
+## Tool map
+
+Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its bare name.
+
+| Tool (bare name) | Use it to | Returns |
+| --- | --- | --- |
+| `mcp__plugin_onenote_desktop__get_hierarchy` (`get_hierarchy`) | List notebooks, section groups, sections and pages, from the root or from any ID | `xml` |
+| `mcp__plugin_onenote_desktop__get_hierarchy_parent` (`get_hierarchy_parent`) | Step one level up from an ID | `meta.parentId` |
+| `mcp__plugin_onenote_desktop__get_page_content` (`get_page_content`) | Read one page | `xml`, `meta.basis` |
+| `mcp__plugin_onenote_desktop__get_binary_page_content` (`get_binary_page_content`) | Read one image (or other binary) from a page | `meta.binary` (base64) |
+| `mcp__plugin_onenote_desktop__find_pages` (`find_pages`) | Full-text search under a notebook, section group or section | `xml`, `meta.filtered` |
+| `mcp__plugin_onenote_desktop__find_meta` (`find_meta`) | Find pages tagged with a `one:Meta` name | `xml`, `meta.filtered` |
+| `mcp__plugin_onenote_desktop__get_hyperlink_to_object` (`get_hyperlink_to_object`) | Get a `onenote:` link to a notebook, section, page or paragraph | `meta.link` |
+| `mcp__plugin_onenote_desktop__get_web_hyperlink_to_object` (`get_web_hyperlink_to_object`) | Get an `https` link, for notebooks stored on OneDrive or SharePoint | `meta.link` |
+| `mcp__plugin_onenote_desktop__get_special_location` (`get_special_location`) | Get the path of the backup folder, the Quick Notes section or the default notebook folder | `meta.path` |
+
+Every result is an envelope: `{ok: true, xml?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
+
+### Choosing the cheapest call
+
+- Use `mcp__plugin_onenote_desktop__get_hierarchy` at the narrowest scope that answers the question. Start from the notebook or section the user means, not from the root, and go only as deep as needed:
+  - `self`: the start node only (its name and attributes).
+  - `children`: its direct children only.
+  - `notebooks`: notebooks only. This is the default, and with no `startNodeId` it lists every open notebook.
+  - `sections`: down to sections, including section groups.
+  - `pages`: down to pages. This can be large; use it from one section, or at most one notebook, never from the root unless the user asks for everything.
+- Read pages with `mcp__plugin_onenote_desktop__get_page_content` and `includeBinary` false (the default). Ask for binaries only when the user wants an image, and then fetch the one image with `mcp__plugin_onenote_desktop__get_binary_page_content`.
+- Search with a `startNodeId` (a notebook or section). Use `fromRoot: true` only when the user wants every notebook searched or the location is unknown.
+- Large notebooks haven't been measured yet, so these limits are provisional. Claude Code truncates or rejects a tool result past its MCP output limit (`MAX_MCP_OUTPUT_TOKENS`, about 25k tokens by default). If a result is cut off or refused for size, narrow the scope (one section instead of a notebook) and try again.
+
+## Reading the XML
+
+All XML is in the OneNote 2013 schema, namespace `http://schemas.microsoft.com/office/onenote/2013/onenote`, prefix `one:`. The server passes it through unchanged.
+
+### Hierarchy XML
+
+- Nesting: `one:Notebooks` > `one:Notebook` > `one:SectionGroup` (any depth) > `one:Section` > `one:Page`.
+- Every node has an `ID` and a `name`. A notebook also has a `nickname`, which is what OneNote shows; match the user's words against `nickname` first, then `name`.
+- IDs are opaque strings. Copy them exactly; never build, shorten or parse one. A page ID that starts like its section's ID is a coincidence to ignore, and a page's ID can change when it is moved to the recycle bin or to another section.
+- **Recycle bin:** each notebook holds a `one:SectionGroup` with `isRecycleBin="true"` (named `OneNote_RecycleBin`). Its sections have `isDeletedPages="true"` and its pages have `isInRecycleBin="true"`. Skip all of these unless the user asks about deleted pages.
+- **Locked sections:** a section with `locked="true"` is password-protected. Its pages can't be read until the user unlocks it in OneNote (the result also carries a `sectionLocked` warning).
+- **Subpages:** `one:Page@pageLevel` is 1 for a top-level page and 2 or 3 for a subpage. Pages are listed in section order, so a subpage belongs to the nearest earlier page with a lower level.
+- `lastModifiedTime` and `dateTime` (created) are UTC.
+- `one:Meta` (`name`, `content`) can appear on a page in hierarchy XML; these are the tags `mcp__plugin_onenote_desktop__find_meta` searches.
+
+### Page XML
+
+- `one:Page` (with `ID`, `name`, `pageLevel`) starts with definitions and settings (`one:TagDef`, `one:QuickStyleDef`, `one:Meta`, `one:PageSettings`), then `one:Title`, then the content: `one:Outline` elements, and page-level `one:Image` or `one:InsertedFile`.
+- **Title:** `one:Title/one:OE/one:T`.
+- **Text:** each `one:Outline` is a text box. Inside it, `one:OEChildren` holds `one:OE` paragraphs, and an OE's own `one:OEChildren` holds its indented children. Each OE has an `objectID`.
+- **`one:T` holds HTML inside CDATA**, such as `<![CDATA[Plan <span style='font-weight:bold'>B</span>]]>`. For plain text, drop the tags and decode entities. Keep `<a href="...">` targets when the user wants links.
+- **Headings:** an OE's `quickStyleIndex` points at a `one:QuickStyleDef@index`. Its `name` is `h1`…`h6` for headings. Treat every other name (`p`, `PageTitle`, `cite`, `code` and so on) as body text.
+- **Lists:** an OE with `one:List/one:Bullet` or `one:List/one:Number` is a list item.
+- **Order:** read Outlines in document order. If the layout matters, `one:Position` (`x`, `y`) places each one on the page.
+- **Tables:** `one:Table` > `one:Row` > `one:Cell` > `one:OEChildren` > `one:OE`. `hasHeaderRow="true"` means the first row is the header. Render small tables as Markdown tables.
+- **Images:** `one:Image` (inside an OE, or directly on the page). In the default XML it holds `one:CallbackID@callbackID`, the handle for `mcp__plugin_onenote_desktop__get_binary_page_content`. With `includeBinary` true it holds `one:Data` (base64) instead, and images whose binary isn't on this PC are left out of the XML; `meta.binaryUnavailable` counts them. An `alt` attribute, when present, describes the image.
+- **Attachments:** `one:InsertedFile` has `preferredName` (the file name shown) and `pathCache`. Reading attachments through these tools hasn't been tested: report the file name, and don't open files from the paths in the XML.
+- **Note tags:** `one:Tag` on an OE (`index`, `completed`) refers to the `one:TagDef` with the same `index`, whose `name` says what it is ("To Do", "Important"). A To Do with `completed="true"` is checked.
+- **Page tags:** `one:Meta` (`name`, `content`) is data attached by add-ins or tools, not visible text.
+- Ignore `one:PageSettings`, `one:Size` and authorship or time attributes unless asked.
+- `meta.basis` records the version that was read. Writes will need it later; this release has no writes, so ignore it.
+
+## Recipes
+
+Example names below (such as "Work" or "Trip plan") are placeholders.
+
+**List notebooks.**
+Call `mcp__plugin_onenote_desktop__get_hierarchy` with no arguments. Report each `one:Notebook@nickname`.
+
+**List the sections of a notebook by name.**
+1. `mcp__plugin_onenote_desktop__get_hierarchy` with no arguments. Find the notebook whose `nickname` (else `name`) matches the user's words. If several match, or none, ask which one.
+2. `mcp__plugin_onenote_desktop__get_hierarchy` with `startNodeId` set to that notebook's `ID` and `scope: sections`. Report the sections, grouped under their section groups, and leave out the recycle-bin group. If the user wants only top-level items, use `scope: children` instead.
+
+**Find a page by title.**
+1. If the user names the section or notebook, resolve its ID as above, then call `mcp__plugin_onenote_desktop__get_hierarchy` from it with `scope: pages` and match `one:Page@name` (ignoring case; prefer exact matches over partial ones).
+2. If the location is unknown, call `mcp__plugin_onenote_desktop__find_pages` with the title's words as `query` (it matches titles as well as text), from the most likely notebook, or with `fromRoot: true`. Then keep only the pages whose `name` matches.
+3. Skip pages with `isInRecycleBin="true"`. If several pages match, list them with their section and ask.
+
+**Read a page as text.**
+1. Get the page ID (recipes above).
+2. `mcp__plugin_onenote_desktop__get_page_content` with `pageId`, leaving `includeBinary` false.
+3. Render the title, then each Outline's paragraphs in order, with indentation for nested OEs, headings from `quickStyleIndex`, Markdown tables, `[ ]`/`[x]` for To Do tags, and `[image]` or the attachment name where those appear.
+
+**Read an image.**
+1. `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary` false, and find the `one:Image` the user means. Take its `one:CallbackID@callbackID`.
+2. `mcp__plugin_onenote_desktop__get_binary_page_content` with the `pageId` and that `callbackId`. `meta.binary` is the base64 image. Its type isn't stated: a value starting `iVBOR` is PNG, `/9j/` is JPEG, `R0lG` is GIF.
+3. If the result has a `binaryUnavailable` warning and no `meta.binary`, the image isn't stored on this PC (common in notebooks stored online), or the callbackID was wrong. Check that you copied the callbackID from the default XML. If you did, tell the user the image isn't available locally; opening the page in OneNote usually downloads it.
+
+**Full-text search.**
+1. Pick the narrowest start: the notebook or section the user means, else `fromRoot: true`. Give exactly one of `startNodeId` or `fromRoot: true`.
+2. `mcp__plugin_onenote_desktop__find_pages` with the words as `query`. Every word must appear on a page, ignoring case.
+3. Report the matching pages (name, and section from the enclosing `one:Section`), then the search caveat below. Read a page's content only if the user asks for more than the list.
+
+To find pages by an add-in tag, use `mcp__plugin_onenote_desktop__find_meta` with the `one:Meta` name. The name is matched exactly, including case.
+
+**Get a link.**
+- `mcp__plugin_onenote_desktop__get_hyperlink_to_object` with the notebook, section or page ID as `hierarchyId`. To link to one paragraph, also pass that OE's `objectID` as `pageContentObjectId`. `meta.link` is a `onenote:` link that opens in the desktop app.
+- For a link that works in a browser, use `mcp__plugin_onenote_desktop__get_web_hyperlink_to_object` the same way. If it returns an empty `meta.link` with a `webLinkUnavailable` warning, the notebook is stored only on this PC: offer the `onenote:` link instead.
+- Give the link to the user. Don't open it yourself; that would move the user's OneNote view.
+
+**Walk up from a page ID.**
+1. `mcp__plugin_onenote_desktop__get_hierarchy_parent` with the page ID gives its section. Call it again with each `meta.parentId` until it returns the empty string, which means the previous ID was the notebook.
+2. To name each level, call `mcp__plugin_onenote_desktop__get_hierarchy` with `startNodeId` set to that ID and `scope: self`.
+
+**Quick Notes.**
+`mcp__plugin_onenote_desktop__get_special_location` with `location: unfiledNotesSection` gives the Quick Notes section's file path, not its ID. To read it, find the `one:Section` whose `path` matches that path in a `scope: sections` hierarchy, comparing without regard to case or a trailing `\` or `/`. If none matches, the notebook holding Quick Notes isn't open in OneNote; tell the user.
+
+## Search caveats
+
+- Search results are **always possibly incomplete** (`meta.possiblyIncomplete` is always true). A notebook that is still syncing, or a page OneNote hasn't indexed, can be missing.
+- So every time you report search results, say briefly that the search may have missed pages. Never tell the user a page doesn't exist because a search didn't find it. Say it wasn't found, and offer to browse the hierarchy or try other words.
+- `meta.filtered` lists the pages the server removed from the XML, as `{pageId, reason}`:
+  - `recycleBin`: a deleted page. Don't report it unless the user asked about deleted pages.
+  - `noMatch`: OneNote returned it, but it doesn't contain every query word (or, for `mcp__plugin_onenote_desktop__find_meta`, has no `one:Meta` of exactly that name). It is not a result.
+  - `notFound` (`mcp__plugin_onenote_desktop__find_pages` only): the page disappeared during the search.
+- An empty result with many `noMatch` entries usually means one of the words is wrong. Try fewer words.
+
+## Errors and warnings
+
+On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
+
+- **`retryable: true`:** tell the user what `userAction` says, and retry only after they say they've done it. The one exception: for `ComBusy` or `Timeout` on these read tools, retry once straight away. If that also fails, relay `userAction` and stop.
+- **`retryable: false`:** don't retry with the same input. Follow `userAction`, which may mean re-reading to get a current ID, or telling the user.
+
+| Code | What to do |
+| --- | --- |
+| `OneNoteNotRunning` | Ask the user to start OneNote desktop. Never start it yourself. |
+| `ModalDialogOpen` | Ask the user to close the open dialog in OneNote, then retry. |
+| `SectionLocked` | Ask the user to unlock the section in OneNote, then retry. |
+| `ComBusy` | OneNote is busy or syncing. Retry once now; then ask the user to wait and tell you when to try again. |
+| `Timeout` | Retry once now; then ask the user to check that OneNote is responding. |
+| `ComUnavailable` | The server already retried. Ask the user to check that OneNote is running and responding, then retry. |
+| `ObjectNotFound` | The ID is stale (pages get new IDs when deleted or moved to another section, and every ID changes when a notebook is closed and reopened). Re-read the hierarchy and use a current ID. If the notebook itself is missing, ask the user to open it. |
+| `InvalidQuery` | For a search: check that you gave exactly one of `startNodeId` or `fromRoot: true`. Otherwise change the query. |
+| `IntegrityMismatch` | The server and OneNote run at different elevation. Relay `userAction`; this needs a restart, not a retry. |
+| `NotSupported` | Not in this release. Tell the user. |
+| `InvalidXml` | OneNote or the server rejected the XML of a read; ignore the write-oriented `userAction`. Don't retry; tell the user, with `error.message` and `error.hresult` if present. |
+| `Internal` | Tell the user, quoting `error.hresult` if present. Don't retry. |
+
+Any other code: follow `userAction`. When reporting a failure the user may want to investigate, include `meta.correlationId`; it matches the server's log. `outcomeUnknown` only appears on writes, which this release doesn't have.
+
+Warnings (`ok: true`, with `warnings[]`) mean the result is usable but degraded. Mention them to the user:
+
+| Warning | Meaning |
+| --- | --- |
+| `sectionLocked` | A section in the hierarchy is locked; its pages can't be read until the user unlocks it. |
+| `binaryUnavailable` | An image isn't stored on this PC. From `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary` true, those images were left out of the XML and `meta.binaryUnavailable` counts them. From `mcp__plugin_onenote_desktop__get_binary_page_content` it can also mean the callbackID was wrong. Say the image isn't available; the rest of the result is fine. |
+| `webLinkUnavailable` | The notebook isn't stored online, so there is no web link. Offer the `onenote:` link. |
+
+## User-visible actions and limits
+
+- Never take keyboard focus or move the user's OneNote view. None of these tools does: `mcp__plugin_onenote_desktop__find_pages` never shows its results in OneNote, and the link tools don't open links.
+- Tools that change what the user sees (navigating OneNote, opening windows) don't exist in this release. If they are added later, call them only when the user explicitly asks.
+- Never close or restart OneNote, and never start it on the user's behalf.
+- Don't quote whole pages back unless asked; summarise or show the part the user wants.
