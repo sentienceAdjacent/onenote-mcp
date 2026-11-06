@@ -228,13 +228,135 @@ notes = [
 ]
 
 [[entry]]
+id = 16
+type = "story"
+title = "Spine amendment: large-result delivery and a read grant for protected sections"
+description = """Updates the architecture spine with bmad-architecture, Fable-reviewed, adding two ADs:
+- Large-result delivery: how a result over Claude Code's ~50,000-character persist limit stays fully usable. Options include a server-managed result file plus a structural index and a range or element read, paging, or a slim view. The AD also sets how long result files live, how they're cleaned up, and what a read of an expired file returns.
+- Protected-section read grant: sections with encrypted="true" are unreadable without an explicit grant, even when unlocked. The grant covers all nine read tools, and the model can't grant itself. It's built on the AD-6 grant machinery, ahead of the write grants."""
+verify = "The spine has both ADs with Binds, Prevents and Rule. The memlog records the options weighed. The Fable review's confirmed findings are resolved, and Phill approves the spine."
+covers = ["R1", "R2", "R3"]
+after = [15]
+hitl = true
+risk = "medium"
+unknown = "Which delivery design keeps a large page usable to the model without losing structure, and whether the AD-6 grant store can hold section-scoped read grants as well as notebook-scoped write grants."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md#recommendations",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-6--server-enforced-write-grants-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-13--logging-adopted",
+]
+notes = [
+  "Decision (Phill, 2026-11-06): no functionality may be lost because of result size. Disk-backed results are fine if cleaned up properly, and XML libraries are fine.",
+  "Decision (Phill, 2026-11-06): password-protected sections need explicit permission to read, even when unlocked.",
+  "Decision (Phill, 2026-11-06): build the grant machinery properly in epic 1, not a settings-file allowlist the model could edit.",
+]
+
+[[entry]]
+id = 17
+type = "story"
+title = "Synthetic size fixture in MCP Test"
+description = """Extends the integration suite's guarded test-only write path to generate, in MCP Test, what the real notebooks didn't cover, at sizes past them:
+- an oversized page, well over 50,000 characters of XML;
+- a page with many large images and attachments;
+- a deep, wide hierarchy whose pages-scope listing is oversized;
+- pages with one:Meta tags;
+- one password-protected section, which Phill protects by hand because COM can't set a password."""
+verify = "The stress harness runs on MCP Test with the fixture. It reports at least one get_page_content and one get_hierarchy text block over 50,000 characters, a find_meta hit, inserted files returned, and the protected section as encrypted, with 0 mismatches and no content in its output."
+covers = ["R1", "R2"]
+after = [15]
+hitl = true
+risk = "low"
+unknown = "Whether the fixture can be made large enough without slowing the integration suite too much. It may need its own opt-in flag."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md#recommendations",
+  "spikes/stress-harness/README.md",
+]
+
+[[entry]]
+id = 18
+type = "story"
+title = "Large-result delivery"
+description = "Implements story 16's delivery AD across the read tools, so that no result is lost or cut to a preview because of its size. Results over the limit are delivered the way the AD decides, with cleanup. The README is updated, including a note that Claude Code may itself save oversized results under ~/.claude/projects/."
+verify = "Against story 17's fixture, in Claude Code, the model reads every part of the oversized page and the oversized hierarchy through the tools. No tool result's text block exceeds the persist limit, result files are cleaned up as the AD says, and the harness reports 0 mismatches."
+covers = ["R1", "R2", "R3"]
+after = [16, 17]
+hitl = false
+risk = "high"
+unknown = "Set by story 16's design."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md#client-cap-claude-code-21318-default-max_mcp_output_tokens",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md",
+]
+
+[[entry]]
+id = 19
+type = "story"
+title = "find_pages cost"
+description = """Brings find_pages' cost down from reading every unmatched candidate page. Options:
+- indexed results first, reading only the remainder;
+- a page-text cache keyed by lastModifiedTime;
+- a time budget that returns partial results with possiblyIncomplete (AD-12).
+The result set stays the same as today's."""
+verify = "On story 17's fixture and on MCP Test, find_pages returns the same result sets as before (the stress harness's search phase shows 0 mismatches), and its round-trip time is measured lower, reported before and after."
+covers = ["R2"]
+after = [17, 18]
+hitl = false
+risk = "medium"
+unknown = "Whether indexed-first results can be trusted enough to skip reads, given Windows Search lag."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md#recommendations",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-12--search-semantics-adopted",
+]
+
+[[entry]]
+id = 20
+type = "story"
+title = "Read grant for password-protected sections"
+description = """Implements story 16's read-grant AD: the grant store, plus a command and confirmation that the model can't answer for itself. It guards every read tool for sections with encrypted="true":
+- get_page_content, get_binary_page_content, find_pages and find_meta drop results inside such sections;
+- get_hierarchy hides their page names;
+- both hyperlink tools and get_hierarchy_parent refuse targets inside them.
+Each case returns a warning or error saying a grant is needed."""
+verify = "With story 17's protected section unlocked in OneNote, every read tool withholds its contents until Phill grants access. The model can't grant it. The grant works once given and can be revoked, and the integration suite covers each tool."
+covers = ["R1", "R2"]
+after = [16, 18, 19, 21]
+hitl = true
+risk = "high"
+unknown = "How the confirmation is presented so that neither a Claude Code hook nor the model can answer it (AD-6's dialog design)."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-6--server-enforced-write-grants-adopted",
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md",
+]
+notes = ["Decision (Phill, 2026-11-06): password-protected sections need explicit permission to read, even when unlocked."]
+
+[[entry]]
+id = 21
+type = "story"
+title = "Missing binaries: XPSFile, download guidance and opt-in fetch"
+description = """Handles binaries that can't be read:
+- one:XPSFile CallbackIDs (ObjectNotFound) either become binaryUnavailable or are documented in get_binary_page_content's description;
+- the binaryUnavailable warning's userAction points to OneNote's Options > Sync > "Download all files and images", and offers an opt-in fetch;
+- the fetch runs only on the user's explicit request. It calls NavigateTo on the page so OneNote downloads its images, then reads the binary again."""
+verify = "First, a probe measures whether NavigateTo to a page makes its unavailable images readable. It runs only with Phill's go-ahead, because it takes focus. If it works, the fetch works from Claude Code on a real cloud page. Either way, tests cover the XPSFile case and the userAction."
+covers = ["R1"]
+after = [17, 18]
+hitl = true
+risk = "medium"
+unknown = "Whether showing a page actually downloads its images. This is inferred, not measured; SyncHierarchy doesn't (spike 1.15, quirk 3)."
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md#recommendations",
+  "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md#ad-11--calls-the-user-sees-and-exports-adopted",
+]
+notes = ["Decision (Phill, 2026-11-06): the opt-in route. Epic 1's boundary widens for this one user-requested NavigateTo."]
+
+[[entry]]
 id = 13
 type = "story"
 title = "README, uninstall --purge and clean-machine install"
-description = "Adds uninstall --purge (removes the OneNoteMcp settings, logs and journal-named files only, and refuses root-like journal paths), makes the repo public, rewrites the README from planned to real steps with sentienceAdjacent/onenote-mcp and the sentienceAdjacent/plugins marketplace, and runs the clean-machine install as the epic's end-to-end check."
+description = "Adds uninstall --purge (removes the OneNoteMcp settings, logs and journal-named files only, and refuses root-like journal paths), brings the public README up to date with what epic 1 ships (large-result delivery, the protected-section read grant, missing-binary guidance), and runs the clean-machine install as the epic's end-to-end check."
 verify = "On a clean Windows profile an agent following the README alone installs from the release and lists notebooks, the manual-client and build-from-source routes both work, and a scripted before/after directory snapshot shows purge removed only OneNoteMcp files."
 covers = ["R7"]
-after = [11, 12, 15]
+after = [11, 12, 15, 18, 19, 20, 21]
 hitl = true
 risk = "high"
 unknown = "None beyond what a clean profile turns up."
@@ -252,7 +374,7 @@ title = "Refactor sweep"
 description = "Cleans up what the epic's build records and deferred review findings list; its scope is set when it starts and takes cleanup only."
 verify = "The CI and integration suites stay green and every deferred finding from the epic is closed or moved to a new story."
 covers = ["R3"]
-after = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15]
+after = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21]
 hitl = false
 risk = "low"
 unknown = "Scope is unknown until the other stories finish."

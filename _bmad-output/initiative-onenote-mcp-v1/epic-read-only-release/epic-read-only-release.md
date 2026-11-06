@@ -40,7 +40,7 @@ This epic reuses the initiative's lines R1 (read), R2 (search), R3 (robust opera
 
 ## Boundaries
 
-All four projects (Server, Core, Xml, Com), both test suites, CI, the plugin and marketplace, the `guide` skill, the release workflow, and `README.md`. No write tools: the classes other than `Read` are left to later epics, and so is the AD-18 mutex.
+All four projects (Server, Core, Xml, Com), both test suites, CI, the plugin and marketplace, the `guide` skill, the release workflow, and `README.md`. No write tools: the classes other than `Read` are left to later epics, and so is the AD-18 mutex. Two exceptions, both from spike 1.15: one user-requested `NavigateTo` for the opt-in image fetch (entry 21, bound by AD-11), and the AD-6 grant machinery, built here for the protected-section read grant (entries 16 and 20) ahead of the write grants.
 
 ## References
 
@@ -84,3 +84,5 @@ All four projects (Server, Core, Xml, Com), both test suites, CI, the plugin and
   - `pmcormier/onenote-mcp-private` is archived.
   - Still open for 1.13: the clean-machine install.
 - Hands-off to later epics: the gateway, the envelope and `ErrorCode`, the settings type (read side), the XML model with `ElementHash`, `FakeGateway`, the integration harness, the release pipeline, the plugin and the skill. Later epics extend the skill and README, and cut releases through this pipeline.
+- Decision (2026-11-06, Phill): spike 1.15's recommendations become entries 16–21, all before 13. 16 is the spine amendment for large-result delivery and the protected-section read grant. 17 is a synthetic size fixture. 18 is large-result delivery, 19 is find_pages cost, 20 is the read grant, and 21 covers missing binaries (XPSFile, download guidance, opt-in fetch). Lanes: 16 and 17 open in parallel. 18 then changes every read tool's output path, so 19 (search) and 21 (binary tools) follow it in parallel, and 20, which touches all the tools, comes last.
+- Decision (2026-11-06, Phill): the boundary widens for one user-requested `NavigateTo` (the opt-in image fetch) and for building the AD-6 grant machinery here, for the protected-section read grant.
