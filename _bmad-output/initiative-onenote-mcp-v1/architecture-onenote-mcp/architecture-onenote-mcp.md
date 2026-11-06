@@ -7,13 +7,14 @@ paradigm: 'hexagonal (ports and adapters) with a single-STA actor per process'
 scope: 'Local stdio MCP server that reads and manages OneNote desktop notebooks over COM, plus its Claude Code plugin (skill + server config)'
 status: final
 created: '2026-11-03'
-updated: '2026-11-05'
+updated: '2026-11-06'
 binds: [all]
 sources:
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md
   - _bmad-output/initiative-onenote-mcp-v1/initiative-onenote-mcp-v1.md
   - CLAUDE.md
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/research-onemore-lessons.md
+  - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md
 companions: [README.md]
 ---
 
@@ -93,7 +94,10 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Prevents:** a different format per tool; lossy round trips; the server quietly changing content.
 - **Rule:**
   - Tools take and return OneNote 2013-schema XML. Every COM call passes `xs2013`.
-  - The server never adds, changes or removes elements or attributes in the XML it returns. The one exception: search may remove whole `one:Page` elements, and each one removed is listed in `meta.filtered`.
+  - The server never adds, changes or removes elements or attributes in the XML it returns. The exceptions:
+    - Search may remove whole `one:Page` elements, and each one removed is listed in `meta.filtered`, except pages withheld under AD-21, which are never listed.
+    - A read without a read grant removes the whole `one:Page` elements of a protected section, and lists the section in `meta.withheld` (AD-21).
+    - An oversized result is delivered as an index plus parts (AD-20). The stored result is the body the tool would have returned inline, after every removal above. Each part is an exact substring of that body, never re-serialised, so its prefixes rely on the root's namespace declarations, which come in `meta.result` with every `read_result` response.
   - Degraded results go only in `meta` and `warnings`. Examples: an image that has no local binary, which is detected by comparing image counts against a basic read, and a locked section.
   - Page reads exclude binary content unless the caller asks for it.
   - OneNote IDs are opaque strings: never parsed, never built from parts.
@@ -110,18 +114,18 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ### AD-6 — Server-enforced write grants [ADOPTED]
 
-- **Binds:** Core (access), every write use case, the `grant` CLI
+- **Binds:** Core (access), every write use case, every read use case through AD-21, the `grant` CLI
 - **Prevents:** a gate that lives only in the skill or that the model can grant itself; writes from clients that don't have the skill.
 - **Rule:**
   - **Who can do what:**
-    - Reads are allowed on every notebook.
+    - Reads are allowed on every notebook, except content in password-protected sections, which needs a read grant (AD-21).
     - Writes need a write grant for each notebook they touch.
     - A permanent delete also needs a permanent-delete grant, which counts only alongside a write grant.
   - **How a grant is created:**
     - Through an MCP elicitation dialog in which the user types the notebook's name. The typed text is matched against each open notebook's displayed name (`nickname`, else `name`). If it matches more than one notebook, or none, no grant is made and the write returns `WriteNotGranted`. AD-7 step 1 raises the dialog itself when the client declares elicitation. If the user declines or cancels, or the client lacks the capability, the write returns `WriteNotGranted`, with `userAction` naming the CLI. Time spent waiting on the dialog doesn't count against the pipeline deadline.
     - Or through the interactive `OneNoteMcp grant` CLI, which refuses to run when there is no interactive terminal. It uses the same name matcher as elicitation, and lists the candidates when a name is ambiguous. `grant --revoke` removes a grant. It also runs on a `settings.json` that is invalid only because of case-only duplicate keys, so the user can remove one.
     - Or automatically, when a notebook is created at a path the server checked was empty (AD-7 `Create`), recorded as `grantedVia: created`.
-    - No tool can create a grant. The read-only `list_grants` tool shows grants and how each was created.
+    - No tool can create a grant. The read-only `list_grants` tool shows grants, read grants included, and how each was created.
     - The plugin blocks the model from editing `settings.json`.
   - **Notebook resolution:**
     - The owning notebook is resolved through the gateway, never from the ID string: a `GetHierarchyParent` chain, where the empty string OneNote returns at the notebook marks the end of the chain, or a hierarchy lookup. An exception from `GetHierarchyParent` is an ordinary error (AD-9) and never ends the chain. (Observed 2026-11-04 on the local MCP Test notebook, `tests/OneNoteMcp.Tests/Fixtures/mcp-test/parent/notebook.txt`. Microsoft's documentation says it throws.) Resolution ends by reading that notebook's `one:Notebook@path` live from `GetHierarchy`.
@@ -135,7 +139,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - The notebook's `name` and its ID at grant time (`idAtGrant`, never refreshed) are stored for information only, and are never compared for access.
     - If the notebook's folder or URL is moved or renamed, its path changes, so the grant no longer applies and the user is asked again. Renaming the notebook's display name doesn't change the path.
     - That the path stays the same across close and reopen is expected but unverified (see Deferred).
-  - **Limits:** the README says plainly that this guards against accidents and casual misuse, not against a hostile local process. Elicitation hooks can answer the dialog automatically, and headless runs cancel elicitation. A grant follows its path: a different notebook that later appears at a granted path inherits the grant without a prompt. This is an accepted risk, stated in the README.
+  - **Limits** (they apply to AD-21's read grants too): the README says plainly that this guards against accidents and casual misuse, not against a hostile local process. Elicitation hooks can answer the dialog automatically, and headless runs cancel elicitation. A grant follows its path: a different notebook that later appears at a granted path inherits the grant without a prompt. This is an accepted risk, stated in the README.
 
 ### AD-7 — One write pipeline per operation class [ADOPTED]
 
@@ -158,7 +162,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 | Class | COM methods | Grant | Validate | Snapshot |
 | --- | --- | --- | --- | --- |
-| `Read` | `GetHierarchy`, `GetHierarchyParent`, `GetPageContent`, `GetBinaryPageContent`, `FindPages`, `FindMeta`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`; the server-only `list_grants` | none | none | none |
+| `Read` | `GetHierarchy`, `GetHierarchyParent`, `GetPageContent`, `GetBinaryPageContent`, `FindPages`, `FindMeta`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`; the server-only `list_grants` and `read_result` (AD-20) | none, except a read grant for content in a protected section (AD-21) | none | none |
 | `PageWrite` | `UpdatePageContent`, `DeletePageContent` | write | XSD; referenced `objectID`s exist; section not locked; refuse to replace an Outline holding an image with no local binary | full page, with binary |
 | `Create` | `CreateNewPage`; `OpenHierarchy` creating a section or section group by parent object ID (`bstrRelativeToObjectID`) plus a relative name, or a notebook at an absolute path verified empty; `restore_from_journal`. A section or section group is never created from an absolute path | write on the parent's notebook. A new notebook needs none and gets a write grant automatically (`grantedVia: created`), keyed by the `NotebookKey` of the path read back from `GetHierarchy` after creation | XSD; parent exists and isn't locked | none |
 | `HierarchyWrite` | `UpdateHierarchy` (add, rename, reorder or move); `MergeSections`; `restore_from_recycle_bin` | write on every notebook touched | XSD; IDs exist | hierarchy XML of the affected nodes |
@@ -189,9 +193,13 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Prevents:** each tool inventing its own result or error shape; fakes and the real adapter disagreeing.
 - **Rule:**
   - **Envelope:** every tool returns `structuredContent`, with `isError` matching:
-    - `{ok: true, xml?, meta: {correlationId, ...}, warnings[]}`
+    - `{ok: true, xml?, index?, meta: {correlationId, result?, ...}, warnings[]}`. `index` is an AD-20 index. A `read_result` part travels in `xml` (or, for a non-XML result, as the body below), and its `meta.result` marks it a part: it may be an XML fragment, not a document.
     - `{ok: false, error: {code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta: {correlationId}}`
-    - The text content block carries the same JSON. Story 1.3's manual check found that Claude Code shows the model one copy, so the text block keeps `xml`; if a client is found that shows both, the text block drops `xml`.
+    - **The text content block** (Phill, 2026-11-06). Claude Code shows the model the text block only (story 1.3), and only the text block counts toward its size limits (spike 1.15).
+      - A success with a body: line 1 is the compact JSON of the envelope without its body, then `\n`, then the body unchanged. The body is `xml` (a `read_result` part included), or `meta.binary` for `get_binary_page_content`. The header line leaves out only the body: `xml` or `meta.binary`. Everything else, `meta.basis`, `meta.result` and `warnings` included, stays in it.
+      - Anything else, every error included, carries the whole envelope JSON.
+      - `structuredContent` always carries the full envelope.
+      - This replaced a text block that repeated the whole envelope JSON, which escaped the XML to 1.25–1.66 times its size.
     - Errors the MCP SDK raises before a tool runs (unknown tool, input-schema rejection) are JSON-RPC errors outside the envelope.
   - **Who throws what:**
     - Tools never throw.
@@ -225,9 +233,11 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 | `ObjectNotFound` | the object does-not-exist HRESULTs: `0x80042004`, `0x80042005`, `0x8004200E`, `0x80042011`, `0x80042012`, `0x80042014`, `0x80042015`, as reported by OneNote; AD-8 restore when no open notebook matches `notebookPath` | no; re-read the hierarchy or page and use a current ID. For `0x80042015` and the AD-8 restore case, after the user opens the notebook |
 | `UnknownObjectId` | the server's own validation: `objectID` absent (the same stale ID reported by OneNote is `ObjectNotFound`) | no |
 | `InvalidXml` | XSD or namespace validation; `0x80042000`, `0x80042001`, `0x80042020` | no |
-| `InvalidQuery` | `0x80042019` | no |
+| `InvalidQuery` | `0x80042019`; AD-20 `read_result` with an `offset` at or past the span's length | no |
 | `FileExists` | `0x8004201A` | no |
 | `WriteNotGranted` / `PermanentDeleteNotGranted` | AD-6 | after the user grants |
+| `ReadNotGranted` | AD-21: a target-scoped read inside a protected section with no read grant; `read_result` on a part whose grant has lapsed (AD-20) | after the user grants (for `read_result`, then repeat the original call) |
+| `ResultExpired` | AD-20: `read_result` with an unknown or expired `resultId` | no; repeat the original call |
 | `ExportPathNotAllowed` | AD-11 | no |
 | `SettingsInvalid` | AD-10 | after the user fixes it |
 | `JournalFailed` / `BackupFailed` | AD-8 | no |
@@ -236,19 +246,20 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ### AD-10 — Shared state across processes [ADOPTED]
 
-- **Binds:** Core (settings, access, journal), the `grant` CLI
+- **Binds:** Core (settings, access, journal), the `grant` CLI, the result-store settings (AD-20)
 - **Prevents:** grants or entries stored in shapes that clash; lost updates; a grant that applies in one session but not another.
 - **Rule:**
   - **Ownership:**
     - Several server processes, one per client, may run at once.
     - One Core type owns each shared file, and the CLI uses the same types.
   - **`%APPDATA%\OneNoteMcp\settings.json`:**
-    - Shape: `{schemaVersion, allowSilentActivation, timeouts{}, journal{path, retentionDays, maxSizeMB}, exportRoots[], notebooks{<normalizedPath>: {name, idAtGrant, write, permanentDelete, grantedAt, grantedVia}}}`. Keys follow AD-6's grant key.
+    - Shape: `{schemaVersion, allowSilentActivation, timeouts{}, journal{path, retentionDays, maxSizeMB}, results{inlineMaxChars, ttlMinutes, maxStoreMB}, exportRoots[], notebooks{<normalizedPath>: {name, idAtGrant, write, permanentDelete, grantedAt, grantedVia}}, protectedSections{<SectionKey>: {name, notebookKey, idAtGrant, grantedAt, grantedVia, expiresAt?}}}`. `notebooks{}` keys follow AD-6's grant key, and `protectedSections{}` keys follow AD-21's.
     - Every change is one read-modify-write inside the named mutex `Local\OneNoteMcp.Settings`: re-read, change, write a temporary file, then `File.Replace`. The mutex is never held across a prompt or a dialog.
-    - Only grant writers (elicitation, CLI, the `Create` auto-grant, `grant --revoke`) write `notebooks{}`. The access check only reads it.
+    - Only grant writers (elicitation, CLI, the `Create` auto-grant, `grant --revoke`) write `notebooks{}` and `protectedSections{}`. The access check only reads them.
     - Re-read at every access check.
-    - A grant applies to the open notebook whose `NotebookKey` equals its key. `list_grants` shows each grant as `active` (an open notebook matches) or `notebookNotOpen`. Entries are never pruned automatically; only `grant --revoke` removes one.
-    - `schemaVersion` 1 is this path-keyed shape. No earlier shape was released, so there is no migration.
+    - A grant applies to the open notebook whose `NotebookKey` equals its key. `list_grants` shows each grant as `active` (an open notebook matches) or `notebookNotOpen`, and each read grant as `active`, `sectionNotOpen` or `expired`. Entries are never pruned automatically; only `grant --revoke` removes one. The one exception: a grant writer drops `protectedSections{}` entries whose `expiresAt` has passed, inside its read-modify-write.
+    - `schemaVersion` 1 is this path-keyed shape, `results{}` and `protectedSections{}` included. No earlier shape was released, and no released server writes `settings.json`, so there is no migration. The released 0.4.x reader already ignores members it doesn't know (`SettingsStore.Validate` reads only known keys); story 1.20 confirms it with a test.
+    - `results{}` ranges, as whole numbers: `inlineMaxChars` 20,000–380,000 (default 100,000), `ttlMinutes` 1–1,440 (default 30), `maxStoreMB` 16–4,096 (default 256). A value out of range makes the file `SettingsInvalid`, like every other field; reads then use the defaults.
     - If the file is invalid, reads continue and writes fail with `SettingsInvalid`.
     - If `schemaVersion` is newer than the server knows, the server runs read-only.
   - **Journal entry file:**
@@ -276,6 +287,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Rule:**
   - Search with unindexed pages included.
   - Remove pages with `isInRecycleBin`, listed in `meta.filtered`.
+  - Pages in protected sections without a read grant are never read, matched or listed by the server (AD-21). `FindPages` itself does return them; the server drops them before any post-filter, and they never go in `meta.filtered`.
   - Filter on metadata before text.
   - Search tools require a `startNodeId`. Searching from the root needs the explicit flag `fromRoot: true`.
   - Always set `meta.possiblyIncomplete: true`.
@@ -288,6 +300,8 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - stdout carries the MCP protocol only.
   - Logs go to stderr and to a rolling file under `%LOCALAPPDATA%\OneNoteMcp\logs`: 10 MB per file, 5 files kept.
   - Log the `correlationId`, IDs, HRESULTs and timings. Never log page content, XML bodies, or XSD messages that quote content.
+  - Note content reaches disk only through the journal (AD-8) and exports (AD-11). The result store (AD-20) is held in memory only. It is never written to disk, and only its `resultId` and sizes are logged.
+  - A client may save a large tool result to disk itself: Claude Code does so under `~/.claude/projects/<project>/<session>/tool-results/` when a text block exceeds a tool's limit. That is outside the server, and the README says so.
 
 ### AD-14 — Tool contract versioning [ADOPTED]
 
@@ -350,7 +364,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - **Source of `lastModifiedTime`, by target:**
       - For a page, it is the root `lastModifiedTime` of the page XML from a `GetPageContent` read. The hierarchy's value for a page can differ and is never used for a page's basis.
       - For a section, section group or notebook, it is that node's `lastModifiedTime` from `GetHierarchy`.
-    - Reads return the basis as one object, `meta.basis: {lastModifiedTime, pageHash?, elementHashes?}`. The caller passes it back unchanged.
+    - Reads return the basis as one object, `meta.basis: {lastModifiedTime, pageHash?, elementHashes?}`. The caller passes it back unchanged. For an oversized page (AD-20), each part carries a basis with the hashes of the elements in that part, and an `expand` response carries the hash of the element it expands. A caller may merge the `elementHashes` from one `resultId`'s responses into one basis.
     - The date stays the exact string OneNote returned until the gateway converts it. Only `OneNoteMcp.Xml` parses it.
   - **What each write compares:**
     - A page delete compares `pageHash`.
@@ -391,7 +405,83 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - The plugin installs the exe for its own version into a location specific to that version. Which location is the packaging story's choice: `${CLAUDE_PLUGIN_ROOT}` (an `archive` plugin source, where Claude Code keeps one directory per installed version and removes an old one 14 days after an update), `${CLAUDE_PLUGIN_DATA}`, or the `.mcpb` cache. Story 1.10 is set to use `${CLAUDE_PLUGIN_ROOT}` (`research-plugin-exe-delivery.md`).
     - An upgrade adds a new copy and never overwrites an exe that is running.
   - **Schema migration:** only forward, done by the newer server when it writes. Older servers fall back to read-only (AD-10).
-  - **Uninstall:** `OneNoteMcp uninstall --purge` removes settings, the journal and the logs. The README documents it, and says the journal holds copies of note content.
+  - **Uninstall:** `OneNoteMcp uninstall --purge` removes settings (read grants included), the journal and the logs. The README documents it, and says the journal holds copies of note content. The result store (AD-20) is in memory, so there are no result files to purge. The README also says that Claude Code's own `tool-results` files (AD-13) are Claude Code's to clean up, and purge doesn't touch them.
+
+### AD-20 — Large-result delivery
+
+- **Binds:** every read tool, `read_result`, Server (the text block, `tools/list`), Core (the result store), settings
+- **Prevents:** a result the model sees only as a 2 KB preview or a notice (spike 1.15); each tool inventing its own paging; parts that differ from what OneNote returned; note content left on disk by the server.
+- **Rule:**
+  - **No loss** (Phill, 2026-11-06): every part of every read result stays readable by the model through the tools, whatever its size.
+  - **Declared limit:** every read tool, `read_result` included, declares `_meta["anthropic/maxResultSizeChars"]: 500000` in its `tools/list` entry. That is Claude Code's documented ceiling. With it, text blocks of up to 383,893 characters of XML-like text arrived whole, past both the 50,000-character persist limit and the token cap, and about 600,000 still spilled (spike 1.15 findings, addendum).
+  - **Inline threshold:** `results.inlineMaxChars` (AD-10), default 100,000, in the range 20,000–380,000. It is measured on the whole text block (AD-9), header line included. A result at or under it is returned whole, as before. The threshold sits well under the ceiling because a result arriving whole still costs context: 380,000 characters of XML is about 238,000 tokens.
+  - **Body budget:** for a response with a body, `bodyMax` = `inlineMaxChars` minus the length of that response's header line. Offset reads are sized to it when served. Runs are sized when the index is built, before their response's header is known, so they are sized to `inlineMaxChars` minus a header allowance that covers `meta.result`, `meta.basis` with the run's own `elementHashes`, and `warnings`. No text block ever exceeds `inlineMaxChars`.
+  - **Index responses** have no body, so their text block is the whole envelope JSON. Index pages are sized so that the serialized envelope, with entries measured as serialized JSON (escaping included), stays at or under `inlineMaxChars`.
+  - **Over the threshold:**
+    - The tool stores the result in the result store and returns, instead of the body, `meta.result` and an `index`: the first page of `read_result(resultId, expand: "/")`. With no body, its text block is the whole envelope JSON (AD-9).
+    - What is stored is the body the tool would have returned inline, after every AD-4 removal (search filtering, AD-21 withholding). Content withheld from the original call is never in the store.
+    - `meta.result` is `{resultId, totalChars, expiresAt, namespaces, pages?}`, and every `read_result` response carries it too. `namespaces` holds the root's namespace declarations; `pages` is the page count of a paged index.
+    - `meta.basis` (AD-17) keeps `lastModifiedTime` and `pageHash` but leaves out `elementHashes`.
+    - For a page read, the piBasic XML is stored alongside, even when the body is the piBinaryData XML (`includeBinary`), so that hashes always come from piBasic (AD-17).
+    - The original read's warnings and other `meta` come with the index.
+  - **The index:** one entry per child element of the expanded element, in document order:
+    - `ref`: the element's `objectID` (page XML) or `ID` (hierarchy XML), unchanged. An element with neither gets a positional ref, `<parent's ref>/<n>`, where `n` counts the parent's child elements from 0. The root's ref is `/`, so its first child without an ID is `/0`.
+    - `element` (the qualified name, such as `one:Outline`), `chars` (the length of its span in the stored result) and `children` (its child-element count).
+    - `contains`: counts of `one:Table`, `one:Image` and `one:InsertedFile` anywhere below it.
+    - `label`: a hierarchy node's `name`; for page XML, the first 80 characters of the element's text, worked out by AD-12's find_pages text rule (one:T text, tags stripped, entities decoded).
+    - Consecutive siblings that together fit the run budget (above) are grouped into one run entry, `{run: [firstRef, lastRef], count, chars, firstLabel, lastLabel}`. A sibling bigger than the run budget always has its own entry.
+    - An index that doesn't fit one response is paged: `expand` takes `page`, from 0, and `meta.result.pages` gives the count.
+    - An `expand` response for a page element carries that element's own `elementHash` (AD-17) from the stored piBasic read, so the hash of an Outline or OE too big to sit wholly in one part is still delivered.
+  - **`read_result(resultId, ...)`:** a server-only `Read` tool (AD-7) that never calls COM. It takes exactly one of:
+    - `ref`, or `run: [firstRef, lastRef]` of siblings: returns that span unchanged as the body. A single `ref` bigger than `bodyMax` returns its `expand` index instead, so a part is never cut. A run whose response would still exceed `inlineMaxChars` returns the index of the run's members instead, in the same way.
+    - `expand: ref`, with `page`: returns that element's index.
+    - `ref` with `offset` and an optional `length`: returns that substring of the element's span. A missing `length` means as much as fits `bodyMax`, and a larger one is capped to it. An `offset` at or past the span's length returns `InvalidQuery`. This is how a single element with no children but a huge body is read, such as a long `one:T`, a `one:Data`, or `get_binary_page_content`'s base64, which isn't XML: its index is empty and its whole body is the ref `/`. It also reads the tags and whitespace between listed spans.
+    - Every part is an exact substring of the stored result. Entries within one index never overlap; parts fetched by different calls may, such as a parent's ref and its child's, or offset reads. The namespace declarations of the root come in `meta.result.namespaces`.
+    - An unknown or expired `resultId` returns `ResultExpired` (AD-9), whose `userAction` says to repeat the original call. A `ref` not in the result returns `UnknownObjectId`.
+    - Each page part's `meta.basis` is `{lastModifiedTime, pageHash, elementHashes}`, with hashes for the Outlines and OEs whose spans lie wholly within the part, computed from the stored piBasic read.
+    - It checks AD-21 again. The store entry records the grants that allowed the original call: `{sectionKeys[], lifetime, expiresAt?}`. A part inside a protected section is served only while that grant holds: an `hours` grant until its `expiresAt`, an `untilRevoked` grant until revoked, and a `once` grant for as long as the entry lives. A part whose grant has lapsed returns `ReadNotGranted`, and `read_result` never raises the dialog.
+  - **The result store:**
+    - Held in memory, in each server process. It is never written to disk, and only its `resultId` and sizes are logged (AD-13). It holds the body string the tool already built, kept alive.
+    - An entry expires `results.ttlMinutes` (default 30) after its last read. An entry read under a `once` grant expires `ttlMinutes` after the original call instead, never extended by reads. When the store's total passes `results.maxStoreMB` (default 256, counted as UTF-16 bytes), the least recently read entries go first. A single result larger than the cap is stored alone.
+    - Everything goes when the process exits. There are no result files, so nothing joins `--purge` (AD-19).
+  - **Contract:** the new text block (AD-9), `read_result`, `meta.result` and `index` are a contract change. Story 1.18 bumps the minor version (AD-14).
+  - **Other clients** may not know the `_meta` key. The README tells their users to lower `results.inlineMaxChars`.
+
+### AD-21 — Protected-section read grant
+
+- **Binds:** Core (access), every read use case and `read_result`, elicitation, the `grant` CLI, `list_grants`, settings, Xml
+- **Prevents:** the model reading a password-protected section just because the user unlocked it in OneNote; the model granting itself; read tools guarding protected sections in different ways.
+- **Rule:**
+  - **What's protected** (Phill, 2026-11-06): a section whose `one:Section` has `encrypted="true"` (or `"1"`), locked or not. It is read live from `GetHierarchy` on every call and never cached across calls. One Xml function, `EncryptedSections`, finds them, as `LockedSections` does for `locked`.
+  - **Grant scope** (Phill, 2026-11-06): one protected section. A notebook or section group can't be granted as a whole, and a write grant (AD-6) doesn't grant reads of protected sections.
+  - **Grant key:** one Core function, `SectionKey`, is the only key. Its only input is the `one:Section@path` attribute read live from `GetHierarchy`, and it uses `NotebookKey`'s transform and comparison (AD-6). The section's `name`, its notebook's `NotebookKey` and its ID at grant time are stored for information only. Renaming or moving the section changes its path, so the user is asked again.
+  - **Lifetime, chosen by the user when granting** (Phill, 2026-11-06):
+    - `once`: covers only the call that raised the dialog, plus `read_result` parts of that call's result (AD-20). It's kept in memory and never written.
+    - `hours`: 1 to 168, default 8. Stored with `expiresAt` in UTC.
+    - `untilRevoked`: stored until `grant --revoke`.
+  - **How a read grant is created** (Phill, 2026-11-06):
+    - **Elicitation**, raised only by a target-scoped read (below) when the client declares elicitation. The dialog names the section and its notebook, asks the user to type the section's name, and offers the three lifetimes, with the hours as a number. The trimmed typed text must equal that section's `name`, compared `OrdinalIgnoreCase`; anything else makes no grant. A decline, a cancel, a mismatch, or a client without elicitation returns `ReadNotGranted`, with `userAction` naming the CLI. Time on the dialog counts against no timeout. Neither the STA thread nor the settings mutex is held across it (AD-10).
+    - **The CLI**, `OneNoteMcp grant --read-section`, interactive only, like AD-6's. The user types a section name, which is matched against the protected sections of the open notebooks. If several match, the CLI lists them with their notebook and section-group path and the user picks one. It offers `hours` and `untilRevoked` only. `grant --revoke --read-section <name>` removes a read grant, with the same matching and list of candidates.
+    - `list_grants` shows stored read grants. `once` grants are never stored, so it doesn't show them.
+    - No tool can create a read grant, and AD-6's Limits apply: an elicitation hook can answer the dialog.
+  - **Where the check runs:** in Core's access check, before any content is returned, and before the `SectionLocked` check.
+    - Target-scoped reads resolve the owning section through the gateway as in AD-6: a `GetHierarchyParent` chain from the target to its `one:Section`, then that section's `encrypted` and `path` from `GetHierarchy`. These extra COM calls run under AD-3's per-call timeouts.
+    - Broad `get_hierarchy` reads find protected sections in their own result XML, with `EncryptedSections`, because that XML comes from `GetHierarchy`, and make no extra COM call.
+    - `find_pages` and `find_meta` don't rely on the search XML carrying `encrypted`. They find protected sections from one `GetHierarchy` of the searched scope at `sections` level, one extra COM call under AD-3's timeouts.
+  - **Per tool:**
+    - **Target-scoped, which may raise the dialog; without a grant they return `ReadNotGranted`:**
+      - `get_page_content` and `get_binary_page_content`;
+      - `get_hierarchy_parent` on a page;
+      - `get_hyperlink_to_object` and `get_web_hyperlink_to_object` on a page, or on an object in a page;
+      - `get_hierarchy` whose `startNodeId` is a page in a protected section, or is the section itself at scope `children` or `pages`.
+    - **Broad, which never raise the dialog:**
+      - `get_hierarchy` from above the section keeps its `one:Section` element and removes its `one:Page` elements (AD-4).
+      - `find_pages` and `find_meta` drop every candidate in a protected section before any text post-filter or page read, so no match inside one is learned. Withheld candidates are not listed in `meta.filtered`. They list every protected section in the raw result, whether or not it had a hit.
+      - Both put the section IDs, without counts, in `meta.withheld`, with one `readNotGranted` warning per section whose `userAction` says how to grant.
+    - **Allowed:** `get_hierarchy` with the section itself as `startNodeId` at scope `self`, `notebooks` or `sections`, which returns no pages; `get_hierarchy_parent` and both hyperlink tools on the section itself, because the section is visible in the hierarchy anyway. `get_special_location` is unaffected.
+    - **`read_result`:** checks again, as AD-20 says.
+  - **Messages** carry the section's ID only, never its name or anything inside it (AD-9).
+  - **Storage:** `settings.json` `protectedSections{}` (AD-10), written only by grant writers. If `settings.json` is invalid, or its `schemaVersion` is newer than the server knows, stored read grants count as absent. The dialog still works: `once` as usual, while `hours` or `untilRevoked` then covers the asking call only, with the warning `grantNotSaved`.
 
 ## Consistency Conventions
 
@@ -406,6 +496,8 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 | Config | `settings.json` only (AD-10). Environment variables only for test overrides of the paths |
 | Async | tools are `async`; the gateway returns `Task`s that run on the STA queue |
 | Named mutexes | `Local\OneNoteMcp.Settings`, `Local\OneNoteMcp.Write` |
+| Large results | AD-20 only: an index plus `read_result`; no tool pages its own output |
+| Protected sections | AD-21 only: one Core check, one `ReadNotGranted` code, one `readNotGranted` warning |
 
 ## Stack
 
@@ -470,3 +562,9 @@ flowchart LR
 | OneNote elevated while the server isn't | Untested. AD-3's integrity check refuses either way |
 | A windowless OneNote left running after silent activation and idle release | Only possible when `allowSilentActivation` is on. The README notes it |
 | Attachment (`InsertedFile`) reads on cloud notebooks | Not probed. The AD-4 degrade rule applies |
+| Text blocks between 383,893 and 500,000 characters | Unmeasured with `maxResultSizeChars`. AD-20 caps `inlineMaxChars` at 380,000, the largest measured whole delivery. Raise the cap only after a probe |
+| A header line over the inline threshold | An envelope whose `meta` alone is huge, such as thousands of `meta.filtered` entries, hasn't been seen. Story 1.18 measures it on story 17's fixture; if it happens, amend AD-20 to store those lists with the result |
+| Clients other than Claude Code | They don't know the `_meta` key. The user lowers `results.inlineMaxChars` for them, and the README says how |
+| Pages deleted from a protected section | Whether OneNote's recycle-bin section is marked `encrypted` is unverified. Story 1.20 checks it with story 17's fixture; if it isn't, amend AD-21 so those pages are withheld too |
+| Whether `FindPages` and `FindMeta` XML carries `encrypted` on `one:Section` | Unverified. AD-21 makes search find protected sections with an extra `GetHierarchy`. Story 1.20 checks the search XML on story 17's fixture; if `encrypted` is reliably present, the extra call may be dropped |
+| Whether a section's `path` is stable | `SectionKey` (AD-21) assumes it is, as `NotebookKey` does. Story 1.20 captures local and cloud values, closes and reopens, and renames, as the access story does for notebooks |
