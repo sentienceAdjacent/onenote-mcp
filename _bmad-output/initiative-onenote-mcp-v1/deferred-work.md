@@ -30,3 +30,12 @@
 - source_plan: `plan-marketplace-repo-and-plugin-rename.md`
   summary: Nothing stops a pinned release from being deleted. The catalog would point at a 404 until a newer release exists.
   evidence: Fable review of AD-15, finding 12. AD-15 now says a published release is never deleted, but that rule is by convention only, with no check or tag protection.
+
+## Deferred from: spike 1.15 real-notebook run (2026-11-06)
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-plan.md`
+  summary: Epic 2: OneNote returns one of two `one:Table/one:Columns/one:Column/@width` value pairs, alternating on each `GetPageContent` (piBasic) of the same page, so an AD-17 basis taken from one read never matches the next read of that page (inferred from strict A/B alternation: the basis read n and the write pipeline's step-3 read n+1 always have opposite parity), and a plain read-then-write is refused as StaleWrite every time. Seen on one page of notebook A; the trigger isn't identified.
+  evidence: `--diag-page` on a real work-notebook page: six back-to-back raw reads gave `A B A B A B`. Lengths were identical; the only difference was two column widths trading 1.5658 pt with the same total. `ElementHash.cs` ignore list doesn't include `width`. Fix in the AD-17 hash rule (ignore or normalise unlocked Column/@width) when the write pipeline lands. OneMore's defects page has no record of it (checked 2026-11-06; `research-onemore-lessons.md` row 15).
+- source_plan: same
+  summary: `get_binary_page_content` can't read the CallbackIDs of `one:XPSFile` (File Printout backgrounds): OneNote returns ObjectNotFound (0x80042014), both raw and through the tool.
+  evidence: `--diag-callbacks` on notebooks A and B: all 6 XPSFile CallbackIDs (A 4, B 2) ObjectNotFound, and no other element gave ObjectNotFound. Say so in the tool description, or map it to binaryUnavailable, in 1.13.
