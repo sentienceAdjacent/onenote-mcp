@@ -3,7 +3,7 @@ title: 'Spike: do the read tools hold up on a large real notebook?'
 type: 'chore'
 ticket: '15'
 created: '2026-11-05'
-status: 'in-review'
+status: 'built'
 route: 'full'
 route_source: 'auto'
 baseline_revision: '85ddad7d6066fa3e8241cf0c7f14d1320c2b3e14'
@@ -84,7 +84,7 @@ context:
 - [x] `spikes/stress-harness/probe-output-cap.ps1` and the harness's `--fake-server <chars>` mode -- the cap probe. A one-tool stdio MCP server returns `<chars>` of filler. The script runs `claude -p --mcp-config` for sizes 20k, 40k, 80k, 100k, 120k and 200k characters and records, from stream-json, whether the result reached the model whole, truncated or as an error, and any message Claude Code adds. -- answers the cap unknown without any notebook.
 - [x] `spikes/stress-harness/README.md` -- how Phill runs it, what it never records, and where the output goes.
 - [x] Dry run on MCP Test plus the cap probe. Their numbers go in the findings doc's "Harness validation" and "Client cap" sections.
-- [ ] hitl: Phill runs the harness on his chosen notebook and shares `summary.json`. The agent writes `spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md`: accuracy, limits, and a recommendation per limit hit, targeting 1.13, 1.14 or a new story. Phill reviews it for content before it's committed.
+- [x] hitl: Phill runs the harness on his chosen notebook and shares `summary.json`. The agent writes `spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md`: accuracy, limits, and a recommendation per limit hit, targeting 1.13, 1.14 or a new story. Phill reviews it for content before it's committed.
 
 **Acceptance Criteria:**
 - Given MCP Test, when the harness runs, then every matrix row behaves as listed, and `summary.json` reports 0 mismatches across all nine tools.

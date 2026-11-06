@@ -4,7 +4,7 @@ title: "Lessons from OneMore"
 parent: epic-read-only-release
 status: draft
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-06
 ---
 
 # Lessons from OneMore
@@ -39,6 +39,8 @@ Sources studied: the repo at commit `10d4a90a63853c08859497bbfa9fad587e46b581` (
 | 12 | Side effects of a write on unchanged content: every child of a touched Outline gets a new `lastModifiedTime`; a local style duplicating its QuickStyleDef is dropped; a live selection across an equation can corrupt it; `&nbsp;` is rejected in CDATA (use `&#160;`). | Defects page; `Styles/ColorStabilizer.cs:14-20`; `StringExtensions.cs:404` | AD-7 validation, AD-17 (hash already excludes dates) | epic 2 |
 | 13 | HRESULTs we don't map: `0x80042020` schema invalid, `0x80042022` content loss, `0x80042023` timed out, `0x80042024` recording in progress, `0x8004202E` edit failed in Recycle Bin. Story 3 (2026-11-04, Phill): `0x80042020` maps to `InvalidXml` and `0x80042023` to `Timeout`; the other three are on AD-9's deliberately-`Internal` list until epic 2's write tools. | `Helpers/ErrorCodes.cs:22-71` | AD-9 (closed list: amend to add) | story 3 |
 | 14 | `NavigateToUrl` fails with `0x80042014` if called again within about 2 s. With two windows open on one page, the API targets the first window. | Defects page | AD-11 | epic 4 |
+| 15 | **Unlocked table column widths aren't stable across reads.** OneMore's `SetColumnWidth` always writes `isLocked="true"` along with any width, which fits widths being OneNote-managed while a column is unlocked. Its Defects page doesn't mention it. **Measured (spike 1.15, 2026-11-06, a real work notebook):** a page whose two `one:Column` elements have only `index` and `width` alternates between two width pairs on every `GetPageContent` piBasic read (`A B A B A B` in six back-to-back reads on one connection). The pairs trade 1.57 pt with the same total. It isn't tied to the client, connection or process. **Lesson:** piBasic isn't byte-stable on such pages, so a basis hash over it can flip with no edit and a write could be refused as `StaleWrite` about half the time. Exclude `one:Column/@width` of unlocked columns from `pageHash`/`elementHashes`, or treat it as layout. Our own writes should lock any width they set, as OneMore does. | `Models/Table.cs:144-153`, `:313-319` (repo at `885f976`); spike 1.15 findings, "OneNote quirks found" | AD-17 (hash scope), AD-7 | epic 2 |
+| 16 | **A File Printout's `one:XPSFile` CallbackID can't be read with `GetBinaryPageContent`.** OneMore never fetches it: its only `GetBinaryPageContent` wrapper catches every exception, logs it and returns null, and its Analyze command skips `xpsFileIndex` images and reads printouts through `one:Printout`/`xpsFileIndex`. Its Defects page doesn't mention it. **Measured (spike 1.15, 2026-11-06, a real work notebook):** all 4 page-level `one:XPSFile` CallbackIDs gave `ObjectNotFound` (`0x80042014`), not `0x8004200F`. The 86 image CallbackIDs that weren't downloaded gave `0x8004200F`. **Lesson:** `get_binary_page_content`'s description, which promises a `binaryUnavailable` warning, doesn't cover this. Either say that printout (XPSFile) CallbackIDs return `ObjectNotFound`, or map that case to the warning. Don't count XPSFile CallbackIDs as fetchable binaries. | `OneNote.cs:1120-1138`, `Commands/File/AnalyzeCommand.cs:679-681`, `:761-766` (repo at `885f976`); spike 1.15 findings | AD-4, AD-9 (tool description or warning mapping) | story 1.13 or 1.14 |
 
 ## Where we deliberately differ
 
