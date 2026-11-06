@@ -3,7 +3,7 @@ title: 'Synthetic size fixture in MCP Test'
 type: 'feature'
 ticket: '17'
 created: '2026-11-06'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'ee2e9743fa1bff9afa638b87f783117926b7a660'
 route: 'full'
 route_source: 'auto'
@@ -76,6 +76,8 @@ context: []
 - Real run (2026-11-06, scale 1): first build 1,064 guarded writes, 506 pages, 1 m 35 s; oversized page 2,672,889 chars piBasic; pages-scope listing 158,079 chars. A rerun made 0 writes (checked 506 pages, 19 s). Full integration suite with the flag: 86 passed, 7 skipped.
 - Harness on MCP Test before the Vault was protected: 620 comparisons, 0 mismatches, 2 `unstableRead`; `textOver50kBytes` get_page_content 2, get_hierarchy 1, find_meta 5, find_pages 20, get_binary_page_content 8; find_meta `toolPages` up to 506; `insertedFiles` 6, `binariesReturned` 9/9; content grep of 70 terms (48 vocabulary words, every Ballast/fixture name, Meta names, notebook name, user name, folder) found 0 hits.
 - New OneNote quirk: both `unstableRead`s are the Files page, attribute `one:InsertedFile/@pathCache`, which changes on every read. Logged in `deferred-work.md` for epic 2 (AD-17 hash).
+
+- After the owner password-protected the Vault (2026-11-06): its section ID changed on protection. The ballast rerun reported `encrypted=True, locked=True`, made 0 writes and read no Vault content (503 pages checked). Harness: 617 comparisons, 0 mismatches, 2 `unstableRead` (pathCache); `sectionsEncrypted` 1, `sectionsLocked` 1 (3 `sectionLocked` warnings); `textOver50kBytes` get_page_content 2, get_hierarchy 1; find_meta `toolPages` up to 503; `insertedFiles` 6; binaries 9/9 returned. Content grep: 0 hits. Integration with the flag, Vault locked: 86 passed, 7 skipped.
 
 ## Review Triage Log
 
