@@ -9,13 +9,19 @@ namespace OneNoteMcp.Server.Hooks;
 /// stdin. It denies a file write (<c>Edit</c>, <c>Write</c>, <c>MultiEdit</c>, <c>NotebookEdit</c>) whose path is the
 /// server's <c>settings.json</c>, or any <c>settings.json</c> in a folder named <c>OneNoteMcp</c>, ignoring case; and a
 /// shell command (<c>Bash</c>, <c>PowerShell</c>) whose text names either. Everything else, reads and unreadable input
-/// included, is allowed silently. Best effort: an obfuscated shell command gets past it (AD-6 Limits; the README says so).
+/// included, is allowed silently. It also denies a shell command that runs the grant CLI (<c>OneNoteMcp</c>,
+/// <c>OneNoteMcp.exe</c> or a path ending in it, quoted or not, followed by <c>grant</c>): only the user runs it. Best
+/// effort: an obfuscated shell command gets past it (AD-6 Limits; the README says so).
 /// </summary>
 public static partial class SettingsGuard
 {
     public const string Reason =
         "OneNoteMcp's settings.json holds the user's grants, which only the user may change (AD-6). "
         + "Don't edit it, and don't run the OneNoteMcp grant command: tell the user what they would need to do instead.";
+
+    public const string GrantReason =
+        "Only the user runs the OneNoteMcp grant command, in their own terminal (AD-6, AD-21). "
+        + "Don't run it, in any form: tell the user the command to run instead.";
 
     private static readonly HashSet<string> FileTools = new(StringComparer.Ordinal) { "Edit", "Write", "MultiEdit", "NotebookEdit" };
     private static readonly HashSet<string> ShellTools = new(StringComparer.Ordinal) { "Bash", "PowerShell" };
@@ -44,7 +50,8 @@ public static partial class SettingsGuard
 
             if (ShellTools.Contains(tool))
             {
-                return NamesSettings(String(input, "command"), settingsPath) ? Reason : null;
+                var command = String(input, "command");
+                return NamesSettings(command, settingsPath) ? Reason : RunsGrant(command) ? GrantReason : null;
             }
 
             return null;
@@ -100,6 +107,12 @@ public static partial class SettingsGuard
             || command.Contains(Full(settingsPath).Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)
             || InOneNoteMcpFolder().IsMatch(command));
 
+    /// <summary>
+    /// True when a shell command runs the grant CLI: <c>OneNoteMcp</c> or <c>OneNoteMcp.exe</c>, bare or at the end of a
+    /// path, quoted or not, then <c>grant</c>, ignoring case (so <c>grant --revoke</c> too).
+    /// </summary>
+    public static bool RunsGrant(string? command) => !string.IsNullOrEmpty(command) && GrantInvocation().IsMatch(command);
+
     private static string Full(string path)
     {
         try
@@ -117,4 +130,8 @@ public static partial class SettingsGuard
 
     [GeneratedRegex(@"OneNoteMcp[\\/]+settings\.json", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex InOneNoteMcpFolder();
+
+    // Not preceded by a word character, dot or hyphen, so OneNoteMcp.Tests or my-OneNoteMcp don't count.
+    [GeneratedRegex(@"(?<![\w.-])OneNoteMcp(?:\.exe)?[""']?\s+grant\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex GrantInvocation();
 }

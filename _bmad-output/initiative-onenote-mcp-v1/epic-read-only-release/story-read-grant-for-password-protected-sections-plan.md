@@ -154,7 +154,7 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
 - **Locked run:** a locked section lists 0 pages, so the locked integration run reads no Vault page. "ReadNotGranted before SectionLocked" is proven on fakes; the unlocked run covers the real page path.
 - **Verification (2026-11-07, after review pass 1):**
   - Build: clean.
-  - Unit tests: 1145 passed.
+  - Unit tests: 1145 passed (after pass 2: 1156).
   - Integration, Vault locked: 87 passed, 7 skipped.
   - Stress harness on MCP Test: 617 comparisons, 0 mismatches, 2 unstableRead (the known table widths), 0 text blocks over 100,000. Withheld: `readNotGranted` 20 on find_pages, 5 on find_meta, 1 on get_hierarchy.
   - Packed `0.7.0-rc.1`; `claude plugin validate --strict` passes. The name grep on the diff is clean.
@@ -183,6 +183,14 @@ Pass 1 (quick lens): high 1, medium 4, low 2, rejected 1.
 | 6 | Search withholding fails open when the start node is the protected section and the search XML doesn't wrap pages in its `one:Section` | medium | patch | `CheckSearchScopeAsync` sets `WithholdAll` only for a page start. Set it too when the root is a withheld section. |
 | 7 | userActions name `OneNoteMcp grant`, which isn't on PATH for plugin installs | medium | patch | Plugin exe path is `${CLAUDE_PLUGIN_ROOT}`. Name the running exe's full path (`Environment.ProcessPath`) in the userActions; README says where the plugin's exe is. |
 | 8 | Two name matchers (`GrantCommand.Same` trims both sides; `ReadAccess` trims only the typed name) | low | patch | AD-6/AD-21: "the same name matcher". One Core matcher, used by both. |
+
+Pass 2, from the automated security review of commit 23333e0: 4 findings. 2 were fixed, 1 was accepted as a limit and 1 was already deferred.
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---|---|---|---|
+| 1 | Search fails open for a page with an empty SectionId in a scope that withholds a section | medium | patch | `BroadAccess.IsWithheld` now withholds such a page whenever any section is withheld. Test added. |
+| 2 | The hook's path check can be bypassed with 8.3 short names, NTFS streams or links | low | rejected | AD-6 Limits: best effort against casual misuse; any shell can write the file indirectly. The README says so. |
+| 3 | The grant CLI's interactive check (non-redirected console) could be beaten with a pseudo-console | medium | patch | The hook now also denies shell commands that run `OneNoteMcp[.exe] grant`. Known gap: `dotnet run --project ... -- grant`, accepted as best effort. |
+| 4 | Recycle-bin pages from a protected section may be unprotected | medium | defer | Already in `deferred-work.md`. The fail-closed interim (withhold recycle-bin pages in notebooks that have a protected section) is Phill's call. |
 
 ## Verification
 

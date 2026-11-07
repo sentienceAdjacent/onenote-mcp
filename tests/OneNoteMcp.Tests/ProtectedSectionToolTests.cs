@@ -432,6 +432,24 @@ public sealed class ProtectedSectionToolTests
     }
 
     [Fact]
+    public async Task FindPages_APageOutsideAnySectionWrapper_IsWithheld_WhenTheScopeWithholdsASection()
+    {
+        // Fail closed: the protected page's section can't be told from the XML, and the scope has a withheld Vault.
+        using var h = new VaultHarness();
+        h.Gateway.SearchXml =
+            "<?xml version=\"1.0\"?>\n<one:Notebook xmlns:one=\"" + OneNoteXml.Namespace2013 + "\" ID=\"" + V.NotebookId + "\" name=\"Notebook A\">"
+            + "<one:Section ID=\"" + V.OpenSectionId + "\" name=\"Open\"><one:Page ID=\"" + V.OpenPageId + "\" name=\"Open page\" lastModifiedTime=\"2026-11-07T00:00:00.000Z\" /></one:Section>"
+            + "<one:Page ID=\"" + V.VaultPageId + "\" name=\"Vault page one\" lastModifiedTime=\"2026-11-07T00:00:00.000Z\" /></one:Notebook>";
+
+        var root = Grants.Ok(await h.FindPages("SECRET", V.NotebookId));
+
+        Assert.Empty(XDocument.Parse(Grants.Xml(root)).Descendants(One + "Page"));
+        Assert.DoesNotContain(V.VaultPageId, root.GetProperty("meta").GetProperty("filtered").EnumerateArray().Select(f => f.GetProperty("pageId").GetString()));
+        Assert.Equal([V.VaultId, V.GroupVaultId], Grants.Withheld(root));
+        Assert.DoesNotContain(h.Gateway.ContentCalls, c => c.Contains("{SV", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Dialog_SectionWithNoPath_IsReadNotGranted_WithoutAsking_AndSavesNothing()
     {
         using var h = new VaultHarness();

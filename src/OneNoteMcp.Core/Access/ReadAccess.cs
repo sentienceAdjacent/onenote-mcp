@@ -28,7 +28,12 @@ public sealed record BroadAccess(IReadOnlyList<string> Withheld, IReadOnlyList<R
 {
     public static BroadAccess None { get; } = new([], []);
 
-    public bool IsWithheld(string sectionId) => WithholdAll || (sectionId.Length > 0 && Withheld.Contains(sectionId, StringComparer.Ordinal));
+    /// <summary>
+    /// True for a page in a withheld section. Fails closed: when anything is withheld, a page the XML shows outside any
+    /// <c>one:Section</c> (an empty <paramref name="sectionId"/>) is withheld too, since its section can't be told apart.
+    /// </summary>
+    public bool IsWithheld(string sectionId) =>
+        WithholdAll || (sectionId.Length > 0 ? Withheld.Contains(sectionId, StringComparer.Ordinal) : Withheld.Count > 0);
 
     /// <summary>One <c>readNotGranted</c> warning per withheld section, naming its ID only (AD-9).</summary>
     public IReadOnlyList<ToolWarning> Warnings =>

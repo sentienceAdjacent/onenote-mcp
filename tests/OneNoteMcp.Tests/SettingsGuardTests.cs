@@ -50,6 +50,24 @@ public sealed class SettingsGuardTests
     public void ShellCommands_NamingTheSettings_AreDenied(string tool, string command) =>
         Assert.NotNull(SettingsGuard.Decide(Input(tool, new { command }), SettingsPath));
 
+    [Theory]
+    [InlineData("Bash", "OneNoteMcp grant --read-section \"Vault\"")]
+    [InlineData("Bash", "onenotemcp.exe GRANT --revoke --read-section Vault")]
+    [InlineData("PowerShell", "& \"C:\\Users\\x\\.claude\\plugins\\cache\\sentienceadjacent\\onenote\\0.7.0\\OneNoteMcp.exe\" grant --read-section \"Vault\"")]
+    [InlineData("PowerShell", "& 'C:\\tools\\OneNoteMcp.exe' grant --revoke --read-section Vault")]
+    [InlineData("Bash", "C:/tools/OneNoteMcp.exe grant --read-section Vault")]
+    [InlineData("Bash", "echo 1 | OneNoteMcp grant --read-section Vault")]
+    public void ShellCommands_RunningTheGrantCli_AreDenied_SayingOnlyTheUserRunsIt(string tool, string command) =>
+        Assert.Equal(SettingsGuard.GrantReason, SettingsGuard.Decide(Input(tool, new { command }), SettingsPath));
+
+    [Theory]
+    [InlineData("git commit -m \"grant read access in OneNoteMcp\"")]
+    [InlineData("dotnet test tests/OneNoteMcp.Tests --filter GrantCommandTests")]
+    [InlineData("grep -rn grant src/OneNoteMcp.Server")]
+    [InlineData("OneNoteMcp hook guard-settings")]
+    public void ShellCommands_MerelyMentioningGrant_AreAllowed(string command) =>
+        Assert.Null(SettingsGuard.Decide(Input("Bash", new { command }), SettingsPath));
+
     public static TheoryData<string> Allowed() => new()
     {
         Input("Read", new { file_path = SettingsPath }),
