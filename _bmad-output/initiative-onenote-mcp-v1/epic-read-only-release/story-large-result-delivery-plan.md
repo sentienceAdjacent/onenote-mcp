@@ -3,7 +3,7 @@ title: 'Large-result delivery'
 type: 'feature'
 ticket: '18'
 created: '2026-11-06'
-status: 'built'
+status: done
 baseline_revision: 'ad71c2a15057a8878e4a26ced6e1aed08c6c6586'
 route: 'full'
 route_source: 'auto'
