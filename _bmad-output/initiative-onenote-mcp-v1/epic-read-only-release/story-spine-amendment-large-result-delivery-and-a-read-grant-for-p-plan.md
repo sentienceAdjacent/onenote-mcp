@@ -3,7 +3,7 @@ title: 'Spine amendment: large-result delivery and a read grant for protected se
 type: 'chore'
 ticket: '16'
 created: '2026-11-06'
-status: 'built'
+status: done
 baseline_revision: 'ee2e9743fa1bff9afa638b87f783117926b7a660'
 route: 'full'
 route_source: 'auto'
