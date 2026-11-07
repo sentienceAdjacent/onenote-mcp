@@ -3,7 +3,7 @@ title: 'find_pages cost'
 type: 'feature'
 ticket: '19'
 created: '2026-11-06'
-status: 'built'
+status: done
 baseline_revision: '1c4af981f07b99a83366dc19600c7a14a892fbcd'
 route: 'full'
 route_source: 'auto'
