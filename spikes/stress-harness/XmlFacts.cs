@@ -9,7 +9,7 @@ namespace StressHarness;
 /// <summary>A page as the hierarchy shows it. <see cref="Name"/> stays in memory only.</summary>
 internal sealed record PageNode(string Id, string SectionId, string Name, bool InRecycleBin);
 
-internal sealed record SectionNode(string Id, bool Locked, bool InRecycleBin);
+internal sealed record SectionNode(string Id, bool Locked, bool InRecycleBin, bool Encrypted = false);
 
 internal sealed record NotebookModel(string NotebookId, IReadOnlyList<SectionNode> Sections, IReadOnlyList<PageNode> Pages);
 
@@ -48,7 +48,7 @@ internal static partial class XmlFacts
         foreach (var s in doc.Descendants(One + "Section"))
         {
             var inBin = InBin(s);
-            sections.Add(new SectionNode(Attr(s, "ID"), IsTrue(Attr(s, "locked")), inBin));
+            sections.Add(new SectionNode(Attr(s, "ID"), IsTrue(Attr(s, "locked")), inBin, IsTrue(Attr(s, "encrypted"))));
             foreach (var p in s.Elements(One + "Page"))
             {
                 pages.Add(new PageNode(Attr(p, "ID"), Attr(s, "ID"), Attr(p, "name"), inBin || IsTrue(Attr(p, "isInRecycleBin"))));

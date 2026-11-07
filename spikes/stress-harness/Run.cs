@@ -73,6 +73,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
         var n = recorder.NotebookCounts;
         n["sections"] = _model.Sections.Count;
         n["sectionsLocked"] = _model.Sections.Count(s => s.Locked);
+        n["sectionsEncrypted"] = _model.Sections.Count(s => s.Encrypted);
         n["sectionsInRecycleBin"] = _model.Sections.Count(s => s.InRecycleBin);
         n["pages"] = _model.Pages.Count;
         n["pagesInRecycleBin"] = _model.Pages.Count(p => p.InRecycleBin);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using OneNoteMcp.Com;
@@ -37,8 +38,9 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
         foreach (var scope in Enum.GetValues<HierarchyScopeArgument>())
         {
             var root = Ok(await hierarchy.GetHierarchy(notebook.NotebookId, scope, Ct), $"get_hierarchy({scope})");
-            Assert.Empty(SchemaValidation.Validate(root.GetProperty("xml").GetString()!));
-            Assert.Equal(0, root.GetProperty("warnings").GetArrayLength()); // MCP Test has no locked section
+            var xml = root.GetProperty("xml").GetString()!;
+            Assert.Empty(SchemaValidation.Validate(xml));
+            AssertLockedWarnings(xml, root.GetProperty("warnings"), $"get_hierarchy({scope})");
         }
 
         var notebooks = Ok(await hierarchy.GetHierarchy(cancellationToken: Ct), "get_hierarchy(root)");
@@ -103,6 +105,28 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
         Assert.False(result.IsError, $"{call} failed: {root.GetRawText()}");
         Assert.True(root.GetProperty("ok").GetBoolean());
         return root;
+    }
+
+    /// <summary>
+    /// MCP Test's only lockable section is story 17's <c>Ballast Vault</c>, which the owner password-protects by hand: the
+    /// warnings are exactly one <c>sectionLocked</c> per locked section in the XML, each naming its ID, and every
+    /// locked section is the Vault. Passes with the Vault locked, unlocked or absent.
+    /// </summary>
+    private static void AssertLockedWarnings(string xml, JsonElement warnings, string call)
+    {
+        var locked = XDocument.Parse(xml).Descendants(OneNoteXml.One + "Section")
+            .Where(s => (string?)s.Attribute("locked") is "true" or "1")
+            .ToList();
+        Assert.All(locked, s => Assert.Equal(BallastContent.VaultSectionName, (string?)s.Attribute("name")));
+
+        var list = warnings.EnumerateArray().ToList();
+        Assert.True(list.Count == locked.Count, $"{call}: {list.Count} warnings for {locked.Count} locked sections");
+        Assert.All(list, w => Assert.Equal("sectionLocked", w.GetProperty("code").GetString()));
+        foreach (var section in locked)
+        {
+            var id = (string)section.Attribute("ID")!;
+            Assert.Single(list, w => w.GetProperty("message").GetString()!.Contains(id, StringComparison.Ordinal));
+        }
     }
 
     private static string? Meta(JsonElement root, string name) => root.GetProperty("meta").GetProperty(name).GetString();
