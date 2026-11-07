@@ -344,6 +344,8 @@ public sealed class HierarchyReadToolTests
 
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => Task.FromResult(value);
 
+        public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
+
         public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct) => throw new NotSupportedException();

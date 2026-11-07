@@ -53,6 +53,8 @@ internal sealed class StubGateway : IOneNoteGateway
     public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => throw new NotSupportedException();
 
     public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => throw new NotSupportedException();
+
+    public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 }
 
 /// <summary>The real runner, store and tools, with settings and a clock the test controls.</summary>

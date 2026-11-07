@@ -215,6 +215,19 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) =>
+        RunAsync(
+            nameof(IApplication.NavigateTo),
+            app =>
+            {
+                // fNewWindow is always false: never open a window the user didn't ask for (AD-11).
+                app.NavigateTo(hierarchyId ?? string.Empty, objectId ?? string.Empty, fNewWindow: false);
+                return true;
+            },
+            // AppState, not a read: a call that reached COM and then lost the connection isn't repeated (AD-3).
+            retryOnDisconnect: false,
+            ct);
+
     /// <summary>
     /// Raw seam for unit tests and the integration suite's guarded writes: runs <paramref name="call"/> under the same
     /// lifecycle as every port method. A write passes <paramref name="retryOnDisconnect"/> false, which turns off only the

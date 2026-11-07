@@ -470,6 +470,37 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task NavigateTo_PassesItsIds_AndNeverANewWindow()
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.NavigateToAsync("{p}", "{oe}", Ct);
+        await gateway.NavigateToAsync("{s}", string.Empty, Ct);
+
+        Assert.Equal(
+            [["{p}", "{oe}", false], ["{s}", string.Empty, false]], // fNewWindow is always false (AD-11)
+            app.Calls.Where(c => c.Method == "NavigateTo").Select(c => c.Args));
+    }
+
+    [Fact]
+    public async Task NavigateTo_IsNotRetriedAfterADisconnect_AndFailuresMapLikeAnyCall()
+    {
+        // AppState, not a read: a disconnect that reached COM isn't repeated (AD-3).
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToAsync("{p}", string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        app.OnCall = _ => throw new COMException("modal", unchecked((int)0x80042030));
+        var modal = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToAsync("{p}", string.Empty, Ct));
+        Assert.Equal(ErrorCode.ModalDialogOpen, modal.Code);
+    }
+
+    [Fact]
     public async Task GetHierarchy_PassesStartScopeAndXs2013()
     {
         var app = new FakeApplication { OnCall = _ => "<ok/>" };

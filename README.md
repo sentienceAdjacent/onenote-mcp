@@ -20,6 +20,12 @@ A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and
 | `get_special_location` | OneNote's backup, unfiled-notes and default notebook folders |
 | `read_result` | reads a result that was too large to return whole, part by part (see below). It never calls OneNote |
 
+**User-visible, only when you ask:**
+
+| Tool | What it does |
+|---|---|
+| `navigate_to` | shows a notebook, section or page in OneNote, optionally selecting one object on it. It takes keyboard focus and changes what OneNote shows, so the plugin's `guide` skill tells Claude to call it only when you explicitly ask, for example to download a page's missing images. It changes no content |
+
 Results are always OneNote's XML, unchanged, so tables, tags, ink, images and attachments survive the trip. When something is degraded, such as a cloud image that isn't on this PC, a locked section or search results that may be incomplete, the result says so in `warnings` instead of failing.
 
 **Large results.** A result up to `results.inlineMaxChars` characters (100,000 by default) comes back whole. Its text is one line of JSON (the result's `meta` and `warnings`), then the XML exactly as OneNote returned it, not escaped into JSON. A bigger result, such as a long page or a whole notebook's pages, is kept in the server's memory and comes back as an index: one entry per child element, with its size and a label (a section's or page's name, or the first 80 characters of an element's text). `read_result` then returns any element, run of elements, deeper index, or character range of it, each an exact substring of what OneNote returned, so nothing is lost or rewritten. A stored result lasts 30 minutes after its last read, and is never written to disk.
@@ -38,7 +44,7 @@ Results are always OneNote's XML, unchanged, so tables, tags, ink, images and at
 | | |
 |---|---|
 | **Reading** | Allowed on every notebook. The server never changes anything today. |
-| **Focus** | The server never brings OneNote to the front or moves your view unless you ask. It never closes or kills OneNote. |
+| **Focus** | The server never brings OneNote to the front or moves your view unless you ask. Only `navigate_to` does, and no other tool calls it. It never closes or kills OneNote. |
 | **Logs** | IDs, error codes and timings only, never note content. |
 | ***(planned)*** **Writing** | A grant for each notebook, given by typing the notebook's name in a confirmation dialog or with `OneNoteMcp grant`. The model can't grant itself access. |
 | ***(planned)*** **Permanent delete** | A second, separate grant. Normal deletes go to OneNote's recycle bin. |
@@ -48,7 +54,8 @@ Results are always OneNote's XML, unchanged, so tables, tags, ink, images and at
 **Limits, stated honestly:**
 - Search results may be incomplete while Windows Search catches up. Results always say `possiblyIncomplete`.
 - To make repeat searches fast, `find_pages` remembers each page's text in memory (never on disk) until the page's last-modified time changes. A page that another program (another add-in, or a second OneNote MCP session) edits through COM while it isn't open in OneNote keeps its old time, so a search can match it against its old text until it next changes or the server restarts. Edits made in OneNote itself are seen. Set `search.cacheMaxMB` to `0` to turn this off.
-- Images in cloud notebooks that OneNote hasn't downloaded can't be read. They're reported as unavailable instead of failing.
+- **Missing images.** Images in notebooks stored online often aren't on this PC until OneNote downloads them, and the API can't read them until then. They're reported as unavailable (`binaryUnavailable`) instead of failing, and the server never fetches them by itself. Two ways to get them: turn on File > Options > Sync > "Download all files and images" in OneNote, or ask Claude to show the page in OneNote (`navigate_to`, which takes focus), which downloads its images (in the one page measured, within 2 seconds; large pages or slow connections may take longer), then read it again. `navigate_to` only works with OneNote open in a window: if OneNote is running without one, it returns ok but shows and downloads nothing.
+- A File Printout's printout document (`one:XPSFile`) can't be read through the API at all. It's reported as unavailable too; the printout's page images are separate images.
 - *(planned, for writes)* Grants guard against mistakes and casual misuse, not against hostile software already running as you. A grant belongs to the notebook's location (its folder or OneDrive URL), so a different notebook that later appears at a granted location inherits the grant. A Claude Code hook can auto-answer confirmation dialogs. The journal will hold copies of your note content on disk.
 
 ## Install
@@ -98,7 +105,7 @@ Use `0.4.0-rc.4` or later: earlier releases ship a plugin named `onenote-mcp`. Y
 
 3. Restart the client.
 
-Each read tool tells Claude Code it may return up to 500,000 characters (`_meta["anthropic/maxResultSizeChars"]`), so results up to the inline limit reach the model whole. Other clients don't know that key, and may cut a result short or save it to a file well below 100,000 characters. For them, lower the inline limit in `%APPDATA%\OneNoteMcp\settings.json` to what the client shows whole, so larger results come back as an index instead:
+Each tool tells Claude Code it may return up to 500,000 characters (`_meta["anthropic/maxResultSizeChars"]`), so results up to the inline limit reach the model whole. Other clients don't know that key, and may cut a result short or save it to a file well below 100,000 characters. For them, lower the inline limit in `%APPDATA%\OneNoteMcp\settings.json` to what the client shows whole, so larger results come back as an index instead:
 
 ```json
 {

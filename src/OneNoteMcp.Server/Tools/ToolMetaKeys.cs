@@ -1,6 +1,6 @@
 namespace OneNoteMcp.Server.Tools;
 
-/// <summary>The <c>_meta</c> every read tool declares in <c>tools/list</c> (AD-20).</summary>
+/// <summary>The <c>_meta</c> every tool declares in <c>tools/list</c> (AD-20).</summary>
 public static class ToolMetaKeys
 {
     /// <summary>Claude Code's per-tool cap on a result's text before it saves the result to a file and shows a preview.</summary>

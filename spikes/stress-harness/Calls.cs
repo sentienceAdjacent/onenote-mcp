@@ -57,9 +57,13 @@ internal sealed class ToolClient(McpClient client)
     // A tool can make many COM calls (find_pages reads every candidate page), so the harness's own wait is generous.
     private static readonly TimeSpan CallLimit = TimeSpan.FromMinutes(15);
 
+    /// <summary>The user-visible tool (story 1.21, AD-11). The harness never calls it: every call path refuses it.</summary>
+    public const string NavigateTo = "navigate_to";
+
     /// <summary>The unreduced result, for the diag modes; null on a protocol failure.</summary>
     public async Task<CallToolResult?> CallRawAsync(string tool, Dictionary<string, object?> args)
     {
+        RefuseUserVisible(tool);
         using var cts = new CancellationTokenSource(CallLimit);
         try
         {
@@ -73,6 +77,7 @@ internal sealed class ToolClient(McpClient client)
 
     public async Task<ToolOutcome> CallAsync(string tool, Dictionary<string, object?> args)
     {
+        RefuseUserVisible(tool);
         using var cts = new CancellationTokenSource(CallLimit);
         var sw = Stopwatch.StartNew();
         CallToolResult result;
@@ -247,6 +252,15 @@ internal sealed class ToolClient(McpClient client)
         }
 
         return new Reassembly(JsonSerializer.SerializeToElement(node), parts, maxText, null);
+    }
+
+    // A guard against a future phase calling it by mistake; outside each call's try, so it stops the run.
+    private static void RefuseUserVisible(string tool)
+    {
+        if (string.Equals(tool, NavigateTo, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("the harness never calls navigate_to (AD-11)");
+        }
     }
 }
 

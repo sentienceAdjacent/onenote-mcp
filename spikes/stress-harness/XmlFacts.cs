@@ -24,6 +24,9 @@ internal sealed class PageFacts
 
     public required IReadOnlyList<string> CallbackIds { get; set; }
 
+    /// <summary>The CallbackIDs of page-level <c>one:XPSFile</c>s (File Printouts), which the server reports as binaryUnavailable (story 1.21).</summary>
+    public required IReadOnlySet<string> XpsCallbackIds { get; set; }
+
     public required int Images { get; set; }
 
     public required int InsertedFiles { get; set; }
@@ -93,6 +96,7 @@ internal static partial class XmlFacts
             Text = text,
             MetaNames = [.. root.Elements(One + "Meta").Select(m => Attr(m, "name"))],
             CallbackIds = [.. doc.Descendants(One + "CallbackID").Select(c => Attr(c, "callbackID")).Where(c => c.Length > 0)],
+            XpsCallbackIds = root.Elements(One + "XPSFile").Elements(One + "CallbackID").Select(c => Attr(c, "callbackID")).Where(c => c.Length > 0).ToHashSet(StringComparer.Ordinal),
             Images = doc.Descendants(One + "Image").Count(),
             InsertedFiles = doc.Descendants(One + "InsertedFile").Count(),
         };

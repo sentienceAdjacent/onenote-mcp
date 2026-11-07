@@ -128,6 +128,8 @@ So all 6 `ObjectNotFound`s across the three notebooks were page-level `one:XPSFi
 
 Because the call returns at once, it's inferred to only queue a sync, or to do nothing for content. Either way, it doesn't bring the images down within a minute.
 
+**Addendum (story 1.21, measured, 2026-11-07): `NavigateTo` does download them.** Phill approved `NavigateTo` on one already-read page of A. The probe (`--probe-navigate`, same compiled-in interop) picked a page that wasn't unread and wasn't in a locked, password-protected or recycle-bin section, and whose image CallbackIDs gave `0x8004200F`. It called `NavigateTo(page)` once and then polled every image CallbackID of the page every 2 s. Both of the page's unavailable images were readable at the first poll, within 2 s. This settles the "unverified" question in recommendation 4: story 1.21 adds `navigate_to` (user-visible, AD-11) and the skill offers it only on the user's request. It's one page in one notebook, so how long a large page or a slow connection takes isn't known.
+
 **OneMore (checked 2026-11-06, repo at `885f976`, code reading).** OneMore's "OneNote Defects" page lists 8 defects: merged cells, NavigateToUrl, child `lastModifiedTime`, spell-check, wrong window, local styles, page `lastModifiedTime`, and MathML soft-break. None covers any of the three quirks. It says nothing about column widths changing between reads, about XPS or printouts, or about GetBinaryPageContent or CallbackID. Its code is consistent with quirks 1 and 2 without naming them:
 
 - `Models/Table.cs`'s `SetColumnWidth` always writes `isLocked="true"` along with a width, which fits widths being OneNote-managed when unlocked.
@@ -291,7 +293,7 @@ These notebooks aren't a forecast for other users (Phill, 2026-11-06). What they
 4. **Images that aren't on this PC.** 1.21.
    - **The probe (measured, quirk 3):** `SyncHierarchy` on the page, and then on its section, returned S_OK at once. Neither brought the image down within 60 s per attempt.
    - **What to build (Phill chose the opt-in route, 2026-11-06):**
-     - an opt-in fetch: on the user's explicit request, `NavigateTo` the page so OneNote downloads its images, then read the binary again. It stays user-requested only, because it takes focus (AD-11). Whether showing the page actually downloads the images is unverified (inferred), so 1.13 must measure it first.
+     - an opt-in fetch: on the user's explicit request, `NavigateTo` the page so OneNote downloads its images, then read the binary again. It stays user-requested only, because it takes focus (AD-11). Whether showing the page actually downloads the images is unverified (inferred), so 1.13 must measure it first. (Measured by story 1.21's probe on 2026-11-07: it does, within 2 s on one page of A. See the addendum under quirk 3.)
      - The `binaryUnavailable` warning's `userAction` offers that fetch and also points to OneNote's Options > Sync > "Download all files and images".
    - **Calling `SyncHierarchy` from a read tool is not an option without a spine amendment.** It is an `AppState` operation under AD-7, bound by AD-11, so the amendment would have to reclassify or allow it. Given quirk 3, it's not worth it either.
 5. **XPSFile CallbackIDs.** 1.21. All 6 `ObjectNotFound`s (A 4, B 2) were page-level `one:XPSFile` (quirk 2). Either map ObjectNotFound for `one:XPSFile` to `binaryUnavailable`, or say in get_binary_page_content's description that printout backgrounds can't be read.

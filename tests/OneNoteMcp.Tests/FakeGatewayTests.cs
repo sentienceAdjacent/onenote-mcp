@@ -42,10 +42,15 @@ public sealed class FakeGatewayTests
     }
 
     [Fact]
-    public void Manifest_CoversAllNinePortMethods_WithASuccess()
+    public void Manifest_CoversAllNineContentPortMethods_WithASuccess()
     {
-        var methods = typeof(IOneNoteGateway).GetMethods().Select(m => m.Name[..^"Async".Length]).ToHashSet();
+        // NavigateTo (story 1.21) returns no content, so it has no fixture; FakeGateway records it instead.
+        var methods = typeof(IOneNoteGateway).GetMethods()
+            .Where(m => m.ReturnType == typeof(Task<string>))
+            .Select(m => m.Name[..^"Async".Length])
+            .ToHashSet();
         Assert.Equal(9, methods.Count);
+        Assert.Equal(10, typeof(IOneNoteGateway).GetMethods().Length);
 
         var served = FakeGateway.Manifest.Entries.Where(e => e.Error is null).Select(e => e.Method).ToHashSet();
 

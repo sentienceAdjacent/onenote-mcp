@@ -466,6 +466,8 @@ public sealed class SearchToolTests
 
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => _inner.GetSpecialLocationAsync(location, ct);
 
+        public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
+
         private Task<string> Search(Func<Task<string>> serve) =>
             SearchFailure is not null ? Task.FromException<string>(SearchFailure)
             : SearchXml is not null ? Task.FromResult(SearchXml)

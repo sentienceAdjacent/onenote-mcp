@@ -47,7 +47,8 @@ public sealed class GetPageContentUseCase(IOneNoteGateway gateway) : IUseCase
             new ToolWarning(
                 ToolWarnings.BinaryUnavailable,
                 $"{missing} image(s) on page {id} have no binary on this PC, so the returned XML leaves them out. They are in a notebook stored online and haven't been downloaded.",
-                "Open the page in OneNote so it downloads the images, then read it again."),
+                "The user can turn on File > Options > Sync > \"Download all files and images\" in OneNote so images are kept on this PC. "
+                + "Or, only if the user asks for it, show the page in OneNote with navigate_to (user-visible: it takes focus), which makes OneNote download the page's images, then read the page again."),
         ];
         return new ToolSuccess(binary, meta with { BinaryUnavailable = missing }, warnings) { Source = source };
     }
