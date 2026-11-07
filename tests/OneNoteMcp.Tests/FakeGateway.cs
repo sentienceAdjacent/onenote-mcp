@@ -12,6 +12,7 @@ namespace OneNoteMcp.Tests;
 /// <remarks>
 /// The story-3 scripting stays: <see cref="HierarchyXml"/>, when set, answers every <c>GetHierarchy</c>;
 /// <see cref="Failure"/>, when set, is thrown by every method; <see cref="Calls"/> records <c>GetHierarchy</c> calls.
+/// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21), which have no fixture.
 /// </remarks>
 internal sealed class FakeGateway : IOneNoteGateway
 {
@@ -73,6 +74,15 @@ internal sealed class FakeGateway : IOneNoteGateway
 
     public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.GetSpecialLocationAsync), location.ToString());
+
+    /// <summary>Every <c>NavigateTo</c> call, in order. It returns no content, so it has no fixture: it records and succeeds.</summary>
+    public List<(string HierarchyId, string ObjectId)> NavigateCalls { get; } = [];
+
+    public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct)
+    {
+        NavigateCalls.Add((hierarchyId, objectId));
+        return Failure is not null ? Task.FromException(Failure) : Task.CompletedTask;
+    }
 
     private static string Bool(bool value) => value ? "true" : "false";
 

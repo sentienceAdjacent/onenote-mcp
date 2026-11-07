@@ -26,6 +26,20 @@
     {
       "method": "GetBinaryPageContent",
       "args": [
+        "{5E000000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000002}",
+        "{5E000000-0000-4000-8000-000000000001}{20}{B0}"
+      ],
+      "error": {
+        "code": "ObjectNotFound",
+        "hResult": "0x80042014",
+        "message": "GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014)."
+      },
+      "source": "synthetic",
+      "note": "a File Printout\u0027s one:XPSFile callbackID (spike 1.15 quirk 2: 0x80042014)"
+    },
+    {
+      "method": "GetBinaryPageContent",
+      "args": [
         "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19499018700455935598720161835466737046045861}",
         "{00000000-0000-0000-0000-000000000000}{1}{B0}"
       ],
@@ -217,6 +231,16 @@
       "file": "mcp-test/link/page-object.txt",
       "source": "mcp-test",
       "note": "an OE on the probe page"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
+        "{5E000000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000002}",
+        "Basic"
+      ],
+      "file": "synthetic/xps-page-Basic.xml",
+      "source": "synthetic",
+      "note": "a page with a File Printout\u0027s one:XPSFile, hand-written for story 1.21"
     },
     {
       "method": "GetPageContent",

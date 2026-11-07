@@ -39,6 +39,7 @@ internal sealed record Options
           --diag-page <pageId>      diagnose a get_page_content (basic) mismatch on one page (no --out)
           --diag-callbacks          with --notebook*: CallbackIDs by parent element and raw outcome (no --out)
           --probe-sync              with --notebook <ID> [--page <ID>]: SyncHierarchy image-download probe (no server)
+          --probe-navigate          with --notebook <ID> [--page <ID>]: NavigateTo image-download probe (no server; takes focus)
           --fake-server <chars>     run as a one-tool MCP server returning <chars> (13 or more) of filler (the cap probe)
         """;
 
@@ -77,6 +78,8 @@ internal sealed record Options
 
     /// <summary>The image-download probe: SyncHierarchy on one page (approved for notebook A only). Needs --notebook.</summary>
     public bool ProbeSync { get; init; }
+
+    public bool ProbeNavigate { get; init; }
 
     public string? ProbePage { get; init; }
 
@@ -126,6 +129,7 @@ internal sealed record Options
                 "--diag-page" => o with { DiagPage = Next() },
                 "--diag-callbacks" => o with { DiagCallbacks = true },
                 "--probe-sync" => o with { ProbeSync = true },
+                "--probe-navigate" => o with { ProbeNavigate = true },
                 "--page" => o with { ProbePage = Next() },
                 "--fake-variant" => o with { FakeVariant = Next() },
                 // The unknown argument itself is never echoed: it could be a name typed in the wrong place.
@@ -164,6 +168,16 @@ internal sealed record Options
             if (string.IsNullOrEmpty(o.NotebookId))
             {
                 throw new RefusalException(Exit.Usage, "--probe-sync needs --notebook <ID>");
+            }
+
+            return o;
+        }
+
+        if (o.ProbeNavigate)
+        {
+            if (string.IsNullOrEmpty(o.NotebookId))
+            {
+                throw new RefusalException(Exit.Usage, "--probe-navigate needs --notebook <ID>");
             }
 
             return o;

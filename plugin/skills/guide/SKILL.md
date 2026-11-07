@@ -1,11 +1,11 @@
 ---
 name: guide
-description: This skill should be used when the user asks about their OneNote notebooks, sections, section groups, pages or subpages, for example "list my OneNote notebooks", "what sections are in my Work notebook", "find the page called Trip plan", "read my meeting notes page", "search OneNote for budget", "show my To Do items on that page", "find pages tagged with project", "what's in Quick Notes", "where is the OneNote backup folder", "get a link to this OneNote page", "show the image on that page" or "which notebook is this page in". Also use it when the user asks to create, edit, move, rename or delete anything in OneNote, because this release is read-only. It covers tool choice and scope, reading OneNote 2013 XML, search caveats, and errors.
+description: This skill should be used when the user asks about their OneNote notebooks, sections, section groups, pages or subpages, for example "list my OneNote notebooks", "what sections are in my Work notebook", "find the page called Trip plan", "read my meeting notes page", "search OneNote for budget", "show my To Do items on that page", "find pages tagged with project", "what's in Quick Notes", "where is the OneNote backup folder", "get a link to this OneNote page", "show the image on that page", "download the missing images on that page", "show me that page in OneNote" or "which notebook is this page in". Also use it when the user asks to create, edit, move, rename or delete anything in OneNote, because this release is read-only. It covers tool choice and scope, reading OneNote 2013 XML, search caveats, and errors.
 ---
 
 # OneNote desktop: reading notebooks
 
-The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has ten read tools and no write tools.
+The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has ten read tools, one user-visible tool that shows a page in OneNote (`navigate_to`), and no write tools.
 
 The tools are thin wrappers over COM. Their descriptions say what each parameter means; this guide says which tool to pick, in what order, and how to interpret what comes back.
 
@@ -31,6 +31,7 @@ Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its b
 | `mcp__plugin_onenote_desktop__get_web_hyperlink_to_object` (`get_web_hyperlink_to_object`) | Get an `https` link, for notebooks stored on OneDrive or SharePoint | `meta.link` |
 | `mcp__plugin_onenote_desktop__get_special_location` (`get_special_location`) | Get the path of the backup folder, the Quick Notes section or the default notebook folder | `meta.path` |
 | `mcp__plugin_onenote_desktop__read_result` (`read_result`) | Read a result that was too large to return whole, part by part (see Large results) | `xml` (a part) or `index` |
+| `mcp__plugin_onenote_desktop__navigate_to` (`navigate_to`) | **User-visible.** Show a notebook, section or page in OneNote (and select one object on it). Only when the user explicitly asks; see Missing images | nothing |
 
 Every result is an envelope: `{ok: true, xml?, index?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
 
@@ -122,7 +123,15 @@ Call `mcp__plugin_onenote_desktop__get_hierarchy` with no arguments. Report each
 **Read an image.**
 1. `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary` false, and find the `one:Image` the user means. Take its `one:CallbackID@callbackID`.
 2. `mcp__plugin_onenote_desktop__get_binary_page_content` with the `pageId` and that `callbackId`. `meta.binary` is the base64 image. Its type isn't stated: a value starting `iVBOR` is PNG, `/9j/` is JPEG, `R0lG` is GIF.
-3. If the result has a `binaryUnavailable` warning and no `meta.binary`, the image isn't stored on this PC (common in notebooks stored online), or the callbackID was wrong. Check that you copied the callbackID from the default XML. If you did, tell the user the image isn't available locally; opening the page in OneNote usually downloads it.
+3. If the result has a `binaryUnavailable` warning and no `meta.binary`, the image isn't stored on this PC (common in notebooks stored online), or the callbackID was wrong. Check that you copied the callbackID from the default XML. If you did, follow **Missing images** below.
+4. If the callbackID was a page-level `one:XPSFile`'s, the warning says it is a File Printout: the printout document itself can't be read through OneNote's API. Tell the user, and read the printout's page images (`one:Image` with `isPrintOut="true"`) instead if they want them.
+
+**Missing images.**
+Images in notebooks stored online often aren't on this PC until OneNote downloads them. Showing the page in OneNote downloads them (in the one page measured, within 2 seconds; large pages or slow connections may take longer), but only with OneNote open in a window, and it takes the user's keyboard focus and changes what OneNote shows, so never do it unasked.
+1. Tell the user the image (or, from `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary`, the `meta.binaryUnavailable` images) isn't on this PC. Mention that OneNote's File > Options > Sync > "Download all files and images" keeps images on this PC from then on.
+2. Ask whether to show the page in OneNote now so it downloads the images. Make clear it will bring OneNote to the front.
+3. Only if the user says yes: call `mcp__plugin_onenote_desktop__navigate_to` with the page's ID as `hierarchyId`. Then call `mcp__plugin_onenote_desktop__get_binary_page_content` again with the same `pageId` and `callbackId` (or re-read the page). If it still gives `binaryUnavailable`, don't retry again: `navigate_to` returns ok but shows and downloads nothing when OneNote runs without an open window. Ask the user to bring OneNote's window up (then you may show the page once more if they ask), or to use the Sync setting, and stop.
+4. If the user says no, or says nothing about it, don't call `mcp__plugin_onenote_desktop__navigate_to`. A request to read or show an image is not a request to change what OneNote shows.
 
 **Full-text search.**
 1. Pick the narrowest start: the notebook or section the user means, else `fromRoot: true`. Give exactly one of `startNodeId` or `fromRoot: true`.
@@ -158,7 +167,7 @@ To find pages by an add-in tag, use `mcp__plugin_onenote_desktop__find_meta` wit
 
 On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 
-- **`retryable: true`:** tell the user what `userAction` says, and retry only after they say they've done it. The one exception: for `ComBusy` or `Timeout` on these read tools, retry once straight away. If that also fails, relay `userAction` and stop.
+- **`retryable: true`:** tell the user what `userAction` says, and retry only after they say they've done it. The one exception: for `ComBusy` or `Timeout` on the read tools, retry once straight away. If that also fails, relay `userAction` and stop. Never retry `mcp__plugin_onenote_desktop__navigate_to` without asking the user again.
 - **`retryable: false`:** don't retry with the same input. Follow `userAction`, which may mean re-reading to get a current ID, or telling the user.
 
 | Code | What to do |
@@ -185,12 +194,12 @@ Warnings (`ok: true`, with `warnings[]`) mean the result is usable but degraded.
 | Warning | Meaning |
 | --- | --- |
 | `sectionLocked` | A section in the hierarchy is locked; its pages can't be read until the user unlocks it. |
-| `binaryUnavailable` | An image isn't stored on this PC. From `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary` true, those images were left out of the XML and `meta.binaryUnavailable` counts them. From `mcp__plugin_onenote_desktop__get_binary_page_content` it can also mean the callbackID was wrong. Say the image isn't available; the rest of the result is fine. |
+| `binaryUnavailable` | An image isn't stored on this PC. From `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary` true, those images were left out of the XML and `meta.binaryUnavailable` counts them. From `mcp__plugin_onenote_desktop__get_binary_page_content` it can also mean the callbackID was wrong, or that it is a File Printout's `one:XPSFile`, which can't be read at all. Say the image isn't available and the rest of the result is fine, then follow **Missing images** (not for an XPSFile). |
 | `webLinkUnavailable` | The notebook isn't stored online, so there is no web link. Offer the `onenote:` link. |
 
 ## User-visible actions and limits
 
-- Never take keyboard focus or move the user's OneNote view. None of these tools does: `mcp__plugin_onenote_desktop__find_pages` never shows its results in OneNote, and the link tools don't open links.
-- Tools that change what the user sees (navigating OneNote, opening windows) don't exist in this release. If they are added later, call them only when the user explicitly asks.
+- Never take keyboard focus or move the user's OneNote view unasked. The read tools never do: `mcp__plugin_onenote_desktop__find_pages` never shows its results in OneNote, and the link tools don't open links.
+- `mcp__plugin_onenote_desktop__navigate_to` is the one user-visible tool: it brings OneNote forward, takes keyboard focus and changes the page it shows. Call it only when the user explicitly asks to see something in OneNote, or agrees to it in **Missing images**. Never call it to help yourself read something.
 - Never close or restart OneNote, and never start it on the user's behalf.
 - Don't quote whole pages back unless asked; summarise or show the part the user wants.

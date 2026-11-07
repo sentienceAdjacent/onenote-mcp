@@ -10,6 +10,7 @@ namespace StressHarness;
 internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorder, Options options, string notebookId)
 {
     private const int BinaryObjectDoesNotExist = unchecked((int)0x8004200F);
+    private const int ObjectDoesNotExist = unchecked((int)0x80042014);
     private const int MiscSample = 20;
     private const int MaxMetaNames = 10;
 
@@ -208,6 +209,8 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
         int returned = 0, unavailable = 0, notFound = 0;
         foreach (var (page, callback) in chosen)
         {
+            // Story 1.21: a File Printout's XPSFile gives raw ObjectNotFound, which the server turns into binaryUnavailable.
+            var isXps = _facts[page].XpsCallbackIds.Contains(callback);
             var (rec, raw, tool) = await CompareAsync(
                 "binaries",
                 "get_binary_page_content",
@@ -215,7 +218,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
                 page,
                 () => Raw.RunAsync(ct => gateway.GetBinaryPageContentAsync(page, callback, ct)),
                 () => tools.CallAsync("get_binary_page_content", new() { ["pageId"] = page, ["callbackId"] = callback }),
-                (r, t) => r.HResult == BinaryObjectDoesNotExist
+                (r, t) => r.HResult == BinaryObjectDoesNotExist || (isXps && r.HResult == ObjectDoesNotExist)
                     ? t.Ok && t.MetaString("binary") is null && t.Warnings.Contains("binaryUnavailable")
                     : Same(r, t, t.MetaString("binary")));
             rec.Counts["binaryUnavailable"] = raw.HResult == BinaryObjectDoesNotExist ? 1 : 0;

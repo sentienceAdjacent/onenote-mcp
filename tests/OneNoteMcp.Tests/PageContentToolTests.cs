@@ -25,6 +25,9 @@ public sealed class PageContentToolTests
     public const string CloudPageId = "{C10D0000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000001}";
     public const string CloudCallbackId = "{C10D0000-0000-4000-8000-000000000001}{107}{B2}";
     public const string ZeroCallbackId = "{00000000-0000-0000-0000-000000000000}{1}{B0}";
+    public const string XpsPageId = "{5E000000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000002}";
+    public const string XpsCallbackId = "{5E000000-0000-4000-8000-000000000001}{20}{B0}";
+    public const string XpsPagePrintoutImageCallbackId = "{5E000000-0000-4000-8000-000000000001}{22}{B0}";
 
     private const string Ns = OneNoteXml.Namespace2013;
 
@@ -249,6 +252,115 @@ public sealed class PageContentToolTests
         Assert.Equal("AAAA", root.GetProperty("meta").GetProperty("binary").GetString());
     }
 
+    // --- Story 1.21: missing binaries and XPSFile ----------------------------------------------------------------
+
+    [Fact]
+    public async Task BinaryMissing_UserAction_NamesTheSyncSetting_AndNavigateToOnRequest_AndNeverNavigates()
+    {
+        var gateway = new FakeGateway();
+
+        var root = Ok(await BinaryTool(gateway).GetBinaryPageContent(CloudPageId, CloudCallbackId, Ct));
+
+        var userAction = Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("userAction").GetString()!;
+        Assert.Contains("File > Options > Sync > \"Download all files and images\"", userAction, StringComparison.Ordinal);
+        Assert.Contains("navigate_to", userAction, StringComparison.Ordinal);
+        Assert.Contains("only if the user asks", userAction, StringComparison.Ordinal);
+        Assert.Empty(gateway.NavigateCalls); // AD-11: a read never fetches by itself
+    }
+
+    [Fact]
+    public async Task PageImagesMissing_UserAction_NamesTheSyncSetting_AndNavigateToOnRequest_AndNeverNavigates()
+    {
+        var gateway = new FakeGateway();
+
+        var root = Ok(await PageTool(gateway).GetPageContent(CloudPageId, includeBinary: true, Ct));
+
+        var userAction = Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("userAction").GetString()!;
+        Assert.Contains("File > Options > Sync > \"Download all files and images\"", userAction, StringComparison.Ordinal);
+        Assert.Contains("navigate_to", userAction, StringComparison.Ordinal);
+        Assert.Contains("only if the user asks", userAction, StringComparison.Ordinal);
+        Assert.Empty(gateway.NavigateCalls);
+    }
+
+    [Fact]
+    public async Task XpsFileCallbackId_IsOk_WithABinaryUnavailableWarningNamingFilePrintouts()
+    {
+        var logger = new CapturingLogger();
+        var gateway = new RecordingGateway(new FakeGateway());
+
+        var root = Ok(await new GetBinaryPageContentTool(new ToolRunner(logger), new GetBinaryPageContentUseCase(gateway))
+            .GetBinaryPageContent(XpsPageId, XpsCallbackId, Ct));
+
+        AssertMetaHasOnly(root, "correlationId");
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal(ToolWarnings.BinaryUnavailable, warning.GetProperty("code").GetString());
+        var message = warning.GetProperty("message").GetString()!;
+        Assert.Contains("File Printout", message, StringComparison.Ordinal);
+        Assert.Contains("one:XPSFile", message, StringComparison.Ordinal);
+        Assert.Contains(XpsCallbackId, message, StringComparison.Ordinal);
+        Assert.Contains(XpsPageId, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("navigate_to", warning.GetProperty("userAction").GetString()!, StringComparison.Ordinal);
+
+        // Confirmed with exactly one piBasic read, on the error path only.
+        Assert.Equal([(XpsPageId, PageInfo.Basic)], gateway.PageReads);
+        Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task StaleCallbackId_OnAPageWithAnXpsFile_StaysObjectNotFound()
+    {
+        var gateway = new RecordingGateway(new FakeGateway());
+
+        var error = Error(await BinaryTool(gateway).GetBinaryPageContent(XpsPageId, "{5E000000-0000-4000-8000-000000000001}{99}{B0}", Ct));
+
+        Assert.Equal("ObjectNotFound", error.GetProperty("code").GetString());
+        Assert.Equal("0x80042014", error.GetProperty("hresult").GetString());
+        Assert.Equal(ToolErrors.UserAction(ErrorCode.ObjectNotFound), error.GetProperty("userAction").GetString());
+        Assert.Equal([(XpsPageId, PageInfo.Basic)], gateway.PageReads);
+    }
+
+    [Fact]
+    public async Task ObjectNotFound_ForAPrintoutImageNotAnXpsFile_StaysObjectNotFound()
+    {
+        // The printout's one:Image shares the XPSFile's xpsFileIndex, but only an XPSFile's own callbackID qualifies.
+        var error = Error(await BinaryTool(new FakeGateway()).GetBinaryPageContent(XpsPageId, XpsPagePrintoutImageCallbackId, Ct));
+
+        Assert.Equal("ObjectNotFound", error.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task ObjectNotFound_WhenThePageCantBeRead_IsTheOriginalError()
+    {
+        var error = Error(await BinaryTool(new FakeGateway()).GetBinaryPageContent(HierarchyReadToolTests.UnknownId, XpsCallbackId, Ct));
+
+        Assert.Equal("ObjectNotFound", error.GetProperty("code").GetString());
+        Assert.Contains("GetBinaryPageContent", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ObjectNotFound_WhenThePageXmlIsMalformed_IsTheOriginalError()
+    {
+        var gateway = new ScriptedGateway("<one:Page", binaryFailure: new OneNoteException(
+            ErrorCode.ObjectNotFound,
+            "GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).",
+            unchecked((int)0x80042014)));
+
+        var error = Error(await BinaryTool(gateway).GetBinaryPageContent("{p}", XpsCallbackId, Ct));
+
+        Assert.Equal("ObjectNotFound", error.GetProperty("code").GetString());
+        Assert.Equal("GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).", error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task OtherErrors_NeverReadThePage()
+    {
+        var gateway = new RecordingGateway(new FakeGateway { Failure = new OneNoteException(ErrorCode.ComBusy, "busy", unchecked((int)0x8004201D)) });
+
+        Error(await BinaryTool(gateway).GetBinaryPageContent(XpsPageId, XpsCallbackId, Ct));
+
+        Assert.Empty(gateway.PageReads);
+    }
+
     // --- Shared ---------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -264,8 +376,9 @@ public sealed class PageContentToolTests
     public void Fixtures_ImageCountsDiffer_OnlyOnTheCloudPage()
     {
         // The ticket's unknown: Basic and BinaryData image counts are equal on every local fixture page.
+        // Synthetic pages (story 1.21's XPSFile page) are hand-written, have no piBinaryData, and say nothing about OneNote.
         var pages = FakeGateway.Manifest.Entries
-            .Where(e => e.Method == "GetPageContent" && e.Args[1] == "Basic" && e.File is not null)
+            .Where(e => e.Method == "GetPageContent" && e.Args[1] == "Basic" && e.File is not null && e.Source != "synthetic")
             .Select(e => e.Args[0])
             .ToList();
         Assert.Contains(CloudPageId, pages);
@@ -350,10 +463,12 @@ public sealed class PageContentToolTests
         public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => inner.GetWebHyperlinkToObjectAsync(hierarchyId, pageContentObjectId, ct);
 
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => inner.GetSpecialLocationAsync(location, ct);
+
+        public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => inner.NavigateToAsync(hierarchyId, objectId, ct);
     }
 
     /// <summary>Answers every page read with fixed text (BinaryData with <paramref name="binaryData"/> when given), for malformed and edge-case XML.</summary>
-    private sealed class ScriptedGateway(string basic, string? binaryData = null, string binary = "") : IOneNoteGateway
+    private sealed class ScriptedGateway(string basic, string? binaryData = null, string binary = "", OneNoteException? binaryFailure = null) : IOneNoteGateway
     {
         public (string PageId, string CallbackId)? LastBinaryCall { get; private set; }
 
@@ -363,7 +478,7 @@ public sealed class PageContentToolTests
         public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct)
         {
             LastBinaryCall = (pageId, callbackId);
-            return Task.FromResult(binary);
+            return binaryFailure is not null ? Task.FromException<string>(binaryFailure) : Task.FromResult(binary);
         }
 
         public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) => throw new NotSupportedException();
@@ -379,6 +494,8 @@ public sealed class PageContentToolTests
         public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
     }
 
     private sealed class CapturingLogger : ILogger<ToolRunner>

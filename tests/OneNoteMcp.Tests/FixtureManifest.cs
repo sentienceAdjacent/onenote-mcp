@@ -51,7 +51,7 @@ internal sealed class FixtureEntry
     /// <summary>What the gateway threw instead of returning, as OneNote reported it.</summary>
     public FixtureError? Error { get; set; }
 
-    /// <summary><c>mcp-test</c>, <c>cloud</c> (the one sanitised cloud capture) or <c>hand-built</c>.</summary>
+    /// <summary><c>mcp-test</c>, <c>cloud</c> (the one sanitised cloud capture), <c>hand-built</c>, or <c>synthetic</c> (hand-written, never touched by a capture).</summary>
     public string Source { get; set; } = "mcp-test";
 
     /// <summary>What the capture is of, for people reading the manifest.</summary>

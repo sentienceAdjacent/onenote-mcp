@@ -33,6 +33,11 @@ static async Task<int> MainAsync(string[] args)
 {
     var options = Options.Parse(args);
 
+    if (options.ProbeNavigate)
+    {
+        return ProbeNavigate.Run(options.NotebookId!, options.ProbePage);
+    }
+
     if (options.ProbeSync)
     {
         return ProbeSync.Run(options.NotebookId!, options.ProbePage);
@@ -72,15 +77,16 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (ten since story 1.18 added read_result), each readOnlyHint: true.
+    // Startup check, before any read: exactly the contract tools (eleven since story 1.21 added navigate_to), each
+    // readOnlyHint: true except navigate_to, the one user-visible tool, which the harness never calls (ToolClient refuses it).
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();
     var unexpected = names.Count(n => !contract.Contains(n, StringComparer.Ordinal));
     var missing = contract.Count(n => !names.Contains(n, StringComparer.Ordinal));
-    var notReadOnly = listed.Count(t => t.ProtocolTool.Annotations?.ReadOnlyHint != true);
+    var notReadOnly = listed.Count(t => t.Name != ToolClient.NavigateTo && t.ProtocolTool.Annotations?.ReadOnlyHint != true);
     if (unexpected > 0 || missing > 0 || notReadOnly > 0 || names.Count != contract.Count)
     {
-        Console.Error.WriteLine($"refused: tools/list is not exactly the {contract.Count} contract tools with readOnlyHint (listed {names.Count}, unexpected {unexpected}, missing {missing}, not read-only {notReadOnly})");
+        Console.Error.WriteLine($"refused: tools/list is not exactly the {contract.Count} contract tools, each with readOnlyHint but {ToolClient.NavigateTo} (listed {names.Count}, unexpected {unexpected}, missing {missing}, not read-only {notReadOnly})");
         return Exit.UnexpectedTools;
     }
 

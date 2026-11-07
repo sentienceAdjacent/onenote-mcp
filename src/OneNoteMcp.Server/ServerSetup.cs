@@ -57,6 +57,7 @@ public static class ServerSetup
         services.AddSingleton(sp => new FindPagesUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<PageTextCache>()));
         services.AddSingleton<FindMetaUseCase>();
         services.AddSingleton<ReadResultUseCase>();
+        services.AddSingleton<NavigateToUseCase>();
 
         return services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
@@ -69,7 +70,8 @@ public static class ServerSetup
             .WithTools<GetBinaryPageContentTool>(EnvelopeJson.Options)
             .WithTools<FindPagesTool>(EnvelopeJson.Options)
             .WithTools<FindMetaTool>(EnvelopeJson.Options)
-            .WithTools<ReadResultTool>(EnvelopeJson.Options);
+            .WithTools<ReadResultTool>(EnvelopeJson.Options)
+            .WithTools<NavigateToTool>(EnvelopeJson.Options);
     }
 
     private static string ReadVersion()

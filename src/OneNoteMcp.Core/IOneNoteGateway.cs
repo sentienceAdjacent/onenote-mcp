@@ -2,8 +2,9 @@ namespace OneNoteMcp.Core;
 
 /// <summary>
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
-/// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods;
-/// every XML result is 2013-schema, returned unchanged (AD-4). IDs are opaque strings, passed through unchanged.
+/// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
+/// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11); every XML result is 2013-schema, returned unchanged
+/// (AD-4). IDs are opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
 {
@@ -33,4 +34,11 @@ public interface IOneNoteGateway
 
     /// <summary>Returns the folder path or section ID OneNote keeps for <paramref name="location"/>.</summary>
     Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct);
+
+    /// <summary>
+    /// User-visible (AD-11): shows <paramref name="hierarchyId"/> in OneNote's first open window and takes keyboard focus.
+    /// A non-empty <paramref name="objectId"/> also selects that object on the page. Only <c>NavigateToUseCase</c> calls
+    /// it, on the user's explicit request; no read use case does.
+    /// </summary>
+    Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct);
 }
