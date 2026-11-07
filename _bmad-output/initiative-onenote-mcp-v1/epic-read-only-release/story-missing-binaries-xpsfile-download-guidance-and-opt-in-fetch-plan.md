@@ -3,7 +3,7 @@ title: 'Missing binaries: XPSFile, download guidance and opt-in fetch'
 type: 'feature'
 ticket: '21'
 created: '2026-11-07'
-status: 'built'
+status: done
 baseline_revision: 'e0b62d6d94c1a0c28ff73a4fdd5ec6adc285891a'
 route: 'full'
 route_source: 'auto'
