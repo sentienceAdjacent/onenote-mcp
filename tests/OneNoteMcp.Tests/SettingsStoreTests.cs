@@ -24,7 +24,38 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.False(s.AllowSilentActivation);
         Assert.Equal(Timeouts.Default, s.Timeouts);
         Assert.Equal(JournalSettings.Default(), s.Journal);
+        Assert.Equal(ResultSettings.Default, s.Results);
         Assert.Equal(ExportRoots.Default().Paths, s.ExportRoots.Paths);
+    }
+
+    [Fact]
+    public void ResultDefaults_MatchTheSpine()
+    {
+        // AD-10/AD-20: inlineMaxChars 100,000; ttlMinutes 30; maxStoreMB 256.
+        Assert.Equal(new ResultSettings(100_000, 30, 256), ResultSettings.Default);
+        Assert.Equal(TimeSpan.FromMinutes(30), ResultSettings.Default.Ttl);
+        Assert.Equal(256L * 1024 * 1024, ResultSettings.Default.MaxStoreBytes);
+    }
+
+    [Theory]
+    [InlineData(20_000, 1, 16)]
+    [InlineData(380_000, 1_440, 4_096)]
+    [InlineData(150_000, 60, 512)]
+    public void Read_Results_AcceptsEveryValueInRange(int inlineMaxChars, int ttlMinutes, int maxStoreMB)
+    {
+        var s = ReadWith($$$"""{"schemaVersion": 1, "results": {"inlineMaxChars": {{{inlineMaxChars}}}, "ttlMinutes": {{{ttlMinutes}}}, "maxStoreMB": {{{maxStoreMB}}}}}""");
+
+        Assert.Equal(SettingsStatus.Ok, s.Status);
+        Assert.Equal(new ResultSettings(inlineMaxChars, ttlMinutes, maxStoreMB), s.Results);
+    }
+
+    [Fact]
+    public void Read_Results_MissingMembersKeepTheirDefaults()
+    {
+        var s = ReadWith("""{"schemaVersion": 1, "results": {"ttlMinutes": 5}}""");
+
+        Assert.Equal(SettingsStatus.Ok, s.Status);
+        Assert.Equal(ResultSettings.Default with { TtlMinutes = 5 }, s.Results);
     }
 
     [Fact]
@@ -248,6 +279,16 @@ public sealed class SettingsStoreTests : IDisposable
     [InlineData("""{"schemaVersion": 1, "journal": {"retentionDays": 0}}""", "journal.retentionDays")]
     [InlineData("""{"schemaVersion": 1, "journal": {"maxSizeMB": 0}}""", "journal.maxSizeMB")]
     [InlineData("""{"schemaVersion": 1, "journal": {"maxSizeMB": 99999999999}}""", "journal.maxSizeMB")]
+    [InlineData("""{"schemaVersion": 1, "results": 100000}""", "results")]
+    [InlineData("""{"schemaVersion": 1, "results": {"inlineMaxChars": 10}}""", "results.inlineMaxChars")]
+    [InlineData("""{"schemaVersion": 1, "results": {"inlineMaxChars": 19999}}""", "results.inlineMaxChars")]
+    [InlineData("""{"schemaVersion": 1, "results": {"inlineMaxChars": 380001}}""", "results.inlineMaxChars")]
+    [InlineData("""{"schemaVersion": 1, "results": {"inlineMaxChars": 50000.5}}""", "results.inlineMaxChars")]
+    [InlineData("""{"schemaVersion": 1, "results": {"inlineMaxChars": "100000"}}""", "results.inlineMaxChars")]
+    [InlineData("""{"schemaVersion": 1, "results": {"ttlMinutes": 0}}""", "results.ttlMinutes")]
+    [InlineData("""{"schemaVersion": 1, "results": {"ttlMinutes": 1441}}""", "results.ttlMinutes")]
+    [InlineData("""{"schemaVersion": 1, "results": {"maxStoreMB": 15}}""", "results.maxStoreMB")]
+    [InlineData("""{"schemaVersion": 1, "results": {"maxStoreMB": 4097}}""", "results.maxStoreMB")]
     [InlineData("""{"schemaVersion": 1, "exportRoots": "D:\\exports"}""", "exportRoots")]
     [InlineData("""{"schemaVersion": 1, "exportRoots": ["D:\\ok", 5]}""", "exportRoots[1]")]
     [InlineData("""{"schemaVersion": 1, "exportRoots": ["C:relative"]}""", "exportRoots[0]")]

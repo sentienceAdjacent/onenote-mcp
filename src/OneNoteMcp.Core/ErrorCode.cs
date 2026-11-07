@@ -25,6 +25,9 @@ public enum ErrorCode
     FileExists,
     WriteNotGranted,
     PermanentDeleteNotGranted,
+
+    /// <summary>AD-20: <c>read_result</c> with a <c>resultId</c> that expired, was evicted, or was never issued.</summary>
+    ResultExpired,
     ExportPathNotAllowed,
     SettingsInvalid,
     JournalFailed,

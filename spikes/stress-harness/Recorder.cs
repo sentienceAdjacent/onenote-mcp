@@ -109,6 +109,13 @@ internal sealed class Recorder : IDisposable
 
             _writer.WriteNumber("bytes", t.Bytes);
             _writer.WriteNumber("textBytes", t.TextBytes);
+            _writer.WriteNumber("textChars", t.TextChars);
+            if (t.Stored)
+            {
+                _writer.WriteNumber("readResultParts", t.Parts);
+            }
+
+            _writer.WriteNumber("maxTextChars", t.MaxTextChars);
             _writer.WriteNumber("ms", t.Ms);
             _writer.WriteStartArray("warnings");
             foreach (var w in t.Warnings)
@@ -159,6 +166,9 @@ internal sealed class Recorder : IDisposable
         r.RawResult = r.RawResult is { } rr ? rr with { Value = null } : null;
     }
 
+    /// <summary>The server's <c>results.inlineMaxChars</c> (AD-20), for the over-threshold count.</summary>
+    public int InlineMax { get; set; } = 100_000;
+
     public void WriteSummary(string notebookId, Options o, long elapsedMs, string? abortedBy)
     {
         using var stream = File.Create(Path.Combine(OutDir, "summary.json"));
@@ -194,6 +204,15 @@ internal sealed class Recorder : IDisposable
 
         w.WriteNumber("calls", withTool.Count);
         w.WriteNumber("mismatches", _records.Count(r => r.Match == StressHarness.Match.Mismatch));
+
+        // AD-20: no text block, of a tool call or of any read_result part, may exceed results.inlineMaxChars.
+        w.WriteStartObject("largeResults");
+        w.WriteNumber("inlineMaxChars", InlineMax);
+        w.WriteNumber("maxTextChars", withTool.Select(r => r.ToolResult!.MaxTextChars).DefaultIfEmpty(0).Max());
+        w.WriteNumber("textBlocksOverInlineMax", withTool.Count(r => r.ToolResult!.MaxTextChars > InlineMax));
+        w.WriteNumber("storedResults", withTool.Count(r => r.ToolResult!.Stored));
+        w.WriteNumber("readResultParts", withTool.Sum(r => (long)r.ToolResult!.Parts));
+        w.WriteEndObject();
         WriteCountBy(w, "matchStates", _records.GroupBy(r => r.Match ?? StressHarness.Match.NotApplicable));
         w.WriteStartObject("byPhase");
         foreach (var g in _records.GroupBy(r => r.Phase))

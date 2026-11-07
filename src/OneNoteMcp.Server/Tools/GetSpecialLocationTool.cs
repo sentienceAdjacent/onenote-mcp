@@ -19,6 +19,7 @@ public sealed class GetSpecialLocationTool(ToolRunner runner, GetSpecialLocation
         OpenWorld = false,
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope))]
+    [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Read-only. Returns, in meta.path, the path OneNote keeps for a special location: its backup folder, its unfiled-notes (Quick Notes) section, or its default folder for new notebooks. "
         + "Success: {ok:true, meta:{correlationId, path}, warnings:[]}. "

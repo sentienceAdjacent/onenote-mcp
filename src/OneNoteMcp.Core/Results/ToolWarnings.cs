@@ -15,4 +15,10 @@ public static class ToolWarnings
     /// the same code for both.
     /// </summary>
     public const string BinaryUnavailable = "binaryUnavailable";
+
+    /// <summary>
+    /// An oversized result's XML couldn't be indexed by element, so it was stored as one span with an empty index (AD-20).
+    /// Nothing is lost: <c>read_result</c> offset reads of <c>/</c> reach every character.
+    /// </summary>
+    public const string ResultNotIndexed = "resultNotIndexed";
 }

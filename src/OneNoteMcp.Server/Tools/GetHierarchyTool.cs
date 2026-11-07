@@ -22,9 +22,11 @@ public sealed class GetHierarchyTool(ToolRunner runner, GetHierarchyUseCase useC
         OpenWorld = false,
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope))]
+    [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Read-only. Returns OneNote hierarchy XML (notebooks, section groups, sections, pages) in the OneNote 2013 schema, unchanged. "
         + "Each password-locked section in it adds a warning with code sectionLocked naming the section's ID. "
+        + ToolMetaKeys.LargeResultNote
         + "Success: {ok:true, xml, meta:{correlationId}, warnings:[{code, message, userAction?}]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> GetHierarchy(

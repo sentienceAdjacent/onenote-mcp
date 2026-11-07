@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -8,7 +9,12 @@ using OneNoteMcp.Core;
 
 namespace StressHarness;
 
-/// <summary>One tool call through the server, reduced to what the harness compares and records.</summary>
+/// <summary>
+/// One tool call through the server, reduced to what the harness compares and records. A result over the server's
+/// inline threshold (AD-20) is reassembled through <c>read_result</c> first, so <see cref="Xml"/> (or
+/// <c>meta.binary</c>) is always the whole body. <see cref="TextChars"/> is the original call's text block;
+/// <see cref="MaxTextChars"/> is the largest text block of the call and its <c>read_result</c> parts.
+/// </summary>
 internal sealed record ToolOutcome(
     bool Ok,
     string? Code,
@@ -18,8 +24,14 @@ internal sealed record ToolOutcome(
     IReadOnlyList<string> Warnings,
     long Bytes,
     long TextBytes,
-    long Ms)
+    long Ms,
+    int TextChars = 0,
+    int Parts = 0,
+    int MaxTextChars = 0)
 {
+    /// <summary>True when the server stored the result and the harness read it back through <c>read_result</c>.</summary>
+    public bool Stored => Parts > 0;
+
     public string? MetaString(string name) =>
         Meta.ValueKind == JsonValueKind.Object && Meta.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
@@ -75,30 +87,36 @@ internal sealed class ToolClient(McpClient client)
             return new ToolOutcome(false, "protocol:" + ex.GetType().Name, null, null, default, [], 0, 0, sw.ElapsedMilliseconds);
         }
 
-        sw.Stop();
         var bytes = JsonSerializer.SerializeToUtf8Bytes(result, McpJsonUtilities.DefaultOptions).LongLength;
         var textBytes = result.Content.OfType<TextContentBlock>().Sum(t => (long)System.Text.Encoding.UTF8.GetByteCount(t.Text));
+        var textChars = TextChars(result);
 
-        JsonElement envelope;
-        if (result.StructuredContent is { } sc)
+        if (Envelope(result, BodyIsBinary(tool)) is not { } parsed)
         {
-            envelope = JsonSerializer.SerializeToElement(sc, McpJsonUtilities.DefaultOptions);
+            sw.Stop();
+            return new ToolOutcome(false, "protocol:noEnvelope", null, null, default, [], bytes, textBytes, sw.ElapsedMilliseconds, textChars, 0, textChars);
         }
-        else if (result.Content.OfType<TextContentBlock>().FirstOrDefault() is { } text)
+
+        var envelope = parsed;
+        var parts = 0;
+        var maxText = textChars;
+        if (IsStored(envelope))
         {
-            try
+            // AD-20: the body was too large to return whole. Reassemble it by offset reads of "/" so the comparison
+            // with the raw COM read is over the whole body, exactly as the tool would have returned it inline.
+            var reassembled = await ReassembleAsync(tool, envelope);
+            if (reassembled.Code is { } failed)
             {
-                envelope = JsonDocument.Parse(text.Text).RootElement.Clone();
+                sw.Stop();
+                return new ToolOutcome(false, failed, null, null, default, [], bytes, textBytes, sw.ElapsedMilliseconds, textChars, reassembled.Parts, Math.Max(maxText, reassembled.MaxText));
             }
-            catch (JsonException)
-            {
-                return new ToolOutcome(false, "protocol:noEnvelope", null, null, default, [], bytes, textBytes, sw.ElapsedMilliseconds);
-            }
+
+            envelope = reassembled.Envelope;
+            parts = reassembled.Parts;
+            maxText = Math.Max(maxText, reassembled.MaxText);
         }
-        else
-        {
-            return new ToolOutcome(false, "protocol:noEnvelope", null, null, default, [], bytes, textBytes, sw.ElapsedMilliseconds);
-        }
+
+        sw.Stop();
 
         var ok = envelope.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True;
         string? code = null, hresult = null;
@@ -113,7 +131,122 @@ internal sealed class ToolClient(McpClient client)
         var warnings = envelope.TryGetProperty("warnings", out var w) && w.ValueKind == JsonValueKind.Array
             ? w.EnumerateArray().Select(e => e.TryGetProperty("code", out var wc) ? wc.GetString() ?? "" : "").ToList()
             : [];
-        return new ToolOutcome(ok, code, hresult, xml, meta, warnings, bytes, textBytes, sw.ElapsedMilliseconds);
+        return new ToolOutcome(ok, code, hresult, xml, meta, warnings, bytes, textBytes, sw.ElapsedMilliseconds, textChars, parts, maxText);
+    }
+
+    private static bool BodyIsBinary(string tool) => tool == "get_binary_page_content";
+
+    private static int TextChars(CallToolResult result) => result.Content.OfType<TextContentBlock>().Sum(t => t.Text.Length);
+
+    /// <summary>
+    /// The envelope: structuredContent, else the text block. AD-9's text block is the envelope JSON, or for a success
+    /// with a body, a header line of JSON without the body, then a newline and the body.
+    /// </summary>
+    private static JsonElement? Envelope(CallToolResult result, bool bodyIsBinary)
+    {
+        if (result.StructuredContent is { } sc)
+        {
+            return JsonSerializer.SerializeToElement(sc, McpJsonUtilities.DefaultOptions);
+        }
+
+        if (result.Content.OfType<TextContentBlock>().FirstOrDefault() is not { } text)
+        {
+            return null;
+        }
+
+        var newline = text.Text.IndexOf('\n', StringComparison.Ordinal);
+        try
+        {
+            if (newline < 0)
+            {
+                return JsonDocument.Parse(text.Text).RootElement.Clone();
+            }
+
+            var header = JsonNode.Parse(text.Text[..newline])!.AsObject();
+            var body = text.Text[(newline + 1)..];
+            if (bodyIsBinary)
+            {
+                header["meta"]!.AsObject()["binary"] = body;
+            }
+            else
+            {
+                header["xml"] = body;
+            }
+
+            return JsonSerializer.SerializeToElement(header);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsStored(JsonElement envelope) =>
+        envelope.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True
+        && envelope.TryGetProperty("index", out var index) && index.ValueKind == JsonValueKind.Object
+        && envelope.TryGetProperty("meta", out var meta) && meta.TryGetProperty("result", out _);
+
+    private sealed record Reassembly(JsonElement Envelope, int Parts, int MaxText, string? Code);
+
+    private async Task<Reassembly> ReassembleAsync(string tool, JsonElement envelope)
+    {
+        var result = envelope.GetProperty("meta").GetProperty("result");
+        var resultId = result.GetProperty("resultId").GetString()!;
+        var total = result.GetProperty("totalChars").GetInt32();
+        var binary = BodyIsBinary(tool);
+        var body = new System.Text.StringBuilder(total);
+        var parts = 0;
+        var maxText = 0;
+        while (body.Length < total)
+        {
+            CallToolResult part;
+            using (var cts = new CancellationTokenSource(CallLimit))
+            {
+                try
+                {
+                    part = await client.CallToolAsync(
+                        "read_result",
+                        new Dictionary<string, object?> { ["resultId"] = resultId, ["ref"] = "/", ["offset"] = body.Length },
+                        cancellationToken: cts.Token);
+                }
+                catch (Exception ex)
+                {
+                    return new Reassembly(envelope, parts, maxText, "reassembly:protocol:" + ex.GetType().Name);
+                }
+            }
+
+            parts++;
+            maxText = Math.Max(maxText, TextChars(part));
+            var p = Envelope(part, binary);
+            if (p is not { } env || !env.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True)
+            {
+                var code = p is { } e && e.TryGetProperty("error", out var err) && err.TryGetProperty("code", out var c) ? c.GetString() : "noEnvelope";
+                return new Reassembly(envelope, parts, maxText, "reassembly:" + code);
+            }
+
+            var chunk = binary
+                ? env.GetProperty("meta").TryGetProperty("binary", out var b) ? b.GetString() : null
+                : env.TryGetProperty("xml", out var x) ? x.GetString() : null;
+            if (string.IsNullOrEmpty(chunk))
+            {
+                return new Reassembly(envelope, parts, maxText, "reassembly:emptyPart");
+            }
+
+            body.Append(chunk);
+        }
+
+        // The original envelope, with the body put back where an inline result has it and the AD-20 fields kept.
+        var node = JsonNode.Parse(envelope.GetRawText())!.AsObject();
+        if (binary)
+        {
+            node["meta"]!.AsObject()["binary"] = body.ToString();
+        }
+        else
+        {
+            node["xml"] = body.ToString();
+        }
+
+        return new Reassembly(JsonSerializer.SerializeToElement(node), parts, maxText, null);
     }
 }
 

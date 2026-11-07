@@ -48,7 +48,10 @@ internal static class SearchResults
             .Where(p => removals.ContainsKey(p.Index))
             .Select(p => new FilteredPage(p.Id, removals[p.Index]))
             .ToList();
-        return ToolSuccess.WithXml(cut.Xml, new ToolMeta(context.CorrelationId, Filtered: filtered, PossiblyIncomplete: true));
+        return ToolSuccess.WithXml(cut.Xml, new ToolMeta(context.CorrelationId, Filtered: filtered, PossiblyIncomplete: true)) with
+        {
+            Source = new ResultSource(ResultKind.HierarchyXml),
+        };
     }
 
     private static T Readable<T>(Func<T> read, string method)

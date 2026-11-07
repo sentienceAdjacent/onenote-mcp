@@ -35,6 +35,29 @@ public sealed record JournalSettings(string Path, int RetentionDays, int MaxSize
         MaxSizeMB: 2048);
 }
 
+/// <summary>
+/// Large-result delivery (AD-20). JSON shape: <c>"results": {"inlineMaxChars", "ttlMinutes", "maxStoreMB"}</c>, whole numbers
+/// in the ranges AD-10 sets. A value out of range makes the file invalid, and reads then use these defaults.
+/// </summary>
+/// <param name="InlineMaxChars">The largest text block (AD-9) returned whole; a bigger result is stored and returned as an index.</param>
+/// <param name="TtlMinutes">How long a stored result lives after its last read.</param>
+/// <param name="MaxStoreMB">The result store's cap, counted as UTF-16 bytes; past it the least recently read results go first.</param>
+public sealed record ResultSettings(int InlineMaxChars, int TtlMinutes, int MaxStoreMB)
+{
+    public const int InlineMaxCharsMin = 20_000;
+    public const int InlineMaxCharsMax = 380_000;
+    public const int TtlMinutesMin = 1;
+    public const int TtlMinutesMax = 1_440;
+    public const int MaxStoreMBMin = 16;
+    public const int MaxStoreMBMax = 4_096;
+
+    public static ResultSettings Default { get; } = new(InlineMaxChars: 100_000, TtlMinutes: 30, MaxStoreMB: 256);
+
+    public TimeSpan Ttl => TimeSpan.FromMinutes(TtlMinutes);
+
+    public long MaxStoreBytes => MaxStoreMB * 1024L * 1024L;
+}
+
 /// <summary>The folders an <c>ExternalWrite</c> target must sit under (AD-11). Every entry is an absolute path.</summary>
 public sealed record ExportRoots(IReadOnlyList<string> Paths)
 {
@@ -57,6 +80,7 @@ public sealed class SettingsSnapshot
         bool allowSilentActivation,
         Timeouts timeouts,
         JournalSettings journal,
+        ResultSettings results,
         ExportRoots exportRoots)
     {
         Path = path;
@@ -65,6 +89,7 @@ public sealed class SettingsSnapshot
         AllowSilentActivation = allowSilentActivation;
         Timeouts = timeouts;
         Journal = journal;
+        Results = results;
         ExportRoots = exportRoots;
     }
 
@@ -85,11 +110,13 @@ public sealed class SettingsSnapshot
 
     public JournalSettings Journal { get; }
 
+    public ResultSettings Results { get; }
+
     public ExportRoots ExportRoots { get; }
 
     /// <summary>Every default, with the given status. Used for an absent, invalid or newer file.</summary>
     internal static SettingsSnapshot Defaults(string path, SettingsStatus status, string? reason = null) =>
-        new(path, status, reason, allowSilentActivation: false, Timeouts.Default, JournalSettings.Default(), ExportRoots.Default());
+        new(path, status, reason, allowSilentActivation: false, Timeouts.Default, JournalSettings.Default(), ResultSettings.Default, ExportRoots.Default());
 
     /// <summary>Throws <see cref="ErrorCode.SettingsInvalid"/> when the file is invalid or newer than this server (AD-10).</summary>
     public void EnsureWritable()

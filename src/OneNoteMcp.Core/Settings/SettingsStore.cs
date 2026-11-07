@@ -149,6 +149,16 @@ public sealed class SettingsStore
                 PositiveInt(j, "maxSizeMB", "journal.maxSizeMB") ?? journal.MaxSizeMB);
         }
 
+        var results = ResultSettings.Default;
+        if (root.TryGetProperty("results", out var r))
+        {
+            RequireObject(r, "results");
+            results = new ResultSettings(
+                RangedInt(r, "inlineMaxChars", "results.inlineMaxChars", ResultSettings.InlineMaxCharsMin, ResultSettings.InlineMaxCharsMax) ?? results.InlineMaxChars,
+                RangedInt(r, "ttlMinutes", "results.ttlMinutes", ResultSettings.TtlMinutesMin, ResultSettings.TtlMinutesMax) ?? results.TtlMinutes,
+                RangedInt(r, "maxStoreMB", "results.maxStoreMB", ResultSettings.MaxStoreMBMin, ResultSettings.MaxStoreMBMax) ?? results.MaxStoreMB);
+        }
+
         var exportRoots = ExportRoots.Default();
         if (root.TryGetProperty("exportRoots", out var roots))
         {
@@ -168,7 +178,7 @@ public sealed class SettingsStore
             exportRoots = new ExportRoots(paths.AsReadOnly());
         }
 
-        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, exportRoots);
+        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, exportRoots);
     }
 
     private static void RequireObject(JsonElement element, string field)
@@ -197,6 +207,23 @@ public sealed class SettingsStore
             throw new InvalidSettingException(max == int.MaxValue
                 ? $"{field}: must be a whole number greater than 0"
                 : $"{field}: must be a whole number from 1 to {max.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        return number;
+    }
+
+    /// <summary>A whole number from <paramref name="min"/> to <paramref name="max"/>, or null when absent (AD-10's ranged fields).</summary>
+    private static int? RangedInt(JsonElement parent, string name, string field, int min, int max)
+    {
+        if (!parent.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var number) || number < min || number > max)
+        {
+            throw new InvalidSettingException(
+                $"{field}: must be a whole number from {min.ToString(CultureInfo.InvariantCulture)} to {max.ToString(CultureInfo.InvariantCulture)}");
         }
 
         return number;

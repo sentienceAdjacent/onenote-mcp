@@ -292,7 +292,7 @@ public sealed class HierarchyReadToolTests
         Assert.True(root.GetProperty("ok").GetBoolean());
         Assert.False(root.TryGetProperty("error", out _));
         Assert.False(string.IsNullOrEmpty(Meta(root, "correlationId")));
-        Assert.Equal(root.GetRawText(), Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text);
+        TextBlockAssert.Matches(result);
         return root;
     }
 

@@ -1,8 +1,10 @@
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
 using OneNoteMcp.Server.Tools;
@@ -30,7 +32,15 @@ public static class ServerSetup
         services.AddSingleton<IProcessProbe, ProcessProbe>();
         // The gateway re-reads timeouts and allowSilentActivation from settings.json at every activation (AD-3).
         services.AddSingleton<IOneNoteGateway>(sp => new ComGateway(sp.GetRequiredService<IProcessProbe>(), sp.GetRequiredService<SettingsStore>()));
-        services.AddSingleton<ToolRunner>();
+        // The result store (AD-20) is in this process's memory only, and re-reads results{} from settings.json when used.
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<SettingsStore>();
+            return new ResultStore(TimeProvider.System, () => settings.Read().Results);
+        });
+        services.AddSingleton<ITextBlockMeasure>(EnvelopeMeasure.Instance);
+        services.AddSingleton<ResultDelivery>();
+        services.AddSingleton(sp => new ToolRunner(sp.GetRequiredService<ILogger<ToolRunner>>(), sp.GetRequiredService<ResultDelivery>()));
         services.AddSingleton<GetHierarchyUseCase>();
         services.AddSingleton<GetHierarchyParentUseCase>();
         services.AddSingleton<GetSpecialLocationUseCase>();
@@ -40,6 +50,7 @@ public static class ServerSetup
         services.AddSingleton<GetBinaryPageContentUseCase>();
         services.AddSingleton<FindPagesUseCase>();
         services.AddSingleton<FindMetaUseCase>();
+        services.AddSingleton<ReadResultUseCase>();
 
         return services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
@@ -51,7 +62,8 @@ public static class ServerSetup
             .WithTools<GetPageContentTool>(EnvelopeJson.Options)
             .WithTools<GetBinaryPageContentTool>(EnvelopeJson.Options)
             .WithTools<FindPagesTool>(EnvelopeJson.Options)
-            .WithTools<FindMetaTool>(EnvelopeJson.Options);
+            .WithTools<FindMetaTool>(EnvelopeJson.Options)
+            .WithTools<ReadResultTool>(EnvelopeJson.Options);
     }
 
     private static string ReadVersion()

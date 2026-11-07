@@ -58,6 +58,7 @@ public static class ToolErrors
         ErrorCode.FileExists => "Choose a path that does not exist yet.",
         ErrorCode.WriteNotGranted => "Grant write access to the notebook with the OneNoteMcp grant command, then retry.",
         ErrorCode.PermanentDeleteNotGranted => "Grant permanent-delete access to the notebook with the OneNoteMcp grant command, then retry.",
+        ErrorCode.ResultExpired => "Repeat the original call to get a new resultId.",
         ErrorCode.ExportPathNotAllowed => "Choose a path under one of the configured export roots.",
         ErrorCode.SettingsInvalid => "Fix settings.json, then retry.",
         ErrorCode.JournalFailed => "Check that the journal folder exists, is writable and has free space.",

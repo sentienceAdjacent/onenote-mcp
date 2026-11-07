@@ -18,8 +18,11 @@ A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and
 | `find_meta` | find pages carrying a given `one:Meta` tag |
 | `get_hyperlink_to_object` / `get_web_hyperlink_to_object` | `onenote:` and web links to a notebook, section, page or paragraph |
 | `get_special_location` | OneNote's backup, unfiled-notes and default notebook folders |
+| `read_result` | reads a result that was too large to return whole, part by part (see below). It never calls OneNote |
 
 Results are always OneNote's XML, unchanged, so tables, tags, ink, images and attachments survive the trip. When something is degraded, such as a cloud image that isn't on this PC, a locked section or search results that may be incomplete, the result says so in `warnings` instead of failing.
+
+**Large results.** A result up to `results.inlineMaxChars` characters (100,000 by default) comes back whole. Its text is one line of JSON (the result's `meta` and `warnings`), then the XML exactly as OneNote returned it, not escaped into JSON. A bigger result, such as a long page or a whole notebook's pages, is kept in the server's memory and comes back as an index: one entry per child element, with its size and a label (a section's or page's name, or the first 80 characters of an element's text). `read_result` then returns any element, run of elements, deeper index, or character range of it, each an exact substring of what OneNote returned, so nothing is lost or rewritten. A stored result lasts 30 minutes after its last read, and is never written to disk.
 
 ***(planned)*** **Writes** (create, edit, rename, move and delete, only on notebooks you grant), **exports** (PDF, Word and others, into a folder you control), and a bundled skill that teaches Claude to use the tools well.
 
@@ -94,6 +97,17 @@ Use `0.4.0-rc.4` or later: earlier releases ship a plugin named `onenote-mcp`. Y
 
 3. Restart the client.
 
+Each read tool tells Claude Code it may return up to 500,000 characters (`_meta["anthropic/maxResultSizeChars"]`), so results up to the inline limit reach the model whole. Other clients don't know that key, and may cut a result short or save it to a file well below 100,000 characters. For them, lower the inline limit in `%APPDATA%\OneNoteMcp\settings.json` to what the client shows whole, so larger results come back as an index instead:
+
+```json
+{
+  "schemaVersion": 1,
+  "results": { "inlineMaxChars": 20000 }
+}
+```
+
+`results` takes whole numbers: `inlineMaxChars` 20,000 to 380,000 (default 100,000), `ttlMinutes` 1 to 1,440 (default 30; how long a stored result lives after its last read), and `maxStoreMB` 16 to 4,096 (default 256; past it, the least recently read results are dropped). A value out of range makes the whole file invalid, and the server then uses the defaults.
+
 ### From source
 
 You need the .NET 10 SDK.
@@ -110,6 +124,8 @@ Then point your client at the published `OneNoteMcp.exe`, as in the previous sec
 
 Remove the plugin with `/plugin uninstall onenote@sentienceadjacent`, or delete the exe and its MCP config entry. *(planned)* `OneNoteMcp uninstall --purge` will also remove settings, grants, the journal and logs. Until then, delete `%APPDATA%\OneNoteMcp` and `%LOCALAPPDATA%\OneNoteMcp` by hand.
 
+Large results are held in the server's memory only and vanish when it exits, so there are no result files to remove. Claude Code itself may save a large tool result to disk, under `~/.claude/projects/<project>/<session>/tool-results/`, when a result is bigger than it shows inline. Those files are Claude Code's, can hold note content, and neither uninstalling nor `--purge` removes them: delete them there if you need to.
+
 ## For agents installing this
 
 Follow these steps in order, and stop to report to the user if any check fails:
@@ -124,7 +140,7 @@ Follow these steps in order, and stop to report to the user if any check fails:
 
 | Path | Contents |
 |---|---|
-| `%APPDATA%\OneNoteMcp\settings.json` | timeouts, and later grants, the journal and export settings. Optional |
+| `%APPDATA%\OneNoteMcp\settings.json` | timeouts, large-result limits (`results`), and later grants, the journal and export settings. Optional |
 | `%LOCALAPPDATA%\OneNoteMcp\logs\` | logs: IDs and error codes only, never note content |
 | *(planned)* `%LOCALAPPDATA%\OneNoteMcp\journal\` | compressed page snapshots |
 | *(planned)* `Documents\OneNote Exports\` | default export folder |
@@ -137,6 +153,7 @@ MCP client ──stdio──► OneNoteMcp.exe ──COM (one STA thread)──�
 
 - **One server process per client:** several can run at once.
 - **COM calls go one at a time,** with timeouts. If OneNote restarts, the server reconnects.
+- **Large results stay in memory,** in each server process, keyed by a `resultId`. The server indexes them by the exact character positions of their elements and serves parts by those positions, so it never re-serialises XML. `read_result` reads only that memory and never calls OneNote. Logs record a stored result's ID and size, never its content.
 
 The design decisions are in the [architecture spine](_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md).
 

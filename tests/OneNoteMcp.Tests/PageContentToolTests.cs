@@ -307,7 +307,7 @@ public sealed class PageContentToolTests
         Assert.True(root.GetProperty("ok").GetBoolean());
         Assert.False(root.TryGetProperty("error", out _));
         Assert.False(string.IsNullOrEmpty(root.GetProperty("meta").GetProperty("correlationId").GetString()));
-        Assert.Equal(root.GetRawText(), Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text);
+        TextBlockAssert.Matches(result);
         return root;
     }
 

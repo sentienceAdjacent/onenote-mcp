@@ -24,7 +24,7 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway) : IUseC
         try
         {
             var binary = await gateway.GetBinaryPageContentAsync(page, callback, ct).ConfigureAwait(false);
-            return new ToolSuccess(null, new ToolMeta(context.CorrelationId, Binary: binary), []);
+            return new ToolSuccess(null, new ToolMeta(context.CorrelationId, Binary: binary), []) { Source = new ResultSource(ResultKind.Text) };
         }
         catch (OneNoteException ex) when (ex.ComHResult == BinaryObjectDoesNotExist)
         {
