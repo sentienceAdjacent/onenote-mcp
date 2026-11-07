@@ -171,6 +171,30 @@ What the runs show:
 
   In both spilled cases the full result, page content included, lands in a plain file on disk outside the server's control, which bears on AD-13's content-free promise. The `PerN` token estimates in the summary use bytes/N, so the 50,000-character limit is the sharper test. The summary counts it directly as `textOver50kBytes` (UTF-8 bytes, which equal characters for ASCII XML).
 
+### Addendum: raising the limit per tool (story 1.16, 2026-11-06)
+
+Added after the findings were finalised, as evidence for the spine's AD-20.
+
+**What Claude Code documents (code.claude.com/docs/en/mcp, read 2026-11-06).** A server can set `_meta["anthropic/maxResultSizeChars"]` on a tool's `tools/list` entry. Claude Code then raises that tool's persist threshold to the value, "up to a hard ceiling of 500,000 characters". For such a tool, the value is used for text content "regardless of what `MAX_MCP_OUTPUT_TOKENS` is set to". Tools that return image data stay under `MAX_MCP_OUTPUT_TOKENS`. Error results longer than about 11,000 characters keep only their first and last 5,000 characters.
+
+**The probe.** `FakeServer.cs` declares the key when `STRESS_MAX_RESULT_CHARS` is set, and `probe-output-cap.ps1 -MaxResultChars N` sets it for the child. The series was `structured` with `xml` filler, which is the heaviest-tokenizing content measured above, with the key set to 500,000 and `MAX_MCP_OUTPUT_TOKENS` unset (measured, Claude Code 2.1.318, `--model haiku`):
+
+| Size sent (chars) | Text block (chars) | What the model received | Run input tokens |
+|---|---|---|---|
+| 60,000 | 60,693 | whole | 154,074 |
+| 100,000 | 101,093 | whole | 179,274 |
+| 200,000 | 202,093 | whole | 242,274 |
+| 380,000 | 383,893 | whole | 355,674 |
+| 600,000 | ≈600,700 | preview (`<persisted-output>`, "Output too large (591.9KB)", first 2 KB) | 117,678 |
+
+A rerun of 60,000 on the final script gave whole with the key and, as a control without it, the notice only.
+
+What the runs show:
+- **The key lifts both limits, up to at least 380,000 characters (measured).** Without it, XML filler got the notice only from 55,000 characters. With it, 383,893 characters arrived whole, which is about 238,000 tokens above the 600,000 run's input (inferred from the token column). So the token cap no longer applied either.
+- **Past the ceiling the result spills as before, with a preview (measured).** At 600,000 characters the model got the 2 KB preview, not the notice. Between 383,893 and 500,000 characters nothing was measured.
+- **Delivering whole is not the same as usable (inferred).** A 380,000-character result costs the model about 238,000 tokens of context, more than many sessions can spare. That is why AD-20 sets an inline threshold well under the ceiling, about 100,000 characters, and indexes anything larger.
+- **Other MCP clients** don't know the key. For them the inline threshold is a setting the user can lower (AD-20).
+
 ## Real-notebook runs (2026-11-06)
 
 Three of Phill's work notebooks, A (`{ED868065-…}`), B (`{575EF622-…}`) and C (`{B2C5D9BF-…}`), were run one after another. All are stored on SharePoint.
@@ -244,7 +268,7 @@ These notebooks aren't a forecast for other users (Phill, 2026-11-06). What they
      - the result file's lifetime: deleted at server exit, after a TTL, or by a count or size cap;
      - what the companion read returns once a file has expired or been cleaned up, for example a distinct error code telling the caller to repeat the original read, never a silent empty result.
    - **Whatever is chosen must:**
-     - keep each result under the persisted limit (about 50,000 text-block characters);
+     - keep each result under the persisted limit (about 50,000 text-block characters). Superseded by the addendum under Client cap: with `maxResultSizeChars` declared, the limit is the tool's own, and AD-20 sets the inline threshold;
      - clean up after itself;
      - be documented in the README.
 

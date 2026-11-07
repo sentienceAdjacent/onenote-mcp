@@ -87,5 +87,9 @@ internal static class FakeServer
         Description = "Returns filler text for the output-cap probe.",
         InputSchema = JsonDocument.Parse("""{"type":"object","properties":{}}""").RootElement.Clone(),
         Annotations = readOnly ? new ToolAnnotations { ReadOnlyHint = true } : null,
+        // STRESS_MAX_RESULT_CHARS sets Claude Code's per-tool _meta["anthropic/maxResultSizeChars"] (spike for story 1.16).
+        Meta = int.TryParse(Environment.GetEnvironmentVariable("STRESS_MAX_RESULT_CHARS"), out var max)
+            ? new System.Text.Json.Nodes.JsonObject { ["anthropic/maxResultSizeChars"] = max }
+            : null,
     };
 }

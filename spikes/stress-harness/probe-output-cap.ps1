@@ -19,8 +19,15 @@
   Writes <Out>/cap-probe.jsonl (one row per run) and keeps each transcript as <Out>/cap-<variant>-<filler>-<size>.jsonl.
   Unsets MAX_MCP_OUTPUT_TOKENS for the child so the default cap applies, unless -KeepCapEnv is given.
 
+  -MaxResultChars N makes the fake tool declare _meta["anthropic/maxResultSizeChars"] = N in tools/list (through
+  STRESS_MAX_RESULT_CHARS), to test whether that raises the persist limit and the token cap (story 1.16). Claude Code
+  documents a hard ceiling of 500,000. The value goes into the row as maxResultChars, and into the file names.
+
 .EXAMPLE
   pwsh -File spikes/stress-harness/probe-output-cap.ps1 -Out $env:TEMP\cap-probe
+
+.EXAMPLE
+  pwsh -File spikes/stress-harness/probe-output-cap.ps1 -Out $env:TEMP\cap-meta -Variant structured -Filler xml -Sizes 60000,100000,200000,380000,600000 -MaxResultChars 500000
 #>
 param(
     [Parameter(Mandatory)] [string] $Out,
@@ -29,7 +36,8 @@ param(
     [ValidateSet('filler', 'structured')] [string] $Variant = 'filler',
     [ValidateSet('words', 'xml')] [string] $Filler = 'words',
     [string] $Harness,
-    [switch] $KeepCapEnv
+    [switch] $KeepCapEnv,
+    [int] $MaxResultChars = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,11 +55,15 @@ New-Item -ItemType Directory -Force $work | Out-Null
 
 $savedCap = $env:MAX_MCP_OUTPUT_TOKENS
 if (-not $KeepCapEnv) { Remove-Item Env:MAX_MCP_OUTPUT_TOKENS -ErrorAction SilentlyContinue }
+$savedMax = $env:STRESS_MAX_RESULT_CHARS
+if ($MaxResultChars -gt 0) { $env:STRESS_MAX_RESULT_CHARS = "$MaxResultChars" }
+else { Remove-Item Env:STRESS_MAX_RESULT_CHARS -ErrorAction SilentlyContinue }
+$metaTag = if ($MaxResultChars -gt 0) { "-meta$MaxResultChars" } else { '' }
 
 $rows = @()
 try {
     foreach ($size in $Sizes) {
-        $tag = "$Variant-$Filler-$size"
+        $tag = "$Variant-$Filler-$size$metaTag"
         $config = Join-Path $Out "mcp-$tag.json"
         @{ mcpServers = @{ cap = @{ command = $Harness; args = @('--fake-server', "$size", '--fake-variant', $Variant, '--fake-filler', $Filler) } } } |
             ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $config
@@ -71,7 +83,7 @@ try {
         $toolUse = $events | Where-Object type -eq 'assistant' |
             ForEach-Object { $_.message.content } | Where-Object { $_.type -eq 'tool_use' -and $_.name -eq 'mcp__cap__filler' } |
             Select-Object -First 1
-        $row = [ordered]@{ variant = $Variant; filler = $Filler; size = $size; called = [bool]$toolUse }
+        $row = [ordered]@{ variant = $Variant; filler = $Filler; size = $size; maxResultChars = $MaxResultChars; called = [bool]$toolUse }
         if ($toolUse) {
             $result = $events | Where-Object type -eq 'user' | ForEach-Object { $_.message.content } |
                 Where-Object { $_.type -eq 'tool_result' -and $_.tool_use_id -eq $toolUse.id } | Select-Object -First 1
@@ -105,6 +117,7 @@ try {
     }
 } finally {
     if ($null -ne $savedCap) { $env:MAX_MCP_OUTPUT_TOKENS = $savedCap }
+    if ($null -ne $savedMax) { $env:STRESS_MAX_RESULT_CHARS = $savedMax } else { Remove-Item Env:STRESS_MAX_RESULT_CHARS -ErrorAction SilentlyContinue }
 }
 
-$rows | Select-Object variant, filler, size, called, outcome, receivedChars, lastLine, expectedLastLine, endMarker, addedChars | Format-Table -AutoSize
+$rows | Select-Object variant, filler, size, maxResultChars, called, outcome, receivedChars, lastLine, expectedLastLine, endMarker, addedChars | Format-Table -AutoSize

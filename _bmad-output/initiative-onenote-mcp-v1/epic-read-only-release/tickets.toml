@@ -277,7 +277,7 @@ id = 18
 type = "story"
 title = "Large-result delivery"
 description = "Implements story 16's delivery AD across the read tools, so that no result is lost or cut to a preview because of its size. Results over the limit are delivered the way the AD decides, with cleanup. The README is updated, including a note that Claude Code may itself save oversized results under ~/.claude/projects/."
-verify = "Against story 17's fixture, in Claude Code, the model reads every part of the oversized page and the oversized hierarchy through the tools. No tool result's text block exceeds the persist limit, result files are cleaned up as the AD says, and the harness reports 0 mismatches."
+verify = "Against story 17's fixture, in Claude Code, the model reads every part of the oversized page and the oversized hierarchy through the tools. No tool result's text block exceeds results.inlineMaxChars, the result store expires and evicts entries as AD-20 says, and the harness reports 0 mismatches."
 covers = ["R1", "R2", "R3"]
 after = [16, 17]
 hitl = false
@@ -313,10 +313,10 @@ id = 20
 type = "story"
 title = "Read grant for password-protected sections"
 description = """Implements story 16's read-grant AD: the grant store, plus a command and confirmation that the model can't answer for itself. It guards every read tool for sections with encrypted="true":
-- get_page_content, get_binary_page_content, find_pages and find_meta drop results inside such sections;
-- get_hierarchy hides their page names;
-- both hyperlink tools and get_hierarchy_parent refuse targets inside them.
-Each case returns a warning or error saying a grant is needed."""
+- target-scoped reads return ReadNotGranted, after raising the elicitation dialog when the client supports it: get_page_content and get_binary_page_content; get_hierarchy_parent on a page; both hyperlink tools on a page or an object in a page; get_hierarchy at scope children or pages on the section, or on a page in it;
+- broad reads never raise the dialog: get_hierarchy from above the section removes its pages, and find_pages and find_meta drop its candidates before any post-filter, each listing the section in meta.withheld with a readNotGranted warning;
+- allowed: get_hierarchy on the section at scope self, notebooks or sections, get_hierarchy_parent and both hyperlink tools on the section itself, and get_special_location;
+- read_result re-checks the grant for stored parts (AD-20)."""
 verify = "With story 17's protected section unlocked in OneNote, every read tool withholds its contents until Phill grants access. The model can't grant it. The grant works once given and can be revoked, and the integration suite covers each tool."
 covers = ["R1", "R2"]
 after = [16, 18, 19, 21]
