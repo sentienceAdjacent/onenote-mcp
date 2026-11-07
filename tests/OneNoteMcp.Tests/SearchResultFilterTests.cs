@@ -30,6 +30,25 @@ public sealed partial class SearchResultFilterTests
     }
 
     [Fact]
+    public void Pages_LastModifiedTime_ParsedWhenPresent_NullWhenMissingOrUnparsable()
+    {
+        var xml = "<one:Section " + Ns + " ID=\"s\">"
+            + "<one:Page ID=\"utc\" name=\"n\" lastModifiedTime=\"2026-11-05T02:40:26.000Z\"/>"
+            + "<one:Page ID=\"missing\" name=\"n\"/>"
+            + "<one:Page ID=\"empty\" name=\"n\" lastModifiedTime=\"\"/>"
+            + "<one:Page ID=\"garbage\" name=\"n\" lastModifiedTime=\"yesterday\"/>"
+            + "<one:Page ID=\"tooEarly\" name=\"n\" lastModifiedTime=\"0001-01-01T00:00:00+14:00\"/>"
+            + "<one:Page ID=\"tooLate\" name=\"n\" lastModifiedTime=\"9999-12-31T23:59:59-14:00\"/>"
+            + "</one:Section>";
+
+        var pages = SearchResultFilter.Pages(xml);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 5, 2, 40, 26, TimeSpan.Zero), pages[0].LastModifiedTime);
+        Assert.All(pages.Skip(1), p => Assert.Null(p.LastModifiedTime));
+        Assert.All(SearchResultFilter.Pages(Fixture), p => Assert.NotNull(p.LastModifiedTime));
+    }
+
+    [Fact]
     public void Remove_Fixture_RecycleBinPages_CutsExactlyThoseSpans()
     {
         var cut = SearchResultFilter.Remove(Fixture, p => p.InRecycleBin);

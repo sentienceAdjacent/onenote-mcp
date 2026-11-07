@@ -33,6 +33,36 @@ public sealed class ToolRunnerLoggingTests
         Assert.All(logger.Entries, e => Assert.Null(e.Exception));
     }
 
+    [Fact]
+    public async Task SearchCacheUse_IsLoggedAsCountsAndSizesOnly()
+    {
+        var logger = new CapturingLogger();
+        var success = Core.Results.ToolSuccess.WithXml("<secret/>", new Core.Results.ToolMeta("c")) with
+        {
+            SearchCache = new PageTextCacheUse(Hits: 3, Misses: 2, Evicted: 1, Entries: 4, Bytes: 1234),
+        };
+
+        await new ToolRunner(logger).RunAsync("find_pages", new ReadUseCase(), (_, _) => Task.FromResult(success), TestContext.Current.CancellationToken);
+
+        var line = Assert.Single(logger.Entries, e => e.Message.StartsWith("search page-text cache", StringComparison.Ordinal)).Message;
+        Assert.Contains("tool=find_pages hits=3 misses=2 evicted=1 entries=4 cacheBytes=1234", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", string.Concat(logger.Entries.Select(e => e.Message)), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoSearchCacheUse_LogsNoCacheLine()
+    {
+        var logger = new CapturingLogger();
+
+        await new ToolRunner(logger).RunAsync(
+            "t",
+            new ReadUseCase(),
+            (_, _) => Task.FromResult(Core.Results.ToolSuccess.WithXml("<x/>", new Core.Results.ToolMeta("c"))),
+            TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(logger.Entries, e => e.Message.StartsWith("search page-text cache", StringComparison.Ordinal));
+    }
+
     private sealed class ReadUseCase : IUseCase
     {
         public OperationClass Class => OperationClass.Read;
@@ -40,7 +70,7 @@ public sealed class ToolRunnerLoggingTests
 
     private sealed class CapturingLogger : ILogger<ToolRunner>
     {
-        public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+        public List<(LogLevel Level, Exception? Exception, string Message)> Entries { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -48,6 +78,6 @@ public sealed class ToolRunnerLoggingTests
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            Entries.Add((logLevel, exception));
+            Entries.Add((logLevel, exception, formatter(state, exception)));
     }
 }

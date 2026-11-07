@@ -246,20 +246,21 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ### AD-10 — Shared state across processes [ADOPTED]
 
-- **Binds:** Core (settings, access, journal), the `grant` CLI, the result-store settings (AD-20)
+- **Binds:** Core (settings, access, journal), the `grant` CLI, the result-store settings (AD-20), the search-cache setting (AD-12)
 - **Prevents:** grants or entries stored in shapes that clash; lost updates; a grant that applies in one session but not another.
 - **Rule:**
   - **Ownership:**
     - Several server processes, one per client, may run at once.
     - One Core type owns each shared file, and the CLI uses the same types.
   - **`%APPDATA%\OneNoteMcp\settings.json`:**
-    - Shape: `{schemaVersion, allowSilentActivation, timeouts{}, journal{path, retentionDays, maxSizeMB}, results{inlineMaxChars, ttlMinutes, maxStoreMB}, exportRoots[], notebooks{<normalizedPath>: {name, idAtGrant, write, permanentDelete, grantedAt, grantedVia}}, protectedSections{<SectionKey>: {name, notebookKey, idAtGrant, grantedAt, grantedVia, expiresAt?}}}`. `notebooks{}` keys follow AD-6's grant key, and `protectedSections{}` keys follow AD-21's.
+    - Shape: `{schemaVersion, allowSilentActivation, timeouts{}, journal{path, retentionDays, maxSizeMB}, results{inlineMaxChars, ttlMinutes, maxStoreMB}, search{cacheMaxMB}, exportRoots[], notebooks{<normalizedPath>: {name, idAtGrant, write, permanentDelete, grantedAt, grantedVia}}, protectedSections{<SectionKey>: {name, notebookKey, idAtGrant, grantedAt, grantedVia, expiresAt?}}}`. `notebooks{}` keys follow AD-6's grant key, and `protectedSections{}` keys follow AD-21's.
     - Every change is one read-modify-write inside the named mutex `Local\OneNoteMcp.Settings`: re-read, change, write a temporary file, then `File.Replace`. The mutex is never held across a prompt or a dialog.
     - Only grant writers (elicitation, CLI, the `Create` auto-grant, `grant --revoke`) write `notebooks{}` and `protectedSections{}`. The access check only reads them.
     - Re-read at every access check.
     - A grant applies to the open notebook whose `NotebookKey` equals its key. `list_grants` shows each grant as `active` (an open notebook matches) or `notebookNotOpen`, and each read grant as `active`, `sectionNotOpen` or `expired`. Entries are never pruned automatically; only `grant --revoke` removes one. The one exception: a grant writer drops `protectedSections{}` entries whose `expiresAt` has passed, inside its read-modify-write.
     - `schemaVersion` 1 is this path-keyed shape, `results{}` and `protectedSections{}` included. No earlier shape was released, and no released server writes `settings.json`, so there is no migration. The released 0.4.x reader already ignores members it doesn't know (`SettingsStore.Validate` reads only known keys); story 1.20 confirms it with a test.
     - `results{}` ranges, as whole numbers: `inlineMaxChars` 20,000–380,000 (default 100,000), `ttlMinutes` 1–1,440 (default 30), `maxStoreMB` 16–4,096 (default 256). A value out of range makes the file `SettingsInvalid`, like every other field; reads then use the defaults.
+    - `search{}` range, as a whole number: `cacheMaxMB` 0–1,024 (default 64), the page-text cache's cap (AD-12); 0 turns the cache off. Out of range makes the file `SettingsInvalid`, as for `results{}`.
     - If the file is invalid, reads continue and writes fail with `SettingsInvalid`.
     - If `schemaVersion` is newer than the server knows, the server runs read-only.
   - **Journal entry file:**
@@ -282,7 +283,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ### AD-12 — Search semantics [ADOPTED]
 
-- **Binds:** the `FindPages` and `FindMeta` use cases
+- **Binds:** the `FindPages` and `FindMeta` use cases, the search page-text cache and its setting `search{}` (AD-10)
 - **Prevents:** trusting indexed-only results; recycle-bin pages leaking into results.
 - **Rule:**
   - Search with unindexed pages included.
@@ -291,6 +292,8 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - Filter on metadata before text.
   - Search tools require a `startNodeId`. Searching from the root needs the explicit flag `fromRoot: true`.
   - Always set `meta.possiblyIncomplete: true`.
+  - **Page-text cache (story 1.19):** `FindPages` may keep each candidate's extracted text (the `one:T` text by the find_pages rule, never the XML) in memory, one cache per server process, keyed by page ID plus the page's `lastModifiedTime` from the search XML. A candidate whose ID and `lastModifiedTime` both match is matched against the cached text instead of being read again; a different time, or a missing or unparsable one, means a read. A page whose read gives `ObjectNotFound` loses its entry. The cache is capped by `search.cacheMaxMB` (AD-10), counted as UTF-16 bytes, least recently used first out; 0 turns it off. It is never written to disk, and only hit and miss counts and sizes are logged (AD-13). The result set, `meta.filtered` and `meta.possiblyIncomplete` are the same as without it for the same notebook state.
+  - **Known gap:** for a page that isn't open in OneNote, `lastModifiedTime` doesn't advance after a COM edit (spike 1), so after another add-in edits such a page through COM, search can match it against its old text until the page next changes or the server restarts. Edits made in OneNote itself do advance it. The README and find_pages' description say so, and `search.cacheMaxMB: 0` avoids it.
 
 ### AD-13 — Logging [ADOPTED]
 
@@ -300,7 +303,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - stdout carries the MCP protocol only.
   - Logs go to stderr and to a rolling file under `%LOCALAPPDATA%\OneNoteMcp\logs`: 10 MB per file, 5 files kept.
   - Log the `correlationId`, IDs, HRESULTs and timings. Never log page content, XML bodies, or XSD messages that quote content.
-  - Note content reaches disk only through the journal (AD-8) and exports (AD-11). The result store (AD-20) is held in memory only. It is never written to disk, and only its `resultId` and sizes are logged.
+  - Note content reaches disk only through the journal (AD-8) and exports (AD-11). The result store (AD-20) is held in memory only. It is never written to disk, and only its `resultId` and sizes are logged. The same holds for the search page-text cache (AD-12): memory only, and only counts and sizes are logged.
   - A client may save a large tool result to disk itself: Claude Code does so under `~/.claude/projects/<project>/<session>/tool-results/` when a text block exceeds a tool's limit. That is outside the server, and the README says so.
 
 ### AD-14 — Tool contract versioning [ADOPTED]
