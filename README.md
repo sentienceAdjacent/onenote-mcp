@@ -47,6 +47,7 @@ Results are always OneNote's XML, unchanged, so tables, tags, ink, images and at
 
 **Limits, stated honestly:**
 - Search results may be incomplete while Windows Search catches up. Results always say `possiblyIncomplete`.
+- To make repeat searches fast, `find_pages` remembers each page's text in memory (never on disk) until the page's last-modified time changes. A page that another program (another add-in, or a second OneNote MCP session) edits through COM while it isn't open in OneNote keeps its old time, so a search can match it against its old text until it next changes or the server restarts. Edits made in OneNote itself are seen. Set `search.cacheMaxMB` to `0` to turn this off.
 - Images in cloud notebooks that OneNote hasn't downloaded can't be read. They're reported as unavailable instead of failing.
 - *(planned, for writes)* Grants guard against mistakes and casual misuse, not against hostile software already running as you. A grant belongs to the notebook's location (its folder or OneDrive URL), so a different notebook that later appears at a granted location inherits the grant. A Claude Code hook can auto-answer confirmation dialogs. The journal will hold copies of your note content on disk.
 
@@ -108,6 +109,15 @@ Each read tool tells Claude Code it may return up to 500,000 characters (`_meta[
 
 `results` takes whole numbers: `inlineMaxChars` 20,000 to 380,000 (default 100,000), `ttlMinutes` 1 to 1,440 (default 30; how long a stored result lives after its last read), and `maxStoreMB` 16 to 4,096 (default 256; past it, the least recently read results are dropped). A value out of range makes the whole file invalid, and the server then uses the defaults.
 
+`search.cacheMaxMB` (0 to 1,024, default 64) caps the estimated size of what `find_pages` remembers between searches: each page's text and ID counted as UTF-16, plus a small fixed overhead per page; past it, the least recently used pages are dropped. `0` turns the cache off, so every search reads every candidate page again:
+
+```json
+{
+  "schemaVersion": 1,
+  "search": { "cacheMaxMB": 0 }
+}
+```
+
 ### From source
 
 You need the .NET 10 SDK.
@@ -140,7 +150,7 @@ Follow these steps in order, and stop to report to the user if any check fails:
 
 | Path | Contents |
 |---|---|
-| `%APPDATA%\OneNoteMcp\settings.json` | timeouts, large-result limits (`results`), and later grants, the journal and export settings. Optional |
+| `%APPDATA%\OneNoteMcp\settings.json` | timeouts, large-result limits (`results`), the search cache cap (`search`), and later grants, the journal and export settings. Optional |
 | `%LOCALAPPDATA%\OneNoteMcp\logs\` | logs: IDs and error codes only, never note content |
 | *(planned)* `%LOCALAPPDATA%\OneNoteMcp\journal\` | compressed page snapshots |
 | *(planned)* `Documents\OneNote Exports\` | default export folder |

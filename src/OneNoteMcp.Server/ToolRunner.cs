@@ -12,8 +12,8 @@ namespace OneNoteMcp.Server;
 /// <summary>
 /// Runs one tool call: creates the correlationId, runs the use case, hands an oversized result to the result store
 /// (AD-20), turns every outcome into the AD-9 envelope and never throws. Logs one stderr line per call with the
-/// correlationId, tool, code, HRESULT and duration, and the result store's IDs and sizes, never XML or page content
-/// (AD-13).
+/// correlationId, tool, code, HRESULT and duration, the result store's IDs and sizes, and the search page-text cache's
+/// counts and sizes, never XML or page content (AD-13).
 /// </summary>
 public sealed partial class ToolRunner
 {
@@ -50,9 +50,12 @@ public sealed partial class ToolRunner
         ToolEnvelope envelope;
         Exception? failure = null;
         StoredEvent? stored = null;
+        PageTextCacheUse? searchCache = null;
         try
         {
-            var outcome = delivery.Deliver(await run(context, cancellationToken).ConfigureAwait(false), settings);
+            var success = await run(context, cancellationToken).ConfigureAwait(false);
+            searchCache = success.SearchCache;
+            var outcome = delivery.Deliver(success, settings);
             stored = outcome.Stored;
             envelope = ToolEnvelope.Success(outcome.Success);
         }
@@ -86,6 +89,11 @@ public sealed partial class ToolRunner
         {
             // Unmapped failures keep their exception in the log so a reported correlationId can be traced.
             LogInternal(logger, context.CorrelationId, tool, failure);
+        }
+
+        if (searchCache is { } c)
+        {
+            LogSearchCache(logger, context.CorrelationId, tool, c.Hits, c.Misses, c.Evicted, c.Entries, c.Bytes);
         }
 
         if (stored is not null)
@@ -170,6 +178,9 @@ public sealed partial class ToolRunner
 
     [LoggerMessage(Level = LogLevel.Information, Message = "result evicted resultId={ResultId} storeBytes={StoreBytes}")]
     private static partial void LogEvicted(ILogger logger, string resultId, long storeBytes);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "search page-text cache correlationId={CorrelationId} tool={Tool} hits={Hits} misses={Misses} evicted={Evicted} entries={Entries} cacheBytes={CacheBytes}")]
+    private static partial void LogSearchCache(ILogger logger, string correlationId, string tool, int hits, int misses, int evicted, int entries, long cacheBytes);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "text block over the inline threshold correlationId={CorrelationId} tool={Tool} chars={Chars} inlineMaxChars={InlineMaxChars}")]
     private static partial void LogOversize(ILogger logger, string correlationId, string tool, int chars, int inlineMaxChars);

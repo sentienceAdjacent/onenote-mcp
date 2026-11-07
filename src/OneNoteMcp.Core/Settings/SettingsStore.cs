@@ -159,6 +159,14 @@ public sealed class SettingsStore
                 RangedInt(r, "maxStoreMB", "results.maxStoreMB", ResultSettings.MaxStoreMBMin, ResultSettings.MaxStoreMBMax) ?? results.MaxStoreMB);
         }
 
+        var search = SearchSettings.Default;
+        if (root.TryGetProperty("search", out var q))
+        {
+            RequireObject(q, "search");
+            search = new SearchSettings(
+                RangedInt(q, "cacheMaxMB", "search.cacheMaxMB", SearchSettings.CacheMaxMBMin, SearchSettings.CacheMaxMBMax) ?? search.CacheMaxMB);
+        }
+
         var exportRoots = ExportRoots.Default();
         if (root.TryGetProperty("exportRoots", out var roots))
         {
@@ -178,7 +186,7 @@ public sealed class SettingsStore
             exportRoots = new ExportRoots(paths.AsReadOnly());
         }
 
-        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, exportRoots);
+        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots);
     }
 
     private static void RequireObject(JsonElement element, string field)

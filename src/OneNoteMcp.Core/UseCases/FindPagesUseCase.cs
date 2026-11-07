@@ -11,10 +11,32 @@ namespace OneNoteMcp.Core.UseCases;
 /// others are read with piBasic in document order. A page deleted since the
 /// search (<see cref="ErrorCode.ObjectNotFound"/> on its read) is removed as <c>notFound</c>; any other read error fails
 /// the call. Every other byte is OneNote's (AD-4). Throws only <see cref="OneNoteException"/>.
+/// <para>
+/// A candidate's text comes from <see cref="PageTextCache"/> when the page was cached at the <c>lastModifiedTime</c> the
+/// search XML gives it, and is read otherwise (AD-12); the result is the same either way. <c>search.cacheMaxMB</c> is
+/// read once per call, and 0 turns the cache off and empties it.
+/// </para>
 /// </summary>
-public sealed class FindPagesUseCase(IOneNoteGateway gateway) : IUseCase
+public sealed class FindPagesUseCase : IUseCase
 {
     private const string Method = "FindPages";
+
+    private readonly IOneNoteGateway gateway;
+    private readonly PageTextCache cache;
+
+    public FindPagesUseCase(IOneNoteGateway gateway, PageTextCache cache)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(cache);
+        this.gateway = gateway;
+        this.cache = cache;
+    }
+
+    /// <summary>A use case with its own cache on the default settings, for tests and tools built by hand.</summary>
+    public FindPagesUseCase(IOneNoteGateway gateway)
+        : this(gateway, PageTextCache.WithDefaults())
+    {
+    }
 
     public OperationClass Class => OperationClass.Read;
 
@@ -29,6 +51,12 @@ public sealed class FindPagesUseCase(IOneNoteGateway gateway) : IUseCase
         var pages = SearchResults.Pages(xml, Method);
         var terms = PageText.Terms(text);
         var removals = new Dictionary<int, string>();
+
+        // search{} is read once per call (AD-10). A lowered cap, or 0, applies before any lookup.
+        var maxBytes = cache.Settings.CacheMaxBytes;
+        var cacheOn = maxBytes > 0;
+        var evicted = cache.Trim(maxBytes);
+        int hits = 0, misses = 0;
         foreach (var page in pages)
         {
             if (page.InRecycleBin)
@@ -43,24 +71,50 @@ public sealed class FindPagesUseCase(IOneNoteGateway gateway) : IUseCase
                 continue;
             }
 
-            string pageXml;
-            try
+            // Cached at the time the search gives the page: no read. A page without a usable time is never cached.
+            var modified = cacheOn ? page.LastModifiedTime : null;
+            string pageText;
+            if (modified is { } cachedAt && cache.TryGet(page.Id, cachedAt, out var cached))
             {
-                pageXml = await gateway.GetPageContentAsync(page.Id, PageInfo.Basic, ct).ConfigureAwait(false);
+                hits++;
+                pageText = cached;
             }
-            catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound)
+            else
             {
-                removals[page.Index] = FilterReasons.NotFound;
-                continue;
+                if (cacheOn)
+                {
+                    misses++;
+                }
+
+                string pageXml;
+                try
+                {
+                    pageXml = await gateway.GetPageContentAsync(page.Id, PageInfo.Basic, ct).ConfigureAwait(false);
+                }
+                catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound)
+                {
+                    cache.Remove(page.Id);
+                    removals[page.Index] = FilterReasons.NotFound;
+                    continue;
+                }
+
+                pageText = TextOf(pageXml, page.Id);
+                if (modified is { } readAt)
+                {
+                    evicted += cache.Set(page.Id, readAt, pageText, maxBytes);
+                }
             }
 
-            if (!PageText.ContainsAll(terms, page.Name, TextOf(pageXml, page.Id)))
+            if (!PageText.ContainsAll(terms, page.Name, pageText))
             {
                 removals[page.Index] = FilterReasons.NoMatch;
             }
         }
 
-        return SearchResults.Result(context, xml, pages, removals, Method);
+        return SearchResults.Result(context, xml, pages, removals, Method) with
+        {
+            SearchCache = new PageTextCacheUse(hits, misses, evicted, cache.Count, cache.TotalBytes),
+        };
     }
 
     private static string TextOf(string pageXml, string pageId)

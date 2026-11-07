@@ -25,7 +25,65 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(Timeouts.Default, s.Timeouts);
         Assert.Equal(JournalSettings.Default(), s.Journal);
         Assert.Equal(ResultSettings.Default, s.Results);
+        Assert.Equal(SearchSettings.Default, s.Search);
         Assert.Equal(ExportRoots.Default().Paths, s.ExportRoots.Paths);
+    }
+
+    [Fact]
+    public void SearchDefaults_MatchTheSpine()
+    {
+        // AD-10/AD-12: cacheMaxMB 0-1,024, default 64.
+        Assert.Equal(new SearchSettings(64), SearchSettings.Default);
+        Assert.Equal(64L * 1024 * 1024, SearchSettings.Default.CacheMaxBytes);
+        Assert.Equal(0, SearchSettings.CacheMaxMBMin);
+        Assert.Equal(1_024, SearchSettings.CacheMaxMBMax);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(64)]
+    [InlineData(1_024)]
+    public void Read_Search_AcceptsEveryValueInRange(int cacheMaxMB)
+    {
+        var s = ReadWith($$$"""{"schemaVersion": 1, "search": {"cacheMaxMB": {{{cacheMaxMB}}}}}""");
+
+        Assert.Equal(SettingsStatus.Ok, s.Status);
+        Assert.Equal(new SearchSettings(cacheMaxMB), s.Search);
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("1025")]
+    [InlineData("1.5")]
+    [InlineData("\"64\"")]
+    [InlineData("null")]
+    public void Read_Search_OutOfRangeOrNotAWholeNumber_IsInvalid_DefaultsUsed(string value)
+    {
+        var s = ReadWith("{\"schemaVersion\": 1, \"timeouts\": {\"callSeconds\": 5}, \"search\": {\"cacheMaxMB\": " + value + "}}");
+
+        Assert.Equal(SettingsStatus.Invalid, s.Status);
+        Assert.Equal("search.cacheMaxMB: must be a whole number from 0 to 1024", s.Reason);
+        AssertDefaults(s); // the valid timeouts aren't applied either
+        Assert.Throws<OneNoteException>(s.EnsureWritable);
+    }
+
+    [Fact]
+    public void Read_Search_NotAnObject_IsInvalid()
+    {
+        var s = ReadWith("""{"schemaVersion": 1, "search": 64}""");
+
+        Assert.Equal(SettingsStatus.Invalid, s.Status);
+        Assert.Equal("search: must be an object", s.Reason);
+    }
+
+    [Fact]
+    public void Read_Search_MissingMemberKeepsItsDefault()
+    {
+        var s = ReadWith("""{"schemaVersion": 1, "search": {}}""");
+
+        Assert.Equal(SettingsStatus.Ok, s.Status);
+        Assert.Equal(SearchSettings.Default, s.Search);
     }
 
     [Fact]
