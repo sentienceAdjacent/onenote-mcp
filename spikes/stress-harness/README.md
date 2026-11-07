@@ -18,11 +18,14 @@ $h = "spikes/stress-harness/bin/Release/net10.0-windows/StressHarness.exe"
 
 Options: `--exe <path>`, `--root-pages` (also read every open notebook at pages scope), `--max-binaries <n>` (200), `--queries <n>` (20), `--seed <n>` (1), `--inline-max <n>` (100000: the server's `results.inlineMaxChars`, which no text block may exceed). There's no default notebook and no option that lists notebooks. A `--notebook-name` is matched against each notebook's nickname or name, ignoring case, and is never echoed.
 
-Exit codes: 0 done with no mismatches; 1 done with mismatches, or with a text block over `--inline-max`; 2 usage or refusal (no notebook, no single match, `--out` inside the repo, exe missing); 3 the server's `tools/list` isn't exactly the contract tools in `tests/OneNoteMcp.Tests/Contract/tool-contract.json` (eleven since story 1.21 added `navigate_to`), each `readOnlyHint: true` except `navigate_to` (checked before any read); 4 OneNote not running, or the notebook list can't be read at startup; 5 a phase aborted, including when the notebook's own pages-scope hierarchy can't be read raw (the summary is still written, with `abortedBy`).
+Exit codes: 0 done with no mismatches; 1 done with mismatches, or with a text block over `--inline-max`; 2 usage or refusal (no notebook, no single match, `--out` inside the repo, exe missing); 3 the server's `tools/list` isn't exactly the contract tools in `tests/OneNoteMcp.Tests/Contract/tool-contract.json` (twelve since story 1.20 added `list_grants`), each `readOnlyHint: true` except `navigate_to` (checked before any read); 4 OneNote not running, or the notebook list can't be read at startup; 5 a phase aborted, including when the notebook's own pages-scope hierarchy can't be read raw (the summary is still written, with `abortedBy`).
 
 The harness never calls `navigate_to`: its tool client refuses it.
 
 ## What it does
+
+**Password-protected sections (story 1.20, AD-21).** The server under test reads a temporary `settings.json` (through `ONENOTE_MCP_SETTINGS_PATH`) that holds no read grant, so every section with `encrypted="true"` is withheld, and the run expects that. A pages-scope hierarchy must equal the raw XML with those sections' pages cut, and list exactly those sections in `meta.withheld`. Their pages are never read raw: `get_page_content`, `get_hierarchy_parent` and both hyperlink tools on them must give `ReadNotGranted`. Searches predict no hit in them and must list every one of them in `meta.withheld`. `summary.json` counts them as `pagesWithheld`.
+
 
 1. **hierarchy**: the notebook at self, children, sections and pages, and the root at notebooks (and pages with `--root-pages`). Compares the XML byte for byte and the Section and Page ID sets.
 2. **pages**: every page not in the recycle bin, `includeBinary: false` against piBasic; pages with `one:Image` or `one:InsertedFile` also `includeBinary: true` against piBinaryData.

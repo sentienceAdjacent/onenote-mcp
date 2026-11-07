@@ -1,3 +1,4 @@
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Xml;
 
@@ -14,10 +15,16 @@ namespace OneNoteMcp.Core.UseCases;
 /// error path, the server reads the page's piBasic once to confirm the callbackID is an <c>XPSFile</c>'s. Any other
 /// <c>ObjectNotFound</c>, or a confirming read that fails, stays the original error.</item>
 /// </list>
-/// Every other error passes through unchanged. The use case never calls <c>NavigateTo</c> (AD-11).
+/// Every other error passes through unchanged. The use case never calls <c>NavigateTo</c> (AD-11). Before the binary
+/// read, the AD-21 check resolves the page's section, as for <see cref="GetPageContentUseCase"/>.
 /// </summary>
-public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway) : IUseCase
+public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAccess access) : IUseCase
 {
+    public GetBinaryPageContentUseCase(IOneNoteGateway gateway)
+        : this(gateway, ReadAccess.WithoutStoredGrants(gateway))
+    {
+    }
+
     /// <summary>hrBinaryObjectDoesNotExist.</summary>
     public const int BinaryObjectDoesNotExist = unchecked((int)0x8004200F);
 
@@ -38,6 +45,13 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway) : IUseC
 
         var page = pageId ?? string.Empty;
         var callback = callbackId ?? string.Empty;
+        var granted = await access.CheckObjectAsync(context, page, ct).ConfigureAwait(false);
+        var success = await ReadAsync(context, page, callback, ct).ConfigureAwait(false);
+        return success with { Warnings = [.. granted.Warnings, .. success.Warnings], Grants = granted.ResultGrants };
+    }
+
+    private async Task<ToolSuccess> ReadAsync(ToolCallContext context, string page, string callback, CancellationToken ct)
+    {
         try
         {
             var binary = await gateway.GetBinaryPageContentAsync(page, callback, ct).ConfigureAwait(false);

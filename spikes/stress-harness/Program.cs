@@ -66,18 +66,26 @@ static async Task<int> MainAsync(string[] args)
     exe = Path.GetFullPath(exe);
 
     var serverStderrLines = 0;
+
+    // Story 1.20 (AD-21): the server under test reads its own temporary settings, so no read grant the user stored
+    // applies and every password-protected section is withheld, which the run expects. Deleted with settingsDir.
+    var settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-stress", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(settingsDir);
+    var serverSettings = Path.Combine(settingsDir, "server-settings.json");
+    File.WriteAllText(serverSettings, $"{{\"schemaVersion\": 1, \"results\": {{\"inlineMaxChars\": {Math.Clamp(options.InlineMax, 20_000, 380_000)}}}}}");
     var transport = new StdioClientTransport(new StdioClientTransportOptions
     {
         Name = "onenote",
         Command = exe,
         Arguments = [.. options.ExeArgs],
+        EnvironmentVariables = new Dictionary<string, string?> { ["ONENOTE_MCP_SETTINGS_PATH"] = serverSettings },
         // The server's own log is content-free, but the harness keeps nothing of it beyond a line count.
         StandardErrorLines = _ => Interlocked.Increment(ref serverStderrLines),
     });
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (eleven since story 1.21 added navigate_to), each
+    // Startup check, before any read: exactly the contract tools (twelve since story 1.20 added list_grants), each
     // readOnlyHint: true except navigate_to, the one user-visible tool, which the harness never calls (ToolClient refuses it).
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();
@@ -97,7 +105,6 @@ static async Task<int> MainAsync(string[] args)
         throw new RefusalException(Exit.Precondition, "OneNote is not running; start OneNote desktop first");
     }
 
-    var settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-stress", Guid.NewGuid().ToString("N"));
     try
     {
         if (options.IsDiag)

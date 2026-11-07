@@ -31,6 +31,7 @@ public sealed class ReadResultTool(ToolRunner runner, ReadResultUseCase useCase)
         + "A ref or run too big to return comes back as its index instead, so a part is never cut. An element with no children but a huge body (a long one:T, one:Data, or a binary result's base64) has an empty index: read it with offset, then offset plus the length returned, until its own chars (from its index entry or its expand response; meta.result.totalChars for /). "
         + "offset takes a single element's ref only. A run returned as an index has index.ref set to the run's parent and index.chars to the run's length, so don't offset-read that ref up to those chars; read the run's members by their own refs. "
         + "Every part is an exact substring of the result; its namespace prefixes are declared in meta.result.namespaces. A page part's meta.basis has the hashes of the Outlines and OEs wholly inside it; an expand of an Outline or OE carries that element's own hash. "
+        + "A part inside a password-protected section is served only while the user's read grant that allowed the original call holds; after it ends, ReadNotGranted. "
         + "Results expire ttlMinutes after their last read (30 by default): ResultExpired means repeat the original call. "
         + "Success: {ok:true, xml? (meta.binary for a binary result), index?, meta:{correlationId, result, basis?}, warnings:[]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]

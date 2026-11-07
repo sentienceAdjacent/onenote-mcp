@@ -522,7 +522,9 @@ public sealed class FindPagesCacheTests
 
         public Task<string> FindMetaAsync(string startNodeId, string name, bool includeUnindexed, CancellationToken ct) => throw new NotSupportedException();
 
-        public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) => throw new NotSupportedException();
+        /// <summary>The search scope's sections (AD-21): none protected.</summary>
+        public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) =>
+            Task.FromResult("<one:Notebooks xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\" />");
 
         public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => throw new NotSupportedException();
 

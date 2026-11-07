@@ -9,14 +9,17 @@ namespace OneNoteMcp.Xml;
 /// <see cref="MetaNames"/> are the <c>name</c>s of the page's child <c>one:Meta</c> elements. Values are unchanged (AD-4).
 /// <see cref="LastModifiedTime"/> is the page's <c>lastModifiedTime</c> read as an <c>xs:dateTime</c>, or null when it is
 /// missing or unparsable; the search page-text cache keys on it (AD-12) and never caches a page without one.
+/// <see cref="SectionId"/> is the <c>ID</c> of the nearest <c>one:Section</c> around the page, or empty when there is
+/// none in the XML; protected-section withholding keys on it (AD-21).
 /// </summary>
-public sealed record SearchResultPage(int Index, string Id, string Name, bool InRecycleBin, IReadOnlyList<string> MetaNames, DateTimeOffset? LastModifiedTime);
+public sealed record SearchResultPage(int Index, string Id, string Name, bool InRecycleBin, IReadOnlyList<string> MetaNames, DateTimeOffset? LastModifiedTime, string SectionId = "");
 
 /// <summary>The search XML with pages cut out, and the IDs of the pages cut, in document order.</summary>
 public sealed record SearchResultCut(string Xml, IReadOnlyList<string> RemovedIds);
 
 /// <summary>
-/// AD-4's one exception: search may remove whole <c>one:Page</c> elements. The cut is by text span, so every byte
+/// AD-4's exceptions: search may remove whole <c>one:Page</c> elements, and so may AD-21's withholding, from search or
+/// hierarchy XML alike. The cut is by text span, so every byte
 /// outside a removed page is exactly what OneNote returned, and with nothing removed the input string itself comes back.
 /// The XML is never re-serialised. Malformed XML throws <see cref="OneNoteXmlException"/>.
 /// </summary>
@@ -51,6 +54,18 @@ public static class SearchResultFilter
         return new SearchResultCut(builder.ToString(), [.. spans.Select(s => s.Page.Id)]);
     }
 
+    /// <summary>
+    /// AD-21's cut for hierarchy or search XML: every <c>one:Page</c> whose nearest <c>one:Section</c> is in
+    /// <paramref name="sectionIds"/> is removed, and the <c>one:Section</c> elements themselves stay.
+    /// </summary>
+    public static SearchResultCut RemovePagesInSections(string xml, IReadOnlySet<string> sectionIds)
+    {
+        ArgumentNullException.ThrowIfNull(sectionIds);
+        return sectionIds.Count == 0
+            ? new SearchResultCut(xml, [])
+            : Remove(xml, p => p.SectionId.Length > 0 && sectionIds.Contains(p.SectionId));
+    }
+
     private static List<PageSpan> Scan(string xml)
     {
         ArgumentNullException.ThrowIfNull(xml);
@@ -60,6 +75,9 @@ public static class SearchResultFilter
 
         // One entry per open element: whether it, or an ancestor, is a recycle-bin Section or SectionGroup.
         var binStack = new Stack<bool>();
+
+        // One entry per open element: the ID of the nearest Section that is it or around it ("" for none).
+        var sectionStack = new Stack<string>();
         PageBuilder? page = null;
         var pageDepth = -1;
 
@@ -75,6 +93,7 @@ public static class SearchResultFilter
                         var depth = reader.Depth;
                         var isEmpty = reader.IsEmptyElement;
                         var parentInBin = binStack.Count > 0 && binStack.Peek();
+                        var parentSection = sectionStack.Count > 0 ? sectionStack.Peek() : string.Empty;
                         var isOne = reader.NamespaceURI == OneNoteXml.Namespace2013;
                         var local = reader.LocalName;
 
@@ -87,7 +106,8 @@ public static class SearchResultFilter
                                 reader.GetAttribute("ID") ?? string.Empty,
                                 reader.GetAttribute("name") ?? string.Empty,
                                 parentInBin || IsBinFlagged(reader),
-                                ParseDateTime(reader.GetAttribute("lastModifiedTime")));
+                                ParseDateTime(reader.GetAttribute("lastModifiedTime")),
+                                parentSection);
                             pageDepth = depth;
                             if (isEmpty)
                             {
@@ -104,6 +124,7 @@ public static class SearchResultFilter
                         if (!isEmpty)
                         {
                             binStack.Push(inBin);
+                            sectionStack.Push(isOne && local == "Section" ? reader.GetAttribute("ID") ?? string.Empty : parentSection);
                         }
 
                         break;
@@ -112,6 +133,7 @@ public static class SearchResultFilter
                     case XmlNodeType.EndElement:
                     {
                         binStack.Pop();
+                        sectionStack.Pop();
                         if (page is not null && reader.Depth == pageDepth)
                         {
                             result.Add(page.Build(positions.EndTagEnd(reader)));
@@ -157,10 +179,10 @@ public static class SearchResultFilter
 
     private sealed record PageSpan(SearchResultPage Page, int Start, int End);
 
-    private sealed class PageBuilder(int index, int start, string id, string name, bool inRecycleBin, DateTimeOffset? lastModifiedTime)
+    private sealed class PageBuilder(int index, int start, string id, string name, bool inRecycleBin, DateTimeOffset? lastModifiedTime, string sectionId)
     {
         public List<string> MetaNames { get; } = [];
 
-        public PageSpan Build(int end) => new(new SearchResultPage(index, id, name, inRecycleBin, [.. MetaNames], lastModifiedTime), start, end);
+        public PageSpan Build(int end) => new(new SearchResultPage(index, id, name, inRecycleBin, [.. MetaNames], lastModifiedTime, sectionId), start, end);
     }
 }

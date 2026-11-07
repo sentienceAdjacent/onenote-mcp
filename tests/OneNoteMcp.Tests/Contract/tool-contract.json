@@ -1,5 +1,5 @@
 {
-  "contractVersion": "0.6",
+  "contractVersion": "0.7",
   "tools": [
     {
       "name": "find_meta",
@@ -52,6 +52,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -378,6 +379,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -480,6 +548,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -806,6 +875,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -904,6 +1040,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -1230,6 +1367,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -1333,6 +1537,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -1659,6 +1864,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -1753,6 +2025,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -2079,6 +2352,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -2177,6 +2517,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -2503,6 +2844,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -2601,6 +3009,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -2927,6 +3336,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -3026,6 +3502,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -3352,6 +3829,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -3450,6 +3994,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -3776,6 +4321,554 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "_meta": {
+        "anthropic/maxResultSizeChars": 500000
+      }
+    },
+    {
+      "name": "list_grants",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
+                  "ResultExpired",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "run": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "element": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "chars": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "run": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null
+                    },
+                    "element": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "chars": {
+                      "type": "integer"
+                    },
+                    "children": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "contains": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "table": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "image": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "insertedFile": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        }
+                      },
+                      "default": null
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "firstLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "lastLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "chars"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "chars",
+              "page",
+              "entries"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "default": null
+                  }
+                },
+                "required": [
+                  "pageHash"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "result": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "resultId": {
+                    "type": "string"
+                  },
+                  "totalChars": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "namespaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "pages": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "resultId",
+                  "totalChars",
+                  "expiresAt",
+                  "namespaces"
+                ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -3874,6 +4967,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -4200,6 +5294,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },
@@ -4336,6 +5497,7 @@
                   "FileExists",
                   "WriteNotGranted",
                   "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
                   "ResultExpired",
                   "ExportPathNotAllowed",
                   "SettingsInvalid",
@@ -4662,6 +5824,73 @@
                   "expiresAt",
                   "namespaces"
                 ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
                 "default": null
               }
             },

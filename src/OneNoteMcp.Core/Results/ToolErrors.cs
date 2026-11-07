@@ -11,6 +11,12 @@ public static class ToolErrors
 {
     public const string OutcomeUnknownUserAction = "Re-read, then retry if the change is absent.";
 
+    /// <summary>How the user grants a read of a password-protected section (AD-21). The model can't grant it.</summary>
+    public static string ReadNotGrantedUserAction { get; } =
+        "This section is password-protected, and reading its content needs the user's permission. Ask the user whether to grant it: "
+        + "they can run " + Access.GrantCli.Run("--read-section \"<section name>\"") + ", or accept the dialog that appears when you read a page "
+        + "of the section in a client that supports it (Claude Code does). Then retry. Don't try to get the content another way, and never run the grant command yourself.";
+
     public static ToolError From(OneNoteException exception, OperationClass operationClass)
     {
         ArgumentNullException.ThrowIfNull(exception);
@@ -36,6 +42,7 @@ public static class ToolErrors
             or ErrorCode.SectionLocked
             or ErrorCode.WriteNotGranted
             or ErrorCode.PermanentDeleteNotGranted
+            or ErrorCode.ReadNotGranted
             or ErrorCode.SettingsInvalid => true,
         ErrorCode.ComUnavailable or ErrorCode.Timeout => operationClass == OperationClass.Read,
         _ => false,
@@ -58,6 +65,7 @@ public static class ToolErrors
         ErrorCode.FileExists => "Choose a path that does not exist yet.",
         ErrorCode.WriteNotGranted => "Grant write access to the notebook with the OneNoteMcp grant command, then retry.",
         ErrorCode.PermanentDeleteNotGranted => "Grant permanent-delete access to the notebook with the OneNoteMcp grant command, then retry.",
+        ErrorCode.ReadNotGranted => ReadNotGrantedUserAction,
         ErrorCode.ResultExpired => "Repeat the original call to get a new resultId.",
         ErrorCode.ExportPathNotAllowed => "Choose a path under one of the configured export roots.",
         ErrorCode.SettingsInvalid => "Fix settings.json, then retry.",

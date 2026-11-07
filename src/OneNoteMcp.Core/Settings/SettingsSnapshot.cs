@@ -81,6 +81,28 @@ public sealed record ExportRoots(IReadOnlyList<string> Paths)
 }
 
 /// <summary>
+/// One stored read grant, an entry of <c>protectedSections{}</c> (AD-10, AD-21), keyed by <see cref="Key"/>, the
+/// section's <c>SectionKey</c>. <see cref="Name"/>, <see cref="NotebookKey"/> and <see cref="IdAtGrant"/> are for
+/// information only and never compared for access. No <see cref="ExpiresAt"/> means <c>untilRevoked</c>; with one, an
+/// <c>hours</c> grant. JSON shape: <c>{name, notebookKey, idAtGrant, grantedAt, grantedVia, expiresAt?}</c>, dates UTC ISO-8601.
+/// </summary>
+public sealed record ProtectedSectionGrant(
+    string Key,
+    string Name,
+    string NotebookKey,
+    string IdAtGrant,
+    DateTimeOffset GrantedAt,
+    string GrantedVia,
+    DateTimeOffset? ExpiresAt = null)
+{
+    /// <summary><c>hours</c> or <c>untilRevoked</c>.</summary>
+    public string Lifetime => ExpiresAt is null ? Access.ReadGrantLifetimes.UntilRevoked : Access.ReadGrantLifetimes.Hours;
+
+    /// <summary>True once an <c>hours</c> grant's <see cref="ExpiresAt"/> has passed.</summary>
+    public bool IsExpired(DateTimeOffset now) => ExpiresAt is { } end && now >= end;
+}
+
+/// <summary>
 /// One immutable read of <c>settings.json</c> (AD-10). When the status is not <see cref="SettingsStatus.Ok"/>
 /// every value is the default. <see cref="Reason"/> names the offending field and never quotes the file's content.
 /// </summary>
@@ -97,7 +119,9 @@ public sealed class SettingsSnapshot
         JournalSettings journal,
         ResultSettings results,
         SearchSettings search,
-        ExportRoots exportRoots)
+        ExportRoots exportRoots,
+        IReadOnlyList<ProtectedSectionGrant>? protectedSectionEntries = null,
+        bool duplicateGrantKeysOnly = false)
     {
         Path = path;
         Status = status;
@@ -108,6 +132,20 @@ public sealed class SettingsSnapshot
         Results = results;
         Search = search;
         ExportRoots = exportRoots;
+        ProtectedSectionEntries = protectedSectionEntries ?? [];
+        DuplicateGrantKeysOnly = duplicateGrantKeysOnly;
+
+        // Stored read grants count as absent unless the file is valid (AD-21).
+        var grants = new Dictionary<string, ProtectedSectionGrant>(Access.GrantKeys.Comparer);
+        if (status == SettingsStatus.Ok)
+        {
+            foreach (var grant in ProtectedSectionEntries)
+            {
+                grants[grant.Key] = grant;
+            }
+        }
+
+        ProtectedSections = grants;
     }
 
     /// <summary>The settings file this snapshot was read from.</summary>
@@ -132,6 +170,24 @@ public sealed class SettingsSnapshot
     public SearchSettings Search { get; }
 
     public ExportRoots ExportRoots { get; }
+
+    /// <summary>
+    /// The stored read grants by <c>SectionKey</c>, compared ignoring case (AD-21). Empty unless the status is
+    /// <see cref="SettingsStatus.Ok"/>: an invalid or newer file's grants count as absent.
+    /// </summary>
+    public IReadOnlyDictionary<string, ProtectedSectionGrant> ProtectedSections { get; }
+
+    /// <summary>
+    /// Every <c>protectedSections{}</c> entry as written, duplicates included. Filled when the file is valid, or when
+    /// <see cref="DuplicateGrantKeysOnly"/>, so <c>grant --revoke</c> can remove one (AD-6); empty otherwise.
+    /// </summary>
+    public IReadOnlyList<ProtectedSectionGrant> ProtectedSectionEntries { get; }
+
+    /// <summary>
+    /// True when the file is <see cref="SettingsStatus.Invalid"/> only because two <c>protectedSections{}</c> keys differ
+    /// only in case (AD-6). The CLI's revoke still runs on such a file.
+    /// </summary>
+    public bool DuplicateGrantKeysOnly { get; }
 
     /// <summary>Every default, with the given status. Used for an absent, invalid or newer file.</summary>
     internal static SettingsSnapshot Defaults(string path, SettingsStatus status, string? reason = null) =>

@@ -333,8 +333,9 @@ public sealed class PageContentToolTests
     {
         var error = Error(await BinaryTool(new FakeGateway()).GetBinaryPageContent(HierarchyReadToolTests.UnknownId, XpsCallbackId, Ct));
 
+        // Story 1.20: the access check resolves the page's section first, so an unknown page fails there, with the same code.
         Assert.Equal("ObjectNotFound", error.GetProperty("code").GetString());
-        Assert.Contains("GetBinaryPageContent", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Contains("GetHierarchyParent", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -483,7 +484,8 @@ public sealed class PageContentToolTests
 
         public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) => throw new NotSupportedException();
 
-        public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => throw new NotSupportedException();
+        /// <summary>No section around the page: the access check (AD-21) passes it without a grant.</summary>
+        public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => Task.FromResult(string.Empty);
 
         public Task<string> FindPagesAsync(string startNodeId, string query, bool includeUnindexed, CancellationToken ct) => throw new NotSupportedException();
 

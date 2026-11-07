@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
@@ -39,6 +40,14 @@ public static class ServerSetup
             return new ResultStore(TimeProvider.System, () => settings.Read().Results);
         });
         services.AddSingleton<ITextBlockMeasure>(EnvelopeMeasure.Instance);
+        // AD-21: one access check, re-reading settings.json at every check (AD-10); the writer stores the user's grants.
+        services.AddSingleton(sp => new SettingsWriter(sp.GetRequiredService<SettingsStore>(), TimeProvider.System));
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<SettingsStore>();
+            return new ReadAccess(sp.GetRequiredService<IOneNoteGateway>(), settings.Read, sp.GetRequiredService<SettingsWriter>(), TimeProvider.System);
+        });
+        services.AddSingleton(sp => sp.GetRequiredService<ReadAccess>().Results);
         services.AddSingleton<ResultDelivery>();
         services.AddSingleton(sp => new ToolRunner(sp.GetRequiredService<ILogger<ToolRunner>>(), sp.GetRequiredService<ResultDelivery>()));
         services.AddSingleton<GetHierarchyUseCase>();
@@ -54,10 +63,11 @@ public static class ServerSetup
             var settings = sp.GetRequiredService<SettingsStore>();
             return new PageTextCache(() => settings.Read().Search);
         });
-        services.AddSingleton(sp => new FindPagesUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<PageTextCache>()));
+        services.AddSingleton(sp => new FindPagesUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<PageTextCache>(), sp.GetRequiredService<ReadAccess>()));
         services.AddSingleton<FindMetaUseCase>();
         services.AddSingleton<ReadResultUseCase>();
         services.AddSingleton<NavigateToUseCase>();
+        services.AddSingleton(sp => new ListGrantsUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
 
         return services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
@@ -71,7 +81,8 @@ public static class ServerSetup
             .WithTools<FindPagesTool>(EnvelopeJson.Options)
             .WithTools<FindMetaTool>(EnvelopeJson.Options)
             .WithTools<ReadResultTool>(EnvelopeJson.Options)
-            .WithTools<NavigateToTool>(EnvelopeJson.Options);
+            .WithTools<NavigateToTool>(EnvelopeJson.Options)
+            .WithTools<ListGrantsTool>(EnvelopeJson.Options);
     }
 
     private static string ReadVersion()

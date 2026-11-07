@@ -10,7 +10,7 @@ public sealed class ToolErrorsTests
     private static readonly ErrorCode[] AlwaysRetryable =
     [
         ErrorCode.OneNoteNotRunning, ErrorCode.ComBusy, ErrorCode.ModalDialogOpen, ErrorCode.SectionLocked,
-        ErrorCode.WriteNotGranted, ErrorCode.PermanentDeleteNotGranted, ErrorCode.SettingsInvalid,
+        ErrorCode.WriteNotGranted, ErrorCode.PermanentDeleteNotGranted, ErrorCode.ReadNotGranted, ErrorCode.SettingsInvalid,
     ];
 
     private static readonly ErrorCode[] RetryableForReadOnly = [ErrorCode.ComUnavailable, ErrorCode.Timeout];

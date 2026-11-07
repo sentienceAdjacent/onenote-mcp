@@ -1,3 +1,4 @@
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Xml;
 
@@ -6,6 +7,8 @@ namespace OneNoteMcp.Core.UseCases;
 /// <summary>
 /// What <see cref="FindPagesUseCase"/> and <see cref="FindMetaUseCase"/> share (AD-12): the exactly-one start rule,
 /// reading the result's pages, cutting the removed ones out byte for byte (AD-4) and the meta every search returns.
+/// Pages withheld under AD-21 are cut too, but kept apart from the removals: they never go in <c>meta.filtered</c>, and
+/// their sections go in <c>meta.withheld</c> instead.
 /// </summary>
 internal static class SearchResults
 {
@@ -35,22 +38,27 @@ internal static class SearchResults
     public static IReadOnlyList<SearchResultPage> Pages(string xml, string method) =>
         Readable(() => SearchResultFilter.Pages(xml), method);
 
-    /// <summary>The XML with every page in <paramref name="removals"/> cut out, as the success result with its meta.</summary>
+    /// <summary>
+    /// The XML with every page in <paramref name="removals"/>, and every page <paramref name="broad"/> withholds, cut out,
+    /// as the success result with its meta.
+    /// </summary>
     public static ToolSuccess Result(
         ToolCallContext context,
         string xml,
         IReadOnlyList<SearchResultPage> pages,
         IReadOnlyDictionary<int, string> removals,
+        BroadAccess broad,
         string method)
     {
-        var cut = Readable(() => SearchResultFilter.Remove(xml, p => removals.ContainsKey(p.Index)), method);
+        var cut = Readable(() => SearchResultFilter.Remove(xml, p => removals.ContainsKey(p.Index) || broad.IsWithheld(p.SectionId)), method);
         var filtered = pages
             .Where(p => removals.ContainsKey(p.Index))
             .Select(p => new FilteredPage(p.Id, removals[p.Index]))
             .ToList();
-        return ToolSuccess.WithXml(cut.Xml, new ToolMeta(context.CorrelationId, Filtered: filtered, PossiblyIncomplete: true)) with
+        return new ToolSuccess(cut.Xml, new ToolMeta(context.CorrelationId, Filtered: filtered, PossiblyIncomplete: true, Withheld: broad.Meta), broad.Warnings)
         {
             Source = new ResultSource(ResultKind.HierarchyXml),
+            Grants = broad.ResultGrants,
         };
     }
 

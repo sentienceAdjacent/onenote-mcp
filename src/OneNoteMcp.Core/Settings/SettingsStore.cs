@@ -6,7 +6,8 @@ namespace OneNoteMcp.Core.Settings;
 /// <summary>
 /// The one Core type that owns <c>%APPDATA%\OneNoteMcp\settings.json</c> (AD-10). This is the read side only:
 /// every <see cref="Read"/> reads the file again and returns a new snapshot, nothing is cached, and the store
-/// never writes the file. <c>notebooks{}</c> (grants) is left to the access stories. Unknown keys are ignored.
+/// never writes the file (<see cref="SettingsWriter"/> does). <c>protectedSections{}</c> (read grants, AD-21) is read here;
+/// <c>notebooks{}</c> (write grants) is left to epic 2. Unknown keys are ignored.
 /// </summary>
 public sealed class SettingsStore
 {
@@ -186,7 +187,91 @@ public sealed class SettingsStore
             exportRoots = new ExportRoots(paths.AsReadOnly());
         }
 
-        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots);
+        // Read last, so a duplicate key is the file's only problem when it is reported (AD-6: the CLI's revoke still runs).
+        var grants = new List<ProtectedSectionGrant>();
+        var duplicate = false;
+        if (root.TryGetProperty("protectedSections", out var sections))
+        {
+            RequireObject(sections, "protectedSections");
+            var seen = new HashSet<string>(Access.GrantKeys.Comparer);
+            foreach (var entry in sections.EnumerateObject())
+            {
+                grants.Add(Grant(entry));
+                duplicate |= !seen.Add(entry.Name);
+            }
+        }
+
+        if (duplicate)
+        {
+            return new SettingsSnapshot(
+                path,
+                SettingsStatus.Invalid,
+                "protectedSections: two keys differ only in case",
+                allowSilentActivation: false,
+                Timeouts.Default,
+                JournalSettings.Default(),
+                ResultSettings.Default,
+                SearchSettings.Default,
+                ExportRoots.Default(),
+                grants.AsReadOnly(),
+                duplicateGrantKeysOnly: true);
+        }
+
+        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots, grants.AsReadOnly());
+    }
+
+    /// <summary>One <c>protectedSections{}</c> entry. Reasons name fields and never quote the file's values.</summary>
+    private static ProtectedSectionGrant Grant(JsonProperty entry)
+    {
+        const string Field = "protectedSections";
+        if (string.IsNullOrWhiteSpace(entry.Name))
+        {
+            throw new InvalidSettingException($"{Field}: a key is empty");
+        }
+
+        var value = entry.Value;
+        RequireObject(value, $"{Field} entry");
+        var grantedVia = RequiredString(value, "grantedVia", Field);
+        if (grantedVia is not (Access.GrantedVia.Elicitation or Access.GrantedVia.Cli))
+        {
+            throw new InvalidSettingException($"{Field} entry grantedVia: must be elicitation or cli");
+        }
+
+        return new ProtectedSectionGrant(
+            entry.Name,
+            RequiredString(value, "name", Field),
+            RequiredString(value, "notebookKey", Field),
+            RequiredString(value, "idAtGrant", Field),
+            Date(value, "grantedAt", Field) ?? throw new InvalidSettingException($"{Field} entry grantedAt: missing"),
+            grantedVia,
+            Date(value, "expiresAt", Field));
+    }
+
+    private static string RequiredString(JsonElement parent, string name, string field)
+    {
+        if (!parent.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidSettingException($"{field} entry {name}: must be a string");
+        }
+
+        return value.GetString()!;
+    }
+
+    /// <summary>An ISO-8601 date-time, read as UTC, or null when absent.</summary>
+    private static DateTimeOffset? Date(JsonElement parent, string name, string field)
+    {
+        if (!parent.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.String
+            || !DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date))
+        {
+            throw new InvalidSettingException($"{field} entry {name}: must be an ISO-8601 date-time");
+        }
+
+        return date;
     }
 
     private static void RequireObject(JsonElement element, string field)

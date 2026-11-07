@@ -15,6 +15,12 @@ public sealed record ToolSuccess(string? Xml, ToolMeta Meta, IReadOnlyList<ToolW
     /// <summary>find_pages' use of the page-text cache (AD-12). Never on the wire: <c>ToolRunner</c> logs its counts and sizes.</summary>
     public UseCases.PageTextCacheUse? SearchCache { get; init; }
 
+    /// <summary>
+    /// The AD-21 read grants that allowed protected-section content into this result. Never on the wire:
+    /// <see cref="LargeResults.ResultDelivery"/> stores them with an oversized result so <c>read_result</c> checks them again (AD-20).
+    /// </summary>
+    public LargeResults.ResultGrants? Grants { get; init; }
+
     /// <summary>The body the text block carries after its header line (AD-9): <c>xml</c>, or <c>meta.binary</c>; null when there is none.</summary>
     public string? Body => Xml ?? Meta.Binary;
 

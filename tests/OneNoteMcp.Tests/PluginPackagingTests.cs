@@ -87,6 +87,25 @@ public sealed class PluginPackagingTests
     }
 
     [Fact]
+    public void Hooks_GuardSettingsJson_WithThePluginsOwnExe()
+    {
+        // AD-6: the plugin blocks the model from editing settings.json. The pack script copies plugin/ as-is, so the staged
+        // plugin carries hooks/hooks.json too.
+        var preToolUse = Assert.Single(ReadJson("plugin/hooks/hooks.json").GetProperty("hooks").GetProperty("PreToolUse").EnumerateArray());
+        Assert.Equal("Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell", preToolUse.GetProperty("matcher").GetString());
+        var hook = Assert.Single(preToolUse.GetProperty("hooks").EnumerateArray());
+        Assert.Equal("command", hook.GetProperty("type").GetString());
+        Assert.Equal("\"${CLAUDE_PLUGIN_ROOT}/OneNoteMcp.exe\" hook guard-settings", hook.GetProperty("command").GetString());
+        Assert.Contains("Copy-Item -Recurse -Force -Destination $stageDir", ReadText(PackScript), StringComparison.Ordinal);
+
+        var staged = RepoPaths.Combine("dist", "stage", "onenote", "hooks", "hooks.json");
+        if (Directory.Exists(RepoPaths.Combine("dist", "stage", "onenote")))
+        {
+            Assert.True(File.Exists(staged), "The staged plugin must carry hooks/hooks.json; rerun scripts/pack-plugin.ps1.");
+        }
+    }
+
+    [Fact]
     public void ArchiveUrl_ForAPrereleaseVersion_IsTheExpectedUrl()
     {
         var url = RepoUrl + ArchiveUrlSuffix("0.4.0-rc.1");

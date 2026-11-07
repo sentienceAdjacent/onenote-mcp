@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using OneNoteMcp.Core.UseCases;
+using OneNoteMcp.Server.Grants;
 
 namespace OneNoteMcp.Server.Tools;
 
@@ -26,16 +27,19 @@ public sealed class GetBinaryPageContentTool(ToolRunner runner, GetBinaryPageCon
         + "When OneNote has no binary for it, the result is still ok, with no meta.binary and a warning with code binaryUnavailable: either the binary isn't stored on this PC (an image in a notebook stored online that hasn't been downloaded) or the callbackID is wrong, since OneNote reports both the same way. "
         + "A File Printout's one:XPSFile callbackID also gives binaryUnavailable: the printout document can't be read through the OneNote API. "
         + "This tool never fetches a missing image itself; navigate_to, called only when the user asks, shows the page so OneNote downloads it. "
+        + "A page in a password-protected section needs the user's read grant: the user may be shown a dialog to grant it, and without a grant the call fails with ReadNotGranted, whose userAction says how the user grants it (you can't grant it yourself). "
         + ToolMetaKeys.LargeResultNote
         + "Success: {ok:true, meta:{correlationId, binary?}, warnings:[{code, message, userAction?}]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> GetBinaryPageContent(
         [Description("OneNote ID of the page.")] string pageId,
         [Description("The callbackID of the binary object, from its one:CallbackID element in get_page_content's default XML (includeBinary false).")] string callbackId,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        McpServer? server = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, pageId ?? string.Empty, callbackId ?? string.Empty, ct),
-            cancellationToken);
+            cancellationToken,
+            ElicitationGrantPrompt.For(server));
 }
