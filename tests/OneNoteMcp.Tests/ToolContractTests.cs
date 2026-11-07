@@ -10,7 +10,7 @@ using Xunit;
 namespace OneNoteMcp.Tests;
 
 /// <summary>
-/// AD-14: tool names, parameter schemas, output schemas and annotations are a public contract. The snapshot is
+/// AD-14: tool names, parameter schemas, output schemas, annotations and _meta (AD-20) are a public contract. The snapshot is
 /// <c>Contract/tool-contract.json</c>; <c>description</c> keys are stripped so wording can change freely. On a
 /// deliberate change, bump <c>&lt;Version&gt;</c> by AD-14's rules and paste the printed JSON into the snapshot.
 /// </summary>
@@ -78,13 +78,26 @@ public sealed class ToolContractTests
     }
 
     [Fact]
-    public void Server_ListsTheNineReadTools()
+    public void Server_ListsTheTenReadTools()
     {
         using var services = BuildServer();
 
         Assert.Equal(
-            ["find_meta", "find_pages", "get_binary_page_content", "get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_page_content", "get_special_location", "get_web_hyperlink_to_object"],
+            ["find_meta", "find_pages", "get_binary_page_content", "get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_page_content", "get_special_location", "get_web_hyperlink_to_object", "read_result"],
             services.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void EveryTool_DeclaresClaudeCodesResultSizeCeiling_AsTheWholeNumber500000()
+    {
+        // AD-20. McpMeta takes a double; the wire must still carry 500000, not 500000.0 or 5E+05.
+        using var services = BuildServer();
+
+        foreach (var tool in services.GetServices<McpServerTool>().Select(t => t.ProtocolTool))
+        {
+            var json = JsonSerializer.Serialize(tool, McpJsonUtilities.DefaultOptions);
+            Assert.Contains("\"_meta\":{\"anthropic/maxResultSizeChars\":500000}", json, StringComparison.Ordinal);
+        }
     }
 
     private static void AssertRequiredPresent(JsonNode schema, JsonNode payload)
@@ -114,6 +127,7 @@ public sealed class ToolContractTests
                 ["inputSchema"] = StripDescriptions(JsonNode.Parse(tool.InputSchema.GetRawText())),
                 ["outputSchema"] = tool.OutputSchema is { } output ? StripDescriptions(JsonNode.Parse(output.GetRawText())) : null,
                 ["annotations"] = StripDescriptions(JsonSerializer.SerializeToNode(tool.Annotations, McpJsonUtilities.DefaultOptions)),
+                ["_meta"] = tool.Meta is { } meta ? JsonNode.Parse(meta.ToJsonString(McpJsonUtilities.DefaultOptions)) : null,
             });
         }
 

@@ -385,7 +385,7 @@ public sealed class SearchToolTests
         Assert.False(result.IsError, root.GetRawText());
         Assert.True(root.GetProperty("ok").GetBoolean());
         Assert.False(string.IsNullOrEmpty(root.GetProperty("meta").GetProperty("correlationId").GetString()));
-        Assert.Equal(root.GetRawText(), Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text);
+        TextBlockAssert.Matches(result);
         return root;
     }
 

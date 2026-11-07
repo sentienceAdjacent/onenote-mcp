@@ -12,7 +12,7 @@ namespace StressHarness;
 /// Two fillers with different characters-per-token ratios (<c>words</c>, <c>xml</c>) separate a token cap from a
 /// character cap. The <c>structured</c> variant returns the filler the way the real server does: the envelope
 /// <c>{ok, xml, meta, warnings}</c> as structuredContent and its JSON as the text block, so the probe can tell whether
-/// structuredContent counts toward the cap. The <c>contract-no-readonly</c> variant advertises the nine contract names without readOnlyHint, to test the
+/// structuredContent counts toward the cap. The <c>contract-no-readonly</c> variant advertises the contract names without readOnlyHint, to test the
 /// harness's startup check. No notebook is involved.
 /// </summary>
 internal static class FakeServer

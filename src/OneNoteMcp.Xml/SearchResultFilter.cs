@@ -20,14 +20,6 @@ public sealed record SearchResultCut(string Xml, IReadOnlyList<string> RemovedId
 /// </summary>
 public static class SearchResultFilter
 {
-    private static readonly XmlReaderSettings ReaderSettings = new()
-    {
-        DtdProcessing = DtdProcessing.Prohibit,
-        XmlResolver = null,
-        IgnoreWhitespace = false,
-        IgnoreComments = false,
-    };
-
     /// <summary>Every outermost <c>one:Page</c> in <paramref name="xml"/>, in document order.</summary>
     public static IReadOnlyList<SearchResultPage> Pages(string xml) => [.. Scan(xml).Select(s => s.Page)];
 
@@ -61,7 +53,7 @@ public static class SearchResultFilter
     {
         ArgumentNullException.ThrowIfNull(xml);
 
-        var lineStarts = LineStarts(xml);
+        var positions = new XmlPositions(xml);
         var result = new List<PageSpan>();
 
         // One entry per open element: whether it, or an ancestor, is a recycle-bin Section or SectionGroup.
@@ -71,8 +63,7 @@ public static class SearchResultFilter
 
         try
         {
-            using var reader = XmlReader.Create(new StringReader(xml), ReaderSettings);
-            var info = (IXmlLineInfo)reader;
+            using var reader = XmlReader.Create(new StringReader(xml), XmlPositions.ReaderSettings);
             while (reader.Read())
             {
                 switch (reader.NodeType)
@@ -87,8 +78,7 @@ public static class SearchResultFilter
 
                         if (page is null && isOne && local == "Page")
                         {
-                            var start = Offset(xml, lineStarts, info) - 1;
-                            Expect(xml, start, reader.Name);
+                            var start = positions.StartTagStart(reader);
                             page = new PageBuilder(
                                 result.Count,
                                 start,
@@ -98,7 +88,7 @@ public static class SearchResultFilter
                             pageDepth = depth;
                             if (isEmpty)
                             {
-                                result.Add(page.Build(StartTagEnd(xml, start)));
+                                result.Add(page.Build(positions.StartTagEnd(start)));
                                 page = null;
                             }
                         }
@@ -121,16 +111,7 @@ public static class SearchResultFilter
                         binStack.Pop();
                         if (page is not null && reader.Depth == pageDepth)
                         {
-                            // The reader points at the name after "</"; an end tag holds only its name and whitespace.
-                            var nameStart = Offset(xml, lineStarts, info);
-                            Expect(xml, nameStart - 2, "/" + reader.Name);
-                            var close = xml.IndexOf('>', nameStart);
-                            if (close < 0)
-                            {
-                                throw new OneNoteXmlException("A one:Page end tag has no closing '>'.");
-                            }
-
-                            result.Add(page.Build(close + 1));
+                            result.Add(page.Build(positions.EndTagEnd(reader)));
                             page = null;
                         }
 
@@ -141,8 +122,7 @@ public static class SearchResultFilter
         }
         catch (XmlException ex)
         {
-            // The parser's message can quote content; keep only the position (AD-13).
-            throw new OneNoteXmlException($"The XML is not well-formed (line {ex.LineNumber}, position {ex.LinePosition}).", ex);
+            throw XmlPositions.NotWellFormed(ex);
         }
 
         return result;
@@ -153,88 +133,6 @@ public static class SearchResultFilter
         IsTrue(reader.GetAttribute("isInRecycleBin")) || IsTrue(reader.GetAttribute("isRecycleBin"));
 
     private static bool IsTrue(string? value) => value is "true" or "1";
-
-    /// <summary>The start of each line, breaking lines the way <see cref="XmlReader"/> counts them: \r\n, \r or \n.</summary>
-    private static List<int> LineStarts(string xml)
-    {
-        var starts = new List<int> { 0 };
-        for (var i = 0; i < xml.Length; i++)
-        {
-            if (xml[i] == '\r')
-            {
-                if (i + 1 < xml.Length && xml[i + 1] == '\n')
-                {
-                    i++;
-                }
-
-                starts.Add(i + 1);
-            }
-            else if (xml[i] == '\n')
-            {
-                starts.Add(i + 1);
-            }
-        }
-
-        return starts;
-    }
-
-    private static int Offset(string xml, List<int> lineStarts, IXmlLineInfo info)
-    {
-        if (!info.HasLineInfo() || info.LineNumber < 1 || info.LineNumber > lineStarts.Count)
-        {
-            throw new OneNoteXmlException("The XML reader gave no usable position for a one:Page.");
-        }
-
-        var offset = lineStarts[info.LineNumber - 1] + info.LinePosition - 1;
-        if (offset < 0 || offset > xml.Length)
-        {
-            throw new OneNoteXmlException("The XML reader gave a position outside the XML for a one:Page.");
-        }
-
-        return offset;
-    }
-
-    /// <summary>Guards the position arithmetic: the tag must really start at <paramref name="ltOffset"/>.</summary>
-    private static void Expect(string xml, int ltOffset, string nameAfterLt)
-    {
-        if (ltOffset < 0
-            || ltOffset >= xml.Length
-            || xml[ltOffset] != '<'
-            || string.CompareOrdinal(xml, ltOffset + 1, nameAfterLt, 0, nameAfterLt.Length) != 0)
-        {
-            throw new OneNoteXmlException("A one:Page tag is not where the XML reader placed it.");
-        }
-    }
-
-    /// <summary>
-    /// The offset just past the '&gt;' that closes the start tag at <paramref name="ltOffset"/>. Attribute values are
-    /// skipped quote to quote, since a value may hold an unescaped '&gt;'.
-    /// </summary>
-    private static int StartTagEnd(string xml, int ltOffset)
-    {
-        char? quote = null;
-        for (var i = ltOffset + 1; i < xml.Length; i++)
-        {
-            var c = xml[i];
-            if (quote is { } q)
-            {
-                if (c == q)
-                {
-                    quote = null;
-                }
-            }
-            else if (c is '"' or '\'')
-            {
-                quote = c;
-            }
-            else if (c == '>')
-            {
-                return i + 1;
-            }
-        }
-
-        throw new OneNoteXmlException("A one:Page start tag has no closing '>'.");
-    }
 
     private sealed record PageSpan(SearchResultPage Page, int Start, int End);
 

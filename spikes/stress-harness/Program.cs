@@ -72,7 +72,7 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the nine contract tools, each readOnlyHint: true.
+    // Startup check, before any read: exactly the contract tools (ten since story 1.18 added read_result), each readOnlyHint: true.
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();
     var unexpected = names.Count(n => !contract.Contains(n, StringComparer.Ordinal));
@@ -128,7 +128,7 @@ static async Task<int> RunAsync(Options options, McpClient client, string exe, P
 
     var notebookId = await ResolveNotebookAsync(gateway, options);
     Directory.CreateDirectory(outDir);
-    using var recorder = new Recorder(outDir);
+    using var recorder = new Recorder(outDir) { InlineMax = options.InlineMax };
     recorder.Build["serverVersion"] = client.ServerInfo?.Version ?? "";
     using (var exeStream = File.OpenRead(exe))
     {
@@ -165,8 +165,15 @@ static async Task<int> RunAsync(Options options, McpClient client, string exe, P
     var mismatches = recorder.Records.Count(r => r.Match == Match.Mismatch);
     var changed = recorder.Records.Count(r => r.Match == Match.ChangedDuringRun);
     var unstable = recorder.Records.Count(r => r.Match == Match.UnstableRead);
+    var withTool = recorder.Records.Where(r => r.ToolResult is not null).ToList();
+    var maxText = withTool.Select(r => r.ToolResult!.MaxTextChars).DefaultIfEmpty(0).Max();
+    var overInline = withTool.Count(r => r.ToolResult!.MaxTextChars > options.InlineMax);
+    var stored = withTool.Count(r => r.ToolResult!.Stored);
     Console.Error.WriteLine($"done: {recorder.Records.Count} comparisons, {mismatches} mismatches, {changed} changedDuringRun, {unstable} unstableRead, {sw.ElapsedMilliseconds} ms");
-    return abortedBy is not null ? Exit.Crashed : mismatches > 0 ? Exit.Mismatches : Exit.Ok;
+    Console.Error.WriteLine($"large results: {stored} stored and reassembled through read_result, max text block {maxText} chars, {overInline} over inlineMaxChars {options.InlineMax}");
+
+    // AD-20: a text block over the threshold is a failure, like a mismatch.
+    return abortedBy is not null ? Exit.Crashed : mismatches > 0 || overInline > 0 ? Exit.Mismatches : Exit.Ok;
 }
 
 static async Task<string> ResolveNotebookAsync(ComGateway gateway, Options options)

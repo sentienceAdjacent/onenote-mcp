@@ -75,8 +75,10 @@ internal static class Diag
         }
 
         var structuredXml = result?.StructuredContent is { } sc ? XmlOf(JsonSerializer.SerializeToElement(sc)) : null;
-        var textJson = result?.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text;
-        var textXml = textJson is null ? null : XmlOf(JsonDocument.Parse(textJson).RootElement);
+        // AD-9 (story 1.18): a success with XML is a JSON header line, a newline, then the XML unchanged.
+        var text = result?.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text;
+        var newline = text?.IndexOf('\n', StringComparison.Ordinal) ?? -1;
+        var textXml = text is null ? null : newline >= 0 ? text[(newline + 1)..] : XmlOf(JsonDocument.Parse(text).RootElement);
         var a = raw.Value;
 
         Console.WriteLine($"raw: {a.Length} chars; {Census(a)}");

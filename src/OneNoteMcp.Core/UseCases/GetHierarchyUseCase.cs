@@ -34,6 +34,6 @@ public sealed class GetHierarchyUseCase(IOneNoteGateway gateway) : IUseCase
                 $"Section {id} is locked; its pages can't be read until it is unlocked in OneNote.",
                 "Unlock the section in OneNote, then read it again."))
             .ToList();
-        return new ToolSuccess(xml, new ToolMeta(context.CorrelationId), warnings);
+        return new ToolSuccess(xml, new ToolMeta(context.CorrelationId), warnings) { Source = new ResultSource(ResultKind.HierarchyXml) };
     }
 }

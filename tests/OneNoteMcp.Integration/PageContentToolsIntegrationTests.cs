@@ -58,12 +58,13 @@ public sealed class PageContentToolsIntegrationTests : IDisposable
         Assert.NotNull(log.Logger);
         using (var factory = LoggerFactory.Create(b => b.AddSerilog(log.Logger, dispose: true)))
         {
-            var tool = new GetPageContentTool(new ToolRunner(factory.CreateLogger<ToolRunner>()), new GetPageContentUseCase(gateway));
+            var large = new LargeResults(factory.CreateLogger<ToolRunner>());
+            var tool = new GetPageContentTool(large.Runner, new GetPageContentUseCase(gateway));
             foreach (var includeBinary in new[] { false, true })
             {
                 var call = $"get_page_content(includeBinary: {includeBinary})";
                 var root = Ok(await tool.GetPageContent(pageId, includeBinary, Ct), call);
-                Assert.Contains(sentinel, root.GetProperty("xml").GetString()!, StringComparison.Ordinal);
+                Assert.Contains(sentinel, await large.XmlAsync(root, Ct), StringComparison.Ordinal);
                 Assert.False(string.IsNullOrEmpty(root.GetProperty("meta").GetProperty("basis").GetProperty("pageHash").GetString()), call);
                 Assert.False(root.GetProperty("meta").TryGetProperty("binaryUnavailable", out _), call); // MCP Test is local
             }

@@ -26,16 +26,19 @@ public sealed class GetPageContentUseCase(IOneNoteGateway gateway) : IUseCase
         var basic = await gateway.GetPageContentAsync(id, PageInfo.Basic, ct).ConfigureAwait(false);
         var basis = PageBasisResult.From(Readable(() => PageBasis.From(basic), id));
         var meta = new ToolMeta(context.CorrelationId, Basis: basis);
+
+        // Kept with an oversized result so part hashes always come from piBasic (AD-17, AD-20).
+        var source = new ResultSource(ResultKind.PageXml, PiBasicXml: basic);
         if (!includeBinary)
         {
-            return ToolSuccess.WithXml(basic, meta);
+            return ToolSuccess.WithXml(basic, meta) with { Source = source };
         }
 
         var binary = await gateway.GetPageContentAsync(id, PageInfo.BinaryData, ct).ConfigureAwait(false);
         var missing = Readable(() => ImageCount.Missing(basic, binary), id);
         if (missing == 0)
         {
-            return ToolSuccess.WithXml(binary, meta);
+            return ToolSuccess.WithXml(binary, meta) with { Source = source };
         }
 
         // The page's ID and the count are the only details in the message, never content (AD-9).
@@ -46,7 +49,7 @@ public sealed class GetPageContentUseCase(IOneNoteGateway gateway) : IUseCase
                 $"{missing} image(s) on page {id} have no binary on this PC, so the returned XML leaves them out. They are in a notebook stored online and haven't been downloaded.",
                 "Open the page in OneNote so it downloads the images, then read it again."),
         ];
-        return new ToolSuccess(binary, meta with { BinaryUnavailable = missing }, warnings);
+        return new ToolSuccess(binary, meta with { BinaryUnavailable = missing }, warnings) { Source = source };
     }
 
     private static T Readable<T>(Func<T> read, string pageId)

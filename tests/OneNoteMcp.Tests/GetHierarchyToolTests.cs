@@ -38,14 +38,17 @@ public sealed class GetHierarchyToolTests
     }
 
     [Fact]
-    public async Task TextBlock_CarriesTheSameJson()
+    public async Task TextBlock_IsTheHeaderLine_ThenTheXmlUnchanged()
     {
+        // AD-9 (2026-11-06): the XML is no longer escaped into JSON in the text block.
         var result = await Tool(new FakeGateway { HierarchyXml = NotebooksXml }).GetHierarchy(cancellationToken: TestContext.Current.CancellationToken);
 
-        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
-        Assert.Equal(result.StructuredContent!.Value.GetRawText(), text);
-        using var parsed = JsonDocument.Parse(text);
-        Assert.Equal(NotebooksXml, parsed.RootElement.GetProperty("xml").GetString());
+        var text = TextBlockAssert.Matches(result);
+        Assert.EndsWith("}\n" + NotebooksXml, text, StringComparison.Ordinal);
+        var header = TextBlockAssert.Header(result);
+        Assert.False(header.ContainsKey("xml"));
+        Assert.True(header["ok"]!.GetValue<bool>());
+        Assert.Empty(header["warnings"]!.AsArray());
     }
 
     [Fact]

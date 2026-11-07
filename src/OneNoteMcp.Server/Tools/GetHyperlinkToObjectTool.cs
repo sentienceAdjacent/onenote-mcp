@@ -19,6 +19,7 @@ public sealed class GetHyperlinkToObjectTool(ToolRunner runner, GetHyperlinkToOb
         OpenWorld = false,
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope))]
+    [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Read-only. Returns, in meta.link, a onenote: link to a notebook, section group, section or page, or to one object on a page. It does not open the link. "
         + "Success: {ok:true, meta:{correlationId, link}, warnings:[]}. "

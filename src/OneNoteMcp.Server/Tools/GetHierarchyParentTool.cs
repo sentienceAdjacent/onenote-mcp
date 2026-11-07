@@ -19,6 +19,7 @@ public sealed class GetHierarchyParentTool(ToolRunner runner, GetHierarchyParent
         OpenWorld = false,
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope))]
+    [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Read-only. Returns the ID of a OneNote object's parent in meta.parentId: a page's section, a section's section group or notebook. "
         + "For a notebook, meta.parentId is the empty string: the top of the hierarchy. One step only; call it again to walk further up. "

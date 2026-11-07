@@ -54,7 +54,8 @@ public sealed class SearchToolsIntegrationTests : IDisposable
             "UpdatePageContent(search token)",
             Ct);
 
-        var runner = new ToolRunner(NullLogger<ToolRunner>.Instance);
+        var large = new LargeResults();
+        var runner = large.Runner;
         var results = new (string Call, CallToolResult Result)[]
         {
             ("find_pages(token)", await new FindPagesTool(runner, new FindPagesUseCase(gateway)).FindPages(token, notebook.NotebookId, cancellationToken: Ct)),
@@ -65,7 +66,7 @@ public sealed class SearchToolsIntegrationTests : IDisposable
         {
             var root = Ok(result, call);
             Assert.True(root.GetProperty("meta").GetProperty("possiblyIncomplete").GetBoolean(), call);
-            var pages = SearchResultFilter.Pages(root.GetProperty("xml").GetString()!);
+            var pages = SearchResultFilter.Pages(await large.XmlAsync(root, Ct));
             Assert.Contains(pages, p => p.Id == pageId);
             Assert.DoesNotContain(pages, p => p.InRecycleBin);
             Assert.All(

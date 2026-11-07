@@ -35,6 +35,7 @@ internal sealed record Options
           --max-binaries <n>        binaries to compare (default 200)
           --queries <n>             find_pages queries (default 20)
           --seed <n>                random seed for queries and samples (default 1)
+          --inline-max <n>          the server's results.inlineMaxChars, for the over-threshold count (default 100000)
           --diag-page <pageId>      diagnose a get_page_content (basic) mismatch on one page (no --out)
           --diag-callbacks          with --notebook*: CallbackIDs by parent element and raw outcome (no --out)
           --probe-sync              with --notebook <ID> [--page <ID>]: SyncHierarchy image-download probe (no server)
@@ -58,6 +59,9 @@ internal sealed record Options
     public int Queries { get; init; } = 20;
 
     public int Seed { get; init; } = 1;
+
+    /// <summary>The server's <c>results.inlineMaxChars</c> (AD-20): no text block may be longer.</summary>
+    public int InlineMax { get; init; } = 100_000;
 
     public int? FakeServerChars { get; init; }
 
@@ -116,6 +120,7 @@ internal sealed record Options
                 "--max-binaries" => o with { MaxBinaries = NextInt(0) },
                 "--queries" => o with { Queries = NextInt(0) },
                 "--seed" => o with { Seed = NextInt(int.MinValue) },
+                "--inline-max" => o with { InlineMax = NextInt(1) },
                 "--fake-server" => o with { FakeServerChars = NextInt(FakeServer.EndMarker.Length) },
                 "--fake-filler" => o with { FakeFiller = Next() },
                 "--diag-page" => o with { DiagPage = Next() },

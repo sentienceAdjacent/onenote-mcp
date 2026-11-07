@@ -19,6 +19,7 @@ public sealed class GetWebHyperlinkToObjectTool(ToolRunner runner, GetWebHyperli
         OpenWorld = false,
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope))]
+    [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Read-only. Returns, in meta.link, a web (https) link to a notebook, section group, section or page, or to one object on a page, for notebooks stored on OneDrive or SharePoint. It does not open the link. "
         + "For a notebook stored only on this computer, meta.link is the empty string and a warning with code webLinkUnavailable is added. "

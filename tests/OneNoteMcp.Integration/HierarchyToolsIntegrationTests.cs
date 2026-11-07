@@ -23,7 +23,10 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static ToolRunner Runner => new(NullLogger<ToolRunner>.Instance);
+    // Reads back a result over the inline threshold (AD-20): with the Ballast fixture, MCP Test at pages scope is one.
+    private readonly LargeResults _large = new();
+
+    private ToolRunner Runner => _large.Runner;
 
     [Fact]
     public async Task HierarchyReadTools_OverMcpTest()
@@ -38,13 +41,13 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
         foreach (var scope in Enum.GetValues<HierarchyScopeArgument>())
         {
             var root = Ok(await hierarchy.GetHierarchy(notebook.NotebookId, scope, Ct), $"get_hierarchy({scope})");
-            var xml = root.GetProperty("xml").GetString()!;
+            var xml = await _large.XmlAsync(root, Ct);
             Assert.Empty(SchemaValidation.Validate(xml));
             AssertLockedWarnings(xml, root.GetProperty("warnings"), $"get_hierarchy({scope})");
         }
 
         var notebooks = Ok(await hierarchy.GetHierarchy(cancellationToken: Ct), "get_hierarchy(root)");
-        var notebooksXml = notebooks.GetProperty("xml").GetString()!;
+        var notebooksXml = await _large.XmlAsync(notebooks, Ct);
         Assert.Empty(SchemaValidation.Validate(notebooksXml));
         Assert.Equal(notebook.NotebookId, TestNotebookGuard.FindNotebookId(notebooksXml, notebook.Folder));
 

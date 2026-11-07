@@ -5,7 +5,7 @@ description: This skill should be used when the user asks about their OneNote no
 
 # OneNote desktop: reading notebooks
 
-The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has nine read tools and no write tools.
+The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has ten read tools and no write tools.
 
 The tools are thin wrappers over COM. Their descriptions say what each parameter means; this guide says which tool to pick, in what order, and how to interpret what comes back.
 
@@ -30,8 +30,11 @@ Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its b
 | `mcp__plugin_onenote_desktop__get_hyperlink_to_object` (`get_hyperlink_to_object`) | Get a `onenote:` link to a notebook, section, page or paragraph | `meta.link` |
 | `mcp__plugin_onenote_desktop__get_web_hyperlink_to_object` (`get_web_hyperlink_to_object`) | Get an `https` link, for notebooks stored on OneDrive or SharePoint | `meta.link` |
 | `mcp__plugin_onenote_desktop__get_special_location` (`get_special_location`) | Get the path of the backup folder, the Quick Notes section or the default notebook folder | `meta.path` |
+| `mcp__plugin_onenote_desktop__read_result` (`read_result`) | Read a result that was too large to return whole, part by part (see Large results) | `xml` (a part) or `index` |
 
-Every result is an envelope: `{ok: true, xml?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
+Every result is an envelope: `{ok: true, xml?, index?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
+
+When a result has XML (or `meta.binary`), its text arrives as two parts: the first line is the envelope's JSON without the body, and everything after that first newline is the XML (or base64) exactly as OneNote returned it, not JSON-escaped.
 
 ### Choosing the cheapest call
 
@@ -43,7 +46,25 @@ Every result is an envelope: `{ok: true, xml?, meta, warnings[]}` or `{ok: false
   - `pages`: down to pages. This can be large; use it from one section, or at most one notebook, never from the root unless the user asks for everything.
 - Read pages with `mcp__plugin_onenote_desktop__get_page_content` and `includeBinary` false (the default). Ask for binaries only when the user wants an image, and then fetch the one image with `mcp__plugin_onenote_desktop__get_binary_page_content`.
 - Search with a `startNodeId` (a notebook or section). Use `fromRoot: true` only when the user wants every notebook searched or the location is unknown.
-- Large notebooks haven't been measured yet, so these limits are provisional. Claude Code truncates or rejects a tool result past its MCP output limit (`MAX_MCP_OUTPUT_TOKENS`, about 25k tokens by default). If a result is cut off or refused for size, narrow the scope (one section instead of a notebook) and try again.
+- A narrow call is still cheaper than a large one: a result is returned whole up to about 100,000 characters, and past that it comes back as an index you page through with `mcp__plugin_onenote_desktop__read_result` (below).
+
+## Large results
+
+A result too large to return whole (over the server's `results.inlineMaxChars`, 100,000 characters by default) comes back with `meta.result` and an `index` instead of `xml` (or instead of `meta.binary`). Nothing is lost: every character is readable with `mcp__plugin_onenote_desktop__read_result`.
+
+- `meta.result` is `{resultId, totalChars, expiresAt, namespaces, pages}`. Pass `resultId` to every `mcp__plugin_onenote_desktop__read_result` call. The original call's other `meta` and its `warnings` come with this first index.
+- The `index` lists the children of one element (`index.ref`; the whole result is `/`), in document order. Each entry is either one element, `{ref, element, chars, children, contains?, label?}`, or a run of small consecutive siblings, `{run: [firstRef, lastRef], count, chars, firstLabel?, lastLabel?}`. A `label` is a hierarchy node's `name`, or the first 80 characters of a page element's text. `contains` counts tables, images and attachments below it.
+- Read with exactly one of:
+  - `ref`: that element's XML, unchanged.
+  - `run: [firstRef, lastRef]`: those siblings together.
+  - `expand: ref` (and `page`, from 0, when `meta.result.pages` is more than 1): that element's own index, to go one level deeper.
+  - `ref` with `offset` (and optionally `length`): characters of that one element's span, markup included, from `offset`. Use it for an element with no children but a huge body, such as a long `one:T`, an image's `one:Data`, or a large `get_binary_page_content` result (its index is empty and its whole body is `/`). Read from offset 0, then add the length you got back, until you reach that element's own `chars`, from its index entry or its `expand` response (`meta.result.totalChars` for `/`).
+- A `ref` or `run` too big to return comes back as its index instead, so a part is never cut in the middle. Expand it and read its children.
+- `offset` takes a single element's `ref` only. When a `run` comes back as an index, that index has `run` set, `ref` set to the run's parent, and `chars` set to the run's length: don't offset-read that `ref` up to those `chars`. Read the run's members by their own refs instead.
+- A part is a fragment, not a document: its `one:` prefix is declared in `meta.result.namespaces`. Parts can overlap (a parent's ref and its child's); don't double-count text.
+- Read only what the user needs: use the labels to pick the parts, rather than reading everything.
+- A page part's `meta.basis` has the hashes of the Outlines and OEs wholly inside it. Writes don't exist in this release, so ignore it.
+- A result expires 30 minutes after its last read (by default) and is gone when the server restarts. `ResultExpired` means: repeat the original call to get a new `resultId`.
 
 ## Reading the XML
 
@@ -148,8 +169,10 @@ On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 | `Timeout` | Retry once now; then ask the user to check that OneNote is responding. |
 | `ComUnavailable` | The server already retried. Ask the user to check that OneNote is running and responding, then retry. |
 | `ObjectNotFound` | The ID is stale (pages get new IDs when deleted or moved to another section, and every ID changes when a notebook is closed and reopened). Re-read the hierarchy and use a current ID. If the notebook itself is missing, ask the user to open it. |
-| `InvalidQuery` | For a search: check that you gave exactly one of `startNodeId` or `fromRoot: true`. Otherwise change the query. |
+| `InvalidQuery` | For a search: check that you gave exactly one of `startNodeId` or `fromRoot: true`. Otherwise change the query. From `mcp__plugin_onenote_desktop__read_result`: give exactly one of `ref`, `run` or `expand`, and keep `offset` below the element's `chars`. |
 | `IntegrityMismatch` | The server and OneNote run at different elevation. Relay `userAction`; this needs a restart, not a retry. |
+| `ResultExpired` | The stored large result expired or the server restarted. Repeat the original call, then continue with its new `resultId`. |
+| `UnknownObjectId` | From `mcp__plugin_onenote_desktop__read_result`: the ref isn't in that result. Use a ref from its index, or `/`. |
 | `NotSupported` | Not in this release. Tell the user. |
 | `InvalidXml` | OneNote or the server rejected the XML of a read; ignore the write-oriented `userAction`. Don't retry; tell the user, with `error.message` and `error.hresult` if present. |
 | `Internal` | Tell the user, quoting `error.hresult` if present. Don't retry. |
