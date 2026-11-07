@@ -7,8 +7,10 @@ namespace OneNoteMcp.Xml;
 /// true when the page, or any <c>one:Section</c> or <c>one:SectionGroup</c> around it, has <c>isInRecycleBin</c> or
 /// <c>isRecycleBin</c> set (AD-12; OneMore flags the group and its sections, our fixtures also flag the page).
 /// <see cref="MetaNames"/> are the <c>name</c>s of the page's child <c>one:Meta</c> elements. Values are unchanged (AD-4).
+/// <see cref="LastModifiedTime"/> is the page's <c>lastModifiedTime</c> read as an <c>xs:dateTime</c>, or null when it is
+/// missing or unparsable; the search page-text cache keys on it (AD-12) and never caches a page without one.
 /// </summary>
-public sealed record SearchResultPage(int Index, string Id, string Name, bool InRecycleBin, IReadOnlyList<string> MetaNames);
+public sealed record SearchResultPage(int Index, string Id, string Name, bool InRecycleBin, IReadOnlyList<string> MetaNames, DateTimeOffset? LastModifiedTime);
 
 /// <summary>The search XML with pages cut out, and the IDs of the pages cut, in document order.</summary>
 public sealed record SearchResultCut(string Xml, IReadOnlyList<string> RemovedIds);
@@ -84,7 +86,8 @@ public static class SearchResultFilter
                                 start,
                                 reader.GetAttribute("ID") ?? string.Empty,
                                 reader.GetAttribute("name") ?? string.Empty,
-                                parentInBin || IsBinFlagged(reader));
+                                parentInBin || IsBinFlagged(reader),
+                                ParseDateTime(reader.GetAttribute("lastModifiedTime")));
                             pageDepth = depth;
                             if (isEmpty)
                             {
@@ -134,12 +137,30 @@ public static class SearchResultFilter
 
     private static bool IsTrue(string? value) => value is "true" or "1";
 
+    private static DateTimeOffset? ParseDateTime(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return XmlConvert.ToDateTimeOffset(value);
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentOutOfRangeException or OverflowException)
+        {
+            // A well-formed xs:dateTime can still be out of DateTimeOffset's range (year 1 at +14:00, year 9999 at -14:00).
+            return null;
+        }
+    }
+
     private sealed record PageSpan(SearchResultPage Page, int Start, int End);
 
-    private sealed class PageBuilder(int index, int start, string id, string name, bool inRecycleBin)
+    private sealed class PageBuilder(int index, int start, string id, string name, bool inRecycleBin, DateTimeOffset? lastModifiedTime)
     {
         public List<string> MetaNames { get; } = [];
 
-        public PageSpan Build(int end) => new(new SearchResultPage(index, id, name, inRecycleBin, [.. MetaNames]), start, end);
+        public PageSpan Build(int end) => new(new SearchResultPage(index, id, name, inRecycleBin, [.. MetaNames], lastModifiedTime), start, end);
     }
 }

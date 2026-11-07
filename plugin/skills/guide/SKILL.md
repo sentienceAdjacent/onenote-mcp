@@ -146,6 +146,7 @@ To find pages by an add-in tag, use `mcp__plugin_onenote_desktop__find_meta` wit
 ## Search caveats
 
 - Search results are **always possibly incomplete** (`meta.possiblyIncomplete` is always true). A notebook that is still syncing, or a page OneNote hasn't indexed, can be missing.
+- The server remembers page text between searches, so a page that another add-in changed through COM while it wasn't open in OneNote can still match its old text. If the user says a just-changed page is missing or wrongly matched, read it with `mcp__plugin_onenote_desktop__get_page_content`.
 - So every time you report search results, say briefly that the search may have missed pages. Never tell the user a page doesn't exist because a search didn't find it. Say it wasn't found, and offer to browse the hierarchy or try other words.
 - `meta.filtered` lists the pages the server removed from the XML, as `{pageId, reason}`:
   - `recycleBin`: a deleted page. Don't report it unless the user asked about deleted pages.

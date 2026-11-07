@@ -58,6 +58,21 @@ public sealed record ResultSettings(int InlineMaxChars, int TtlMinutes, int MaxS
     public long MaxStoreBytes => MaxStoreMB * 1024L * 1024L;
 }
 
+/// <summary>
+/// The search page-text cache (AD-12). JSON shape: <c>"search": {"cacheMaxMB"}</c>, a whole number in the range AD-10 sets.
+/// A value out of range makes the file invalid, and reads then use this default.
+/// </summary>
+/// <param name="CacheMaxMB">The cache's cap, counted as UTF-16 bytes; past it the least recently used pages go first. 0 turns the cache off.</param>
+public sealed record SearchSettings(int CacheMaxMB)
+{
+    public const int CacheMaxMBMin = 0;
+    public const int CacheMaxMBMax = 1_024;
+
+    public static SearchSettings Default { get; } = new(CacheMaxMB: 64);
+
+    public long CacheMaxBytes => CacheMaxMB * 1024L * 1024L;
+}
+
 /// <summary>The folders an <c>ExternalWrite</c> target must sit under (AD-11). Every entry is an absolute path.</summary>
 public sealed record ExportRoots(IReadOnlyList<string> Paths)
 {
@@ -81,6 +96,7 @@ public sealed class SettingsSnapshot
         Timeouts timeouts,
         JournalSettings journal,
         ResultSettings results,
+        SearchSettings search,
         ExportRoots exportRoots)
     {
         Path = path;
@@ -90,6 +106,7 @@ public sealed class SettingsSnapshot
         Timeouts = timeouts;
         Journal = journal;
         Results = results;
+        Search = search;
         ExportRoots = exportRoots;
     }
 
@@ -112,11 +129,13 @@ public sealed class SettingsSnapshot
 
     public ResultSettings Results { get; }
 
+    public SearchSettings Search { get; }
+
     public ExportRoots ExportRoots { get; }
 
     /// <summary>Every default, with the given status. Used for an absent, invalid or newer file.</summary>
     internal static SettingsSnapshot Defaults(string path, SettingsStatus status, string? reason = null) =>
-        new(path, status, reason, allowSilentActivation: false, Timeouts.Default, JournalSettings.Default(), ResultSettings.Default, ExportRoots.Default());
+        new(path, status, reason, allowSilentActivation: false, Timeouts.Default, JournalSettings.Default(), ResultSettings.Default, SearchSettings.Default, ExportRoots.Default());
 
     /// <summary>Throws <see cref="ErrorCode.SettingsInvalid"/> when the file is invalid or newer than this server (AD-10).</summary>
     public void EnsureWritable()
