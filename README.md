@@ -47,7 +47,7 @@ Results are always OneNote's XML, unchanged, so tables, tags, ink, images and at
 
 **Limits, stated honestly:**
 - Search results may be incomplete while Windows Search catches up. Results always say `possiblyIncomplete`.
-- To make repeat searches fast, `find_pages` remembers each page's text in memory (never on disk) until the page's last-modified time changes. A page that another add-in edits through COM while it isn't open in OneNote keeps its old time, so a search can match it against its old text until it next changes or the server restarts. Edits made in OneNote itself are always seen. Set `search.cacheMaxMB` to `0` to turn this off.
+- To make repeat searches fast, `find_pages` remembers each page's text in memory (never on disk) until the page's last-modified time changes. A page that another program (another add-in, or a second OneNote MCP session) edits through COM while it isn't open in OneNote keeps its old time, so a search can match it against its old text until it next changes or the server restarts. Edits made in OneNote itself are seen. Set `search.cacheMaxMB` to `0` to turn this off.
 - Images in cloud notebooks that OneNote hasn't downloaded can't be read. They're reported as unavailable instead of failing.
 - *(planned, for writes)* Grants guard against mistakes and casual misuse, not against hostile software already running as you. A grant belongs to the notebook's location (its folder or OneDrive URL), so a different notebook that later appears at a granted location inherits the grant. A Claude Code hook can auto-answer confirmation dialogs. The journal will hold copies of your note content on disk.
 

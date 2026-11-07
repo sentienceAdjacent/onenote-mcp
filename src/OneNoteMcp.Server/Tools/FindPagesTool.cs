@@ -27,7 +27,7 @@ public sealed class FindPagesTool(ToolRunner runner, FindPagesUseCase useCase)
         + "Unindexed pages are always searched. Recycle-bin pages and pages that don't match are removed from the XML, and nothing else in it is changed; "
         + "each removed page is listed in meta.filtered as {pageId, reason}, reason recycleBin, noMatch, or notFound (deleted during the search). "
         + "Results are possibly incomplete (meta.possiblyIncomplete is always true): a notebook that is still syncing can lack pages. "
-        + "The server remembers page text between searches, keyed by each page's lastModifiedTime, so repeat searches are faster; a page another add-in changed through COM while it wasn't open in OneNote can still be matched against its old text until it next changes (setting search.cacheMaxMB: 0 turns this off). "
+        + "The server remembers page text between searches, keyed by each page's lastModifiedTime, so repeat searches are faster; a page another program (another add-in, or a second OneNote MCP session) changed through COM while it wasn't open in OneNote can still be matched against its old text until it next changes (setting search.cacheMaxMB: 0 turns this off). "
         + ToolMetaKeys.LargeResultNote
         + "Success: {ok:true, xml, meta:{correlationId, filtered, possiblyIncomplete}, warnings:[{code, message, userAction?}]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
