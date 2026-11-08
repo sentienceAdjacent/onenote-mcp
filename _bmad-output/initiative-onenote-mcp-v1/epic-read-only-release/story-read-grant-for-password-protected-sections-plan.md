@@ -169,6 +169,8 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
   - One dialog: the Vault listing waited 66 s on it, then the page read passed under the window.
   - Within the window, the second page needed no dialog, and `list_grants` showed the live `once` grant expiring 5 minutes after the grant.
   - After the window, the dialog asked again with an empty name field, so the pre-fill fix works. Declined, it gave `ReadNotGranted`.
+- **Third live check (Phill, 2026-11-08):** the dialog showed one "Allow for" list with no Hours field, and the name hint read `Type "Ballast Vault" to confirm.` It worked as designed.
+- **OneNote setting found (2026-11-08):** File > Options > Advanced > Passwords has "Enable add-in programs to access password protected sections when they are unlocked" (on here). Its effect on COM reads isn't captured yet; follow-up.
 - **Integration, Vault unlocked (2026-11-07):**
   - 87 passed, 7 skipped.
   - The Vault test read with `locked=False` and 3 pages visible: withheld without a grant, readable with one, withheld again after the revoke.
