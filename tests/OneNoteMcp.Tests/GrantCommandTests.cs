@@ -157,36 +157,38 @@ public sealed class GrantCommandTests : IDisposable
     [Fact]
     public void Elicitation_Form_NamesSectionAndNotebook_TypedNameRequired_ThreeLifetimes_Hours1To168()
     {
-        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", ["Group"]));
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", ["Group"]), "sectionName_0a1b2c3d");
 
         Assert.Contains("\"Vault\"", request.Message, StringComparison.Ordinal);
         Assert.Contains("\"Notebook A\"", request.Message, StringComparison.Ordinal);
         Assert.Contains("\"Group\"", request.Message, StringComparison.Ordinal);
         var schema = request.RequestedSchema!;
-        Assert.Equal([ElicitationGrantPrompt.SectionNameField, ElicitationGrantPrompt.LifetimeField], schema.Required);
+        Assert.Equal(["sectionName_0a1b2c3d", ElicitationGrantPrompt.LifetimeField], schema.Required);
         var lifetimes = Assert.IsType<ElicitRequestParams.TitledSingleSelectEnumSchema>(schema.Properties[ElicitationGrantPrompt.LifetimeField]);
         Assert.Equal(["once", "hours", "untilRevoked"], lifetimes.OneOf.Select(o => o.Const));
         var hours = Assert.IsType<ElicitRequestParams.NumberSchema>(schema.Properties[ElicitationGrantPrompt.HoursField]);
         Assert.Equal((1d, 168d, 8d), (hours.Minimum, hours.Maximum, hours.Default));
-        Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties[ElicitationGrantPrompt.SectionNameField]);
+        Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties["sectionName_0a1b2c3d"]);
+        Assert.False(schema.Properties.ContainsKey(ElicitationGrantPrompt.SectionNameField));
+        Assert.Equal("This section, for 5 minutes", lifetimes.OneOf[0].Title);
     }
 
     [Fact]
     public void Elicitation_Answers_MapToTheOutcome()
     {
-        Assert.Equal(GrantPromptStatus.Declined, ElicitationGrantPrompt.Read(new ElicitResult { Action = "decline" }).Status);
-        Assert.Equal(GrantPromptStatus.Cancelled, ElicitationGrantPrompt.Read(new ElicitResult { Action = "cancel" }).Status);
+        Assert.Equal(GrantPromptStatus.Declined, ElicitationGrantPrompt.Read(new ElicitResult { Action = "decline" }, "f").Status);
+        Assert.Equal(GrantPromptStatus.Cancelled, ElicitationGrantPrompt.Read(new ElicitResult { Action = "cancel" }, "f").Status);
 
         var accepted = ElicitationGrantPrompt.Read(new ElicitResult
         {
             Action = "accept",
             Content = new Dictionary<string, JsonElement>
             {
-                ["sectionName"] = JsonSerializer.SerializeToElement("Vault"),
+                ["sectionName_0a1b2c3d"] = JsonSerializer.SerializeToElement("Vault"),
                 ["lifetime"] = JsonSerializer.SerializeToElement("hours"),
                 ["hours"] = JsonSerializer.SerializeToElement(12),
             },
-        });
+        }, "sectionName_0a1b2c3d");
         Assert.Equal(new GrantPromptResult(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Hours, 12), accepted);
 
         // An unknown lifetime is never widened, and a fractional hour is out of range.
@@ -195,12 +197,50 @@ public sealed class GrantCommandTests : IDisposable
             Action = "accept",
             Content = new Dictionary<string, JsonElement>
             {
-                ["sectionName"] = JsonSerializer.SerializeToElement("Vault"),
+                ["sectionName_0a1b2c3d"] = JsonSerializer.SerializeToElement("Vault"),
                 ["lifetime"] = JsonSerializer.SerializeToElement("forever"),
                 ["hours"] = JsonSerializer.SerializeToElement(1.5),
             },
-        });
+        }, "sectionName_0a1b2c3d");
         Assert.Equal((ReadGrantLifetime.Once, -1), (odd.Lifetime, odd.Hours));
+    }
+
+    [Fact]
+    public void Elicitation_TypedNameField_IsNewEveryRequest_AndAnyOtherKey_IsAMismatch()
+    {
+        var a = ElicitationGrantPrompt.NewSectionNameField();
+        var b = ElicitationGrantPrompt.NewSectionNameField();
+        Assert.Matches("^sectionName_[0-9a-f]{8}$", a);
+        Assert.NotEqual(a, b);
+
+        // The old fixed key, or another request's field, gives no typed name: Core then finds no match.
+        foreach (var key in new[] { ElicitationGrantPrompt.SectionNameField, b })
+        {
+            var answer = ElicitationGrantPrompt.Read(new ElicitResult
+            {
+                Action = "accept",
+                Content = new Dictionary<string, JsonElement>
+                {
+                    [key] = JsonSerializer.SerializeToElement("Vault"),
+                    ["lifetime"] = JsonSerializer.SerializeToElement("untilRevoked"),
+                },
+            }, a);
+            Assert.Equal(GrantPromptStatus.Accepted, answer.Status);
+            Assert.Null(answer.TypedName);
+            Assert.False(GrantKeys.NameMatches(answer.TypedName, "Vault"));
+        }
+    }
+
+    [Theory]
+    [InlineData(5, "This section, for 5 minutes")]
+    [InlineData(1, "This section, for 1 minute")]
+    [InlineData(60, "This section, for 60 minutes")]
+    public void Elicitation_OnceOption_NamesTheWindow(int minutes, string title)
+    {
+        Assert.Equal(title, ElicitationGrantPrompt.OnceTitle(minutes));
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", [], minutes), "sectionName_00000000");
+        var lifetimes = Assert.IsType<ElicitRequestParams.TitledSingleSelectEnumSchema>(request.RequestedSchema!.Properties[ElicitationGrantPrompt.LifetimeField]);
+        Assert.Equal(title, lifetimes.OneOf.Single(o => o.Const == ReadGrantLifetimes.Once).Title);
     }
 
     [Fact]

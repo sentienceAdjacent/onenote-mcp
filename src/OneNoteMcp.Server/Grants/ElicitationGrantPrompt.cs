@@ -10,11 +10,15 @@ namespace OneNoteMcp.Server.Grants;
 /// <summary>
 /// AD-21's grant dialog over MCP elicitation: the <see cref="IGrantPrompt"/> adapter, so Core never sees the SDK. The form
 /// names the section and its notebook, asks the user to type the section's name, and offers the three lifetimes, with
-/// the hours as a number. Supported means the client declared elicitation; an <see cref="InvalidOperationException"/>
-/// from the SDK also counts as unsupported. Core matches the typed name, never this adapter.
+/// the hours as a number; the <c>once</c> option names its window. The typed-name field gets a new name on every request
+/// (<c>sectionName_</c> plus 8 random hex digits), so a client can't pre-fill it from an earlier answer, and the typed
+/// name is read only from that field (Phill, 2026-11-07). Supported means the client declared elicitation; an
+/// <see cref="InvalidOperationException"/> from the SDK also counts as unsupported. Core matches the typed name, never
+/// this adapter.
 /// </summary>
 public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
 {
+    /// <summary>The prefix of the typed-name field's per-request name.</summary>
     public const string SectionNameField = "sectionName";
     public const string LifetimeField = "lifetime";
     public const string HoursField = "hours";
@@ -30,10 +34,11 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
             return GrantPromptResult.Unsupported;
         }
 
+        var field = NewSectionNameField();
         ElicitResult result;
         try
         {
-            result = await server.ElicitAsync(Request(question), ct).ConfigureAwait(false);
+            result = await server.ElicitAsync(Request(question, field), ct).ConfigureAwait(false);
         }
         catch (InvalidOperationException)
         {
@@ -45,11 +50,19 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
             return new GrantPromptResult(GrantPromptStatus.Cancelled);
         }
 
-        return Read(result);
+        return Read(result, field);
     }
 
-    /// <summary>The elicitation form. Public for tests, which have no in-process MCP client.</summary>
-    public static ElicitRequestParams Request(GrantQuestion question)
+    /// <summary>A fresh typed-name field name: <c>sectionName_</c> plus 8 random lowercase hex digits.</summary>
+    public static string NewSectionNameField() =>
+        SectionNameField + "_" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(8, lowercase: true);
+
+    /// <summary>The title of the <c>once</c> option, which names its window (AD-21).</summary>
+    public static string OnceTitle(int minutes) =>
+        string.Create(CultureInfo.InvariantCulture, $"This section, for {minutes} minute{(minutes == 1 ? string.Empty : "s")}");
+
+    /// <summary>The elicitation form, with the typed-name field named <paramref name="sectionNameField"/>. Public for tests, which have no in-process MCP client.</summary>
+    public static ElicitRequestParams Request(GrantQuestion question, string sectionNameField)
     {
         ArgumentNullException.ThrowIfNull(question);
         var where = string.IsNullOrEmpty(question.NotebookName) ? string.Empty : $" in the notebook \"{question.NotebookName}\"";
@@ -68,7 +81,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
             {
                 Properties = new Dictionary<string, ElicitRequestParams.PrimitiveSchemaDefinition>
                 {
-                    [SectionNameField] = new ElicitRequestParams.StringSchema
+                    [sectionNameField] = new ElicitRequestParams.StringSchema
                     {
                         Title = "Section name",
                         Description = "Type the protected section's name to confirm.",
@@ -80,7 +93,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                         Description = "How long Claude may read this section.",
                         OneOf =
                         [
-                            new ElicitRequestParams.EnumSchemaOption { Const = ReadGrantLifetimes.Once, Title = "This read only" },
+                            new ElicitRequestParams.EnumSchemaOption { Const = ReadGrantLifetimes.Once, Title = OnceTitle(question.OnceMinutes) },
                             new ElicitRequestParams.EnumSchemaOption { Const = ReadGrantLifetimes.Hours, Title = "A number of hours" },
                             new ElicitRequestParams.EnumSchemaOption { Const = ReadGrantLifetimes.UntilRevoked, Title = "Until I revoke it" },
                         ],
@@ -98,13 +111,16 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                         Default = ReadGrantLifetimes.DefaultHours,
                     },
                 },
-                Required = [SectionNameField, LifetimeField],
+                Required = [sectionNameField, LifetimeField],
             },
         };
     }
 
-    /// <summary>The dialog's outcome from the client's answer. Public for tests.</summary>
-    public static GrantPromptResult Read(ElicitResult result)
+    /// <summary>
+    /// The dialog's outcome from the client's answer. The typed name is read only from <paramref name="sectionNameField"/>,
+    /// the field named in that request; any other key gives no typed name, so a mismatch. Public for tests.
+    /// </summary>
+    public static GrantPromptResult Read(ElicitResult result, string sectionNameField)
     {
         ArgumentNullException.ThrowIfNull(result);
         switch (result.Action)
@@ -123,7 +139,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
         int? hours = null;
         if (content is not null)
         {
-            if (content.TryGetValue(SectionNameField, out var name) && name.ValueKind == JsonValueKind.String)
+            if (content.TryGetValue(sectionNameField, out var name) && name.ValueKind == JsonValueKind.String)
             {
                 typed = name.GetString();
             }
@@ -140,7 +156,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
             }
         }
 
-        // An unknown lifetime is never widened: it grants this read only.
+        // An unknown lifetime is never widened: it grants the narrowest lifetime, the once window.
         var parsed = ReadGrantLifetimes.Parse(lifetimeName) ?? ReadGrantLifetime.Once;
         return new GrantPromptResult(GrantPromptStatus.Accepted, typed, parsed, hours);
     }

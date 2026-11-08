@@ -35,6 +35,15 @@ public sealed record BroadAccess(IReadOnlyList<string> Withheld, IReadOnlyList<R
     public bool IsWithheld(string sectionId) =>
         WithholdAll || (sectionId.Length > 0 ? Withheld.Contains(sectionId, StringComparer.Ordinal) : Withheld.Count > 0);
 
+    /// <summary>
+    /// True for a page in any protected section of the scope, withheld or granted: such a page is never looked up in or
+    /// added to the search page-text cache (AD-12). A page the XML shows outside any section counts when the scope has
+    /// any protected section.
+    /// </summary>
+    public bool IsProtected(string sectionId) =>
+        IsWithheld(sectionId)
+        || (sectionId.Length > 0 ? Granted.Any(g => string.Equals(g.SectionId, sectionId, StringComparison.Ordinal)) : Granted.Count > 0);
+
     /// <summary>One <c>readNotGranted</c> warning per withheld section, naming its ID only (AD-9).</summary>
     public IReadOnlyList<ToolWarning> Warnings =>
     [
@@ -56,6 +65,13 @@ public sealed record BroadAccess(IReadOnlyList<string> Withheld, IReadOnlyList<R
 /// <c>encrypted</c> true, read live from <c>GetHierarchy</c> on every call and never cached. A read grant is keyed by
 /// <see cref="GrantKeys.SectionKey"/> of the section's live <c>path</c>. Stored grants are re-read from
 /// <c>settings.json</c> at every check (AD-10); an invalid or newer file's grants count as absent.
+/// <para>
+/// A <c>once</c> grant from the dialog (Phill, 2026-11-07) opens a window: every read of that section, target-scoped and
+/// broad, passes for <c>readGrants.onceMinutes</c> (default 5) from when the user's answer arrives. Windows live in this
+/// object's memory only, keyed by <see cref="GrantKeys.SectionKey"/>, are checked after the stored grants when a call
+/// starts, are never written, and can't be revoked: they end with their window or the process. A dialog grant for some
+/// hours or until revoked that couldn't be saved (<c>grantNotSaved</c>) opens the same window instead.
+/// </para>
 /// <para>
 /// Only a target-scoped read asks the user, through <see cref="IGrantPrompt"/>; no gateway call is in flight and no
 /// settings lock is held while it waits. Broad reads never ask. Messages carry section IDs only (AD-9).
@@ -79,10 +95,12 @@ public sealed class ReadAccess
     private readonly Func<SettingsSnapshot> settings;
     private readonly SettingsWriter? writer;
     private readonly TimeProvider clock;
+    private readonly Dictionary<string, ProtectedSectionGrant> windows = new(GrantKeys.Comparer);
+    private readonly Lock windowGate = new();
 
     /// <param name="gateway">The gateway the owning section is resolved through.</param>
     /// <param name="settings">Reads <c>settings.json</c>; called once per check.</param>
-    /// <param name="writer">Stores <c>hours</c> and <c>untilRevoked</c> grants; null, every such grant covers only its call (<c>grantNotSaved</c>).</param>
+    /// <param name="writer">Stores <c>hours</c> and <c>untilRevoked</c> grants; null, every such grant becomes a <c>once</c> window (<c>grantNotSaved</c>).</param>
     /// <param name="clock">The clock grant expiry runs on.</param>
     public ReadAccess(IOneNoteGateway gateway, Func<SettingsSnapshot> settings, SettingsWriter? writer, TimeProvider clock)
     {
@@ -103,6 +121,24 @@ public sealed class ReadAccess
     public ResultGrantCheck Results => new(settings, clock);
 
     internal static SettingsSnapshot NoSettings() => SettingsSnapshot.Defaults("(none)", SettingsStatus.Absent);
+
+    /// <summary>
+    /// This process's live <c>once</c> grants, for <c>list_grants</c> (AD-21): each with its section's key, name and the
+    /// window's end as <see cref="ProtectedSectionGrant.ExpiresAt"/>. Expired windows are dropped, not listed.
+    /// </summary>
+    public IReadOnlyList<ProtectedSectionGrant> OnceGrants()
+    {
+        var now = clock.GetUtcNow();
+        lock (windowGate)
+        {
+            foreach (var key in windows.Where(w => w.Value.IsExpired(now)).Select(w => w.Key).ToList())
+            {
+                windows.Remove(key);
+            }
+
+            return [.. windows.Values];
+        }
+    }
 
     /// <summary>
     /// A target-scoped read of <paramref name="objectId"/> (a page, or any hierarchy object): resolves the section that
@@ -131,12 +167,19 @@ public sealed class ReadAccess
         }
 
         var key = GrantKeys.SectionKey(section.Path);
-        if (Stored(settings(), key, clock.GetUtcNow()) is { } stored)
+        var snapshot = settings();
+        var now = clock.GetUtcNow();
+        if (Stored(snapshot, key, now) is { } stored)
         {
             return new TargetAccess(Allowing(stored, section.Id, wholeResult: true), []);
         }
 
-        return await AskAsync(context, section, key, ct).ConfigureAwait(false);
+        if (Window(key, now))
+        {
+            return new TargetAccess(new ResultGrant(key, section.Id, ReadGrantLifetime.Once, null, WholeResult: true), []);
+        }
+
+        return await AskAsync(context, section, key, snapshot.ReadGrants, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -158,9 +201,14 @@ public sealed class ReadAccess
         var granted = new List<ResultGrant>();
         foreach (var section in sections)
         {
-            if (Stored(snapshot, GrantKeys.SectionKey(section.Path), now) is { } stored)
+            var key = GrantKeys.SectionKey(section.Path);
+            if (Stored(snapshot, key, now) is { } stored)
             {
                 granted.Add(Allowing(stored, section.Id, wholeResult: false));
+            }
+            else if (Window(key, now))
+            {
+                granted.Add(new ResultGrant(key, section.Id, ReadGrantLifetime.Once, null, WholeResult: false));
             }
             else if (!withheld.Contains(section.Id, StringComparer.Ordinal))
             {
@@ -243,7 +291,34 @@ public sealed class ReadAccess
         stored.ExpiresAt,
         wholeResult);
 
-    private async Task<TargetAccess> AskAsync(ToolCallContext context, HierarchyNode section, string key, CancellationToken ct)
+    /// <summary>True when a <c>once</c> window for <paramref name="key"/> is open at <paramref name="now"/>.</summary>
+    private bool Window(string key, DateTimeOffset now)
+    {
+        if (key.Length == 0)
+        {
+            return false;
+        }
+
+        lock (windowGate)
+        {
+            return windows.TryGetValue(key, out var window) && !window.IsExpired(now);
+        }
+    }
+
+    /// <summary>Opens (or reopens) <paramref name="key"/>'s window from now, the moment the user's answer arrived.</summary>
+    private ResultGrant OpenWindow(string key, HierarchyNode section, string notebookKey, ReadGrantSettings readGrants)
+    {
+        var now = clock.GetUtcNow();
+        var window = new ProtectedSectionGrant(key, section.Name, notebookKey, section.Id, now, GrantedVia.Elicitation, now + readGrants.OnceWindow);
+        lock (windowGate)
+        {
+            windows[key] = window;
+        }
+
+        return new ResultGrant(key, section.Id, ReadGrantLifetime.Once, null, WholeResult: true);
+    }
+
+    private async Task<TargetAccess> AskAsync(ToolCallContext context, HierarchyNode section, string key, ReadGrantSettings readGrants, CancellationToken ct)
     {
         if (context.Prompt is not { } prompt)
         {
@@ -261,7 +336,7 @@ public sealed class ReadAccess
         GrantPromptResult answer;
         try
         {
-            answer = await prompt.AskAsync(new GrantQuestion(section.Id, section.Name, notebook?.DisplayName ?? string.Empty, groups), ct).ConfigureAwait(false);
+            answer = await prompt.AskAsync(new GrantQuestion(section.Id, section.Name, notebook?.DisplayName ?? string.Empty, groups, readGrants.OnceMinutes), ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -284,10 +359,11 @@ public sealed class ReadAccess
             throw NotGranted(section.Id, "The name typed in the grant dialog didn't match the section's name, so nothing was granted.");
         }
 
+        var notebookKey = notebook is null ? string.Empty : GrantKeys.NotebookKey(notebook.Path);
         var lifetime = answer.Lifetime ?? ReadGrantLifetime.Once;
         if (lifetime == ReadGrantLifetime.Once)
         {
-            return new TargetAccess(new ResultGrant(key, section.Id, ReadGrantLifetime.Once, null, WholeResult: true), []);
+            return new TargetAccess(OpenWindow(key, section, notebookKey, readGrants), []);
         }
 
         var hours = answer.Hours ?? ReadGrantLifetimes.DefaultHours;
@@ -300,24 +376,24 @@ public sealed class ReadAccess
         var grant = new ProtectedSectionGrant(
             key,
             section.Name,
-            notebook is null ? string.Empty : GrantKeys.NotebookKey(notebook.Path),
+            notebookKey,
             section.Id,
             now,
             GrantedVia.Elicitation,
             lifetime == ReadGrantLifetime.Hours ? now.AddHours(hours) : null);
 
-        var notSaved = Save(grant, section.Id);
+        var notSaved = Save(grant, section.Id, readGrants);
         if (notSaved is not null)
         {
-            // Covers the asking call only, like once (AD-21).
-            return new TargetAccess(new ResultGrant(key, section.Id, ReadGrantLifetime.Once, null, WholeResult: true), [notSaved]);
+            // Works like once: a window in memory only (AD-21).
+            return new TargetAccess(OpenWindow(key, section, notebookKey, readGrants), [notSaved]);
         }
 
         return new TargetAccess(Allowing(grant, section.Id, wholeResult: true), []);
     }
 
     /// <summary>Stores the grant; returns the <c>grantNotSaved</c> warning when it can't, or null.</summary>
-    private ToolWarning? Save(ProtectedSectionGrant grant, string sectionId)
+    private ToolWarning? Save(ProtectedSectionGrant grant, string sectionId, ReadGrantSettings readGrants)
     {
         string reason;
         if (writer is null)
@@ -339,8 +415,8 @@ public sealed class ReadAccess
 
         return new ToolWarning(
             ToolWarnings.GrantNotSaved,
-            $"The read grant for section {sectionId} couldn't be saved ({reason}), so it covers only this call.",
-            "Fix settings.json (or update OneNoteMcp if a newer version wrote it), then grant again with `OneNoteMcp grant --read-section`.");
+            $"The read grant for section {sectionId} couldn't be saved ({reason}), so it works like a one-time grant: it covers that section for {readGrants.OnceMinutes} minute(s), in this server only.",
+            "Fix settings.json (or update OneNoteMcp if a newer version wrote it), then grant again with " + GrantCli.Run("--read-section \"<section name>\"") + ".");
     }
 
     /// <summary>The notebook and section groups around <paramref name="sectionId"/>, for the dialog. Only asked when a dialog is raised.</summary>

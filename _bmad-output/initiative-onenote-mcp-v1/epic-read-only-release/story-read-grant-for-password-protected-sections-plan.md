@@ -37,7 +37,8 @@ context:
 - No tool can create a grant. The dialog asks the user to type the section's name, and only a match grants. The CLI refuses to run without an interactive console.
 - Broad reads never raise the dialog. Withheld pages never go in `meta.filtered`, are never cached (AD-12) and never stored (AD-20). Messages carry section IDs only.
 - The read-grant check runs before any content COM call and before the `SectionLocked` check.
-- `once` grants live in memory only. A `read_result` entry made under one expires `ttlMinutes` after the original call, and reads never extend it (AD-20).
+- `once` grants live in memory only. A `once` grant covers every read of its section (target-scoped and broad) for `readGrants.onceMinutes` (default 5, 1–60) from when the answer arrives (Phill, 2026-11-07, AD-21 as amended). `list_grants` shows this process's live ones. Pages in protected sections are never cached, even under a grant. A `read_result` entry made under one expires `ttlMinutes` after the original call, and reads never extend it (AD-20).
+- The dialog's typed-name field gets a new name on every request, so the client has nothing to pre-fill it from (Phill, 2026-11-07).
 - New tool, codes and meta make a contract change: 0.6 → 0.7 (AD-14).
 - Phill's real notebooks are read only. Integration tests touch only MCP Test's "Ballast Vault", and only read it.
 
@@ -48,8 +49,8 @@ context:
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
 | Target read, no grant, no elicitation | `get_page_content` on a Vault page | — | `ReadNotGranted`, userAction names the CLI |
-| Target read, dialog | client declares elicitation; user types the name, picks `once` | the page is returned; nothing saved | decline, cancel or mismatch → `ReadNotGranted` |
-| Hours / until revoked | dialog or CLI | saved in `protectedSections{}`; later calls pass until expiry or revoke | settings invalid → `grantNotSaved` warning, covers this call only |
+| Target read, dialog | client declares elicitation; user types the name, picks `once` | the page is returned; nothing saved; reads of that section within the window (default 5 minutes) need no dialog | decline, cancel or mismatch → `ReadNotGranted` |
+| Hours / until revoked | dialog or CLI | saved in `protectedSections{}`; later calls pass until expiry or revoke | settings invalid → `grantNotSaved` warning; works like a `once` window |
 | Broad hierarchy | `get_hierarchy(notebook, pages)` | the Vault's `one:Section` kept, its pages removed; `meta.withheld` + `readNotGranted` warning | — |
 | Search | `find_pages` / `find_meta` over the notebook | Vault candidates dropped before filtering, reading or the cache; `meta.withheld`; not in `filtered` | — |
 | Allowed | `get_hierarchy(vault, self)`, `get_hierarchy_parent(vault)`, link tools on the Vault | normal result | — |
@@ -129,7 +130,7 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
 
 **Acceptance Criteria:**
 - Given the Vault unlocked in OneNote and no grant, when each read tool targets it, then none returns its content.
-- Given Phill types the section name in Claude Code's dialog, when he picks `once`, then that call returns the page and the next call asks again.
+- Given Phill types the section name in Claude Code's dialog, when he picks `once`, then that call returns the page, reads of the section within the window don't ask, and a read after that asks again.
 - Given `OneNoteMcp grant --revoke --read-section "Ballast Vault"`, when a granted read is repeated, then it is withheld again.
 
 ## Implementation Notes
@@ -158,11 +159,39 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
   - Integration, Vault locked: 87 passed, 7 skipped.
   - Stress harness on MCP Test: 617 comparisons, 0 mismatches, 2 unstableRead (the known table widths), 0 text blocks over 100,000. Withheld: `readNotGranted` 20 on find_pages, 5 on find_meta, 1 on get_hierarchy.
   - Packed `0.7.0-rc.1`; `claude plugin validate --strict` passes. The name grep on the diff is clean.
-- **Still open, needs Phill:**
-  - Integration run with the Vault unlocked.
-  - The live check in Claude Code: the dialog, `once`, the CLI grant, `--revoke`.
+- **Verification after the once-window change (2026-11-07):**
+  - Unit tests: 1173 passed.
+  - Integration: 87 passed, 7 skipped.
+  - Stress harness on MCP Test: 620 comparisons, 0 mismatches.
+  - Packed; `claude plugin validate --strict` passes.
+  - Not yet live-checked: the once window and the per-request field name. That check is the Deferred row in the spine.
+- **Integration, Vault unlocked (2026-11-07):**
+  - 87 passed, 7 skipped.
+  - The Vault test read with `locked=False` and 3 pages visible: withheld without a grant, readable with one, withheld again after the revoke.
+- **Live check (Phill, 2026-11-07, Claude Code with the 0.7.0-rc.1 server):**
+  - **AC2 passed:**
+    - The dialog named the section and notebook. With "This read only", the page came back. The next call asked again.
+    - Finding the first page took two dialogs: `get_hierarchy` on the Vault, then `get_page_content`. The server log confirms both. A `once` grant covers one call (AD-21).
+  - **AC1:** with no grant, `find_pages` withheld the Vault with `readNotGranted`. A declined dialog gave `ReadNotGranted`.
+  - **AC3 passed:**
+    - The CLI `hours` grant was listed active by `list_grants`, and the next read needed no dialog.
+    - After `--revoke`, `protectedSections` was empty and the next read asked again. Declined, it gave `ReadNotGranted`.
+  - **Hook:** with the plugin loaded, Claude refused on its own both to run `grant` and to edit `settings.json`, citing the skill. So the hook never fired live; it is covered by unit tests and an exe smoke test.
+  - **Found:** Claude Code pre-filled the second dialog's section name with the previous answer. The form sends no default, so the client remembers answers. A repeat grant is then an Enter on Accept rather than typing the name. Raised with Phill.
 
 ## Plan Change Log
+
+- 2026-11-07, after the live check (Phill renegotiated the frozen intent):
+  - **Change 1, `once` covers the section for 5 minutes, not one call.** Finding then reading a Vault page took two dialogs. Phill: once he has granted the section, reading it is fine, and individual pages carry no extra protection.
+  - **Change 2, new field name per request.** Claude Code pre-filled the typed name from the previous answer.
+  - **Amended:** the frozen Boundaries, the matrix row and AC2. Spine AD-21 is amended too, with the Fable review.
+  - **Change 3, from the Fable review of the amendment (Phill's answers):**
+    - The window is the setting `readGrants.onceMinutes`.
+    - `list_grants` shows live `once` grants.
+    - Protected pages are never cached.
+    - The dialog's option names the window.
+    - The typed name is read only from that request's field.
+  - **KEEP:** everything else in the implementation.
 
 - 2026-11-07, review pass 1, finding 1 (bad_plan):
   - **Trigger:** AD-6's rule "The plugin blocks the model from editing `settings.json`" was missing from the Code Map. This story is the first to store grants in that file, so without the block the model can grant itself a read with Edit/Write. That is the bypass AD-6 and AD-21 exist to prevent.
@@ -171,6 +200,8 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
   - **KEEP:** the whole current implementation. The review found nothing wrong in it that the guard changes. The guard is additive, so the code was not reverted; reverting and re-deriving the same code would only cost time. Only the guard and the patches from pass 1 are added.
 
 ## Review Triage Log
+
+Pass 3 (quick lens, on the once-window change after Phill's renegotiation): 8 findings, all patched. All were text or docs: the `list_grants` settingsInvalid warning and the tool description; the README and skill on `read_result` after the window; the README's pre-fill claim; two stale doc comments in the elicitation prompt; this plan's matrix row; the spine Storage bullet hard-coding 5 minutes; AD-10's `schemaVersion` list; and the README settings docs for `readGrants`. The spine and plan fixes were mine; the rest went to the implementer.
 
 Pass 1 (quick lens): high 1, medium 4, low 2, rejected 1.
 | # | Finding | Verdict | Route | Evidence / action |

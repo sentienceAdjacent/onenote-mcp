@@ -31,12 +31,12 @@ Results are always OneNote's XML, unchanged, so tables, tags, ink, images and at
 
 **Password-protected sections.** A section with a password stays private even after you unlock it in OneNote. Claude sees that it exists, but its pages are left out of hierarchy listings and searches (`meta.withheld` names the section by ID, with a `readNotGranted` warning), and reading inside it fails with `ReadNotGranted`, until you grant a read of that one section:
 
-- **In Claude Code**, reading one of its pages raises a dialog. Type the section's name and choose **this read only**, **a number of hours** (1 to 168, default 8) or **until I revoke it**. Declining, or a client that can't show dialogs, grants nothing.
+- **In Claude Code**, reading one of its pages raises a dialog. Type the section's name and choose **this section, for 5 minutes**, **a number of hours** (1 to 168, default 8) or **until I revoke it**. Declining, or a client that can't show dialogs, grants nothing. The dialog's name field gets a new name on every request, so the client has no earlier answer to fill it in from.
 - **In a terminal**, with any client: `OneNoteMcp grant --read-section "Section name"`. It lists the matches if several open sections share the name, and offers hours or until revoked. It refuses to run without an interactive terminal, so a program can't run it for you.
 - **Revoke** with `OneNoteMcp grant --revoke --read-section "Section name"`. `list_grants` shows what's stored.
 - **Where `OneNoteMcp` is.** A plugin install doesn't put the exe on your PATH: it sits in the plugin's install folder, `%USERPROFILE%\.claude\plugins\cache\sentienceadjacent\onenote\<version>\OneNoteMcp.exe` (the newest `<version>` folder). Run it by its full path, in quotes, and in PowerShell with `&` in front: `& "$env:USERPROFILE\.claude\plugins\cache\sentienceadjacent\onenote\<version>\OneNoteMcp.exe" grant --read-section "Section name"`. When a read is refused, the error's `userAction` names the exact path of the exe that's running.
 
-A grant is for one section, keyed by its file path: renaming or moving the section means granting again. A one-read grant is never saved. Saved grants live in `settings.json` (`protectedSections`). A large result read under a grant can be paged with `read_result` only while that grant lasts.
+A grant is for one section, keyed by its file path: renaming or moving the section means granting again. **This section, for 5 minutes** lets Claude read the whole section (pages, listings and searches) for that long, then asks again. It's held in memory by that one server process, never saved, can't be revoked, and `list_grants` shows it while it lasts; the minutes are `readGrants.onceMinutes` in `settings.json` (1 to 60, default 5). A grant for hours or until revoked that can't be saved (because `settings.json` is invalid) works the same way, with a `grantNotSaved` warning. Pages of protected sections are never kept in the search cache, even under a grant. Saved grants live in `settings.json` (`protectedSections`). A large result read under a grant for hours or until revoked can be paged with `read_result` only while that grant lasts. One read under the 5-minute grant stays pageable for the stored result's life, `results.ttlMinutes` after the original call (default 30), even after the window ends; `read_result` never asks.
 
 **Large results.** A result up to `results.inlineMaxChars` characters (100,000 by default) comes back whole. Its text is one line of JSON (the result's `meta` and `warnings`), then the XML exactly as OneNote returned it, not escaped into JSON. A bigger result, such as a long page or a whole notebook's pages, is kept in the server's memory and comes back as an index: one entry per child element, with its size and a label (a section's or page's name, or the first 80 characters of an element's text). `read_result` then returns any element, run of elements, deeper index, or character range of it, each an exact substring of what OneNote returned, so nothing is lost or rewritten. A stored result lasts 30 minutes after its last read, and is never written to disk.
 
@@ -135,6 +135,17 @@ Each tool tells Claude Code it may return up to 500,000 characters (`_meta["anth
   "search": { "cacheMaxMB": 0 }
 }
 ```
+
+`readGrants.onceMinutes` (1 to 60, default 5) is how long the grant dialog's **this section, for N minutes** choice lasts:
+
+```json
+{
+  "schemaVersion": 1,
+  "readGrants": { "onceMinutes": 10 }
+}
+```
+
+As with `results` and `search`, a value out of range makes the whole file invalid: the server then uses the defaults, and your saved read grants count as absent until you fix it.
 
 ### From source
 

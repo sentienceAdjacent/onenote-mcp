@@ -168,6 +168,14 @@ public sealed class SettingsStore
                 RangedInt(q, "cacheMaxMB", "search.cacheMaxMB", SearchSettings.CacheMaxMBMin, SearchSettings.CacheMaxMBMax) ?? search.CacheMaxMB);
         }
 
+        var readGrants = ReadGrantSettings.Default;
+        if (root.TryGetProperty("readGrants", out var rg))
+        {
+            RequireObject(rg, "readGrants");
+            readGrants = new ReadGrantSettings(
+                RangedInt(rg, "onceMinutes", "readGrants.onceMinutes", ReadGrantSettings.OnceMinutesMin, ReadGrantSettings.OnceMinutesMax) ?? readGrants.OnceMinutes);
+        }
+
         var exportRoots = ExportRoots.Default();
         if (root.TryGetProperty("exportRoots", out var roots))
         {
@@ -217,7 +225,7 @@ public sealed class SettingsStore
                 duplicateGrantKeysOnly: true);
         }
 
-        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots, grants.AsReadOnly());
+        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots, grants.AsReadOnly(), readGrants: readGrants);
     }
 
     /// <summary>One <c>protectedSections{}</c> entry. Reasons name fields and never quote the file's values.</summary>

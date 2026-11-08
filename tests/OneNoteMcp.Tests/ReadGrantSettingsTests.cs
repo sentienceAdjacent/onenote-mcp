@@ -73,6 +73,38 @@ public sealed class ReadGrantSettingsTests : IDisposable
         Assert.Empty(snapshot.ProtectedSectionEntries);
     }
 
+    [Theory]
+    [InlineData(null, 5)]
+    [InlineData("""{"onceMinutes": 1}""", 1)]
+    [InlineData("""{"onceMinutes": 60}""", 60)]
+    [InlineData("""{}""", 5)]
+    public void Read_ReadGrantsOnceMinutes_InRange(string? readGrants, int expected)
+    {
+        Write(readGrants is null ? """{"schemaVersion": 1}""" : $$"""{"schemaVersion": 1, "readGrants": {{readGrants}}}""");
+
+        var snapshot = new SettingsStore(SettingsPath).Read();
+
+        Assert.Equal(SettingsStatus.Ok, snapshot.Status);
+        Assert.Equal(expected, snapshot.ReadGrants.OnceMinutes);
+    }
+
+    [Theory]
+    [InlineData("""{"onceMinutes": 0}""")]
+    [InlineData("""{"onceMinutes": 61}""")]
+    [InlineData("""{"onceMinutes": 2.5}""")]
+    [InlineData("""{"onceMinutes": "5"}""")]
+    [InlineData("""5""")]
+    public void Read_ReadGrantsOnceMinutes_OutOfRange_IsInvalid_DefaultsApply(string readGrants)
+    {
+        Write($$"""{"schemaVersion": 1, "readGrants": {{readGrants}}}""");
+
+        var snapshot = new SettingsStore(SettingsPath).Read();
+
+        Assert.Equal(SettingsStatus.Invalid, snapshot.Status);
+        Assert.Contains("readGrants", snapshot.Reason!, StringComparison.Ordinal);
+        Assert.Equal(5, snapshot.ReadGrants.OnceMinutes);
+    }
+
     [Fact]
     public void Read_NewerSchema_HasNoGrants()
     {

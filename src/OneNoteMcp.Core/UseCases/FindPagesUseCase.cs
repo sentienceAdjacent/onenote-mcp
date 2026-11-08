@@ -94,8 +94,10 @@ public sealed class FindPagesUseCase : IUseCase
                 continue;
             }
 
-            // Cached at the time the search gives the page: no read. A page without a usable time is never cached.
-            var modified = cacheOn ? page.LastModifiedTime : null;
+            // Cached at the time the search gives the page: no read. A page without a usable time is never cached, and
+            // neither is a page in a protected section, even under a grant (AD-12).
+            var cacheable = cacheOn && !broad.IsProtected(page.SectionId);
+            var modified = cacheable ? page.LastModifiedTime : null;
             string pageText;
             if (modified is { } cachedAt && cache.TryGet(page.Id, cachedAt, out var cached))
             {
@@ -104,7 +106,7 @@ public sealed class FindPagesUseCase : IUseCase
             }
             else
             {
-                if (cacheOn)
+                if (cacheable)
                 {
                     misses++;
                 }

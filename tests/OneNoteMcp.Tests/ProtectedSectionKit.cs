@@ -372,7 +372,7 @@ internal sealed class VaultHarness : IDisposable
 
     public Task<CallToolResult> ListGrants()
     {
-        var useCase = new ListGrantsUseCase(Gateway, Settings.Read, Clock);
+        var useCase = new ListGrantsUseCase(Gateway, Settings.Read, Clock, Access);
         return Runner.RunAsync("list_grants", useCase, (c, ct) => useCase.ExecuteAsync(c, ct), Ct);
     }
 

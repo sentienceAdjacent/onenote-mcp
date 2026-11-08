@@ -30,7 +30,8 @@ public static class ToolWarnings
 
     /// <summary>
     /// The user granted a read for some hours or until revoked, but <c>settings.json</c> couldn't be written (invalid,
-    /// written by a newer version, or not writable), so the grant covers only this call (AD-21).
+    /// written by a newer version, or not writable), so the grant works like <c>once</c>: it covers the section for
+    /// <c>readGrants.onceMinutes</c>, in this server's memory only (AD-21).
     /// </summary>
     public const string GrantNotSaved = "grantNotSaved";
 

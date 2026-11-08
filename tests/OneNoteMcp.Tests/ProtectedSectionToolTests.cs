@@ -66,7 +66,7 @@ public sealed class ProtectedSectionToolTests
     // --- Dialog -------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Dialog_Once_ReturnsThePage_SavesNothing_AndTheNextCallAsksAgain()
+    public async Task Dialog_Once_ReturnsThePage_SavesNothing_CoversTheSectionForTheWindow_ThenAsksAgain()
     {
         using var h = new VaultHarness();
         var prompt = new FakePrompt(FakePrompt.Accept("  vault ", ReadGrantLifetime.Once), new GrantPromptResult(GrantPromptStatus.Declined));
@@ -75,13 +75,71 @@ public sealed class ProtectedSectionToolTests
         Assert.Contains(V.Secret, Grants.Xml(root), StringComparison.Ordinal);
         Assert.False(File.Exists(h.SettingsPath));
 
-        // The question names the section and its notebook, for the user.
+        // The question names the section and its notebook, for the user, and the window (default 5 minutes).
         var question = Assert.Single(prompt.Questions);
-        Assert.Equal((V.VaultId, V.VaultName, "Notebook A"), (question.SectionId, question.SectionName, question.NotebookName));
+        Assert.Equal((V.VaultId, V.VaultName, "Notebook A", 5), (question.SectionId, question.SectionName, question.NotebookName, question.OnceMinutes));
         Assert.Empty(question.SectionGroups);
 
+        // Inside the window: another page of the section, with no dialog.
+        h.Clock.Advance(TimeSpan.FromMinutes(4) + TimeSpan.FromSeconds(59));
+        Grants.Ok(await h.PageContent(V.VaultPage2Id, prompt));
+        Assert.Single(prompt.Questions);
+
+        // After it: asked again (declined here).
+        h.Clock.Advance(TimeSpan.FromSeconds(1));
         Grants.NotGranted(await h.PageContent(V.VaultPageId, prompt), V.VaultId);
         Assert.Equal(2, prompt.Questions.Count);
+    }
+
+    [Fact]
+    public async Task OnceWindow_CoversBroadReadsOfThatSectionOnly()
+    {
+        using var h = new VaultHarness();
+        Grants.Ok(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once))));
+
+        var hierarchy = Grants.Ok(await h.Hierarchy(V.NotebookId, HierarchyScope.Pages));
+        Assert.Equal(2, SectionOf(XDocument.Parse(Grants.Xml(hierarchy)), V.VaultId)!.Elements(One + "Page").Count());
+        Assert.Equal([V.GroupVaultId], Grants.Withheld(hierarchy));
+
+        var search = Grants.Ok(await h.FindPages("SECRET", V.NotebookId));
+        Assert.Equal([V.VaultPageId, V.VaultPage2Id], XDocument.Parse(Grants.Xml(search)).Descendants(One + "Page").Select(p => (string)p.Attribute("ID")!));
+        Assert.Equal([V.GroupVaultId], Grants.Withheld(search));
+
+        h.Clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.Equal([V.VaultId, V.GroupVaultId], Grants.Withheld(Grants.Ok(await h.Hierarchy(V.NotebookId, HierarchyScope.Pages))));
+    }
+
+    [Fact]
+    public async Task OnceWindow_FollowsReadGrantsOnceMinutes()
+    {
+        using var h = new VaultHarness();
+        File.WriteAllText(h.SettingsPath, """{"schemaVersion": 1, "readGrants": {"onceMinutes": 1}}""");
+        var prompt = new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once));
+
+        Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
+        Assert.Equal(1, Assert.Single(prompt.Questions).OnceMinutes);
+
+        h.Clock.Advance(TimeSpan.FromSeconds(59));
+        Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
+        h.Clock.Advance(TimeSpan.FromSeconds(1));
+        Grants.NotGranted(await h.PageContent(V.VaultPageId, prompt), V.VaultId);
+    }
+
+    [Fact]
+    public async Task FindPages_NeverCachesProtectedPages_EvenUnderAGrant()
+    {
+        using var h = new VaultHarness();
+        h.Grant(V.VaultPath, V.VaultId);
+        var cache = PageTextCache.WithDefaults();
+
+        Grants.Ok(await h.FindPages("SECRET", V.NotebookId, cache));
+        var firstReads = h.Gateway.ContentCalls.Count(c => c.Contains("{SV}", StringComparison.Ordinal));
+        Grants.Ok(await h.FindPages("SECRET", V.NotebookId, cache));
+
+        // Only the open page is cached; the Vault's pages are read again on every search.
+        Assert.Equal(1, cache.Count);
+        Assert.Equal(2, firstReads);
+        Assert.Equal(4, h.Gateway.ContentCalls.Count(c => c.Contains("{SV}", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -157,7 +215,7 @@ public sealed class ProtectedSectionToolTests
     [Theory]
     [InlineData("""{"schemaVersion": 1, "results": {"ttlMinutes": 0}}""")]
     [InlineData("""{"schemaVersion": 2}""")]
-    public async Task Dialog_SettingsInvalidOrNewer_GrantNotSaved_CoversThisCallOnly(string settings)
+    public async Task Dialog_SettingsInvalidOrNewer_GrantNotSaved_WorksLikeOnce(string settings)
     {
         using var h = new VaultHarness();
         File.WriteAllText(h.SettingsPath, settings);
@@ -169,7 +227,10 @@ public sealed class ProtectedSectionToolTests
         Assert.Equal([ToolWarnings.GrantNotSaved], Grants.WarningCodes(root));
         Assert.Equal(settings, File.ReadAllText(h.SettingsPath));
 
-        // Not saved: the next call asks again.
+        // Not saved, so a once window: covered without a dialog until it ends, then asked again.
+        Grants.Ok(await h.PageContent(V.VaultPage2Id, prompt));
+        Assert.Single(prompt.Questions);
+        h.Clock.Advance(TimeSpan.FromMinutes(5));
         Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
         Assert.Equal(2, prompt.Questions.Count);
     }
@@ -565,10 +626,9 @@ public sealed class ProtectedSectionToolTests
     // --- list_grants -------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task ListGrants_ShowsStoredGrants_WithStatus_AndNeverAOnceGrant()
+    public async Task ListGrants_ShowsStoredGrants_WithStatus()
     {
         using var h = new VaultHarness();
-        Grants.Ok(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once))));
         h.Grant(V.VaultPath, V.VaultId, h.Clock.GetUtcNow().AddHours(1));
         h.Grant(V.GroupVaultPath, V.GroupVaultId);
         h.Grant(@"C:\gone\Closed.one", "{X}{1}{B0}");
@@ -586,6 +646,23 @@ public sealed class ProtectedSectionToolTests
         h.Clock.Advance(TimeSpan.FromHours(1));
         var later = Grants.Ok(await h.ListGrants()).GetProperty("meta").GetProperty("grants").EnumerateArray();
         Assert.Contains(later, g => g.GetProperty("status").GetString() == "expired");
+    }
+
+    [Fact]
+    public async Task ListGrants_ShowsALiveOnceGrant_UntilItsWindowEnds()
+    {
+        using var h = new VaultHarness();
+        var granted = h.Clock.GetUtcNow();
+        Grants.Ok(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once))));
+
+        var grant = Assert.Single(Grants.Ok(await h.ListGrants()).GetProperty("meta").GetProperty("grants").EnumerateArray());
+        Assert.Equal(
+            ("readSection", V.VaultPath, "once", "elicitation", "active", V.VaultId),
+            (grant.GetProperty("kind").GetString(), grant.GetProperty("key").GetString(), grant.GetProperty("lifetime").GetString(), grant.GetProperty("grantedVia").GetString(), grant.GetProperty("status").GetString(), grant.GetProperty("idAtGrant").GetString()));
+        Assert.Equal(SettingsWriter.Format(granted.AddMinutes(5)), grant.GetProperty("expiresAt").GetString());
+
+        h.Clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.Equal(0, Grants.Ok(await h.ListGrants()).GetProperty("meta").GetProperty("grants").GetArrayLength());
     }
 
     [Fact]

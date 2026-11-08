@@ -3,7 +3,10 @@ namespace OneNoteMcp.Core.Access;
 /// <summary>How long a read grant lasts, chosen by the user when granting (AD-21).</summary>
 public enum ReadGrantLifetime
 {
-    /// <summary>Only the call that raised the dialog, plus <c>read_result</c> parts of its result. Memory only, never stored.</summary>
+    /// <summary>
+    /// Every read of the section, target-scoped and broad, for <c>readGrants.onceMinutes</c> (default 5) from the user's
+    /// answer, plus <c>read_result</c> parts of results made under it (AD-20). Memory only, never stored.
+    /// </summary>
     Once,
 
     /// <summary>1 to 168 hours. Stored with <c>expiresAt</c> in UTC.</summary>
@@ -50,10 +53,10 @@ public static class GrantedVia
 }
 
 /// <summary>
-/// What the grant dialog shows the user (AD-21): the section and its notebook, by name. The names go to the user's client
-/// only, never into a tool result.
+/// What the grant dialog shows the user (AD-21): the section and its notebook, by name, and the <c>once</c> window in
+/// minutes. The names go to the user's client only, never into a tool result.
 /// </summary>
-public sealed record GrantQuestion(string SectionId, string SectionName, string NotebookName, IReadOnlyList<string> SectionGroups);
+public sealed record GrantQuestion(string SectionId, string SectionName, string NotebookName, IReadOnlyList<string> SectionGroups, int OnceMinutes = 5);
 
 /// <summary>How the dialog ended.</summary>
 public enum GrantPromptStatus

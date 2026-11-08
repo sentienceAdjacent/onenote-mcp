@@ -67,7 +67,7 @@ public static class ServerSetup
         services.AddSingleton<FindMetaUseCase>();
         services.AddSingleton<ReadResultUseCase>();
         services.AddSingleton<NavigateToUseCase>();
-        services.AddSingleton(sp => new ListGrantsUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
+        services.AddSingleton(sp => new ListGrantsUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System, sp.GetRequiredService<ReadAccess>()));
 
         return services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })

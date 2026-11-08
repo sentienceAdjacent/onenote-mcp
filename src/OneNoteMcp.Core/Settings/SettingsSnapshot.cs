@@ -73,6 +73,21 @@ public sealed record SearchSettings(int CacheMaxMB)
     public long CacheMaxBytes => CacheMaxMB * 1024L * 1024L;
 }
 
+/// <summary>
+/// Read grants (AD-21). JSON shape: <c>"readGrants": {"onceMinutes"}</c>, a whole number in the range AD-10 sets. A value
+/// out of range makes the file invalid, and reads then use this default.
+/// </summary>
+/// <param name="OnceMinutes">How long a <c>once</c> grant from the dialog covers its section, from when the user's answer arrives.</param>
+public sealed record ReadGrantSettings(int OnceMinutes)
+{
+    public const int OnceMinutesMin = 1;
+    public const int OnceMinutesMax = 60;
+
+    public static ReadGrantSettings Default { get; } = new(OnceMinutes: 5);
+
+    public TimeSpan OnceWindow => TimeSpan.FromMinutes(OnceMinutes);
+}
+
 /// <summary>The folders an <c>ExternalWrite</c> target must sit under (AD-11). Every entry is an absolute path.</summary>
 public sealed record ExportRoots(IReadOnlyList<string> Paths)
 {
@@ -121,7 +136,8 @@ public sealed class SettingsSnapshot
         SearchSettings search,
         ExportRoots exportRoots,
         IReadOnlyList<ProtectedSectionGrant>? protectedSectionEntries = null,
-        bool duplicateGrantKeysOnly = false)
+        bool duplicateGrantKeysOnly = false,
+        ReadGrantSettings? readGrants = null)
     {
         Path = path;
         Status = status;
@@ -134,6 +150,7 @@ public sealed class SettingsSnapshot
         ExportRoots = exportRoots;
         ProtectedSectionEntries = protectedSectionEntries ?? [];
         DuplicateGrantKeysOnly = duplicateGrantKeysOnly;
+        ReadGrants = readGrants ?? ReadGrantSettings.Default;
 
         // Stored read grants count as absent unless the file is valid (AD-21).
         var grants = new Dictionary<string, ProtectedSectionGrant>(Access.GrantKeys.Comparer);
@@ -168,6 +185,9 @@ public sealed class SettingsSnapshot
     public ResultSettings Results { get; }
 
     public SearchSettings Search { get; }
+
+    /// <summary><c>readGrants{}</c> (AD-10, AD-21): the <c>once</c> grant's window.</summary>
+    public ReadGrantSettings ReadGrants { get; }
 
     public ExportRoots ExportRoots { get; }
 
