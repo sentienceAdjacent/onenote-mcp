@@ -73,11 +73,48 @@ public sealed record SearchSettings(int CacheMaxMB)
     public long CacheMaxBytes => CacheMaxMB * 1024L * 1024L;
 }
 
+/// <summary>
+/// Read grants (AD-21). JSON shape: <c>"readGrants": {"onceMinutes"}</c>, a whole number in the range AD-10 sets. A value
+/// out of range makes the file invalid, and reads then use this default.
+/// </summary>
+/// <param name="OnceMinutes">How long a <c>once</c> grant from the dialog covers its section, from when the user's answer arrives.</param>
+public sealed record ReadGrantSettings(int OnceMinutes)
+{
+    public const int OnceMinutesMin = 1;
+    public const int OnceMinutesMax = 60;
+
+    public static ReadGrantSettings Default { get; } = new(OnceMinutes: 5);
+
+    public TimeSpan OnceWindow => TimeSpan.FromMinutes(OnceMinutes);
+}
+
 /// <summary>The folders an <c>ExternalWrite</c> target must sit under (AD-11). Every entry is an absolute path.</summary>
 public sealed record ExportRoots(IReadOnlyList<string> Paths)
 {
     public static ExportRoots Default() => new(
         [System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "OneNote Exports")]);
+}
+
+/// <summary>
+/// One stored read grant, an entry of <c>protectedSections{}</c> (AD-10, AD-21), keyed by <see cref="Key"/>, the
+/// section's <c>SectionKey</c>. <see cref="Name"/>, <see cref="NotebookKey"/> and <see cref="IdAtGrant"/> are for
+/// information only and never compared for access. No <see cref="ExpiresAt"/> means <c>untilRevoked</c>; with one, an
+/// <c>hours</c> grant. JSON shape: <c>{name, notebookKey, idAtGrant, grantedAt, grantedVia, expiresAt?}</c>, dates UTC ISO-8601.
+/// </summary>
+public sealed record ProtectedSectionGrant(
+    string Key,
+    string Name,
+    string NotebookKey,
+    string IdAtGrant,
+    DateTimeOffset GrantedAt,
+    string GrantedVia,
+    DateTimeOffset? ExpiresAt = null)
+{
+    /// <summary><c>hours</c> or <c>untilRevoked</c>.</summary>
+    public string Lifetime => ExpiresAt is null ? Access.ReadGrantLifetimes.UntilRevoked : Access.ReadGrantLifetimes.Hours;
+
+    /// <summary>True once an <c>hours</c> grant's <see cref="ExpiresAt"/> has passed.</summary>
+    public bool IsExpired(DateTimeOffset now) => ExpiresAt is { } end && now >= end;
 }
 
 /// <summary>
@@ -97,7 +134,10 @@ public sealed class SettingsSnapshot
         JournalSettings journal,
         ResultSettings results,
         SearchSettings search,
-        ExportRoots exportRoots)
+        ExportRoots exportRoots,
+        IReadOnlyList<ProtectedSectionGrant>? protectedSectionEntries = null,
+        bool duplicateGrantKeysOnly = false,
+        ReadGrantSettings? readGrants = null)
     {
         Path = path;
         Status = status;
@@ -108,6 +148,21 @@ public sealed class SettingsSnapshot
         Results = results;
         Search = search;
         ExportRoots = exportRoots;
+        ProtectedSectionEntries = protectedSectionEntries ?? [];
+        DuplicateGrantKeysOnly = duplicateGrantKeysOnly;
+        ReadGrants = readGrants ?? ReadGrantSettings.Default;
+
+        // Stored read grants count as absent unless the file is valid (AD-21).
+        var grants = new Dictionary<string, ProtectedSectionGrant>(Access.GrantKeys.Comparer);
+        if (status == SettingsStatus.Ok)
+        {
+            foreach (var grant in ProtectedSectionEntries)
+            {
+                grants[grant.Key] = grant;
+            }
+        }
+
+        ProtectedSections = grants;
     }
 
     /// <summary>The settings file this snapshot was read from.</summary>
@@ -131,7 +186,28 @@ public sealed class SettingsSnapshot
 
     public SearchSettings Search { get; }
 
+    /// <summary><c>readGrants{}</c> (AD-10, AD-21): the <c>once</c> grant's window.</summary>
+    public ReadGrantSettings ReadGrants { get; }
+
     public ExportRoots ExportRoots { get; }
+
+    /// <summary>
+    /// The stored read grants by <c>SectionKey</c>, compared ignoring case (AD-21). Empty unless the status is
+    /// <see cref="SettingsStatus.Ok"/>: an invalid or newer file's grants count as absent.
+    /// </summary>
+    public IReadOnlyDictionary<string, ProtectedSectionGrant> ProtectedSections { get; }
+
+    /// <summary>
+    /// Every <c>protectedSections{}</c> entry as written, duplicates included. Filled when the file is valid, or when
+    /// <see cref="DuplicateGrantKeysOnly"/>, so <c>grant --revoke</c> can remove one (AD-6); empty otherwise.
+    /// </summary>
+    public IReadOnlyList<ProtectedSectionGrant> ProtectedSectionEntries { get; }
+
+    /// <summary>
+    /// True when the file is <see cref="SettingsStatus.Invalid"/> only because two <c>protectedSections{}</c> keys differ
+    /// only in case (AD-6). The CLI's revoke still runs on such a file.
+    /// </summary>
+    public bool DuplicateGrantKeysOnly { get; }
 
     /// <summary>Every default, with the given status. Used for an absent, invalid or newer file.</summary>
     internal static SettingsSnapshot Defaults(string path, SettingsStatus status, string? reason = null) =>

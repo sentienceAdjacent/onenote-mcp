@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using OneNoteMcp.Core.UseCases;
+using OneNoteMcp.Server.Grants;
 
 namespace OneNoteMcp.Server.Tools;
 
@@ -25,16 +26,19 @@ public sealed class GetPageContentTool(ToolRunner runner, GetPageContentUseCase 
         + "meta.basis {lastModifiedTime, pageHash, elementHashes} records the version of the page that was read, and is the same whatever includeBinary is; pass it back unchanged on a later write to this page, so a write against a page that changed since is refused. "
         + "With includeBinary, images whose binary isn't on this PC (a notebook stored online that hasn't downloaded them) are missing from the XML: their count is in meta.binaryUnavailable, with a warning with code binaryUnavailable. "
         + "Image binaries can also be read one at a time with get_binary_page_content and the callbackID from the image's one:CallbackID element, which appears only in the default XML (includeBinary false); with includeBinary the binary is inline in one:Data instead. "
+        + "A page in a password-protected section needs the user's read grant: the user may be shown a dialog to grant it, and without a grant the call fails with ReadNotGranted, whose userAction says how the user grants it (you can't grant it yourself). "
         + ToolMetaKeys.LargeResultNote
         + "Success: {ok:true, xml, meta:{correlationId, basis, binaryUnavailable?}, warnings:[{code, message, userAction?}]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> GetPageContent(
         [Description("OneNote ID of the page.")] string pageId,
         [Description("True to include binary content (base64 one:Data) in the XML. Defaults to false.")] bool includeBinary = false,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        McpServer? server = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, pageId ?? string.Empty, includeBinary, ct),
-            cancellationToken);
+            cancellationToken,
+            ElicitationGrantPrompt.For(server));
 }

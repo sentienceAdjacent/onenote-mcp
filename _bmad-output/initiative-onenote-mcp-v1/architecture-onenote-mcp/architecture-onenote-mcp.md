@@ -7,7 +7,7 @@ paradigm: 'hexagonal (ports and adapters) with a single-STA actor per process'
 scope: 'Local stdio MCP server that reads and manages OneNote desktop notebooks over COM, plus its Claude Code plugin (skill + server config)'
 status: final
 created: '2026-11-03'
-updated: '2026-11-06'
+updated: '2026-11-07'
 binds: [all]
 sources:
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md
@@ -248,20 +248,21 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 ### AD-10 — Shared state across processes [ADOPTED]
 
 - **Binds:** Core (settings, access, journal), the `grant` CLI, the result-store settings (AD-20), the search-cache setting (AD-12)
-- **Prevents:** grants or entries stored in shapes that clash; lost updates; a grant that applies in one session but not another.
+- **Prevents:** grants or entries stored in shapes that clash; lost updates; a stored grant that applies in one session but not another (AD-21's in-memory `once` grant is the one exception: it holds only in the process that asked).
 - **Rule:**
   - **Ownership:**
     - Several server processes, one per client, may run at once.
     - One Core type owns each shared file, and the CLI uses the same types.
   - **`%APPDATA%\OneNoteMcp\settings.json`:**
-    - Shape: `{schemaVersion, allowSilentActivation, timeouts{}, journal{path, retentionDays, maxSizeMB}, results{inlineMaxChars, ttlMinutes, maxStoreMB}, search{cacheMaxMB}, exportRoots[], notebooks{<normalizedPath>: {name, idAtGrant, write, permanentDelete, grantedAt, grantedVia}}, protectedSections{<SectionKey>: {name, notebookKey, idAtGrant, grantedAt, grantedVia, expiresAt?}}}`. `notebooks{}` keys follow AD-6's grant key, and `protectedSections{}` keys follow AD-21's.
+    - Shape: `{schemaVersion, allowSilentActivation, timeouts{}, journal{path, retentionDays, maxSizeMB}, results{inlineMaxChars, ttlMinutes, maxStoreMB}, search{cacheMaxMB}, readGrants{onceMinutes}, exportRoots[], notebooks{<normalizedPath>: {name, idAtGrant, write, permanentDelete, grantedAt, grantedVia}}, protectedSections{<SectionKey>: {name, notebookKey, idAtGrant, grantedAt, grantedVia, expiresAt?}}}`. `notebooks{}` keys follow AD-6's grant key, and `protectedSections{}` keys follow AD-21's.
     - Every change is one read-modify-write inside the named mutex `Local\OneNoteMcp.Settings`: re-read, change, write a temporary file, then `File.Replace`. The mutex is never held across a prompt or a dialog.
     - Only grant writers (elicitation, CLI, the `Create` auto-grant, `grant --revoke`) write `notebooks{}` and `protectedSections{}`. The access check only reads them.
     - Re-read at every access check.
     - A grant applies to the open notebook whose `NotebookKey` equals its key. `list_grants` shows each grant as `active` (an open notebook matches) or `notebookNotOpen`, and each read grant as `active`, `sectionNotOpen` or `expired`. Entries are never pruned automatically; only `grant --revoke` removes one. The one exception: a grant writer drops `protectedSections{}` entries whose `expiresAt` has passed, inside its read-modify-write.
-    - `schemaVersion` 1 is this path-keyed shape, `results{}`, `search{}` and `protectedSections{}` included. No earlier shape was released, and no released server writes `settings.json`, so there is no migration. The released 0.4.x reader already ignores members it doesn't know (`SettingsStore.Validate` reads only known keys); story 1.20 confirms it with a test.
+    - `schemaVersion` 1 is this path-keyed shape, `results{}`, `search{}`, `readGrants{}` and `protectedSections{}` included. No earlier shape was released, and no released server writes `settings.json`, so there is no migration. The released 0.4.x reader already ignores members it doesn't know (`SettingsStore.Validate` reads only known keys); story 1.20 confirms it with a test.
     - `results{}` ranges, as whole numbers: `inlineMaxChars` 20,000–380,000 (default 100,000), `ttlMinutes` 1–1,440 (default 30), `maxStoreMB` 16–4,096 (default 256). A value out of range makes the file `SettingsInvalid`, like every other field; reads then use the defaults.
     - `search{}` range, as a whole number: `cacheMaxMB` 0–1,024 (default 64), the page-text cache's cap (AD-12); 0 turns the cache off. Out of range makes the file `SettingsInvalid`, as for `results{}`.
+    - `readGrants{}` range, as a whole number: `onceMinutes` 1–60 (default 5), the window of AD-21's `once` read grant (Phill, 2026-11-07). Out of range makes the file `SettingsInvalid`, as for `results{}`.
     - If the file is invalid, reads continue and writes fail with `SettingsInvalid`.
     - If `schemaVersion` is newer than the server knows, the server runs read-only.
   - **Journal entry file:**
@@ -297,7 +298,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Page-text cache (story 1.19):**
     - **What:** `FindPages` may keep each candidate's text by the text rule above (never the XML) in memory, one cache per server process.
     - **Key and hit:** page ID plus the page's `lastModifiedTime` from the search XML. A candidate whose ID and `lastModifiedTime` both match is matched against the cached text instead of being read. A different time, or a missing or unparsable one, means a read, and a page without a usable time is never cached. A page whose read gives `ObjectNotFound` loses its entry.
-    - **Protected sections:** candidates in protected sections are dropped before any lookup (AD-21), and their pages are never cached.
+    - **Protected sections:** candidates in protected sections that no grant covers are dropped before any lookup (AD-21). Pages in protected sections are never cached, even when a grant covers them (Phill, 2026-11-07).
     - **Cap:** `search.cacheMaxMB` (AD-10), counted as each entry's estimated size: its text and page ID as UTF-16, plus a fixed per-entry overhead. Past it, the least recently read entries go first. A text larger than the cap alone isn't cached. 0 turns the cache off and empties it. `search{}` is read once per call, so a change applies at the next call, and a lowered cap trims the cache before any lookup.
     - **Disk and log:** never written to disk. Only counts (hits, misses, evictions, entries) and sizes are logged (AD-13).
     - **Writes:** a write drops the written page's entry before it returns (AD-7).
@@ -468,13 +469,16 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Grant scope** (Phill, 2026-11-06): one protected section. A notebook or section group can't be granted as a whole, and a write grant (AD-6) doesn't grant reads of protected sections.
   - **Grant key:** one Core function, `SectionKey`, is the only key. Its only input is the `one:Section@path` attribute read live from `GetHierarchy`, and it uses `NotebookKey`'s transform and comparison (AD-6). The section's `name`, its notebook's `NotebookKey` and its ID at grant time are stored for information only. Renaming or moving the section changes its path, so the user is asked again.
   - **Lifetime, chosen by the user when granting** (Phill, 2026-11-06):
-    - `once`: covers only the call that raised the dialog, plus `read_result` parts of that call's result (AD-20). It's kept in memory and never written.
-    - `hours`: 1 to 168, default 8. Stored with `expiresAt` in UTC.
+    - `once` (Phill, 2026-11-07): covers every read of that section, target-scoped and broad alike, for `readGrants.onceMinutes` (AD-10, default 5) from when the user's answer arrives. The window is checked when a call starts, so a call that starts inside it completes. `read_result` parts of results made under it follow AD-20. It's kept in memory by the server process that asked and never written; other server processes don't see it and keep asking (AD-10). It can't be revoked: it ends with its window or its process.
+    - `hours`: 1 to 168. Stored with `expiresAt` in UTC.
     - `untilRevoked`: stored until `grant --revoke`.
   - **How a read grant is created** (Phill, 2026-11-06):
-    - **Elicitation**, raised only by a target-scoped read (below) when the client declares elicitation. The dialog names the section and its notebook, asks the user to type the section's name, and offers the three lifetimes, with the hours as a number. The trimmed typed text must equal that section's `name`, compared `OrdinalIgnoreCase`; anything else makes no grant. A decline, a cancel, a mismatch, or a client without elicitation returns `ReadNotGranted`, with `userAction` naming the CLI. Time on the dialog counts against no timeout. Neither the STA thread nor the settings mutex is held across it (AD-10).
-    - **The CLI**, `OneNoteMcp grant --read-section`, interactive only, like AD-6's. The user types a section name, which is matched against the protected sections of the open notebooks. If several match, the CLI lists them with their notebook and section-group path and the user picks one. It offers `hours` and `untilRevoked` only. `grant --revoke --read-section <name>` removes a read grant, with the same matching and list of candidates.
-    - `list_grants` shows stored read grants. `once` grants are never stored, so it doesn't show them.
+    - **Elicitation**, raised only by a target-scoped read (below) when the client declares elicitation. Time on the dialog counts against no timeout. Neither the STA thread nor the settings mutex is held across it (AD-10).
+      - **The dialog** names the section and its notebook, and asks the user to type the section's name; the field's hint shows the name, so it can be copied. It offers the lifetimes as one list, because elicitation can't show a field conditionally (Phill, 2026-11-07): `once`; `hours` of 1, 8 or 24 hours, or 7 days (168 hours); and `untilRevoked`. The list's default is `once`, and the `once` option names its window (for example "This section, for 5 minutes"). The README and the skill use the list's words. Any other number of hours is granted through the CLI.
+      - **The answer check:** the typed-name field gets a new name on every request (Phill, 2026-11-07), and the server reads the typed name only from the field it named in that request; any other key counts as a mismatch. The trimmed typed text must equal that section's `name`, compared `OrdinalIgnoreCase`; anything else makes no grant. The typed name proves that a person answered this request, not that they knew the name: the dialog's message names the section anyway (AD-6 Limits). A lifetime that isn't one of the offered options grants `once`, never more.
+      - **Outcomes:** a decline, a cancel, a mismatch, or a client without elicitation returns `ReadNotGranted`, with `userAction` naming the CLI.
+    - **The CLI**, `OneNoteMcp grant --read-section`, interactive only, like AD-6's. The user types a section name, which is matched against the protected sections of the open notebooks. If several match, the CLI lists them with their notebook and section-group path and the user picks one. It offers `hours` (any whole number 1 to 168, default 8) and `untilRevoked` only. `grant --revoke --read-section <name>` removes a read grant, with the same matching and list of candidates.
+    - `list_grants` shows stored read grants, plus this process's live `once` grants with their expiry (`grantedVia: elicitation`, lifetime `once`). `once` grants are never stored.
     - No tool can create a read grant, and AD-6's Limits apply: an elicitation hook can answer the dialog.
   - **Where the check runs:** in Core's access check, before any content is returned, and before the `SectionLocked` check.
     - Target-scoped reads resolve the owning section through the gateway as in AD-6: a `GetHierarchyParent` chain from the target to its `one:Section`, then that section's `encrypted` and `path` from `GetHierarchy`. These extra COM calls run under AD-3's per-call timeouts.
@@ -487,13 +491,13 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
       - `get_hyperlink_to_object` and `get_web_hyperlink_to_object` on a page, or on an object in a page;
       - `get_hierarchy` whose `startNodeId` is a page in a protected section, or is the section itself at scope `children` or `pages`.
     - **Broad, which never raise the dialog:**
-      - `get_hierarchy` from above the section keeps its `one:Section` element and removes its `one:Page` elements (AD-4).
-      - `find_pages` and `find_meta` drop every candidate in a protected section before any text post-filter or page read, so no match inside one is learned. Withheld candidates are not listed in `meta.filtered`. They list every protected section in the raw result, whether or not it had a hit.
+      - `get_hierarchy` from above the section keeps its `one:Section` element and, unless a grant holds (stored, or a `once` grant still in its window), removes its `one:Page` elements (AD-4).
+      - `find_pages` and `find_meta` drop every candidate in a protected section that no grant covers before any text post-filter or page read, so no match inside one is learned. Withheld candidates are not listed in `meta.filtered`. They list every protected section in the raw result, whether or not it had a hit.
       - Both put the section IDs, without counts, in `meta.withheld`, with one `readNotGranted` warning per section whose `userAction` says how to grant.
     - **Allowed:** `get_hierarchy` with the section itself as `startNodeId` at scope `self`, `notebooks` or `sections`, which returns no pages; `get_hierarchy_parent` and both hyperlink tools on the section itself, because the section is visible in the hierarchy anyway. `get_special_location` is unaffected.
     - **`read_result`:** checks again, as AD-20 says.
   - **Messages** carry the section's ID only, never its name or anything inside it (AD-9).
-  - **Storage:** `settings.json` `protectedSections{}` (AD-10), written only by grant writers. If `settings.json` is invalid, or its `schemaVersion` is newer than the server knows, stored read grants count as absent. The dialog still works: `once` as usual, while `hours` or `untilRevoked` then covers the asking call only, with the warning `grantNotSaved`.
+  - **Storage:** `settings.json` `protectedSections{}` (AD-10), written only by grant writers. If `settings.json` is invalid, or its `schemaVersion` is newer than the server knows, stored read grants count as absent. The dialog still works: `once` as usual, while `hours` or `untilRevoked` then works like `once` (for `readGrants.onceMinutes`, memory only), with the warning `grantNotSaved`.
 
 ## Consistency Conventions
 
@@ -558,6 +562,7 @@ flowchart LR
 
 | Item | Why it can wait / revisit when |
 | --- | --- |
+| Whether the per-request field name stops Claude Code pre-filling the typed section name (AD-21) | Resolved, AD-21 unchanged (Phill, 2026-11-07, Claude Code with the 0.7.0-rc.1 server): after the `once` window the dialog asked again with an empty name field |
 | v1 tool list and later rounds | Work slicing, for `bmad-ticket`. The whole COM surface is the target, and AD-5/AD-7 make each round additive |
 | Release pipeline, code signing, SmartScreen | Release story (1.11). The release job refuses a tag that differs from `<Version>` (AD-14) |
 | How the plugin fetches the exe | Decided, see AD-15: an `archive` plugin source, a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`, story 1.10) |
@@ -566,6 +571,7 @@ flowchart LR
 | Events (`OnHierarchyChange`, `OnNavigate`) | A later round. Microsoft says events can't be added in managed code, so this may need a native sink or be dropped |
 | Move semantics via `UpdateHierarchy`; `MergeSections` and `MergeFiles` behaviour | Not probed. Verify in the stories that add them. `restore_from_recycle_bin` depends on move |
 | `DeleteHierarchy` on a whole notebook; permanent delete of a section group | Not probed. Verify in the permanent-delete story |
+| `DeleteHierarchy(deletePermanently=false)` on a page in a protected section | Not probed. Verify in epic 2's soft-delete story: if COM moves it to the recycle bin, amend AD-21; if COM deletes it permanently, the `SoftDelete` pipeline refuses it rather than do a permanent delete without AD-6's grant |
 | `Publish` to OneNote format as the backup route | Not probed. Verify in the permanent-delete story; if it fails, AD-8/AD-7 are amended |
 | Refusing to replace an Outline with an unavailable image (AD-7) | Rests on `UpdatePageContent` behaviour that wasn't probed. Verify with a cloud-page fixture |
 | XML schema `xs2026` (undocumented; `Cell@colSpan`/`rowSpan`, `AuthorDef`) | AD-4 stays on `xs2013`. Spike before epic 2's write stories: does a 2013 round trip unmerge cells, and does `UpdatePageContent` accept 2026? Amend AD-4 if needed |
@@ -577,6 +583,6 @@ flowchart LR
 | Text blocks between 383,893 and 500,000 characters | Unmeasured with `maxResultSizeChars`. AD-20 caps `inlineMaxChars` at 380,000, the largest measured whole delivery. Raise the cap only after a probe |
 | A header line over the inline threshold | An envelope whose `meta` alone is huge, such as thousands of `meta.filtered` entries, hasn't been seen. Story 1.18 measures it on story 17's fixture; if it happens, amend AD-20 to store those lists with the result |
 | Clients other than Claude Code | They don't know the `_meta` key. The user lowers `results.inlineMaxChars` for them, and the README says how |
-| Pages deleted from a protected section | Whether OneNote's recycle-bin section is marked `encrypted` is unverified. Story 1.20 checks it with story 17's fixture; if it isn't, amend AD-21 so those pages are withheld too |
+| Pages deleted from a protected section | Resolved for the UI, AD-21 unchanged (Phill, 2026-11-07, M365 OneNote desktop 16.0 on Windows). A UI delete of a page in a protected section is refused with "Pages from password protected sections cannot be moved to Deleted Notes", and only a permanent delete is offered. The notebook's "Deleted Pages" section isn't `encrypted`, so a page landing there would have leaked; the test page wasn't in it afterwards. Still unverified: a protected section deleted whole (does `encrypted` survive in the recycle bin?), and other clients syncing into the notebook. Pages deleted before a section was protected stay readable in the recycle bin (README) |
 | Whether `FindPages` and `FindMeta` XML carries `encrypted` on `one:Section` | Unverified. AD-21 makes search find protected sections with an extra `GetHierarchy`. Story 1.20 checks the search XML on story 17's fixture; if `encrypted` is reliably present, the extra call may be dropped |
 | Whether a section's `path` is stable | `SectionKey` (AD-21) assumes it is, as `NotebookKey` does. Story 1.20 captures local and cloud values, closes and reopens, and renames, as the access story does for notebooks |

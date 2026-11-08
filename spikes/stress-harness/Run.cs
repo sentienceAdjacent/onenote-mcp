@@ -1,11 +1,18 @@
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
+using OneNoteMcp.Xml;
 
 namespace StressHarness;
 
 /// <summary>
 /// The five phases. Every comparison reads raw (ComGateway) then tool (the server). On a difference it reads once
 /// more, raw then tool: two raw reads that differ make it <see cref="Match.ChangedDuringRun"/>, not a mismatch.
+/// <para>
+/// Story 1.20 (AD-21): the server runs with no read grant, so every password-protected (<c>encrypted</c>) section is
+/// withheld, and the run expects that: broad reads lose those sections' pages and list them in <c>meta.withheld</c>,
+/// searches never return them, and target reads of their pages give <c>ReadNotGranted</c>. The harness never reads a
+/// protected page's content itself.
+/// </para>
 /// </summary>
 internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorder, Options options, string notebookId)
 {
@@ -19,6 +26,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
     private readonly Dictionary<string, string> _unreadable = new(StringComparer.Ordinal);
     private NotebookModel _model = new(notebookId, [], []);
     private Dictionary<string, PageNode> _pagesById = new(StringComparer.Ordinal);
+    private HashSet<string> _encrypted = new(StringComparer.Ordinal);
 
     public string Phase { get; private set; } = "startup";
 
@@ -71,6 +79,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
 
         _model = XmlFacts.Model(notebookId, pagesXml);
         _pagesById = _model.Pages.ToDictionary(p => p.Id, StringComparer.Ordinal);
+        _encrypted = _model.Sections.Where(s => s.Encrypted).Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
         var n = recorder.NotebookCounts;
         n["sections"] = _model.Sections.Count;
         n["sectionsLocked"] = _model.Sections.Count(s => s.Locked);
@@ -96,18 +105,20 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
             startId,
             () => Raw.RunAsync(ct => gateway.GetHierarchyAsync(startId ?? string.Empty, scope, ct)),
             () => tools.CallAsync("get_hierarchy", args),
-            (r, t) => Same(r, t, t.Xml));
+            (r, t) => scope == HierarchyScope.Pages ? SameWithheld(r, t) : Same(r, t, t.Xml));
         var (rec, raw, tool) = result;
         if (raw is { Ok: true, Value: { } rawXml } && tool is { Ok: true, Xml: { } toolXml })
         {
             Guard(rec, () =>
             {
+                var expectedXml = scope == HierarchyScope.Pages ? Withheld(rawXml).Xml : rawXml;
                 var rawSections = XmlFacts.Ids(rawXml, "Section");
                 var rawPages = XmlFacts.Ids(rawXml, "Page");
                 rec.Counts["sections"] = rawSections.Count;
                 rec.Counts["pages"] = rawPages.Count;
+                rec.Counts["pagesWithheld"] = rawPages.Count - XmlFacts.Ids(expectedXml, "Page").Count;
                 rec.Counts["sectionIdsEqual"] = rawSections.SetEquals(XmlFacts.Ids(toolXml, "Section")) ? 1 : 0;
-                rec.Counts["pageIdsEqual"] = rawPages.SetEquals(XmlFacts.Ids(toolXml, "Page")) ? 1 : 0;
+                rec.Counts["pageIdsEqual"] = XmlFacts.Ids(expectedXml, "Page").SetEquals(XmlFacts.Ids(toolXml, "Page")) ? 1 : 0;
             });
         }
 
@@ -121,9 +132,19 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
     {
         var pages = _model.Pages.Where(p => !p.InRecycleBin).ToList();
         var done = 0;
+        var withheld = 0;
         foreach (var page in pages)
         {
             var id = page.Id;
+            if (IsWithheld(id))
+            {
+                // Never read raw: the harness doesn't read a protected page's content either.
+                recorder.Add(await ExpectNotGrantedAsync("pages", "get_page_content", "get_page_content:withheld", id, () => tools.CallAsync("get_page_content", new() { ["pageId"] = id, ["includeBinary"] = false })));
+                withheld++;
+                Progress.Report(Phase, ++done, pages.Count);
+                continue;
+            }
+
             var (rec, raw, _) = await CompareAsync(
                 "pages",
                 "get_page_content",
@@ -188,6 +209,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
         }
 
         var n = recorder.NotebookCounts;
+        n["pagesWithheld"] = withheld;
         n["pagesRead"] = _facts.Count;
         n["pagesUnreadable"] = _unreadable.Count;
         n["pagesWithImages"] = _facts.Values.Count(f => f.Images > 0);
@@ -321,7 +343,8 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
                     continue;
                 }
 
-                if (node.InRecycleBin)
+                // Withheld (AD-21) before the recycle-bin step: never matched, never in meta.filtered.
+                if (node.InRecycleBin || IsWithheld(id))
                 {
                     continue;
                 }
@@ -349,7 +372,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
                 return !t.Ok;
             }
 
-            return t.Ok && t.Xml is { } xml && predicted.SetEquals(XmlFacts.SearchPageIds(xml));
+            return t.Ok && t.Xml is { } xml && predicted.SetEquals(XmlFacts.SearchPageIds(xml)) && WithheldAsExpected(t);
         }
 
         var (rec, raw, tool) = await CompareAsync(
@@ -414,7 +437,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
                     unknown++;
                     unknownIds.Add(id);
                 }
-                else if (node.InRecycleBin)
+                else if (node.InRecycleBin || IsWithheld(id))
                 {
                 }
                 else if (!_facts.TryGetValue(id, out var f))
@@ -435,7 +458,7 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
             }
 
             var got = XmlFacts.SearchPageIds(t.Xml).Where(id => !excluded.Contains(id)).ToHashSet(StringComparer.Ordinal);
-            return predicted.SetEquals(got);
+            return predicted.SetEquals(got) && WithheldAsExpected(t);
         }
 
         var (rec, raw, tool) = await CompareAsync(
@@ -520,6 +543,16 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
         var done = 0;
         foreach (var id in sample)
         {
+            if (IsWithheld(id))
+            {
+                // A page in a protected section: target-scoped, so ReadNotGranted for all three (AD-21).
+                recorder.Add(await ExpectNotGrantedAsync("misc", "get_hierarchy_parent", "get_hierarchy_parent:withheld", id, () => tools.CallAsync("get_hierarchy_parent", new() { ["objectId"] = id })));
+                recorder.Add(await ExpectNotGrantedAsync("misc", "get_hyperlink_to_object", "get_hyperlink_to_object:withheld", id, () => tools.CallAsync("get_hyperlink_to_object", new() { ["hierarchyId"] = id })));
+                recorder.Add(await ExpectNotGrantedAsync("misc", "get_web_hyperlink_to_object", "get_web_hyperlink_to_object:withheld", id, () => tools.CallAsync("get_web_hyperlink_to_object", new() { ["hierarchyId"] = id })));
+                Progress.Report(Phase, ++done, sample.Count);
+                continue;
+            }
+
             var (prec, _, _) = await CompareAsync(
                 "misc",
                 "get_hierarchy_parent",
@@ -624,6 +657,49 @@ internal sealed class Run(ToolClient tools, ComGateway gateway, Recorder recorde
 
     private static bool Same(RawOutcome r, ToolOutcome t, string? toolValue) =>
         r.Ok ? t.Ok && string.Equals(toolValue, r.Value, StringComparison.Ordinal) : !t.Ok && t.Code == r.Code;
+
+    /// <summary>A page in a protected section (AD-21).</summary>
+    private bool IsWithheld(string pageId) => _pagesById.TryGetValue(pageId, out var page) && _encrypted.Contains(page.SectionId);
+
+    /// <summary>A broad pages-scope read (AD-21): the raw XML minus the protected sections' pages, and those sections in meta.withheld.</summary>
+    private static bool SameWithheld(RawOutcome r, ToolOutcome t)
+    {
+        if (!r.Ok || r.Value is null)
+        {
+            return !t.Ok && t.Code == r.Code;
+        }
+
+        var (xml, sections) = Withheld(r.Value);
+        return t.Ok && string.Equals(t.Xml, xml, StringComparison.Ordinal) && t.MetaStrings("withheld").ToHashSet(StringComparer.Ordinal).SetEquals(sections);
+    }
+
+    /// <summary>The expected body of a broad read: every protected section's pages cut, with the IDs of those sections.</summary>
+    private static (string Xml, HashSet<string> Sections) Withheld(string rawXml)
+    {
+        var sections = XmlFacts.Parse(rawXml).Descendants(XmlFacts.One + "Section")
+            .Where(s => (string?)s.Attribute("encrypted") is "true" or "1")
+            .Select(s => (string)s.Attribute("ID")!)
+            .ToHashSet(StringComparer.Ordinal);
+        return (SearchResultFilter.RemovePagesInSections(rawXml, sections).Xml, sections);
+    }
+
+    /// <summary>A search of the notebook lists every protected section in it as withheld, hit or not (AD-21).</summary>
+    private bool WithheldAsExpected(ToolOutcome t) => t.MetaStrings("withheld").ToHashSet(StringComparer.Ordinal).SetEquals(_encrypted);
+
+    /// <summary>A target read the server must refuse with ReadNotGranted. There is no raw read to compare.</summary>
+    private static async Task<CallRecord> ExpectNotGrantedAsync(string phase, string tool, string kind, string targetId, Func<Task<ToolOutcome>> call)
+    {
+        var result = await call();
+        return new CallRecord
+        {
+            Phase = phase,
+            Tool = tool,
+            Kind = kind,
+            TargetId = targetId,
+            ToolResult = result,
+            Match = !result.Ok && result.Code == nameof(ErrorCode.ReadNotGranted) ? Match.Same : Match.Mismatch,
+        };
+    }
 
     internal static async Task<(CallRecord Record, RawOutcome Raw, ToolOutcome Tool)> CompareAsync(
         string phase,

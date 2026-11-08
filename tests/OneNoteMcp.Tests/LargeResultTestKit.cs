@@ -37,7 +37,8 @@ internal sealed class StubGateway : IOneNoteGateway
 
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) => Task.FromResult(Hierarchy);
 
-    public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => throw new NotSupportedException();
+    /// <summary>Every object is a notebook to the access check (AD-21): nothing is in a protected section.</summary>
+    public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => Task.FromResult(string.Empty);
 
     public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) =>
         Task.FromResult(pageInfo == PageInfo.Basic ? Basic : BinaryData ?? Basic);

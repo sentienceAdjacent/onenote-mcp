@@ -21,4 +21,23 @@ public static class ToolWarnings
     /// Nothing is lost: <c>read_result</c> offset reads of <c>/</c> reach every character.
     /// </summary>
     public const string ResultNotIndexed = "resultNotIndexed";
+
+    /// <summary>
+    /// A password-protected section's pages were withheld because there is no read grant for it (AD-21). The message
+    /// names the section's ID only. Its userAction says how the user grants it.
+    /// </summary>
+    public const string ReadNotGranted = "readNotGranted";
+
+    /// <summary>
+    /// The user granted a read for some hours or until revoked, but <c>settings.json</c> couldn't be written (invalid,
+    /// written by a newer version, or not writable), so the grant works like <c>once</c>: it covers the section for
+    /// <c>readGrants.onceMinutes</c>, in this server's memory only (AD-21).
+    /// </summary>
+    public const string GrantNotSaved = "grantNotSaved";
+
+    /// <summary>
+    /// <c>list_grants</c> read a <c>settings.json</c> that is invalid or written by a newer version: its grants count as
+    /// absent (AD-10, AD-21). The listed entries, if any, are shown so the user can see what to fix.
+    /// </summary>
+    public const string SettingsInvalid = "settingsInvalid";
 }

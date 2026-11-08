@@ -38,6 +38,12 @@ internal sealed record ToolOutcome(
     public int? MetaInt(string name) =>
         Meta.ValueKind == JsonValueKind.Object && Meta.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
 
+    /// <summary>A string-array meta field, such as <c>withheld</c> (AD-21); empty when absent.</summary>
+    public IReadOnlyList<string> MetaStrings(string name) =>
+        Meta.ValueKind == JsonValueKind.Object && Meta.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
+            ? [.. v.EnumerateArray().Select(e => e.GetString() ?? string.Empty)]
+            : [];
+
     public int FilteredCount(string reason) =>
         Meta.ValueKind == JsonValueKind.Object && Meta.TryGetProperty("filtered", out var f) && f.ValueKind == JsonValueKind.Array
             ? f.EnumerateArray().Count(e => e.TryGetProperty("reason", out var r) && r.GetString() == reason)

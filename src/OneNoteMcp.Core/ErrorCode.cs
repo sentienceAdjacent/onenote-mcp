@@ -26,6 +26,12 @@ public enum ErrorCode
     WriteNotGranted,
     PermanentDeleteNotGranted,
 
+    /// <summary>
+    /// AD-21: a target-scoped read inside a password-protected section with no read grant, or a <c>read_result</c> part
+    /// whose grant has lapsed (AD-20).
+    /// </summary>
+    ReadNotGranted,
+
     /// <summary>AD-20: <c>read_result</c> with a <c>resultId</c> that expired, was evicted, or was never issued.</summary>
     ResultExpired,
     ExportPathNotAllowed,

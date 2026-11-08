@@ -62,7 +62,7 @@ public sealed class ResultDelivery
             source.PiBasicXml,
             original,
             SubtreeHashChars(tree, success.Meta.Basis),
-            ResultGrants.None);
+            success.Grants ?? ResultGrants.None);
         var (expiresAt, change) = store.Add(entry, settings);
         return new DeliveryOutcome(responses.FirstIndex(entry, expiresAt, inlineMax), new StoredEvent(entry.ResultId, body.Length, change));
     }

@@ -1,3 +1,4 @@
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Xml;
 
@@ -16,6 +17,10 @@ namespace OneNoteMcp.Core.UseCases;
 /// search XML gives it, and is read otherwise (AD-12); the result is the same either way. <c>search.cacheMaxMB</c> is
 /// read once per call, and 0 turns the cache off and empties it.
 /// </para>
+/// <para>
+/// Before any of that, pages in password-protected sections without a read grant are dropped (AD-21): never read, never
+/// looked up in or added to the cache, never in <c>meta.filtered</c>; their sections go in <c>meta.withheld</c>.
+/// </para>
 /// </summary>
 public sealed class FindPagesUseCase : IUseCase
 {
@@ -23,13 +28,22 @@ public sealed class FindPagesUseCase : IUseCase
 
     private readonly IOneNoteGateway gateway;
     private readonly PageTextCache cache;
+    private readonly ReadAccess access;
 
-    public FindPagesUseCase(IOneNoteGateway gateway, PageTextCache cache)
+    public FindPagesUseCase(IOneNoteGateway gateway, PageTextCache cache, ReadAccess access)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(cache);
+        ArgumentNullException.ThrowIfNull(access);
         this.gateway = gateway;
         this.cache = cache;
+        this.access = access;
+    }
+
+    /// <summary>A use case with no stored read grants, for tests and tools built by hand.</summary>
+    public FindPagesUseCase(IOneNoteGateway gateway, PageTextCache cache)
+        : this(gateway, cache, ReadAccess.WithoutStoredGrants(gateway))
+    {
     }
 
     /// <summary>A use case with its own cache on the default settings, for tests and tools built by hand.</summary>
@@ -46,6 +60,9 @@ public sealed class FindPagesUseCase : IUseCase
 
         var start = SearchResults.Start(startNodeId, fromRoot, Method);
         var text = query ?? string.Empty;
+        // AD-21 first: the protected sections of the searched scope, before the search or any page read.
+        var broad = await access.CheckSearchScopeAsync(start, ct).ConfigureAwait(false);
+
         var xml = await gateway.FindPagesAsync(start, text, includeUnindexed: true, ct).ConfigureAwait(false);
 
         var pages = SearchResults.Pages(xml, Method);
@@ -59,6 +76,12 @@ public sealed class FindPagesUseCase : IUseCase
         int hits = 0, misses = 0;
         foreach (var page in pages)
         {
+            // Withheld before the recycle-bin step, any read and the cache (AD-12, AD-21).
+            if (broad.IsWithheld(page.SectionId))
+            {
+                continue;
+            }
+
             if (page.InRecycleBin)
             {
                 removals[page.Index] = FilterReasons.RecycleBin;
@@ -71,8 +94,10 @@ public sealed class FindPagesUseCase : IUseCase
                 continue;
             }
 
-            // Cached at the time the search gives the page: no read. A page without a usable time is never cached.
-            var modified = cacheOn ? page.LastModifiedTime : null;
+            // Cached at the time the search gives the page: no read. A page without a usable time is never cached, and
+            // neither is a page in a protected section, even under a grant (AD-12).
+            var cacheable = cacheOn && !broad.IsProtected(page.SectionId);
+            var modified = cacheable ? page.LastModifiedTime : null;
             string pageText;
             if (modified is { } cachedAt && cache.TryGet(page.Id, cachedAt, out var cached))
             {
@@ -81,7 +106,7 @@ public sealed class FindPagesUseCase : IUseCase
             }
             else
             {
-                if (cacheOn)
+                if (cacheable)
                 {
                     misses++;
                 }
@@ -111,7 +136,7 @@ public sealed class FindPagesUseCase : IUseCase
             }
         }
 
-        return SearchResults.Result(context, xml, pages, removals, Method) with
+        return SearchResults.Result(context, xml, pages, removals, broad, Method) with
         {
             SearchCache = new PageTextCacheUse(hits, misses, evicted, cache.Count, cache.TotalBytes),
         };

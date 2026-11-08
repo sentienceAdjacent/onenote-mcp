@@ -283,11 +283,15 @@ public sealed class SearchToolTests
     public async Task StartNodeIdAndQuery_ReachTheGatewayUnchanged(string tool)
     {
         var gateway = new SearchGateway { SearchXml = Hierarchy() };
+        gateway.Hierarchies[(" {weird}{1}{B0} ", HierarchyScope.Sections)] = "<one:Section " + Ns + " ID=\" {weird}{1}{B0} \" name=\"S\" path=\"C:\\s.one\" />";
 
         Ok(await Call(tool, gateway, " a  b ", " {weird}{1}{B0} ", fromRoot: false));
 
         var calls = tool == "find_pages" ? gateway.FindPagesCalls : gateway.FindMetaCalls;
         Assert.Equal([(" {weird}{1}{B0} ", " a  b ", true)], calls);
+
+        // The AD-21 scope read gets the same start, unchanged.
+        Assert.Contains((" {weird}{1}{B0} ", HierarchyScope.Sections), gateway.HierarchyCalls);
     }
 
     // --- Bad start / empty query ------------------------------------------------------------------------------------
@@ -430,6 +434,11 @@ public sealed class SearchToolTests
         public List<(string Start, string Name, bool IncludeUnindexed)> FindMetaCalls { get; } = [];
 
         public List<(string PageId, PageInfo Info)> PageReads { get; } = [];
+
+        /// <summary>The inner <see cref="FakeGateway"/>'s scripted hierarchies (AD-21's scope reads).</summary>
+        public Dictionary<(string Id, HierarchyScope Scope), string> Hierarchies => _inner.Hierarchies;
+
+        public List<(string StartNodeId, HierarchyScope Scope)> HierarchyCalls => _inner.Calls;
 
         public Task<string> FindPagesAsync(string startNodeId, string query, bool includeUnindexed, CancellationToken ct)
         {

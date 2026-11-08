@@ -26,10 +26,11 @@ public sealed class FindPagesTool(ToolRunner runner, FindPagesUseCase useCase)
         + "A page matches when every whitespace-separated term of query appears, ignoring case, in its title or its text. "
         + "Unindexed pages are always searched. Recycle-bin pages and pages that don't match are removed from the XML, and nothing else in it is changed; "
         + "each removed page is listed in meta.filtered as {pageId, reason}, reason recycleBin, noMatch, or notFound (deleted during the search). "
+        + "Pages in password-protected sections the user hasn't granted a read of are never searched or listed (not even in meta.filtered); each such section in the searched scope has its ID in meta.withheld and a warning with code readNotGranted, whether or not it would have matched. "
         + "Results are possibly incomplete (meta.possiblyIncomplete is always true): a notebook that is still syncing can lack pages. "
         + "The server remembers page text between searches, keyed by each page's lastModifiedTime, so repeat searches are faster; a page another program (another add-in, or a second OneNote MCP session) changed through COM while it wasn't open in OneNote can still be matched against its old text until it next changes (setting search.cacheMaxMB: 0 turns this off). "
         + ToolMetaKeys.LargeResultNote
-        + "Success: {ok:true, xml, meta:{correlationId, filtered, possiblyIncomplete}, warnings:[{code, message, userAction?}]}. "
+        + "Success: {ok:true, xml, meta:{correlationId, filtered, possiblyIncomplete, withheld?}, warnings:[{code, message, userAction?}]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> FindPages(
         [Description("The words to search for, separated by spaces. Every word must appear on a page for it to match.")] string query,

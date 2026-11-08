@@ -1,3 +1,4 @@
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Xml;
@@ -9,9 +10,18 @@ namespace OneNoteMcp.Core.UseCases;
 /// oversized result and never calls COM. It takes exactly one of <c>ref</c>, <c>run</c> or <c>expand</c>;
 /// <c>offset</c> and <c>length</c> go with <c>ref</c>, and <c>page</c> with <c>expand</c> or <c>run</c>. Every part
 /// is an exact substring of the stored body (AD-4). Throws only <see cref="OneNoteException"/>.
+/// <para>
+/// It checks AD-21 again (AD-20): a response whose span overlaps a protected section is served only while the grant
+/// that allowed the original call holds, and is <c>ReadNotGranted</c> after. It never raises the dialog.
+/// </para>
 /// </summary>
-public sealed class ReadResultUseCase(ResultStore store, ITextBlockMeasure measure) : IUseCase
+public sealed class ReadResultUseCase(ResultStore store, ITextBlockMeasure measure, ResultGrantCheck grants) : IUseCase
 {
+    public ReadResultUseCase(ResultStore store, ITextBlockMeasure measure)
+        : this(store, measure, ResultGrantCheck.WithoutStoredGrants)
+    {
+    }
+
     public const string ModeUserAction =
         "Call read_result with exactly one of ref, run or expand. offset and length go only with ref; page goes only with expand or run.";
 
@@ -72,7 +82,9 @@ public sealed class ReadResultUseCase(ResultStore store, ITextBlockMeasure measu
 
         if (hasExpand)
         {
-            return Task.FromResult(responses.Expand(entry, id, expiresAt, Find(entry, expand!), page ?? 0, inlineMax));
+            var expanded = Find(entry, expand!);
+            grants.Check(entry, expanded.Start, expanded.End);
+            return Task.FromResult(responses.Expand(entry, id, expiresAt, expanded, page ?? 0, inlineMax));
         }
 
         if (hasRun)
@@ -81,6 +93,7 @@ public sealed class ReadResultUseCase(ResultStore store, ITextBlockMeasure measu
         }
 
         var node = Find(entry, @ref!);
+        grants.Check(entry, node.Start, node.End);
         if (offset is { } start)
         {
             return Task.FromResult(Offset(entry, id, expiresAt, node, start, length, inlineMax));
@@ -99,6 +112,8 @@ public sealed class ReadResultUseCase(ResultStore store, ITextBlockMeasure measu
         {
             throw Invalid("read_result's run must name two siblings, the first not after the last.");
         }
+
+        grants.Check(entry, first.Start, last.End);
 
         var part = ResultResponses.Part(entry, id, expiresAt, first.Start, last.End);
         var size = responses.Measure(part);

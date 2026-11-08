@@ -13,6 +13,12 @@ namespace OneNoteMcp.Tests;
 /// The story-3 scripting stays: <see cref="HierarchyXml"/>, when set, answers every <c>GetHierarchy</c>;
 /// <see cref="Failure"/>, when set, is thrown by every method; <see cref="Calls"/> records <c>GetHierarchy</c> calls.
 /// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21), which have no fixture.
+/// <para>
+/// Story 1.20's access check resolves a page's section (<c>GetHierarchyParent</c>, then <c>GetHierarchy</c> of the
+/// parent at <c>Self</c>) and reads a search's scope at <c>Sections</c>. <see cref="Parents"/> and
+/// <see cref="Hierarchies"/> answer those for the fixture pages that have no captured parent, all in unprotected
+/// sections; tests add protected ones. An ID in neither still falls through to the manifest.
+/// </para>
 /// </remarks>
 internal sealed class FakeGateway : IOneNoteGateway
 {
@@ -33,8 +39,34 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>The committed manifest, for tests that look up fixture IDs.</summary>
     public static FixtureManifest Manifest => Shared.Value.Manifest;
 
+    /// <summary>The section the fixture cloud and XPS pages are given (synthetic, unprotected).</summary>
+    public const string SyntheticSectionId = "{5EC70000-0000-4000-8000-000000000001}{1}{B0}";
+
+    /// <summary>The captured Fixtures section of MCP Test.</summary>
+    public const string FixturesSectionId = "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{B0}";
+
     /// <summary>When set, every <c>GetHierarchy</c> returns it, whatever the arguments.</summary>
     public string? HierarchyXml { get; set; }
+
+    /// <summary><c>GetHierarchyParent</c> answers that win over the manifest, by object ID.</summary>
+    public Dictionary<string, string> Parents { get; } = new(StringComparer.Ordinal)
+    {
+        ["{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19478355080928453447520102198986629748415351}"] = FixturesSectionId,
+        ["{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19516938799045219860520175612925891145658211}"] = FixturesSectionId,
+        ["{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19565193393940819141020118324689590846097081}"] = FixturesSectionId,
+        ["{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19576028730475398412520134068976138901756251}"] = FixturesSectionId,
+        ["{C10D0000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000001}"] = SyntheticSectionId,
+        ["{5E000000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000002}"] = SyntheticSectionId,
+    };
+
+    /// <summary><c>GetHierarchy</c> answers that win over the manifest (not over <see cref="HierarchyXml"/>), by ID and scope.</summary>
+    public Dictionary<(string Id, HierarchyScope Scope), string> Hierarchies { get; } = new()
+    {
+        [(SyntheticSectionId, HierarchyScope.Self)] =
+            "<?xml version=\"1.0\"?>\n<one:Section xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\" name=\"Synthetic\" ID=\"" + SyntheticSectionId + "\" path=\"C:\\synthetic\\Synthetic.one\" />",
+        [(string.Empty, HierarchyScope.Sections)] =
+            "<?xml version=\"1.0\"?>\n<one:Notebooks xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\" />",
+    };
 
     public OneNoteException? Failure { get; set; }
 
@@ -46,13 +78,15 @@ internal sealed class FakeGateway : IOneNoteGateway
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct)
     {
         Calls.Add((startNodeId, scope));
-        return HierarchyXml is not null && Failure is null
-            ? Task.FromResult(HierarchyXml)
+        return HierarchyXml is not null && Failure is null ? Task.FromResult(HierarchyXml)
+            : Failure is null && Hierarchies.TryGetValue((startNodeId, scope), out var xml) ? Task.FromResult(xml)
             : Serve(nameof(IOneNoteGateway.GetHierarchyAsync), startNodeId, scope.ToString());
     }
 
     public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) =>
-        Serve(nameof(IOneNoteGateway.GetHierarchyParentAsync), objectId);
+        Failure is null && Parents.TryGetValue(objectId, out var parent)
+            ? Task.FromResult(parent)
+            : Serve(nameof(IOneNoteGateway.GetHierarchyParentAsync), objectId);
 
     public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.GetPageContentAsync), pageId, pageInfo.ToString());

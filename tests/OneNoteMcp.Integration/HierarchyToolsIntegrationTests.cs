@@ -122,9 +122,10 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
             .ToList();
         Assert.All(locked, s => Assert.Equal(BallastContent.VaultSectionName, (string?)s.Attribute("name")));
 
-        var list = warnings.EnumerateArray().ToList();
-        Assert.True(list.Count == locked.Count, $"{call}: {list.Count} warnings for {locked.Count} locked sections");
-        Assert.All(list, w => Assert.Equal("sectionLocked", w.GetProperty("code").GetString()));
+        // Story 1.20: a pages-scope read also carries one readNotGranted per withheld protected section (AD-21).
+        Assert.All(warnings.EnumerateArray(), w => Assert.Contains(w.GetProperty("code").GetString(), new[] { "sectionLocked", "readNotGranted" }));
+        var list = warnings.EnumerateArray().Where(w => w.GetProperty("code").GetString() == "sectionLocked").ToList();
+        Assert.True(list.Count == locked.Count, $"{call}: {list.Count} sectionLocked warnings for {locked.Count} locked sections");
         foreach (var section in locked)
         {
             var id = (string)section.Attribute("ID")!;

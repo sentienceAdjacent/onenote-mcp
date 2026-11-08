@@ -1,11 +1,11 @@
 ---
 name: guide
-description: This skill should be used when the user asks about their OneNote notebooks, sections, section groups, pages or subpages, for example "list my OneNote notebooks", "what sections are in my Work notebook", "find the page called Trip plan", "read my meeting notes page", "search OneNote for budget", "show my To Do items on that page", "find pages tagged with project", "what's in Quick Notes", "where is the OneNote backup folder", "get a link to this OneNote page", "show the image on that page", "download the missing images on that page", "show me that page in OneNote" or "which notebook is this page in". Also use it when the user asks to create, edit, move, rename or delete anything in OneNote, because this release is read-only. It covers tool choice and scope, reading OneNote 2013 XML, search caveats, and errors.
+description: This skill should be used when the user asks about their OneNote notebooks, sections, section groups, pages or subpages, for example "list my OneNote notebooks", "what sections are in my Work notebook", "find the page called Trip plan", "read my meeting notes page", "search OneNote for budget", "show my To Do items on that page", "find pages tagged with project", "what's in Quick Notes", "where is the OneNote backup folder", "get a link to this OneNote page", "show the image on that page", "download the missing images on that page", "show me that page in OneNote" or "which notebook is this page in", "read my password-protected section". Also use it when the user asks to create, edit, move, rename or delete anything in OneNote, because this release is read-only. It covers tool choice and scope, reading OneNote 2013 XML, password-protected sections, search caveats, and errors.
 ---
 
 # OneNote desktop: reading notebooks
 
-The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has ten read tools, one user-visible tool that shows a page in OneNote (`navigate_to`), and no write tools.
+The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has eleven read tools (one of them, `list_grants`, only lists the user's read permissions), one user-visible tool that shows a page in OneNote (`navigate_to`), and no write tools.
 
 The tools are thin wrappers over COM. Their descriptions say what each parameter means; this guide says which tool to pick, in what order, and how to interpret what comes back.
 
@@ -31,6 +31,7 @@ Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its b
 | `mcp__plugin_onenote_desktop__get_web_hyperlink_to_object` (`get_web_hyperlink_to_object`) | Get an `https` link, for notebooks stored on OneDrive or SharePoint | `meta.link` |
 | `mcp__plugin_onenote_desktop__get_special_location` (`get_special_location`) | Get the path of the backup folder, the Quick Notes section or the default notebook folder | `meta.path` |
 | `mcp__plugin_onenote_desktop__read_result` (`read_result`) | Read a result that was too large to return whole, part by part (see Large results) | `xml` (a part) or `index` |
+| `mcp__plugin_onenote_desktop__list_grants` (`list_grants`) | Show which password-protected sections the user has allowed you to read, and until when (see Password-protected sections) | `meta.grants` |
 | `mcp__plugin_onenote_desktop__navigate_to` (`navigate_to`) | **User-visible.** Show a notebook, section or page in OneNote (and select one object on it). Only when the user explicitly asks; see Missing images | nothing |
 
 Every result is an envelope: `{ok: true, xml?, index?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
@@ -67,6 +68,18 @@ A result too large to return whole (over the server's `results.inlineMaxChars`, 
 - A page part's `meta.basis` has the hashes of the Outlines and OEs wholly inside it. Writes don't exist in this release, so ignore it.
 - A result expires 30 minutes after its last read (by default) and is gone when the server restarts. `ResultExpired` means: repeat the original call to get a new `resultId`.
 
+## Password-protected sections
+
+A section with a password (`encrypted="true"` on its `one:Section`) stays private even after the user unlocks it in OneNote: the server returns its content only with the user's **read grant** for that one section. You can't grant it, and must never try to get the content another way.
+
+- **Broad reads** never ask. `mcp__plugin_onenote_desktop__get_hierarchy` from above the section keeps its `one:Section` but leaves out its pages; `mcp__plugin_onenote_desktop__find_pages` and `mcp__plugin_onenote_desktop__find_meta` never search it. The section's ID is then in `meta.withheld`, with a `readNotGranted` warning. Withheld pages are not in `meta.filtered`, and a search that withheld a section says nothing about whether it held a match.
+- **Reading inside the section** (`mcp__plugin_onenote_desktop__get_page_content` or `mcp__plugin_onenote_desktop__get_binary_page_content` on one of its pages, `mcp__plugin_onenote_desktop__get_hierarchy` of the section at `scope: children` or `pages`, or the parent and link tools on one of its pages) needs the grant. Without one, Claude Code shows the user a dialog: they type the section's name (the field's hint shows it) and pick from one list: **this section, for N minutes** (5 by default, the default choice), **1 hour**, **8 hours**, **24 hours**, **7 days** or **until I revoke it**. Other hour counts (1 to 168) go through the terminal command `grant --read-section`. If they decline, or the client can't show dialogs, the call fails with `ReadNotGranted`.
+- Don't call a page read just to make the dialog appear. Ask the user first whether they want the protected section read; if they say yes, read the page and the dialog will ask them.
+- The user can also grant or revoke in a terminal, which works with any client: `OneNoteMcp grant --read-section "<section name>"` and `OneNoteMcp grant --revoke --read-section "<section name>"`. The exe isn't on PATH for a plugin install: give the user the exact command from the error's `userAction`, which names the running exe's full path.
+- **Never run the grant command yourself, and never edit OneNoteMcp's `settings.json`** (it holds the user's grants), by any tool or shell command. Grants are the user's alone. The plugin blocks such edits, and the command refuses to run without an interactive terminal anyway.
+- **This section, for N minutes** covers every read of that section (pages, listings and searches) for those minutes; after that the next read asks again. A large result read inside the window stays pageable with `read_result` for that result's life (30 minutes after the original call by default), even after the window ends; `read_result` never asks. Read what the user wants from it within the window rather than spreading reads out. A grant follows the section's path, so renaming or moving the section means asking again.
+- `mcp__plugin_onenote_desktop__list_grants` shows the stored grants (`status` `active`, `sectionNotOpen` or `expired`) and any live N-minute grant (lifetime `once`, with its `expiresAt`).
+
 ## Reading the XML
 
 All XML is in the OneNote 2013 schema, namespace `http://schemas.microsoft.com/office/onenote/2013/onenote`, prefix `one:`. The server passes it through unchanged.
@@ -77,7 +90,7 @@ All XML is in the OneNote 2013 schema, namespace `http://schemas.microsoft.com/o
 - Every node has an `ID` and a `name`. A notebook also has a `nickname`, which is what OneNote shows; match the user's words against `nickname` first, then `name`.
 - IDs are opaque strings. Copy them exactly; never build, shorten or parse one. A page ID that starts like its section's ID is a coincidence to ignore, and a page's ID can change when it is moved to the recycle bin or to another section.
 - **Recycle bin:** each notebook holds a `one:SectionGroup` with `isRecycleBin="true"` (named `OneNote_RecycleBin`). Its sections have `isDeletedPages="true"` and its pages have `isInRecycleBin="true"`. Skip all of these unless the user asks about deleted pages.
-- **Locked sections:** a section with `locked="true"` is password-protected. Its pages can't be read until the user unlocks it in OneNote (the result also carries a `sectionLocked` warning).
+- **Password-protected sections:** a section with `encrypted="true"` has a password. With `locked="true"` too, it is locked: its pages can't be read until the user unlocks it in OneNote (the result also carries a `sectionLocked` warning). Even unlocked, its content needs the user's permission (see Password-protected sections).
 - **Subpages:** `one:Page@pageLevel` is 1 for a top-level page and 2 or 3 for a subpage. Pages are listed in section order, so a subpage belongs to the nearest earlier page with a lower level.
 - `lastModifiedTime` and `dateTime` (created) are UTC.
 - `one:Meta` (`name`, `content`) can appear on a page in hierarchy XML; these are the tags `mcp__plugin_onenote_desktop__find_meta` searches.
@@ -136,7 +149,7 @@ Images in notebooks stored online often aren't on this PC until OneNote download
 **Full-text search.**
 1. Pick the narrowest start: the notebook or section the user means, else `fromRoot: true`. Give exactly one of `startNodeId` or `fromRoot: true`.
 2. `mcp__plugin_onenote_desktop__find_pages` with the words as `query`. Every word must appear on a page, ignoring case.
-3. Report the matching pages (name, and section from the enclosing `one:Section`), then the search caveat below. Read a page's content only if the user asks for more than the list.
+3. Report the matching pages (name, and section from the enclosing `one:Section`), then the search caveat below. If `meta.withheld` is set, add that password-protected sections weren't searched. Read a page's content only if the user asks for more than the list.
 
 To find pages by an add-in tag, use `mcp__plugin_onenote_desktop__find_meta` with the `one:Meta` name. The name is matched exactly, including case.
 
@@ -162,6 +175,7 @@ To find pages by an add-in tag, use `mcp__plugin_onenote_desktop__find_meta` wit
   - `noMatch`: OneNote returned it, but it doesn't contain every query word (or, for `mcp__plugin_onenote_desktop__find_meta`, has no `one:Meta` of exactly that name). It is not a result.
   - `notFound` (`mcp__plugin_onenote_desktop__find_pages` only): the page disappeared during the search.
 - An empty result with many `noMatch` entries usually means one of the words is wrong. Try fewer words.
+- `meta.withheld` lists password-protected sections the search skipped because the user hasn't granted a read of them. Their pages may or may not match; never guess.
 
 ## Errors and warnings
 
@@ -181,6 +195,7 @@ On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 | `ObjectNotFound` | The ID is stale (pages get new IDs when deleted or moved to another section, and every ID changes when a notebook is closed and reopened). Re-read the hierarchy and use a current ID. If the notebook itself is missing, ask the user to open it. |
 | `InvalidQuery` | For a search: check that you gave exactly one of `startNodeId` or `fromRoot: true`. Otherwise change the query. From `mcp__plugin_onenote_desktop__read_result`: give exactly one of `ref`, `run` or `expand`, and keep `offset` below the element's `chars`. |
 | `IntegrityMismatch` | The server and OneNote run at different elevation. Relay `userAction`; this needs a restart, not a retry. |
+| `ReadNotGranted` | The content is in a password-protected section the user hasn't allowed you to read (or, from `mcp__plugin_onenote_desktop__read_result`, the permission has since ended). Tell the user, and if they want it read, give them the `OneNoteMcp grant --read-section` command from `userAction` or let them retry so the dialog appears. Never retry on your own. |
 | `ResultExpired` | The stored large result expired or the server restarted. Repeat the original call, then continue with its new `resultId`. |
 | `UnknownObjectId` | From `mcp__plugin_onenote_desktop__read_result`: the ref isn't in that result. Use a ref from its index, or `/`. |
 | `NotSupported` | Not in this release. Tell the user. |
@@ -196,6 +211,8 @@ Warnings (`ok: true`, with `warnings[]`) mean the result is usable but degraded.
 | `sectionLocked` | A section in the hierarchy is locked; its pages can't be read until the user unlocks it. |
 | `binaryUnavailable` | An image isn't stored on this PC. From `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary` true, those images were left out of the XML and `meta.binaryUnavailable` counts them. From `mcp__plugin_onenote_desktop__get_binary_page_content` it can also mean the callbackID was wrong, or that it is a File Printout's `one:XPSFile`, which can't be read at all. Say the image isn't available and the rest of the result is fine, then follow **Missing images** (not for an XPSFile). |
 | `webLinkUnavailable` | The notebook isn't stored online, so there is no web link. Offer the `onenote:` link. |
+| `readNotGranted` | A password-protected section's pages were left out (its ID is in `meta.withheld`). Say so, and that the user can grant a read (see Password-protected sections). |
+| `grantNotSaved` | The user's grant for some hours or until revoked couldn't be saved (its settings file is invalid or not writable), so it works like the N-minute grant: it covers that section for those minutes, in this server only. Relay `userAction`. |
 
 ## User-visible actions and limits
 

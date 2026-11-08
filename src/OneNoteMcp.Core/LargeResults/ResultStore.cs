@@ -10,7 +10,8 @@ public sealed record StoreChange(IReadOnlyList<string> Evicted, IReadOnlyList<st
 
 /// <summary>
 /// The AD-20 result store: oversized results, in this process's memory only. It never writes to disk, and logs nothing
-/// itself. An entry expires <c>results.ttlMinutes</c> after its last read. Past <c>results.maxStoreMB</c> (UTF-16 bytes)
+/// itself. An entry expires <c>results.ttlMinutes</c> after its last read; one made under a <c>once</c> read grant
+/// (AD-21) expires <c>ttlMinutes</c> after the original call instead, never extended by reads. Past <c>results.maxStoreMB</c> (UTF-16 bytes)
 /// the least recently read entries go first; a single result larger than the cap is kept alone. Thread-safe.
 /// </summary>
 public sealed class ResultStore : IDisposable
@@ -78,6 +79,7 @@ public sealed class ResultStore : IDisposable
             var expired = SweepLocked(now, current);
             entry.LastRead = now;
             entry.ReadSequence = ++reads;
+            entry.AbsoluteExpiry = entry.Grants.HasOnce ? now + current.Ttl : null;
             entries.Add(entry.ResultId, entry);
             totalBytes += entry.Bytes;
 
@@ -89,7 +91,7 @@ public sealed class ResultStore : IDisposable
                 evicted.Add(oldest.ResultId);
             }
 
-            return (now + current.Ttl, new StoreChange(evicted, expired, totalBytes));
+            return (ExpiresAt(entry, now, current), new StoreChange(evicted, expired, totalBytes));
         }
     }
 
@@ -114,7 +116,7 @@ public sealed class ResultStore : IDisposable
 
             entry.LastRead = now;
             entry.ReadSequence = ++reads;
-            return (entry, now + current.Ttl, new StoreChange([], expired, totalBytes));
+            return (entry, ExpiresAt(entry, now, current), new StoreChange([], expired, totalBytes));
         }
     }
 
@@ -132,13 +134,19 @@ public sealed class ResultStore : IDisposable
 
     private List<string> SweepLocked(DateTimeOffset now, ResultSettings current)
     {
-        var expired = entries.Values.Where(e => now >= e.LastRead + current.Ttl).ToList();
+        var expired = entries.Values.Where(e => now >= e.LastRead + current.Ttl || (e.AbsoluteExpiry is { } end && now >= end)).ToList();
         foreach (var entry in expired)
         {
             Remove(entry);
         }
 
         return [.. expired.Select(e => e.ResultId)];
+    }
+
+    private static DateTimeOffset ExpiresAt(StoredResult entry, DateTimeOffset now, ResultSettings current)
+    {
+        var sliding = now + current.Ttl;
+        return entry.AbsoluteExpiry is { } end && end < sliding ? end : sliding;
     }
 
     private void Remove(StoredResult entry)

@@ -42,3 +42,11 @@
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-synthetic-size-fixture-in-mcp-test-plan.md`
   summary: Epic 2: `one:InsertedFile/@pathCache` changes on every `GetPageContent` of a page with attachments (piBasic and piBinaryData), so an AD-17 basis taken from one read never matches the next, and a read-then-write of such a page would be refused as StaleWrite.
   evidence: story 1.17's stress-harness run on MCP Test (2026-11-06): the Ballast Files page (6 inserted files) classified `unstableRead` on both reads, first difference at `one:Page/one:Outline/one:OEChildren/one:OE/one:InsertedFile`, attribute `pathCache`, offset 1646. Fix in the AD-17 hash rule (ignore `pathCache`) when the write pipeline lands; check OneMore's defects page first.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-read-grant-for-password-protected-sections-plan.md`
+  summary: Pages deleted from a password-protected section may land in the notebook recycle bin's "Deleted Pages" section, which OneNote doesn't mark `encrypted`, so AD-21 would treat them as unprotected (their names in broad hierarchy reads, their content through get_page_content).
+  evidence: On MCP Test (2026-11-07), the recycle bin's section is not `encrypted="true"`; the search XML does mark the Vault. Settling it needs a hands-on delete of a test page in the unlocked Ballast Vault, then a look at where it lands and how it is marked. If it leaks, AD-21 needs an amendment (Fable review). Section `path` stability (close/reopen, rename, cloud vs local) is also still uncaptured.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-read-grant-for-password-protected-sections-plan.md`
+  summary: Resolved the recycle-bin question about deleted protected pages (entry above): there is no leak.
+  evidence: Phill, 2026-11-07. Deleting a test page in the unlocked Ballast Vault made OneNote say "Pages from password protected sections cannot be moved to Deleted Notes" and offer only a permanent delete. Afterwards MCP Test's "Deleted Pages" section had no pages, and the test page was gone. The spine's Deferred row was updated to match.

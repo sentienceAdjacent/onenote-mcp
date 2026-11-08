@@ -4,15 +4,22 @@ using OneNoteMcp.Xml;
 namespace OneNoteMcp.Core.LargeResults;
 
 /// <summary>
-/// The AD-21 grants that allowed the original call, recorded so <c>read_result</c> can check them again (AD-20).
-/// Story 1.20 fills it; until then every entry carries <see cref="None"/>.
+/// One AD-21 grant that allowed the original call, recorded so <c>read_result</c> can check it again (AD-20).
 /// </summary>
-/// <param name="SectionKeys">The protected sections the stored body includes content from.</param>
-/// <param name="Lifetime">The grant's lifetime (<c>once</c>, <c>hours</c>, <c>untilRevoked</c>); null with no grant.</param>
+/// <param name="SectionKey">The protected section's <c>SectionKey</c>.</param>
+/// <param name="SectionId">The section's ID in the stored body, whose span the grant covers.</param>
+/// <param name="Lifetime">The grant's lifetime. A grant that couldn't be saved is recorded as <c>once</c>.</param>
 /// <param name="ExpiresAt">When an <c>hours</c> grant ends.</param>
-public sealed record ResultGrants(IReadOnlyList<string> SectionKeys, string? Lifetime = null, DateTimeOffset? ExpiresAt = null)
+/// <param name="WholeResult">True when the whole body is inside the section (a page read), so every part needs the grant.</param>
+public sealed record ResultGrant(string SectionKey, string SectionId, Access.ReadGrantLifetime Lifetime, DateTimeOffset? ExpiresAt, bool WholeResult);
+
+/// <summary>The AD-21 grants that allowed the original call (AD-20): <c>{sectionKey, lifetime, expiresAt?}</c> per section.</summary>
+public sealed record ResultGrants(IReadOnlyList<ResultGrant> Grants)
 {
     public static ResultGrants None { get; } = new([]);
+
+    /// <summary>True when a <c>once</c> grant allowed part of the result: the entry then expires <c>ttlMinutes</c> after the original call, never extended by reads.</summary>
+    public bool HasOnce => Grants.Any(g => g.Lifetime == Access.ReadGrantLifetime.Once);
 }
 
 /// <summary>
@@ -97,6 +104,12 @@ public sealed class StoredResult
 
     /// <summary>The entry's size for <c>results.maxStoreMB</c>, in UTF-16 bytes.</summary>
     public long Bytes { get; }
+
+    /// <summary>
+    /// For an entry made under a <c>once</c> grant, <c>ttlMinutes</c> after the original call: it expires then whatever
+    /// its reads (AD-20). Null otherwise. The store's lock guards it.
+    /// </summary>
+    internal DateTimeOffset? AbsoluteExpiry { get; set; }
 
     /// <summary>When the entry was last read; the store's lock guards it.</summary>
     internal DateTimeOffset LastRead { get; set; }

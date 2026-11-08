@@ -38,14 +38,15 @@ public sealed partial class ToolRunner
         string tool,
         IUseCase useCase,
         Func<ToolCallContext, CancellationToken, Task<ToolSuccess>> run,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Core.Access.IGrantPrompt? prompt = null)
     {
         ArgumentNullException.ThrowIfNull(useCase);
         ArgumentNullException.ThrowIfNull(run);
 
         // results{} is read once per call (AD-10), so the store, the sizing and the oversize check agree.
         var settings = delivery.Store.Settings;
-        var context = new ToolCallContext(Guid.NewGuid().ToString("N"), settings);
+        var context = new ToolCallContext(Guid.NewGuid().ToString("N"), settings, prompt);
         var stopwatch = Stopwatch.StartNew();
         ToolEnvelope envelope;
         Exception? failure = null;
