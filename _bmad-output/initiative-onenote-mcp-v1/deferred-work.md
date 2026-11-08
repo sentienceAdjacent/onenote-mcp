@@ -46,3 +46,7 @@
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-read-grant-for-password-protected-sections-plan.md`
   summary: Pages deleted from a password-protected section may land in the notebook recycle bin's "Deleted Pages" section, which OneNote doesn't mark `encrypted`, so AD-21 would treat them as unprotected (their names in broad hierarchy reads, their content through get_page_content).
   evidence: On MCP Test (2026-11-07), the recycle bin's section is not `encrypted="true"`; the search XML does mark the Vault. Settling it needs a hands-on delete of a test page in the unlocked Ballast Vault, then a look at where it lands and how it is marked. If it leaks, AD-21 needs an amendment (Fable review). Section `path` stability (close/reopen, rename, cloud vs local) is also still uncaptured.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-read-grant-for-password-protected-sections-plan.md`
+  summary: Resolved the recycle-bin question about deleted protected pages (entry above): there is no leak.
+  evidence: Phill, 2026-11-07. Deleting a test page in the unlocked Ballast Vault made OneNote say "Pages from password protected sections cannot be moved to Deleted Notes" and offer only a permanent delete. Afterwards MCP Test's "Deleted Pages" section had no pages, and the test page was gone. The spine's Deferred row was updated to match.

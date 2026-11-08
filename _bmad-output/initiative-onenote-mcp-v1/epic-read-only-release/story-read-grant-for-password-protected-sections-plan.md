@@ -150,7 +150,7 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
   - It is best effort (AD-6 Limits). It costs one exe start per matched tool call.
 - **Observed on MCP Test (2026-11-07):**
   - The search XML does mark the Vault `encrypted="true"`. AD-21's extra `GetHierarchy` is kept anyway.
-  - The recycle bin's "Deleted Pages" section is not `encrypted`. Whether a page deleted from the Vault lands there is open: see `deferred-work.md`.
+  - The recycle bin's "Deleted Pages" section is not `encrypted`. Resolved (Phill, 2026-11-07): OneNote refuses to move a page from a password-protected section to the recycle bin and offers only a permanent delete. The open cases are in the spine's Deferred rows.
   - Section `path` stability isn't captured.
 - **Locked run:** a locked section lists 0 pages, so the locked integration run reads no Vault page. "ReadNotGranted before SectionLocked" is proven on fakes; the unlocked run covers the real page path.
 - **Verification (2026-11-07, after review pass 1):**
