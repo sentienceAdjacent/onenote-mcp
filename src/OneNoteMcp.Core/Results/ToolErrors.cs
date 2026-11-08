@@ -11,6 +11,14 @@ public static class ToolErrors
 {
     public const string OutcomeUnknownUserAction = "Re-read, then retry if the change is absent.";
 
+    /// <summary>
+    /// Appended to every "unlock it in OneNote" text: with OneNote's add-in access option off, an unlocked
+    /// password-protected section still looks locked to COM (Phill, 2026-11-08).
+    /// </summary>
+    public const string AddInAccessOptionNote =
+        "If it is already unlocked there, OneNote's option \"Enable add-in programs to access password protected sections when they are unlocked\" "
+        + "(File > Options > Advanced > Passwords) is off: until it is on, add-ins, this server included, see the section as locked.";
+
     /// <summary>How the user grants a read of a password-protected section (AD-21). The model can't grant it.</summary>
     public static string ReadNotGrantedUserAction { get; } =
         "This section is password-protected, and reading its content needs the user's permission. Ask the user whether to grant it: "
@@ -56,7 +64,7 @@ public static class ToolErrors
         ErrorCode.ComBusy => "Wait for OneNote to finish what it is doing, then retry.",
         ErrorCode.Timeout => "Check that OneNote is responding, then retry.",
         ErrorCode.ModalDialogOpen => "Close the open dialog in OneNote, then retry.",
-        ErrorCode.SectionLocked => "Unlock the section in OneNote, then retry.",
+        ErrorCode.SectionLocked => "Unlock the section in OneNote, then retry. " + AddInAccessOptionNote,
         ErrorCode.StaleWrite => "Re-read the object, then make the change against the current version.",
         ErrorCode.ObjectNotFound => "Re-read the hierarchy or page and use a current ID. If the notebook itself is missing, open it in OneNote.",
         ErrorCode.UnknownObjectId => "Re-read the page and use an objectID it contains.",

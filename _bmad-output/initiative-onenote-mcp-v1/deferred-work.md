@@ -50,3 +50,11 @@
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-read-grant-for-password-protected-sections-plan.md`
   summary: Resolved the recycle-bin question about deleted protected pages (entry above): there is no leak.
   evidence: Phill, 2026-11-07. Deleting a test page in the unlocked Ballast Vault made OneNote say "Pages from password protected sections cannot be moved to Deleted Notes" and offer only a permanent delete. Afterwards MCP Test's "Deleted Pages" section had no pages, and the test page was gone. The spine's Deferred row was updated to match.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-read-grant-for-password-protected-sections-plan.md`
+  summary: OneNote's option "Enable add-in programs to access password protected sections when they are unlocked" (File > Options > Advanced > Passwords) makes an unlocked protected section look locked to COM when it's off, so our sectionLocked warning / SectionLocked userAction ("unlock it in OneNote") misleads.
+  evidence: Phill, 2026-11-08. With the option unticked and the Ballast Vault unlocked in the OneNote window, the integration test saw `locked=True` with 0 pages visible. Proposed fix (offered for 1.13): name the option in the sectionLocked/SectionLocked userAction and in the README's protected-sections paragraph.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-readme-uninstall-purge-and-clean-machine-install-plan.md`
+  summary: The add-in access option item above is resolved in story 1.13.
+  evidence: The SectionLocked userAction and the sectionLocked warning now end with `ToolErrors.AddInAccessOptionNote`, which names the option and its menu path. The README and the guide skill name it too. Tests are in ToolErrorsTests and HierarchyReadToolTests.

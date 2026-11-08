@@ -46,6 +46,16 @@ if (args.Length > 0 && args[0] == "grant")
     return await command.RunAsync(args[1..], CancellationToken.None);
 }
 
+// uninstall --purge (AD-19) runs before any host is built and starts no COM: it only removes the server's own files.
+if (args.Length > 0 && args[0] == "uninstall")
+{
+    return new UninstallCommand(
+        Console.In,
+        Console.Out,
+        interactive: !Console.IsInputRedirected && !Console.IsOutputRedirected,
+        UninstallPaths.Resolve(Environment.GetEnvironmentVariable)).Run(args[1..]);
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 
 // stdout carries MCP JSON-RPC only; every log line goes to stderr and the rolling file log (AD-13).
