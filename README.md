@@ -38,9 +38,13 @@ Results are always OneNote's XML, unchanged, so tables, tags, ink, images and at
 
 A grant is for one section, keyed by its file path: renaming or moving the section means granting again. OneNote won't move a page from a password-protected section to its recycle bin (deleting one is permanent), but pages deleted before a section was protected stay readable there. **This section, for 5 minutes** lets Claude read the whole section (pages, listings and searches) for that long, then asks again. It's held in memory by that one server process, never saved, can't be revoked, and `list_grants` shows it while it lasts; the minutes are `readGrants.onceMinutes` in `settings.json` (1 to 60, default 5). A grant for hours or until revoked that can't be saved (because `settings.json` is invalid) works the same way, with a `grantNotSaved` warning. Pages of protected sections are never kept in the search cache, even under a grant. Saved grants live in `settings.json` (`protectedSections`). A large result read under a grant for hours or until revoked can be paged with `read_result` only while that grant lasts. One read under the 5-minute grant stays pageable for the stored result's life, `results.ttlMinutes` after the original call (default 30), even after the window ends; `read_result` never asks.
 
+**OneNote's own switch for add-ins.** OneNote has an option, "Enable add-in programs to access password protected sections when they are unlocked" (File > Options > Advanced > Passwords). While it is off, OneNote keeps password-protected sections from every add-in, this server included: a section you've unlocked still looks locked (`locked="true"`, with no pages), its reads fail with `SectionLocked`, and listings carry a `sectionLocked` warning. Both name the option. So leaving it off is a way to keep protected sections away from every add-in, this server included, whatever you grant. With it on, your read grant for the section is still needed.
+
 **Large results.** A result up to `results.inlineMaxChars` characters (100,000 by default) comes back whole. Its text is one line of JSON (the result's `meta` and `warnings`), then the XML exactly as OneNote returned it, not escaped into JSON. A bigger result, such as a long page or a whole notebook's pages, is kept in the server's memory and comes back as an index: one entry per child element, with its size and a label (a section's or page's name, or the first 80 characters of an element's text). `read_result` then returns any element, run of elements, deeper index, or character range of it, each an exact substring of what OneNote returned, so nothing is lost or rewritten. A stored result lasts 30 minutes after its last read, and is never written to disk.
 
-***(planned)*** **Writes** (create, edit, rename, move and delete, only on notebooks you grant), **exports** (PDF, Word and others, into a folder you control), and a bundled skill that teaches Claude to use the tools well.
+The plugin also installs a `guide` skill that teaches Claude to use the tools well: when to page a large result, what each warning means, and never to grant access or edit `settings.json` itself.
+
+***(planned)*** **Writes** (create, edit, rename, move and delete, only on notebooks you grant) and **exports** (PDF, Word and others, into a folder you control).
 
 ## Requirements
 
@@ -67,7 +71,7 @@ A grant is for one section, keyed by its file path: renaming or moving the secti
 - **Missing images.** Images in notebooks stored online often aren't on this PC until OneNote downloads them, and the API can't read them until then. They're reported as unavailable (`binaryUnavailable`) instead of failing, and the server never fetches them by itself. Two ways to get them: turn on File > Options > Sync > "Download all files and images" in OneNote, or ask Claude to show the page in OneNote (`navigate_to`, which takes focus), which downloads its images (in the one page measured, within 2 seconds; large pages or slow connections may take longer), then read it again. `navigate_to` only works with OneNote open in a window: if OneNote is running without one, it returns ok but shows and downloads nothing.
 - A File Printout's printout document (`one:XPSFile`) can't be read through the API at all. It's reported as unavailable too; the printout's page images are separate images.
 - **Grants** (read grants now, write grants later) guard against mistakes and casual misuse, not against hostile software already running as you. A grant belongs to its section's or notebook's location (its file, folder or OneDrive URL), so a different section that later appears at a granted location inherits the grant without asking. A Claude Code elicitation hook can answer the grant dialog automatically, and headless runs cancel it (so nothing is granted). The plugin blocks Claude from changing `settings.json`: a `PreToolUse` hook denies any file edit of it, and any shell command that names it, and the skill tells Claude never to edit it or run the grant command. That block is best effort: a deliberately disguised shell command can get past it, and nothing stops another program from editing the file.
-- *(planned, for writes)* The journal will hold copies of your note content on disk.
+- *(planned, for writes)* The journal will hold copies of your note content on disk. `OneNoteMcp uninstall --purge` removes them (see [Uninstall](#uninstall)).
 
 ## Install
 
@@ -154,14 +158,33 @@ You need the .NET 10 SDK.
 ```powershell
 git clone https://github.com/sentienceAdjacent/onenote-mcp
 cd onenote-mcp
-dotnet publish src/OneNoteMcp.Server -c Release -r win-x64
+dotnet publish src/OneNoteMcp.Server -c Release -r win-x64 -o publish
 ```
 
-Then point your client at the published `OneNoteMcp.exe`, as in the previous section.
+Then point your client at `publish\OneNoteMcp.exe`, as in the previous section. In Claude Code without the plugin: `claude mcp add --scope user onenote -- "C:\path\to\onenote-mcp\publish\OneNoteMcp.exe"`.
 
 ### Uninstall
 
-Remove the plugin with `/plugin uninstall onenote@sentienceadjacent`, or delete the exe and its MCP config entry. *(planned)* `OneNoteMcp uninstall --purge` will also remove settings (read grants included), the journal and logs. Until then, delete `%APPDATA%\OneNoteMcp` and `%LOCALAPPDATA%\OneNoteMcp` by hand.
+Removing the plugin or the exe leaves OneNoteMcp's own files behind: `settings.json`, with your read grants, and the logs. Once writes exist there will also be the journal, which holds **copies of your note content**. `OneNoteMcp uninstall --purge` removes them, so run it *before* you remove the exe:
+
+1. **Quit** every Claude Code session, and any other client, that uses OneNoteMcp, so no server holds its log file open.
+2. **Purge**, in a terminal, with the exe's full path. For the plugin (use the newest `<version>` folder):
+
+   ```powershell
+   & "$env:USERPROFILE\.claude\plugins\cache\sentienceadjacent\onenote\<version>\OneNoteMcp.exe" uninstall --purge
+   ```
+
+   It lists what it will remove and asks you to type `purge`. `--yes` skips the question, and is required where it can't ask, such as in a script.
+3. **Remove the program.** For the plugin, from the same terminal: `claude plugin uninstall onenote@sentienceadjacent` (starting Claude Code first would start the server again, and with it a new log). For a manual or source install, delete the exe and its MCP config entry (`claude mcp remove --scope user onenote` in Claude Code).
+
+What purge removes, and nothing else:
+
+- `%APPDATA%\OneNoteMcp\settings.json`, and any `.settings.*.tmp` an interrupted save left beside it;
+- the `onenote-mcp-*.log` files in `%LOCALAPPDATA%\OneNoteMcp\logs`;
+- journal entries (files named like `20261107T101112123-<pid>-<guid>.json.gz`) in the journal folder: `journal.path` from `settings.json`, or `%LOCALAPPDATA%\OneNoteMcp\journal`. If `settings.json` can't be read, it uses that default and says so. It refuses a journal folder that is a drive or share root, your profile, `%APPDATA%` or `%LOCALAPPDATA%` themselves, Desktop, Documents, Windows or Program Files, or fewer than two folders below its root, and then removes nothing from it;
+- then each of those folders, and the `OneNoteMcp` folder above the logs and journal, but only once nothing else is left in it. It never looks inside subfolders.
+
+It prints every path it removed, kept or refused. It exits with 0 when done, 1 when something was refused or couldn't be removed (usually a log still in use: quit the client and run it again), and 2 on bad usage. It never removes `OneNoteMcp.exe` or the plugin's install folder (that's step 3), and it never calls OneNote.
 
 Large results are held in the server's memory only and vanish when it exits, so there are no result files to remove. Claude Code itself may save a large tool result to disk, under `~/.claude/projects/<project>/<session>/tool-results/`, when a result is bigger than it shows inline. Those files are Claude Code's, can hold note content, and neither uninstalling nor `--purge` removes them: delete them there if you need to.
 
@@ -171,9 +194,13 @@ Follow these steps in order, and stop to report to the user if any check fails:
 
 1. Confirm the OS is Windows. Check that `ONENOTE.EXE` exists (normally `C:\Program Files\Microsoft Office\root\Office16\ONENOTE.EXE`), and that OneNote is running (`Get-Process ONENOTE`).
 2. Confirm the shell is **not** elevated: `([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrator')` must be `False`.
-3. In Claude Code, run the two `/plugin` commands above. Otherwise follow "Other MCP clients".
+3. Install by one route:
+   - **Claude Code plugin** (recommended): run `claude plugin marketplace add sentienceAdjacent/plugins` and then `claude plugin install onenote@sentienceadjacent` in a shell (the user can type the `/plugin` commands above instead). Ask the user to restart Claude Code so the tools load.
+   - **Other MCP clients, or Claude Code without the plugin:** download `OneNoteMcp.exe` and `OneNoteMcp.exe.sha256` from the newest release on the [releases page](https://github.com/sentienceAdjacent/onenote-mcp/releases), into a folder the user chooses. Check that `(Get-FileHash OneNoteMcp.exe -Algorithm SHA256).Hash` equals the first word of the `.sha256` file, ignoring case. Then register it: `claude mcp add --scope user onenote -- "<folder>\OneNoteMcp.exe"` in Claude Code, or the `mcpServers` entry under "Other MCP clients" for Claude Desktop. Ask the user to restart the client.
+   - **From source:** check that `dotnet --list-sdks` lists a 10.0 SDK, then run the three commands under "From source" and register `publish\OneNoteMcp.exe` as in the previous route.
 4. Verify: call `get_hierarchy` (the default scope is `notebooks`). It should list the user's notebooks.
 5. Don't edit `%APPDATA%\OneNoteMcp\settings.json`, never run `OneNoteMcp grant` yourself, and never grant access yourself. Grants are the user's.
+6. Uninstall only when the user asks, and follow [Uninstall](#uninstall). A server running in your own session keeps its log open, so `OneNoteMcp uninstall --purge --yes` run from there reports that log as in use and exits 1: tell the user, and have them run the purge again from a terminal after quitting Claude Code. Purge never removes the exe; step 3 of Uninstall does.
 
 ## Files it uses
 
@@ -181,7 +208,7 @@ Follow these steps in order, and stop to report to the user if any check fails:
 |---|---|
 | `%APPDATA%\OneNoteMcp\settings.json` | timeouts, large-result limits (`results`), the search cache cap (`search`), read grants for password-protected sections (`protectedSections`), and later write grants, the journal and export settings. Optional |
 | `%LOCALAPPDATA%\OneNoteMcp\logs\` | logs: IDs and error codes only, never note content |
-| *(planned)* `%LOCALAPPDATA%\OneNoteMcp\journal\` | compressed page snapshots |
+| *(planned)* `%LOCALAPPDATA%\OneNoteMcp\journal\` | compressed page snapshots: copies of your note content |
 | *(planned)* `Documents\OneNote Exports\` | default export folder |
 
 ## How it works

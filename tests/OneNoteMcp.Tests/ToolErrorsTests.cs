@@ -64,6 +64,16 @@ public sealed class ToolErrorsTests
     }
 
     [Fact]
+    public void SectionLocked_NamesOneNotesAddInAccessOption()
+    {
+        // Story 1.13: with this option off, an unlocked protected section still looks locked to COM.
+        var action = ToolErrors.UserAction(ErrorCode.SectionLocked);
+        Assert.StartsWith("Unlock the section in OneNote, then retry. ", action, StringComparison.Ordinal);
+        Assert.Contains("\"Enable add-in programs to access password protected sections when they are unlocked\"", action, StringComparison.Ordinal);
+        Assert.Contains("File > Options > Advanced > Passwords", action, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HResult_IsFormattedAsUpperHex_AndMessageIsKept()
     {
         var error = ToolErrors.From(

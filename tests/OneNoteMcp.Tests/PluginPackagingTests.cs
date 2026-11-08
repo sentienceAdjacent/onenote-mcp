@@ -288,6 +288,33 @@ public sealed class PluginPackagingTests
             .Select(m => m.Groups["name"].Value)
             .ToHashSet(StringComparer.Ordinal);
 
+    private const string Readme = "README.md";
+
+    [Fact]
+    public void Readme_NamesEveryContractTool()
+    {
+        // Whole names in backticks, so get_hierarchy isn't satisfied by get_hierarchy_parent.
+        var readme = ReadText(Readme);
+        var names = ContractToolNames();
+        Assert.NotEmpty(names);
+        Assert.All(names, name => Assert.True(readme.Contains($"`{name}`", StringComparison.Ordinal), $"{Readme} must name `{name}`."));
+    }
+
+    [Fact]
+    public void Readme_DocumentsPurge_AsBuilt()
+    {
+        // Story 1.13 (AD-19): purge exists, so no "(planned)" sentence may describe it. The journal itself stays
+        // planned, and its line may say that purge removes it in a sentence of its own. The README also says what
+        // purge leaves alone and that the journal holds note content.
+        var readme = ReadText(Readme).ReplaceLineEndings("\n");
+        Assert.DoesNotMatch(@"(?i)\(planned[^)]*\)\**\s*[^.\n]*purge", readme);
+        Assert.DoesNotContain("by hand", readme, StringComparison.Ordinal);
+        Assert.Contains("uninstall --purge", readme, StringComparison.Ordinal);
+        Assert.Contains("tool-results", readme, StringComparison.Ordinal);
+        Assert.Contains("copies of your note content", readme, StringComparison.Ordinal);
+        Assert.Contains("plugin's install folder", readme, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void PluginSource_HasNoBinFolder()
     {

@@ -66,7 +66,7 @@ public sealed class GetHierarchyUseCase(IOneNoteGateway gateway, ReadAccess acce
             .Concat(locked.Select(id => new ToolWarning(
                 ToolWarnings.SectionLocked,
                 $"Section {id} is locked; its pages can't be read until it is unlocked in OneNote.",
-                "Unlock the section in OneNote, then read it again.")))
+                "Unlock the section in OneNote, then read it again. " + ToolErrors.AddInAccessOptionNote)))
             .ToList();
         return new ToolSuccess(xml, new ToolMeta(context.CorrelationId, Withheld: withheld), warnings)
         {

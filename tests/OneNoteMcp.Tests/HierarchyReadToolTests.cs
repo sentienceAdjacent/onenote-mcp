@@ -90,7 +90,7 @@ public sealed class HierarchyReadToolTests
             var message = warning.GetProperty("message").GetString()!;
             Assert.Contains(id, message, StringComparison.Ordinal);
             Assert.DoesNotContain("secret", message, StringComparison.OrdinalIgnoreCase); // no section names (AD-9)
-            Assert.False(string.IsNullOrEmpty(warning.GetProperty("userAction").GetString()));
+            Assert.EndsWith(ToolErrors.AddInAccessOptionNote, warning.GetProperty("userAction").GetString(), StringComparison.Ordinal);
         }
     }
 

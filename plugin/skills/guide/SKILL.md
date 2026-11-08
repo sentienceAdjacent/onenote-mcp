@@ -188,7 +188,7 @@ On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 | --- | --- |
 | `OneNoteNotRunning` | Ask the user to start OneNote desktop. Never start it yourself. |
 | `ModalDialogOpen` | Ask the user to close the open dialog in OneNote, then retry. |
-| `SectionLocked` | Ask the user to unlock the section in OneNote, then retry. |
+| `SectionLocked` | Ask the user to unlock the section in OneNote, then retry. If they say it's already unlocked, pass on the error's `userAction`: it names the OneNote option that keeps protected sections from add-ins. Never change that option yourself. |
 | `ComBusy` | OneNote is busy or syncing. Retry once now; then ask the user to wait and tell you when to try again. |
 | `Timeout` | Retry once now; then ask the user to check that OneNote is responding. |
 | `ComUnavailable` | The server already retried. Ask the user to check that OneNote is running and responding, then retry. |
@@ -208,7 +208,7 @@ Warnings (`ok: true`, with `warnings[]`) mean the result is usable but degraded.
 
 | Warning | Meaning |
 | --- | --- |
-| `sectionLocked` | A section in the hierarchy is locked; its pages can't be read until the user unlocks it. |
+| `sectionLocked` | A section in the hierarchy is locked; its pages can't be read until the user unlocks it. If it's already unlocked, the warning's `userAction` names the OneNote option to check. |
 | `binaryUnavailable` | An image isn't stored on this PC. From `mcp__plugin_onenote_desktop__get_page_content` with `includeBinary` true, those images were left out of the XML and `meta.binaryUnavailable` counts them. From `mcp__plugin_onenote_desktop__get_binary_page_content` it can also mean the callbackID was wrong, or that it is a File Printout's `one:XPSFile`, which can't be read at all. Say the image isn't available and the rest of the result is fine, then follow **Missing images** (not for an XPSFile). |
 | `webLinkUnavailable` | The notebook isn't stored online, so there is no web link. Offer the `onenote:` link. |
 | `readNotGranted` | A password-protected section's pages were left out (its ID is in `meta.withheld`). Say so, and that the user can grant a read (see Password-protected sections). |
