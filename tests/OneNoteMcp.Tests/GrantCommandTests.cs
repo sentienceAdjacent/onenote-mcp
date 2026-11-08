@@ -165,9 +165,13 @@ public sealed class GrantCommandTests : IDisposable
         var schema = request.RequestedSchema!;
         Assert.Equal(["sectionName_0a1b2c3d", ElicitationGrantPrompt.LifetimeField], schema.Required);
         var lifetimes = Assert.IsType<ElicitRequestParams.TitledSingleSelectEnumSchema>(schema.Properties[ElicitationGrantPrompt.LifetimeField]);
-        Assert.Equal(["once", "hours", "untilRevoked"], lifetimes.OneOf.Select(o => o.Const));
-        var hours = Assert.IsType<ElicitRequestParams.NumberSchema>(schema.Properties[ElicitationGrantPrompt.HoursField]);
-        Assert.Equal((1d, 168d, 8d), (hours.Minimum, hours.Maximum, hours.Default));
+        Assert.Equal(["once", "hours:1", "hours:8", "hours:24", "hours:168", "untilRevoked"], lifetimes.OneOf.Select(o => o.Const));
+        Assert.Equal(["This section, for 5 minutes", "1 hour", "8 hours", "24 hours", "7 days", "Until I revoke it"], lifetimes.OneOf.Select(o => o.Title));
+        Assert.Equal("once", lifetimes.Default);
+        Assert.Equal(2, schema.Properties.Count);
+        Assert.False(schema.Properties.ContainsKey("hours"));
+        var name = Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties["sectionName_0a1b2c3d"]);
+        Assert.Contains("\"Vault\"", name.Description, StringComparison.Ordinal);
         Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties["sectionName_0a1b2c3d"]);
         Assert.False(schema.Properties.ContainsKey(ElicitationGrantPrompt.SectionNameField));
         Assert.Equal("This section, for 5 minutes", lifetimes.OneOf[0].Title);
@@ -179,30 +183,32 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Equal(GrantPromptStatus.Declined, ElicitationGrantPrompt.Read(new ElicitResult { Action = "decline" }, "f").Status);
         Assert.Equal(GrantPromptStatus.Cancelled, ElicitationGrantPrompt.Read(new ElicitResult { Action = "cancel" }, "f").Status);
 
-        var accepted = ElicitationGrantPrompt.Read(new ElicitResult
+        // Each offered const, and anything else (an unknown value, an hour count not offered, the old "hours") as once.
+        (string Const, GrantPromptResult Expected)[] cases =
+        [
+            ("once", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Once)),
+            ("hours:1", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Hours, 1)),
+            ("hours:8", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Hours, 8)),
+            ("hours:24", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Hours, 24)),
+            ("hours:168", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Hours, 168)),
+            ("untilRevoked", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.UntilRevoked)),
+            ("forever", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Once)),
+            ("hours:12", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Once)),
+            ("hours", new(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Once)),
+        ];
+        foreach (var (value, expected) in cases)
         {
-            Action = "accept",
-            Content = new Dictionary<string, JsonElement>
+            var answer = ElicitationGrantPrompt.Read(new ElicitResult
             {
-                ["sectionName_0a1b2c3d"] = JsonSerializer.SerializeToElement("Vault"),
-                ["lifetime"] = JsonSerializer.SerializeToElement("hours"),
-                ["hours"] = JsonSerializer.SerializeToElement(12),
-            },
-        }, "sectionName_0a1b2c3d");
-        Assert.Equal(new GrantPromptResult(GrantPromptStatus.Accepted, "Vault", ReadGrantLifetime.Hours, 12), accepted);
-
-        // An unknown lifetime is never widened, and a fractional hour is out of range.
-        var odd = ElicitationGrantPrompt.Read(new ElicitResult
-        {
-            Action = "accept",
-            Content = new Dictionary<string, JsonElement>
-            {
-                ["sectionName_0a1b2c3d"] = JsonSerializer.SerializeToElement("Vault"),
-                ["lifetime"] = JsonSerializer.SerializeToElement("forever"),
-                ["hours"] = JsonSerializer.SerializeToElement(1.5),
-            },
-        }, "sectionName_0a1b2c3d");
-        Assert.Equal((ReadGrantLifetime.Once, -1), (odd.Lifetime, odd.Hours));
+                Action = "accept",
+                Content = new Dictionary<string, JsonElement>
+                {
+                    ["sectionName_0a1b2c3d"] = JsonSerializer.SerializeToElement("Vault"),
+                    ["lifetime"] = JsonSerializer.SerializeToElement(value),
+                },
+            }, "sectionName_0a1b2c3d");
+            Assert.Equal(expected, answer);
+        }
     }
 
     [Fact]

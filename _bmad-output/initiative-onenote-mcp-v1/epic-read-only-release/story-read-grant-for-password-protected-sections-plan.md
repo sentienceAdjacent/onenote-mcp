@@ -165,6 +165,10 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
   - Stress harness on MCP Test: 620 comparisons, 0 mismatches.
   - Packed; `claude plugin validate --strict` passes.
   - Not yet live-checked: the once window and the per-request field name. That check is the Deferred row in the spine.
+- **Second live check (Phill, 2026-11-07 23:29–23:40, 0.7.0-rc.1, per the server log):**
+  - One dialog: the Vault listing waited 66 s on it, then the page read passed under the window.
+  - Within the window, the second page needed no dialog, and `list_grants` showed the live `once` grant expiring 5 minutes after the grant.
+  - After the window, the dialog asked again with an empty name field, so the pre-fill fix works. Declined, it gave `ReadNotGranted`.
 - **Integration, Vault unlocked (2026-11-07):**
   - 87 passed, 7 skipped.
   - The Vault test read with `locked=False` and 3 pages visible: withheld without a grant, readable with one, withheld again after the revoke.
@@ -191,6 +195,9 @@ The grant machinery doesn't exist yet. There is no NotebookKey, access check, se
     - Protected pages are never cached.
     - The dialog's option names the window.
     - The typed name is read only from that request's field.
+  - **Change 4, from the second live check:**
+    - Phill found the separate Hours field confusing. The dialog now offers one lifetime list: 5-minute window, 1 h, 8 h, 24 h, 7 days, until revoked. Other hour counts go through the CLI.
+    - The name field's hint names the section, so it can be copied.
   - **KEEP:** everything else in the implementation.
 
 - 2026-11-07, review pass 1, finding 1 (bad_plan):

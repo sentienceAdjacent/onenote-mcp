@@ -9,8 +9,9 @@ namespace OneNoteMcp.Server.Grants;
 
 /// <summary>
 /// AD-21's grant dialog over MCP elicitation: the <see cref="IGrantPrompt"/> adapter, so Core never sees the SDK. The form
-/// names the section and its notebook, asks the user to type the section's name, and offers the three lifetimes, with
-/// the hours as a number; the <c>once</c> option names its window. The typed-name field gets a new name on every request
+/// names the section and its notebook, asks the user to type the section's name, and offers one list of lifetimes
+/// (Phill, 2026-11-07): the <c>once</c> window, named with its minutes; 1, 8 or 24 hours or 7 days; or until revoked. Other
+/// hour counts go through the CLI. The typed-name hint names the section. The typed-name field gets a new name on every request
 /// (<c>sectionName_</c> plus 8 random hex digits), so a client can't pre-fill it from an earlier answer, and the typed
 /// name is read only from that field (Phill, 2026-11-07). Supported means the client declared elicitation; an
 /// <see cref="InvalidOperationException"/> from the SDK also counts as unsupported. Core matches the typed name, never
@@ -21,7 +22,11 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
     /// <summary>The prefix of the typed-name field's per-request name.</summary>
     public const string SectionNameField = "sectionName";
     public const string LifetimeField = "lifetime";
-    public const string HoursField = "hours";
+    /// <summary>The hour counts the dialog's one lifetime list offers (Phill, 2026-11-07); other counts go through the CLI.</summary>
+    public static IReadOnlyList<(int Hours, string Title)> HourChoices { get; } = [(1, "1 hour"), (8, "8 hours"), (24, "24 hours"), (168, "7 days")];
+
+    /// <summary>The const of an <c>hours</c> option: <c>hours:</c> and the count.</summary>
+    public static string HoursConst(int hours) => string.Create(CultureInfo.InvariantCulture, $"{ReadGrantLifetimes.Hours}:{hours}");
 
     /// <summary>The prompt for a tool call: null when the SDK bound no server (a tool built by hand), so the call can't ask.</summary>
     public static IGrantPrompt? For(McpServer? server) => server is null ? null : new ElicitationGrantPrompt(server);
@@ -84,7 +89,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                     [sectionNameField] = new ElicitRequestParams.StringSchema
                     {
                         Title = "Section name",
-                        Description = "Type the protected section's name to confirm.",
+                        Description = $"Type \"{question.SectionName}\" to confirm.",
                         MinLength = 1,
                     },
                     [LifetimeField] = new ElicitRequestParams.TitledSingleSelectEnumSchema
@@ -94,21 +99,10 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                         OneOf =
                         [
                             new ElicitRequestParams.EnumSchemaOption { Const = ReadGrantLifetimes.Once, Title = OnceTitle(question.OnceMinutes) },
-                            new ElicitRequestParams.EnumSchemaOption { Const = ReadGrantLifetimes.Hours, Title = "A number of hours" },
+                            .. HourChoices.Select(c => new ElicitRequestParams.EnumSchemaOption { Const = HoursConst(c.Hours), Title = c.Title }),
                             new ElicitRequestParams.EnumSchemaOption { Const = ReadGrantLifetimes.UntilRevoked, Title = "Until I revoke it" },
                         ],
                         Default = ReadGrantLifetimes.Once,
-                    },
-                    [HoursField] = new ElicitRequestParams.NumberSchema
-                    {
-                        Type = "integer",
-                        Title = "Hours",
-                        Description = string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"Used with \"A number of hours\": {ReadGrantLifetimes.MinHours} to {ReadGrantLifetimes.MaxHours}."),
-                        Minimum = ReadGrantLifetimes.MinHours,
-                        Maximum = ReadGrantLifetimes.MaxHours,
-                        Default = ReadGrantLifetimes.DefaultHours,
                     },
                 },
                 Required = [sectionNameField, LifetimeField],
@@ -136,7 +130,6 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
         var content = result.Content;
         string? typed = null;
         string? lifetimeName = null;
-        int? hours = null;
         if (content is not null)
         {
             if (content.TryGetValue(sectionNameField, out var name) && name.ValueKind == JsonValueKind.String)
@@ -149,15 +142,22 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                 lifetimeName = lifetime.GetString();
             }
 
-            if (content.TryGetValue(HoursField, out var h) && h.ValueKind == JsonValueKind.Number)
+        }
+
+        // One of the offered options; anything else is never widened: it grants the narrowest lifetime, the once window.
+        if (lifetimeName == ReadGrantLifetimes.UntilRevoked)
+        {
+            return new GrantPromptResult(GrantPromptStatus.Accepted, typed, ReadGrantLifetime.UntilRevoked);
+        }
+
+        foreach (var (hours, _) in HourChoices)
+        {
+            if (lifetimeName == HoursConst(hours))
             {
-                // A fraction is out of range, so Core grants nothing rather than rounding.
-                hours = h.TryGetInt32(out var whole) ? whole : -1;
+                return new GrantPromptResult(GrantPromptStatus.Accepted, typed, ReadGrantLifetime.Hours, hours);
             }
         }
 
-        // An unknown lifetime is never widened: it grants the narrowest lifetime, the once window.
-        var parsed = ReadGrantLifetimes.Parse(lifetimeName) ?? ReadGrantLifetime.Once;
-        return new GrantPromptResult(GrantPromptStatus.Accepted, typed, parsed, hours);
+        return new GrantPromptResult(GrantPromptStatus.Accepted, typed, ReadGrantLifetime.Once);
     }
 }
