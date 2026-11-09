@@ -25,7 +25,7 @@ Phill, and anyone who installs the plugin, can have Claude read, search and chan
 
 ## Requirements
 
-- **R1 — Read.** `GetHierarchy` at every scope, `GetHierarchyParent`, `GetPageContent` (binary only when asked), `GetBinaryPageContent`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`. Returned XML is unchanged, and degradations are reported in `meta`. Reads return the basis (`lastModifiedTime`, `pageHash`, `elementHashes`). (AD-4, AD-5, AD-17 read side)
+- **R1 — Read.** `GetHierarchy` at every scope, `GetHierarchyParent`, `GetPageContent` (binary only when asked), `GetBinaryPageContent`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`. Returned XML is OneNote's own, changed only as AD-4 allows, and degradations are reported in `meta`. Reads return the basis (AD-17): a page's in `meta.basis`, and a hierarchy node's as the `lastModifiedTime` on its element. (AD-4, AD-5, AD-17 read side)
 - **R2 — Search.** `FindPages` and `FindMeta` include unindexed pages, drop recycle-bin pages, require `startNodeId`, pass `fDisplay=false`, and mark results `possiblyIncomplete`. (AD-11 search part, AD-12)
 - **R3 — Robust operation.**
   - The COM binding and the vtable smoke test (AD-1).
@@ -55,7 +55,7 @@ Phill, and anyone who installs the plugin, can have Claude read, search and chan
   - Plugin and exe versions released in lockstep.
   - Tool contract versioning. (AD-14, AD-15, AD-19)
 - **R8 — Round 2: external and structural.** `Publish`, `OpenPackage` and `MergeFiles` into `exportRoots`, with the output path reported. Move via `UpdateHierarchy`, `MergeSections`, and `restore_from_recycle_bin`, which depends on move. (AD-7 `ExternalWrite`, `HierarchyWrite` move; AD-11 exports)
-- **R9 — Round 3: app state and UI.** `OpenHierarchy` on an existing notebook, `CloseNotebook`, `SyncHierarchy`, `SetFilingLocation`, `NavigateTo`, `NavigateToUrl`, `QuickFiling`, `Windows`; events if feasible. (AD-7 `AppState`, AD-11)
+- **R9 — Round 3: app state and UI.** `OpenHierarchy` on an existing notebook, `CloseNotebook`, `SyncHierarchy`, `SetFilingLocation`, `NavigateTo` (shipped in epic 1 as `navigate_to`), `NavigateToUrl`, `QuickFiling`, `Windows`; events if feasible. (AD-7 `AppState`, AD-11)
 
 ## Done when
 
