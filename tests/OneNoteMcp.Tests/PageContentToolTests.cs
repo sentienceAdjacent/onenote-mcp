@@ -352,7 +352,9 @@ public sealed class PageContentToolTests
         Assert.Equal("GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).", error.GetProperty("message").GetString());
     }
 
-    // --- Story 2.1 (P3): the XPSFile probe never hides a timeout or a cancellation ------------------------------
+    // --- Story 2.1 (P3): the XPSFile probe never hides a timeout ---------------------------------------------------
+    // The Timeout case failed on the old code (it returned ObjectNotFound). No gateway throws OneNoteException with
+    // Cancelled, so that case only pins the probe's defensive filter; a real cancellation is the test after it.
 
     [Theory]
     [InlineData(ErrorCode.Timeout, "Timeout")]
@@ -368,6 +370,22 @@ public sealed class PageContentToolTests
 
         Assert.Equal(expected, error.GetProperty("code").GetString());
         Assert.Equal("GetPageContent did not finish.", error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task ObjectNotFound_WhenTheClientCancelsDuringTheConfirmingPageRead_IsCancelled()
+    {
+        // The real path: the gateway's read ends with OperationCanceledException, which the probe never caught, so
+        // this passes on the code before story 2.1 too.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var gateway = new ScriptedGateway(
+            string.Empty,
+            binaryFailure: new OneNoteException(ErrorCode.ObjectNotFound, "GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).", unchecked((int)0x80042014)),
+            cancelOnPageRead: cts);
+
+        var error = Error(await BinaryTool(gateway).GetBinaryPageContent("{p}", XpsCallbackId, cts.Token));
+
+        Assert.Equal("Cancelled", error.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -501,14 +519,23 @@ public sealed class PageContentToolTests
     }
 
     /// <summary>Answers every page read with fixed text (BinaryData with <paramref name="binaryData"/> when given), for malformed and edge-case XML.</summary>
-    private sealed class ScriptedGateway(string basic, string? binaryData = null, string binary = "", OneNoteException? binaryFailure = null, OneNoteException? pageFailure = null) : IOneNoteGateway
+    private sealed class ScriptedGateway(string basic, string? binaryData = null, string binary = "", OneNoteException? binaryFailure = null, OneNoteException? pageFailure = null, CancellationTokenSource? cancelOnPageRead = null) : IOneNoteGateway
     {
         public (string PageId, string CallbackId)? LastBinaryCall { get; private set; }
 
-        public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) =>
-            pageFailure is not null
+        public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct)
+        {
+            if (cancelOnPageRead is not null)
+            {
+                // The client cancels while the read is in flight: the read ends as a real gateway's does.
+                cancelOnPageRead.Cancel();
+                return Task.FromCanceled<string>(cancelOnPageRead.Token);
+            }
+
+            return pageFailure is not null
                 ? Task.FromException<string>(pageFailure)
                 : Task.FromResult(pageInfo == PageInfo.BinaryData && binaryData is not null ? binaryData : basic);
+        }
 
         public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct)
         {

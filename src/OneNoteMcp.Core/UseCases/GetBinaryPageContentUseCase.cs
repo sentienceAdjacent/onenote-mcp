@@ -14,7 +14,7 @@ namespace OneNoteMcp.Core.UseCases;
 /// <item><c>0x80042014</c> hrObjectDoesNotExist for a File Printout's <c>one:XPSFile</c> (spike 1.15, quirk 2). Only on that
 /// error path, the server reads the page's piBasic once to confirm the callbackID is an <c>XPSFile</c>'s. Any other
 /// <c>ObjectNotFound</c>, or a confirming read that fails, stays the original error, except a confirming read that times
-/// out or is cancelled: that <c>Timeout</c> or <c>Cancelled</c> is the result.</item>
+/// out: that <c>Timeout</c> is the result. A cancelled read surfaces as the cancellation.</item>
 /// </list>
 /// Every other error passes through unchanged. The use case never calls <c>NavigateTo</c> (AD-11). Before the binary
 /// read, the AD-21 check resolves the page's section, as for <see cref="GetPageContentUseCase"/>.
@@ -79,7 +79,9 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAcc
 
     /// <summary>
     /// One piBasic read of the page. A failed read or unreadable XML means "not confirmed", so the caller rethrows the
-    /// original error. A read that times out or is cancelled propagates: the original error would hide it.
+    /// original error. A read that times out propagates (story 2.1: it used to be swallowed). A cancellation arrives as
+    /// <see cref="OperationCanceledException"/>, which was never caught; the <c>Cancelled</c> code in the filter is
+    /// defensive only, since no gateway throws it.
     /// </summary>
     private async Task<bool> IsXpsFileAsync(string pageId, string callbackId, CancellationToken ct)
     {
