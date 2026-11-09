@@ -2,7 +2,6 @@ using System.Globalization;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Settings;
-using OneNoteMcp.Xml;
 
 namespace OneNoteMcp.Server.Cli;
 
@@ -133,7 +132,7 @@ public sealed class GrantCommand
             return 1;
         }
 
-        if (GrantKeys.SectionKey(section.Path).Length == 0)
+        if (section.Key.Length == 0)
         {
             output.WriteLine("OneNote reports no path for that section, so no grant can be made for it. Nothing changed.");
             return 1;
@@ -167,14 +166,7 @@ public sealed class GrantCommand
                 return 1;
         }
 
-        writer.SaveReadGrant(new ProtectedSectionGrant(
-            GrantKeys.SectionKey(section.Path),
-            section.Name,
-            section.NotebookPath.Length == 0 ? string.Empty : GrantKeys.NotebookKey(section.NotebookPath),
-            section.Id,
-            now,
-            GrantedVia.Cli,
-            expires));
+        writer.SaveReadGrant(ProtectedSectionGrant.Create(section.Key, section.Name, section.Id, section.NotebookPath, now, GrantedVia.Cli, expires));
         output.WriteLine(expires is { } end
             ? $"Granted: \"{section.Name}\" can be read until {SettingsWriter.Format(end)} (UTC)."
             : $"Granted: \"{section.Name}\" can be read until you revoke it with: OneNoteMcp grant --revoke --read-section \"{section.Name}\"");
@@ -190,7 +182,7 @@ public sealed class GrantCommand
         }
 
         // The section's current name when it is open; its stored name otherwise.
-        IReadOnlyList<EncryptedSection> open;
+        IReadOnlyList<ProtectedSection> open;
         try
         {
             open = await ProtectedSectionsAsync(ct).ConfigureAwait(false);
@@ -203,7 +195,7 @@ public sealed class GrantCommand
 
         var candidates = snapshot.ProtectedSectionEntries
             .GroupBy(g => g.Key, GrantKeys.Comparer)
-            .Select(g => (Grant: g.First(), Live: open.FirstOrDefault(s => GrantKeys.Comparer.Equals(GrantKeys.SectionKey(s.Path), g.Key))))
+            .Select(g => (Grant: g.First(), Live: open.FirstOrDefault(s => GrantKeys.Comparer.Equals(s.Key, g.Key))))
             .Where(c => GrantKeys.NameMatches(name, c.Live?.Name) || GrantKeys.NameMatches(name, c.Grant.Name))
             .ToList();
         if (candidates.Count == 0)
@@ -224,18 +216,8 @@ public sealed class GrantCommand
         return 0;
     }
 
-    private async Task<IReadOnlyList<EncryptedSection>> ProtectedSectionsAsync(CancellationToken ct)
-    {
-        var xml = await readSections(ct).ConfigureAwait(false);
-        try
-        {
-            return EncryptedSections.Find(xml);
-        }
-        catch (OneNoteXmlException ex)
-        {
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}");
-        }
-    }
+    private async Task<IReadOnlyList<ProtectedSection>> ProtectedSectionsAsync(CancellationToken ct) =>
+        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false));
 
     /// <summary>The only match, or the one the user picks from a numbered list; default when they pick none.</summary>
     private T? Pick<T>(IReadOnlyList<T> matches, Func<T, string> describe)
