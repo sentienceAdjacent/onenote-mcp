@@ -127,3 +127,7 @@ Closes or routes every epic 1 entry above. Entries already marked "Epic 2" (writ
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-refactor-sweep-plan.md`
   summary: Epic 2 (Phill, 2026-11-09, matrix row "Misnamed argument" accepted as met): reject unknown argument names, and say which argument failed to bind.
   evidence: Today the SDK (2.3.1) answers a missing or misnamed required argument with a generic "An error occurred invoking '<tool>'." and silently ignores a misnamed optional argument, so the tool runs with its default (`McpSdkBindingTests`).
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-refactor-sweep-plan.md`
+  summary: Resolved: a pinned release being deleted (Q4). The tag ruleset now exists.
+  evidence: Phill, 2026-11-09. Ruleset "release tags" (id 26869745) on sentienceAdjacent/onenote-mcp: target tag, active, includes `refs/tags/v*`, rules `deletion` and `non_fast_forward`, no bypass actors (checked through the GitHub API). It protects the tag only: deleting the GitHub Release itself from the Releases page is still possible.

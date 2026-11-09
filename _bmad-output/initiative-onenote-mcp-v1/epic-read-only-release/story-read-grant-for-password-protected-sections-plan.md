@@ -3,7 +3,7 @@ title: 'Read grant for password-protected sections'
 type: 'feature'
 ticket: '20'
 created: '2026-11-07'
-status: 'built'
+status: done
 baseline_revision: '0b400575f1ded112a223bda04066c1dc2faad8d1'
 route: 'full'
 route_source: 'auto'
