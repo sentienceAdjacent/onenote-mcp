@@ -3,7 +3,7 @@ title: 'README, uninstall --purge and clean-machine install'
 type: 'feature'
 ticket: '13'
 created: '2026-11-07'
-status: 'built'
+status: done
 baseline_revision: 'a622106cb4c14255deb9a9f58bd753bcdbd57ce4'
 route: 'full'
 route_source: 'auto'
@@ -50,7 +50,7 @@ context:
 
 - **Decisions (Phill, 2026-11-07):**
   - **Confirmation:** when interactive, purge asks the user to type `purge`; otherwise it needs `--yes`. The plugin hook doesn't block it.
-  - **Clean environment:** a VMware Windows 11 VM with OneNote installed and signed in. A snapshot taken before any OneNoteMcp install is restored for each route.
+  - **Clean environment:** ~~a VMware Windows 11 VM with a snapshot per route~~. Changed by Phill on 2026-11-09: his work machine, because the home PC is short of memory for a VM. "Clean" means OneNoteMcp has never been on it. With no snapshots, the routes run in order (manual, from source if allowed, then the plugin, which stays installed) and each is removed before the next. Checks are paste-in Windows PowerShell blocks: no admin, no downloaded scripts, no policy or security changes. Steps: `review/1-13-clean-machine-run.md`.
   - **Release:** after Phill merges 1.20 and 1.13, Claude pushes tag `v0.7.0-rc.2` and runs the marketplace sync on Phill's go.
 
 **Never:**
@@ -101,7 +101,7 @@ context:
 - [x] `README.md`: Uninstall section, journal note, the "planned" fixes, the agent checklist for all three routes. Add a README packaging test.
 - [x] `scripts/clean-install-check.ps1`: snapshot `%APPDATA%\OneNoteMcp`, `%LOCALAPPDATA%\OneNoteMcp` and their parents' listing before and after purge, and diff them. It prints counts only, never notebook content.
 - [x] `src/OneNoteMcp.Core/Results/ToolErrors.cs` (SectionLocked userAction) and the `sectionLocked` warning text in `GetHierarchyUseCase.cs`, plus any other `sectionLocked` warning sites: add that if the section is already unlocked in OneNote, the option "Enable add-in programs to access password protected sections when they are unlocked" (File > Options > Advanced > Passwords) is off. README protected-sections paragraph: the option keeps protected sections from every add-in, this server included. Update the tests that pin those texts.
-- [ ] Clean-machine run with Phill (hitl), in the VM, after the release.
+- [x] Clean-machine run with Phill (hitl), on his work machine, after the release (2026-11-09; results under Verification).
 
 **Acceptance Criteria:**
 - Given a clean Windows profile with OneNote signed in, when an agent follows only the README, then the plugin installs from the release and `get_hierarchy` lists notebooks.
@@ -125,6 +125,10 @@ context:
 - 2026-11-08, before review (Phill folded it in; frozen Approach amended by him):
   - **Added:** name OneNote's add-in access option in the `SectionLocked` and `sectionLocked` texts and the README. Source: `deferred-work.md`, the 2026-11-08 entry.
   - **KEEP:** everything else.
+- 2026-11-09 (Phill): the clean run moves from a VM to his work machine.
+  - **Changed:** the Clean environment decision, and the run task.
+  - **Changed:** the work-machine steps use paste-in equivalents of `clean-install-check.ps1`, because that script needs PowerShell 7 and running a downloaded file. The script stays in the repo.
+  - **Open:** whether the from-source route runs there (question A in the steps).
 
 ## Review Triage Log
 
@@ -144,7 +148,17 @@ Pass 1 (quick lens): 7 findings: 1 rejected, 1 fixed by me, 5 sent to the implem
 - 2026-11-08 (build session): `dotnet build OneNoteMcp.slnx -warnaserror` passes with 0 warnings. `dotnet test tests/OneNoteMcp.Tests`: 1207 passed. `pack-plugin.ps1` packed `0.7.0-rc.2`, and `claude plugin validate --strict dist/stage/onenote` passes. The README purge test fails on the old README and passes on the new one.
 - Rehearsal with the Debug exe and the path overrides on a temp tree: `uninstall` alone exits 2; `--purge` without a terminal or `--yes` exits 2 and removes nothing; `--purge --yes` removed the 4 files and 4 folders and exited 0. `clean-install-check.ps1` gave PASS on that run; FAIL, as intended, when another app's folder vanished and the plugin exe changed; exit 2 for After without Before.
 - The name grep on the diff (notebook, section and employer names from the live hierarchy) is clean.
-- Not done yet: the interactive `purge` prompt in a real terminal (unit-tested only), and the clean-machine run (AC 1-3) with Phill after the release.
+- ~~Not done yet: the interactive `purge` prompt in a real terminal, and the clean-machine run~~. Both done on 2026-11-09, below.
+- **2026-11-09, clean run on Phill's work machine** (`v0.7.0-rc.2`; Claude Code 2.1.319; OneNoteMcp never installed before; preflight all as expected; not elevated):
+  - **AC 2, manual route:** the agent followed the README alone, the SHA-256 matched, and `get_hierarchy` listed all 36 notebooks. Mark-of-the-Web on the downloaded exe: no. Removed with `claude mcp remove --scope user onenote`, and the folder was deleted.
+  - **AC 2, from source:** the agent cloned 24230a1, `dotnet publish` succeeded, and after a restart `get_hierarchy` listed 36 notebooks through the tools. Removed the same way.
+  - **AC 1, plugin route:** `claude plugin marketplace add` then `claude plugin install` both exited 0, and `claude plugin list` shows `0.7.0-rc.2`, enabled. After a restart the plugin's `get_hierarchy` listed 36 notebooks, with no warnings. Mark-of-the-Web on the plugin's exe: no.
+  - **AC 3, purge:** the interactive `purge` prompt worked in a real terminal and exited 0. It removed 5 log files and 2 folders. `clean-install-check.ps1 -Phase After`: PASS (5 removed, 0 left, 0 not owned, 0 other AppData entries gone, plugin files 11 / 11 unchanged). An earlier `After`, run by mistake before the purge, reported FAIL with 0 removed. The `Before` snapshot is kept, so the second run compared against it. After the purge the plugin still lists the notebooks.
+  - **No Windows or policy block or warning** at any step. One local hook in Phill's own Claude Code setup (not this project) redirected `curl`, and the agents worked around it.
+  - **README gaps found:**
+    - (1) Step 3's from-source bullet doesn't repeat "ask the user to restart".
+    - (2) Step 4 doesn't say to verify after the restart. In all three routes the agent wrote its own stdio script and called the exe directly to list notebooks before the restart.
+  - **Test setup note:** Claude ran inside a clone of this repo, so the repo's CLAUDE.md loaded and its stale "registered locally as onenote" line confused the agents. In route 3 the agent also read the local README, which matched `origin/main`.
 
 **Commands:**
 - `dotnet build OneNoteMcp.slnx -warnaserror`; `dotnet test tests/OneNoteMcp.Tests`: both pass.
