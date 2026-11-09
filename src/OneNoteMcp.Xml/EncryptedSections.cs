@@ -29,13 +29,13 @@ public static class EncryptedSections
             .Select(From)];
 
     /// <summary>True when <paramref name="section"/> carries <c>encrypted="true"</c> (or <c>"1"</c>).</summary>
-    internal static bool IsEncrypted(XElement section) => IsTrue((string?)section.Attribute("encrypted"));
+    internal static bool IsEncrypted(XElement section) => OneNoteXml.IsTrue((string?)section.Attribute("encrypted"));
 
     internal static EncryptedSection From(XElement section) => new(
         (string?)section.Attribute("ID") ?? string.Empty,
         (string?)section.Attribute("name") ?? string.Empty,
         (string?)section.Attribute("path") ?? string.Empty,
-        IsTrue((string?)section.Attribute("locked")),
+        OneNoteXml.IsTrue((string?)section.Attribute("locked")),
         [.. section.Ancestors()
             .Where(a => a.Name == OneNoteXml.One + "Notebook" || a.Name == OneNoteXml.One + "SectionGroup")
             .Reverse()
@@ -50,7 +50,4 @@ public static class EncryptedSections
             ? nickname
             : (string?)element.Attribute("name") ?? string.Empty;
     }
-
-    // xs:boolean allows "true" or "1".
-    internal static bool IsTrue(string? value) => value is "true" or "1";
 }

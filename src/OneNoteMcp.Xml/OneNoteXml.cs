@@ -29,6 +29,9 @@ public static class OneNoteXml
         }
     }
 
+    /// <summary>True when an xs:boolean attribute value is true: <c>"true"</c> or <c>"1"</c>.</summary>
+    internal static bool IsTrue(string? value) => value is "true" or "1";
+
     /// <summary>Throws <see cref="OneNoteXmlException"/> unless the root element is <paramref name="localName"/> in the 2013 namespace.</summary>
     internal static XElement RequireRoot(XDocument document, string localName)
     {

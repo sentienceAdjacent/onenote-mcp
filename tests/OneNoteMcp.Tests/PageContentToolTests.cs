@@ -352,6 +352,38 @@ public sealed class PageContentToolTests
         Assert.Equal("GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).", error.GetProperty("message").GetString());
     }
 
+    // --- Story 2.1 (P3): the XPSFile probe never hides a timeout or a cancellation ------------------------------
+
+    [Theory]
+    [InlineData(ErrorCode.Timeout, "Timeout")]
+    [InlineData(ErrorCode.Cancelled, "Cancelled")]
+    public async Task ObjectNotFound_WhenTheConfirmingPageReadTimesOutOrIsCancelled_IsThatError(ErrorCode pageCode, string expected)
+    {
+        var gateway = new ScriptedGateway(
+            string.Empty,
+            binaryFailure: new OneNoteException(ErrorCode.ObjectNotFound, "GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).", unchecked((int)0x80042014)),
+            pageFailure: new OneNoteException(pageCode, "GetPageContent did not finish."));
+
+        var error = Error(await BinaryTool(gateway).GetBinaryPageContent("{p}", XpsCallbackId, Ct));
+
+        Assert.Equal(expected, error.GetProperty("code").GetString());
+        Assert.Equal("GetPageContent did not finish.", error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task ObjectNotFound_WhenTheConfirmingPageReadFailsOtherwise_IsTheOriginalError()
+    {
+        var gateway = new ScriptedGateway(
+            string.Empty,
+            binaryFailure: new OneNoteException(ErrorCode.ObjectNotFound, "GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).", unchecked((int)0x80042014)),
+            pageFailure: new OneNoteException(ErrorCode.ComBusy, "busy", unchecked((int)0x8004201D)));
+
+        var error = Error(await BinaryTool(gateway).GetBinaryPageContent("{p}", XpsCallbackId, Ct));
+
+        Assert.Equal("ObjectNotFound", error.GetProperty("code").GetString());
+        Assert.Equal("GetBinaryPageContent failed: hrObjectDoesNotExist (0x80042014).", error.GetProperty("message").GetString());
+    }
+
     [Fact]
     public async Task OtherErrors_NeverReadThePage()
     {
@@ -469,12 +501,14 @@ public sealed class PageContentToolTests
     }
 
     /// <summary>Answers every page read with fixed text (BinaryData with <paramref name="binaryData"/> when given), for malformed and edge-case XML.</summary>
-    private sealed class ScriptedGateway(string basic, string? binaryData = null, string binary = "", OneNoteException? binaryFailure = null) : IOneNoteGateway
+    private sealed class ScriptedGateway(string basic, string? binaryData = null, string binary = "", OneNoteException? binaryFailure = null, OneNoteException? pageFailure = null) : IOneNoteGateway
     {
         public (string PageId, string CallbackId)? LastBinaryCall { get; private set; }
 
         public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) =>
-            Task.FromResult(pageInfo == PageInfo.BinaryData && binaryData is not null ? binaryData : basic);
+            pageFailure is not null
+                ? Task.FromException<string>(pageFailure)
+                : Task.FromResult(pageInfo == PageInfo.BinaryData && binaryData is not null ? binaryData : basic);
 
         public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct)
         {

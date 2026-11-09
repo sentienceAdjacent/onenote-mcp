@@ -13,7 +13,8 @@ namespace OneNoteMcp.Core.UseCases;
 /// wrong callbackID, so the warning names both.</item>
 /// <item><c>0x80042014</c> hrObjectDoesNotExist for a File Printout's <c>one:XPSFile</c> (spike 1.15, quirk 2). Only on that
 /// error path, the server reads the page's piBasic once to confirm the callbackID is an <c>XPSFile</c>'s. Any other
-/// <c>ObjectNotFound</c>, or a confirming read that fails, stays the original error.</item>
+/// <c>ObjectNotFound</c>, or a confirming read that fails, stays the original error, except a confirming read that times
+/// out or is cancelled: that <c>Timeout</c> or <c>Cancelled</c> is the result.</item>
 /// </list>
 /// Every other error passes through unchanged. The use case never calls <c>NavigateTo</c> (AD-11). Before the binary
 /// read, the AD-21 check resolves the page's section, as for <see cref="GetPageContentUseCase"/>.
@@ -24,12 +25,6 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAcc
         : this(gateway, ReadAccess.WithoutStoredGrants(gateway))
     {
     }
-
-    /// <summary>hrBinaryObjectDoesNotExist.</summary>
-    public const int BinaryObjectDoesNotExist = unchecked((int)0x8004200F);
-
-    /// <summary>hrObjectDoesNotExist.</summary>
-    public const int ObjectDoesNotExist = unchecked((int)0x80042014);
 
     /// <summary>The <c>binaryUnavailable</c> userAction for a binary that isn't on this PC (story 1.21).</summary>
     public const string NotOnThisPcUserAction =
@@ -57,7 +52,7 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAcc
             var binary = await gateway.GetBinaryPageContentAsync(page, callback, ct).ConfigureAwait(false);
             return new ToolSuccess(null, new ToolMeta(context.CorrelationId, Binary: binary), []) { Source = new ResultSource(ResultKind.Text) };
         }
-        catch (OneNoteException ex) when (ex.ComHResult == BinaryObjectDoesNotExist)
+        catch (OneNoteException ex) when (ex.ComHResult == OneNoteHResults.BinaryObjectDoesNotExist)
         {
             // Caught here, so ToolRunner never logs it as an unmapped Internal failure. IDs only in the message (AD-9).
             return Unavailable(
@@ -65,7 +60,7 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAcc
                 $"OneNote has no binary for callbackID {callback} on page {page}. Either it isn't stored on this PC (an image in a notebook stored online that hasn't been downloaded) or the callbackID is wrong; OneNote reports both the same way.",
                 NotOnThisPcUserAction);
         }
-        catch (OneNoteException ex) when (ex.ComHResult == ObjectDoesNotExist)
+        catch (OneNoteException ex) when (ex.ComHResult == OneNoteHResults.ObjectDoesNotExist)
         {
             if (!await IsXpsFileAsync(page, callback, ct).ConfigureAwait(false))
             {
@@ -82,7 +77,10 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAcc
     private static ToolSuccess Unavailable(ToolCallContext context, string message, string userAction) =>
         new(null, new ToolMeta(context.CorrelationId), [new ToolWarning(ToolWarnings.BinaryUnavailable, message, userAction)]);
 
-    /// <summary>One piBasic read of the page. A failed read or unreadable XML means "not confirmed", so the caller rethrows the original error.</summary>
+    /// <summary>
+    /// One piBasic read of the page. A failed read or unreadable XML means "not confirmed", so the caller rethrows the
+    /// original error. A read that times out or is cancelled propagates: the original error would hide it.
+    /// </summary>
     private async Task<bool> IsXpsFileAsync(string pageId, string callbackId, CancellationToken ct)
     {
         string basic;
@@ -90,7 +88,7 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAcc
         {
             basic = await gateway.GetPageContentAsync(pageId, PageInfo.Basic, ct).ConfigureAwait(false);
         }
-        catch (OneNoteException)
+        catch (OneNoteException ex) when (ex.Code is not (ErrorCode.Timeout or ErrorCode.Cancelled))
         {
             return false;
         }

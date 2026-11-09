@@ -11,9 +11,6 @@ namespace OneNoteMcp.Core.UseCases;
 /// </summary>
 public sealed class NavigateToUseCase(IOneNoteGateway gateway) : IUseCase
 {
-    /// <summary>hrObjectDoesNotExist.</summary>
-    public const int ObjectDoesNotExist = unchecked((int)0x80042014);
-
     /// <summary>
     /// The userAction for <c>0x80042014</c>. OneMore's Defects page (research note row 14) reports a navigate repeated
     /// within about 2 s failing with this code; applied to <c>NavigateTo</c> by inference, not measured here.
@@ -31,7 +28,7 @@ public sealed class NavigateToUseCase(IOneNoteGateway gateway) : IUseCase
         {
             await gateway.NavigateToAsync(hierarchyId ?? string.Empty, objectId ?? string.Empty, ct).ConfigureAwait(false);
         }
-        catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound && ex.ComHResult == ObjectDoesNotExist)
+        catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound && ex.ComHResult == OneNoteHResults.ObjectDoesNotExist)
         {
             throw new OneNoteException(ex.Code, ex.Message, ex.ComHResult, ex, ex.OutcomeUnknown, ObjectNotFoundUserAction);
         }

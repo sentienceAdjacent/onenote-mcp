@@ -1,4 +1,3 @@
-using System.Xml.Linq;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.Settings;
@@ -78,18 +77,8 @@ public sealed class ListGrantsUseCase(IOneNoteGateway gateway, Func<SettingsSnap
     private async Task<HashSet<string>> OpenSectionKeysAsync(CancellationToken ct)
     {
         var xml = await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Sections, ct).ConfigureAwait(false);
-        try
-        {
-            return XDocument.Parse(xml)
-                .Descendants(OneNoteXml.One + "Section")
-                .Select(s => (string?)s.Attribute("path"))
-                .Where(p => !string.IsNullOrEmpty(p))
-                .Select(p => GrantKeys.SectionKey(p!))
-                .ToHashSet(GrantKeys.Comparer);
-        }
-        catch (System.Xml.XmlException ex)
-        {
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read (line {ex.LineNumber}).");
-        }
+        return XmlReads.Readable(() => SectionPaths.Find(xml), "GetHierarchy")
+            .Select(GrantKeys.SectionKey)
+            .ToHashSet(GrantKeys.Comparer);
     }
 }

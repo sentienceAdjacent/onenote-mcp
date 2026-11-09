@@ -75,15 +75,5 @@ public sealed class GetHierarchyUseCase(IOneNoteGateway gateway, ReadAccess acce
         };
     }
 
-    private static T Readable<T>(Func<T> read)
-    {
-        try
-        {
-            return read();
-        }
-        catch (OneNoteXmlException ex)
-        {
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}");
-        }
-    }
+    private static T Readable<T>(Func<T> read) => XmlReads.Readable(read, "GetHierarchy");
 }
