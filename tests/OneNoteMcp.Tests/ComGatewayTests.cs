@@ -25,17 +25,23 @@ public sealed class ComGatewayTests
     }
 
     [Fact]
-    public async Task ActivationComFailure_IsMapped_WithNamedHResult()
+    public async Task ActivationComFailure_AfterTheIntegrityCheckMatched_IsComUnavailable_WithNamedHResult()
     {
+        // FixedProbe(true) reports matching integrity levels, so 0x80080005 can't be an elevation mismatch (AD-9, story 1.14 Q3).
         using var gateway = new ComGateway(new FixedProbe(true), () => throw new COMException("fail", unchecked((int)0x80080005)));
 
         var ex = await Assert.ThrowsAsync<OneNoteException>(
             () => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
 
-        Assert.Equal(ErrorCode.IntegrityMismatch, ex.Code);
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
         Assert.Equal(unchecked((int)0x80080005), ex.ComHResult);
         Assert.Equal("Connecting to OneNote failed: CO_E_SERVER_EXEC_FAILURE (0x80080005).", ex.Message);
+        Assert.Equal("Restart OneNote, then retry.", ex.UserAction);
         Assert.IsType<COMException>(ex.InnerException);
+
+        var error = Core.Results.ToolErrors.From(ex, OperationClass.Read);
+        Assert.True(error.Retryable);
+        Assert.Equal("Restart OneNote, then retry.", error.UserAction);
     }
 
     [Fact]

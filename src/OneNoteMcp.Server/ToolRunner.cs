@@ -65,8 +65,15 @@ public sealed partial class ToolRunner
             failure = ex;
             envelope = Failure(ex, useCase.Class, context);
         }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            // The client cancelled this call (AD-9).
+            failure = ex;
+            envelope = Failure(new OneNoteException(ErrorCode.Cancelled, "The call was cancelled.", innerException: ex), useCase.Class, context);
+        }
         catch (OperationCanceledException ex)
         {
+            // A cancellation the client didn't ask for is unexpected: Internal, with the exception logged.
             failure = ex;
             envelope = Failure(new OneNoteException(ErrorCode.Internal, "The call was cancelled.", innerException: ex), useCase.Class, context);
         }

@@ -26,6 +26,26 @@ public static class ServerSetup
     /// </summary>
     public static string Version { get; } = ReadVersion();
 
+    /// <summary>
+    /// The server's logging (AD-13), shared by <c>Program</c> and the logging test: stdout carries MCP JSON-RPC only,
+    /// so every record goes to stderr as one line, and to the rolling file log when <paramref name="fileLogger"/> is set
+    /// (it is disposed with the logger factory).
+    /// </summary>
+    public static ILoggingBuilder AddOneNoteMcpLogging(this ILoggingBuilder logging, Serilog.Core.Logger? fileLogger)
+    {
+        ArgumentNullException.ThrowIfNull(logging);
+
+        logging.ClearProviders();
+        logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+        logging.AddSimpleConsole(o => o.SingleLine = true); // one stderr line per log record
+        if (fileLogger is not null)
+        {
+            Serilog.SerilogLoggingBuilderExtensions.AddSerilog(logging, fileLogger, dispose: true);
+        }
+
+        return logging;
+    }
+
     public static IMcpServerBuilder AddOneNoteMcp(this IServiceCollection services)
     {
         // Read side of settings.json (AD-10): every Read() re-reads the file, so one instance serves the process.

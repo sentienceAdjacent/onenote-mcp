@@ -13,7 +13,7 @@ public sealed class ToolErrorsTests
         ErrorCode.WriteNotGranted, ErrorCode.PermanentDeleteNotGranted, ErrorCode.ReadNotGranted, ErrorCode.SettingsInvalid,
     ];
 
-    private static readonly ErrorCode[] RetryableForReadOnly = [ErrorCode.ComUnavailable, ErrorCode.Timeout];
+    private static readonly ErrorCode[] RetryableForReadOnly = [ErrorCode.ComUnavailable, ErrorCode.Timeout, ErrorCode.Cancelled];
 
     public static TheoryData<ErrorCode, OperationClass> AllCodesAndClasses()
     {

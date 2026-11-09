@@ -83,7 +83,7 @@ public sealed class GetHierarchyUseCase(IOneNoteGateway gateway, ReadAccess acce
         }
         catch (OneNoteXmlException ex)
         {
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}", innerException: ex);
+            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}");
         }
     }
 }

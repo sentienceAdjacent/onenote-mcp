@@ -7,7 +7,7 @@ paradigm: 'hexagonal (ports and adapters) with a single-STA actor per process'
 scope: 'Local stdio MCP server that reads and manages OneNote desktop notebooks over COM, plus its Claude Code plugin (skill + server config)'
 status: final
 created: '2026-11-03'
-updated: '2026-11-07'
+updated: '2026-11-09'
 binds: [all]
 sources:
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md
@@ -153,7 +153,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     4. Validate.
     5. Optimistic check (AD-17). The server compares the basis date and hashes against step 3's read itself, for every class AD-17 binds. It also passes the date to the COM methods that take one: `UpdatePageContent`, `DeletePageContent` and `DeleteHierarchy`. `UpdateHierarchy` takes no date, so its check is the server's comparison alone.
     6. Snapshot (AD-8).
-    7. COM call. A failure here with `Timeout` or `ComUnavailable` sets `outcomeUnknown` (AD-9).
+    7. COM call. A failure here with `Timeout`, `ComUnavailable` or `Cancelled` sets `outcomeUnknown` (AD-9).
     8. Release the lock.
   - Creating a notebook adds a step between 7 and 8: write the automatic grant (AD-6) under `Local\OneNoteMcp.Settings`. The lock order is always `Local\OneNoteMcp.Write` outside and `Local\OneNoteMcp.Settings` inside. If the path can't be read back, the result is `ok: true` with the warning `createdNotGranted`, and its `userAction` names the grant CLI.
   - Each pipeline has a deadline: 120 s by default, 600 s for classes that publish.
@@ -201,7 +201,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
       - Anything else, every error included, carries the whole envelope JSON.
       - `structuredContent` always carries the full envelope.
       - This replaced a text block that repeated the whole envelope JSON, which escaped the XML to 1.25–1.66 times its size.
-    - Errors the MCP SDK raises before a tool runs (unknown tool, input-schema rejection) are JSON-RPC errors outside the envelope.
+    - Errors the MCP SDK raises before a tool runs are outside the envelope. An unknown tool is a JSON-RPC error. A missing required argument, a misnamed one standing in for a required one, or a value outside its enum fails as the SDK's own `isError` result: a generic text block and no `structuredContent`. A misnamed optional argument is ignored, and the tool runs with its default (SDK 2.3.1, `McpSdkBindingTests`, story 1.14).
   - **Who throws what:**
     - Tools never throw.
     - `ErrorCode` and `OneNoteException` live in Core. `ComGateway` and `FakeGateway` throw only `OneNoteException`.
@@ -212,7 +212,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - `BinaryUnavailable` is a warning, never an error.
     - `outcomeUnknown: true` always comes with `retryable: false` and `userAction`: "re-read, then retry if the change is absent".
     - `hrTimeOut` (`0x80042023`) is an error OneNote returns, not our deadline: AD-3's timed-out-call rules (abandon the thread, count it toward the abandoned-thread limit) apply only to the gateway's own deadline.
-    - The write pipeline (AD-7) sets `outcomeUnknown` on a write that fails with `Timeout` or `ComUnavailable`, whatever the source, since the HRESULT map alone can't know the call wrote.
+    - The write pipeline (AD-7) sets `outcomeUnknown` on a write that fails with `Timeout`, `ComUnavailable` or `Cancelled`, whatever the source, since the HRESULT map alone can't know the call wrote.
     - Deliberately `Internal`, by reason:
       - Paths, not objects: `0x80042006` hrFileDoesNotExist, `0x80042018` hrFolderDoesNotExist.
       - Degraded instead: `0x8004200F` hrBinaryObjectDoesNotExist (reads turn it into the `BinaryUnavailable` warning).
@@ -224,10 +224,11 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 | Code | Source | Retryable |
 | --- | --- | --- |
 | `OneNoteNotRunning` | process check | yes |
-| `IntegrityMismatch` | integrity check; `0x80080005` | no |
-| `ComUnavailable` | `0x800706BA`, `RPC_E_DISCONNECTED`, too many abandoned threads | read yes; write no (`outcomeUnknown`) |
+| `IntegrityMismatch` | integrity check | no |
+| `ComUnavailable` | `0x800706BA`, `RPC_E_DISCONNECTED`, too many abandoned threads; `0x80080005` CO_E_SERVER_EXEC_FAILURE after the integrity check passed (`userAction`: restart OneNote) | read yes; write no (`outcomeUnknown`) |
 | `ComBusy` | `0x80010001` / RETRYLATER after backoff; `0x8004201D` hrNotYetSynchronized; write-lock timeout; abandoned write outstanding | yes |
 | `Timeout` | call or pipeline deadline; `0x80042023` hrTimeOut | read yes; write no (`outcomeUnknown`) |
+| `Cancelled` | the call's own cancellation token was cancelled (a client cancel, or the session ending). Any other `OperationCanceledException` is `Internal` (story 1.14) | read yes; write no (`outcomeUnknown`, epic 2) |
 | `ModalDialogOpen` | `0x80042030` | yes, after the user closes the dialog |
 | `SectionLocked` | `0x8004201B`, or `locked="true"` | after the user unlocks it |
 | `StaleWrite` | `0x80042010`, basis mismatch | no; re-read |
@@ -573,16 +574,16 @@ flowchart LR
 | `DeleteHierarchy` on a whole notebook; permanent delete of a section group | Not probed. Verify in the permanent-delete story |
 | `DeleteHierarchy(deletePermanently=false)` on a page in a protected section | Not probed. Verify in epic 2's soft-delete story: if COM moves it to the recycle bin, amend AD-21; if COM deletes it permanently, the `SoftDelete` pipeline refuses it rather than do a permanent delete without AD-6's grant |
 | `Publish` to OneNote format as the backup route | Not probed. Verify in the permanent-delete story; if it fails, AD-8/AD-7 are amended |
-| Refusing to replace an Outline with an unavailable image (AD-7) | Rests on `UpdatePageContent` behaviour that wasn't probed. Verify with a cloud-page fixture |
+| Refusing to replace an Outline with an unavailable image (AD-7) | Rests on `UpdatePageContent` behaviour that wasn't probed. Epic 2's page-write story verifies it with a cloud-page fixture |
 | XML schema `xs2026` (undocumented; `Cell@colSpan`/`rowSpan`, `AuthorDef`) | AD-4 stays on `xs2013`. Spike before epic 2's write stories: does a 2013 round trip unmerge cells, and does `UpdatePageContent` accept 2026? Amend AD-4 if needed |
 | Which `lastModifiedTime` `UpdatePageContent`, `DeletePageContent` and `DeleteHierarchy` accept when a page's page-XML and hierarchy values differ | Epic 2: the page-write and soft-delete stories test a test-notebook page whose two values differ. AD-17 pins the page-XML value; spike 1's update probes used it successfully, but the delete methods were never probed with a date. If the page-XML value is disproved, only the date passed to COM changes; `meta.basis` stays. A wrong value shows up as a spurious `StaleWrite` |
-| Whether a notebook's `path` is stable, and its exact forms | Access story, in the test notebook. Capture local and cloud `path` values. Close and reopen, and compare. Rename in OneNote, then rename the folder or OneDrive item. Amend `NotebookKey` from the captures |
+| Whether a notebook's `path` is stable, and its exact forms | Epic 2's access story, in the test notebook. Capture local and cloud `path` values. Close and reopen, and compare. Rename in OneNote, then rename the folder or OneDrive item. Amend `NotebookKey` from the captures |
+| Whether a section's `path` is stable | Epic 2's access story, with the notebook row above. `SectionKey` (AD-21) assumes it is, as `NotebookKey` does; story 1.20 didn't capture it. Capture local and cloud values, close and reopen, and rename, as for notebooks. Amend `SectionKey` from the captures |
 | OneNote elevated while the server isn't | Untested. AD-3's integrity check refuses either way |
-| A windowless OneNote left running after silent activation and idle release | Only possible when `allowSilentActivation` is on. The README notes it |
+| A windowless OneNote left running after silent activation and idle release | Only possible when `allowSilentActivation` is on. The README notes it. With no OneNote running the integrity check passes trivially, so a failed silent launch that returns `0x80080005` gets the restart advice |
 | Attachment (`InsertedFile`) reads on cloud notebooks | Not probed. The AD-4 degrade rule applies |
-| Text blocks between 383,893 and 500,000 characters | Unmeasured with `maxResultSizeChars`. AD-20 caps `inlineMaxChars` at 380,000, the largest measured whole delivery. Raise the cap only after a probe |
-| A header line over the inline threshold | An envelope whose `meta` alone is huge, such as thousands of `meta.filtered` entries, hasn't been seen. Story 1.18 measures it on story 17's fixture; if it happens, amend AD-20 to store those lists with the result |
+| Text blocks between 383,893 and 500,000 characters | Unmeasured with `maxResultSizeChars`. AD-20 caps `inlineMaxChars` at 380,000, the largest measured whole delivery. Raise the cap only after a probe, which epic 2 runs before any story raises it |
+| A header line over the inline threshold | Not seen in the stress-harness runs of stories 1.18 (617 comparisons, largest text block 100,000 characters) and 1.20 (617 and 620 comparisons, none over 100,000); AD-20 unchanged. `ToolRunner` warns (`text block over the inline threshold`, IDs and sizes only) if it happens; then amend AD-20 to store lists such as `meta.filtered` with the result |
 | Clients other than Claude Code | They don't know the `_meta` key. The user lowers `results.inlineMaxChars` for them, and the README says how |
-| Pages deleted from a protected section | Resolved for the UI, AD-21 unchanged (Phill, 2026-11-07, M365 OneNote desktop 16.0 on Windows). A UI delete of a page in a protected section is refused with "Pages from password protected sections cannot be moved to Deleted Notes", and only a permanent delete is offered. The notebook's "Deleted Pages" section isn't `encrypted`, so a page landing there would have leaked; the test page wasn't in it afterwards. Still unverified: a protected section deleted whole (does `encrypted` survive in the recycle bin?), and other clients syncing into the notebook. Pages deleted before a section was protected stay readable in the recycle bin (README) |
-| Whether `FindPages` and `FindMeta` XML carries `encrypted` on `one:Section` | Unverified. AD-21 makes search find protected sections with an extra `GetHierarchy`. Story 1.20 checks the search XML on story 17's fixture; if `encrypted` is reliably present, the extra call may be dropped |
-| Whether a section's `path` is stable | `SectionKey` (AD-21) assumes it is, as `NotebookKey` does. Story 1.20 captures local and cloud values, closes and reopens, and renames, as the access story does for notebooks |
+| Pages deleted from a protected section | Resolved for the UI, AD-21 unchanged (Phill, 2026-11-07, M365 OneNote desktop 16.0 on Windows). A UI delete of a page in a protected section is refused with "Pages from password protected sections cannot be moved to Deleted Notes", and only a permanent delete is offered. The notebook's "Deleted Pages" section isn't `encrypted`, so a page landing there would have leaked; the test page wasn't in it afterwards. Still unverified, for epic 2's soft-delete story: a protected section deleted whole (does `encrypted` survive in the recycle bin?), and other clients syncing into the notebook. Pages deleted before a section was protected stay readable in the recycle bin (README) |
+| Whether `FindPages` and `FindMeta` XML carries `encrypted` on `one:Section` | Partly answered, AD-21 unchanged (story 1.20, 2026-11-07, on story 17's fixture): the `FindPages` XML marks the protected section `encrypted="true"`. `FindMeta`'s XML wasn't checked, and one observation doesn't show the attribute is reliably present, so search keeps the extra `GetHierarchy`. Dropping it is an optimization; revisit with epic 2's search probe |

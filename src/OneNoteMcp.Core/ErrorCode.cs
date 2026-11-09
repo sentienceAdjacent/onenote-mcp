@@ -15,6 +15,9 @@ public enum ErrorCode
     ComUnavailable,
     ComBusy,
     Timeout,
+
+    /// <summary>The client cancelled the call (its own cancellation token), before it finished.</summary>
+    Cancelled,
     ModalDialogOpen,
     SectionLocked,
     StaleWrite,
