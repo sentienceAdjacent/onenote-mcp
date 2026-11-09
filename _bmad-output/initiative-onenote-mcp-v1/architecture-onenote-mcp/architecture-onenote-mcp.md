@@ -60,7 +60,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Prevents:** stories creating their own COM objects or threads; COM calls made off the STA thread.
 - **Rule:**
   - Each process has one live `ComGateway` STA thread at a time, with a message pump, owning one COM reference. It serialises every call through its queue.
-  - No other type references the COM interop types.
+  - The COM interop types are `internal` to `OneNoteMcp.Com`. Inside it, only `ComGateway` and its `StaThread` worker reference them: `ComGateway` creates the `IApplication` and makes every call; the worker holds and releases it, on its own STA thread. The test projects also see them through `InternalsVisibleTo`, for the vtable smoke test and `FakeApplication` (AD-16).
 
 ### AD-3 — Gateway lifecycle [ADOPTED]
 
@@ -379,7 +379,8 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - **Source of `lastModifiedTime`, by target:**
       - For a page, it is the root `lastModifiedTime` of the page XML from a `GetPageContent` read. The hierarchy's value for a page can differ and is never used for a page's basis.
       - For a section, section group or notebook, it is that node's `lastModifiedTime` from `GetHierarchy`.
-    - Reads return the basis as one object, `meta.basis: {lastModifiedTime, pageHash?, elementHashes?}`. The caller passes it back unchanged. For an oversized page (AD-20), each part carries a basis with the hashes of the elements in that part, and an `expand` response carries the hash of the element it expands. A caller may merge the `elementHashes` from one `resultId`'s responses into one basis.
+    - Page reads return the basis as one object, `meta.basis: {lastModifiedTime?, pageHash?, elementHashes?}`. A field is left out only where OneNote's XML lacks it or AD-20 says so. The caller passes it back unchanged. For an oversized page (AD-20), each part carries a basis with the hashes of the elements in that part, and an `expand` response carries the hash of the element it expands. A caller may merge the `elementHashes` from one `resultId`'s responses into one basis.
+    - Hierarchy reads add no `meta.basis`, because one result can hold many nodes. A notebook's, section group's or section's basis is the `lastModifiedTime` attribute on its element in the returned XML, and the caller passes it as `basis: {lastModifiedTime}`. A caller holding only an ID, such as one from `get_hierarchy_parent`, reads the node with `get_hierarchy` scope `self`. An oversized hierarchy result's index entries carry no `lastModifiedTime`, so the caller reads the node's part with `read_result` to get it.
     - The date stays the exact string OneNote returned until the gateway converts it. Only `OneNoteMcp.Xml` parses it.
   - **What each write compares:**
     - A page delete compares `pageHash`.

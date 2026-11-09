@@ -143,3 +143,11 @@ Closes or routes every epic 1 entry above. Entries already marked "Epic 2" (writ
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/epic-read-only-release-retrospective.md`
   summary: For bmad-correct-course (retro C1–C3, A2, A3). Epic Done-when 2 says "XML unchanged", but AD-4 now allows removals, withholding and parts. Its basis is page-only, though AD-17 also defines one for hierarchy nodes. The `navigate_to` boundary wording covers only fetching images. Spine AD-2 says only `ComGateway` touches the interop types, but `StaThread` holds `IApplication`. The spine diagram has no Server→Xml arrow (`GrantCommand.cs:5`).
   evidence: The epic 1 retrospective's spec and architecture tables.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/change-epic-1-retro-wording/change-epic-1-retro-wording.md`
+  summary: "Epic 2 first refactor" group, added (Phill, 2026-11-09, retro A3 option b): the grant CLI calls `EncryptedSections.Find` in Xml directly, which the spine's diagram doesn't allow (Server depends on Core and Com only). Move it behind Core, which already makes the same call, with the `InvalidXml` mapping, in `ReadAccess` and `GetHierarchyUseCase`. The spine stays as it is.
+  evidence: `src/OneNoteMcp.Server/Cli/GrantCommand.cs:5,227-237`.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/change-epic-1-retro-wording/change-epic-1-retro-wording.md`
+  summary: The bmad-correct-course item above (retro C1–C3, A2, A3) is resolved by that change proposal. C1, C2 (option b), C3 and A2 are reconciled in the epic 1 file, the initiative, the epic 3 file, the spine (AD-2, AD-17) and the README. A3 is the refactor entry just above.
+  evidence: the change proposal's section 4.

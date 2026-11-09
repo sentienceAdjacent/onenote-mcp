@@ -33,14 +33,14 @@ This epic reuses the initiative's lines R1 (read), R2 (search), R3 (robust opera
 ## Done when
 
 1. `/plugin marketplace add` and `/plugin install` on a machine with OneNote running install the skill and a pre-built exe from a GitHub release. `get_hierarchy` then lists the notebooks.
-2. Every R1 and R2 tool returns the AD-9 envelope, the XML is unchanged, and the basis (`lastModifiedTime`, `pageHash`, `elementHashes`) is in `meta`.
+2. Every R1 and R2 tool returns the AD-9 envelope. Its XML is OneNote's own, changed only as AD-4 allows: search removals, protected pages withheld (AD-21) and delivery in parts (AD-20). Page reads return the basis (`lastModifiedTime`, `pageHash`, `elementHashes`) in `meta.basis`. For a notebook, section group or section, the basis is the `lastModifiedTime` already on its element in the XML (AD-17).
 3. The integration suite shows the AD-3 behaviour against real OneNote: OneNote not running, a modal dialog open, an integrity mismatch refused, a reconnect after OneNote restarts, and a hung call replaced.
 4. CI runs the unit suite against `FakeGateway` fixtures and `claude plugin validate`. Both pass on the release commit.
 5. An agent following the README's checklist installs it, and `uninstall --purge` removes settings and logs.
 
 ## Boundaries
 
-All four projects (Server, Core, Xml, Com), both test suites, CI, the plugin and marketplace, the `guide` skill, the release workflow, and `README.md`. No write tools: the classes other than `Read` are left to later epics, and so is the AD-18 mutex. Two exceptions, both from spike 1.15: one user-requested `NavigateTo` for the opt-in image fetch (entry 21, bound by AD-11), and the AD-6 grant machinery, built here for the protected-section read grant (entries 16 and 20) ahead of the write grants.
+All four projects (Server, Core, Xml, Com), both test suites, CI, the plugin and marketplace, the `guide` skill, the release workflow, and `README.md`. No write tools: the classes other than `Read` are left to later epics, and so is the AD-18 mutex. Two exceptions, both from spike 1.15: the user-visible `navigate_to` tool (entry 21, bound by AD-11), and the AD-6 grant machinery, built here for the protected-section read grant (entries 16 and 20) ahead of the write grants. `navigate_to` shows any notebook, section group, section or page when the user asks. It came in for the opt-in image fetch, and it's all of `NavigateTo` the spine allows (`fNewWindow` stays false, AD-11), so epic 3 doesn't build it again.
 
 ## References
 
@@ -86,3 +86,4 @@ All four projects (Server, Core, Xml, Com), both test suites, CI, the plugin and
 - Hands-off to later epics: the gateway, the envelope and `ErrorCode`, the settings type (read side), the XML model with `ElementHash`, `FakeGateway`, the integration harness, the release pipeline, the plugin and the skill. Later epics extend the skill and README, and cut releases through this pipeline.
 - Decision (2026-11-06, Phill): spike 1.15's recommendations become entries 16–21, all before 13. 16 is the spine amendment for large-result delivery and the protected-section read grant. 17 is a synthetic size fixture. 18 is large-result delivery, 19 is find_pages cost, 20 is the read grant, and 21 covers missing binaries (XPSFile, download guidance, opt-in fetch). Lanes: 16 and 17 open in parallel. 18 then changes every read tool's output path, so 19 (search) and 21 (binary tools) follow it in parallel, and 20, which touches all the tools, comes last.
 - Decision (2026-11-06, Phill): the boundary widens for one user-requested `NavigateTo` (the opt-in image fetch) and for building the AD-6 grant machinery here, for the protected-section read grant.
+- Decision (2026-11-09, Phill, retro C1–C3; see `../change-epic-1-retro-wording/`): Done-when 2 now says what shipped. The XML is changed only as AD-4 allows, and the basis is in `meta.basis` for page reads, while a hierarchy node's basis is the `lastModifiedTime` on its element (AD-17 amended). `navigate_to` shipped as a general `NavigateTo` tool, not only for images: the skill calls it whenever the user explicitly asks to see something in OneNote, epic 3 no longer owns `NavigateTo`, and initiative R9 marks it shipped.

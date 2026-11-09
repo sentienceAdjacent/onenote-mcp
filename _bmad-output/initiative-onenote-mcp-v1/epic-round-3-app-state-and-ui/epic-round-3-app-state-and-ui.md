@@ -14,7 +14,7 @@ risk: medium
 
 This epic covers the rest of the COM surface:
 - `OpenHierarchy` on an existing notebook, `CloseNotebook`, `SyncHierarchy` and `SetFilingLocation`;
-- the user-visible calls `NavigateTo`, `NavigateToUrl`, `QuickFiling` and `Windows`, called only when the user explicitly asks (AD-11);
+- the user-visible calls `NavigateToUrl`, `QuickFiling` and `Windows`, called only when the user explicitly asks (AD-11). `NavigateTo` shipped in epic 1 as `navigate_to` (story 1.21);
 - events, if they can be built;
 - the remaining Application properties (`COMAddIns`, `LanguageSettings`): each gets a tool or a dated Decision not to expose it.
 

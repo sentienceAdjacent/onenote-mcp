@@ -61,3 +61,4 @@ Out of scope: move, merge, exports and recycle-bin restore (epic 3), and app-sta
   - Side effects on untouched content (child `lastModifiedTime`, dropped local styles, equation corruption across a live selection).
   - HRESULTs to add to AD-9, `0x80042022` content loss first.
 - Unknown: whether `UpdatePageContent` drops an image with no local binary when its Outline is replaced (the basis for the AD-7 refusal). It's verified here with a cloud-page fixture.
+- Decision (2026-11-09, Phill, retro C2; AD-17 amended): a notebook's, section group's or section's basis is the `lastModifiedTime` attribute on its element in the hierarchy XML. Hierarchy reads add no `meta.basis`; the caller passes `basis: {lastModifiedTime}`. See `../change-epic-1-retro-wording/` and the spine memlog.

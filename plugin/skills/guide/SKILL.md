@@ -32,7 +32,7 @@ Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its b
 | `mcp__plugin_onenote_desktop__get_special_location` (`get_special_location`) | Get the path of the backup folder, the Quick Notes section or the default notebook folder | `meta.path` |
 | `mcp__plugin_onenote_desktop__read_result` (`read_result`) | Read a result that was too large to return whole, part by part (see Large results) | `xml` (a part) or `index` |
 | `mcp__plugin_onenote_desktop__list_grants` (`list_grants`) | Show which password-protected sections the user has allowed you to read, and until when (see Password-protected sections) | `meta.grants` |
-| `mcp__plugin_onenote_desktop__navigate_to` (`navigate_to`) | **User-visible.** Show a notebook, section or page in OneNote (and select one object on it). Only when the user explicitly asks; see Missing images | nothing |
+| `mcp__plugin_onenote_desktop__navigate_to` (`navigate_to`) | **User-visible.** Show a notebook, section group, section or page in OneNote (and select one object on it). Only when the user explicitly asks; see Missing images | nothing |
 
 Every result is an envelope: `{ok: true, xml?, index?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
 
@@ -82,7 +82,7 @@ A section with a password (`encrypted="true"` on its `one:Section`) stays privat
 
 ## Reading the XML
 
-All XML is in the OneNote 2013 schema, namespace `http://schemas.microsoft.com/office/onenote/2013/onenote`, prefix `one:`. The server passes it through unchanged.
+All XML is in the OneNote 2013 schema, namespace `http://schemas.microsoft.com/office/onenote/2013/onenote`, prefix `one:`. It's OneNote's own XML: the server never edits it, and only leaves out whole pages, such as recycle-bin pages in search results and pages of a password-protected section the user hasn't granted. The result names the pages it filtered (`meta.filtered`) or the sections it withheld (`meta.withheld`).
 
 ### Hierarchy XML
 
