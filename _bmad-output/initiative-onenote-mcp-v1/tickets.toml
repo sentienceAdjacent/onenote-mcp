@@ -9,16 +9,23 @@ covers = ["R1", "R2", "R3", "R7"]
 [[epic]]
 id = 2
 slug = "epic-safe-writes"
-title = "Safe writes"
+title = "Safe page writes"
 covers = ["R4", "R5", "R6"]
 after = [{ epic = 1, needs = "the gateway, result envelope and error map, settings schema, XML model with ElementHash, test harnesses, and the release pipeline and plugin" }]
+
+[[epic]]
+id = 5
+slug = "epic-hierarchy-writes-and-deletes"
+title = "Hierarchy writes and deletes"
+covers = ["R4", "R5", "R6"]
+after = [{ epic = 2, needs = "the write pipeline, write lock, write grants and dialog, journal, restore_from_journal, and section creation on the gateway" }]
 
 [[epic]]
 id = 3
 slug = "epic-round-2-external-and-structural"
 title = "Round 2: exports, move and merge"
 covers = ["R5", "R8"]
-after = [{ epic = 2, needs = "the operation-class pipeline, grants, write lock and journal" }]
+after = [{ epic = 2, needs = "the operation-class pipeline, grants, write lock and journal" }, { epic = 5, needs = "UpdateHierarchy and soft delete, which move and restore_from_recycle_bin build on" }]
 
 [[epic]]
 id = 4

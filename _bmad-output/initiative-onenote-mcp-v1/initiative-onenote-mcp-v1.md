@@ -13,7 +13,7 @@ risk: high
 ## Description
 
 This initiative delivers a local MCP server that lets Claude Code, and other MCP clients, read and manage the notebooks in the user's OneNote desktop app over COM. It ships as a Claude Code plugin: a skill plus a pre-built exe. The goal is the full COM surface, delivered in rounds:
-- v1 (epics 1–2) is reading, searching and safe core writes, permanent delete included.
+- v1 (epics 1, 2 and 5) is reading, searching and safe core writes, permanent delete included.
 - Round 2 adds exports, move and merge.
 - Round 3 adds app-state and UI calls.
 
@@ -69,13 +69,14 @@ Phill, and anyone who installs the plugin, can have Claude read, search and chan
 
 The boundary is the capability: one repo, one owner (Phill, with agent lanes). The epics split by outcome and by round:
 - **Epic 1:** usable read-only, released.
-- **Epic 2:** safe writes.
+- **Epic 2:** safe page writes.
+- **Epic 5:** hierarchy writes and deletes, permanent delete included. It builds third: ids are never reused.
 - **Epic 3:** round 2.
 - **Epic 4:** round 3.
 
 Out of scope: Microsoft Graph and OneNote on the web, OneNote for Windows 10 (UWP), macOS, and non-Windows clients.
 
-Tracer path: `get_hierarchy` through `ComGateway`, installed from a GitHub release (epic 1). Then `update_page_content` on a granted notebook, with a journal snapshot and a restore (epic 2).
+Tracer path: `get_hierarchy` through `ComGateway`, installed from a GitHub release (epic 1). Then `update_page_content` on a granted notebook, with a journal snapshot and a restore (epic 2). Epic 2's first slice proves the write layers with `create_page`, and reaches this path in its later entries.
 
 Touch points:
 - **OneNote desktop (`ONENOTE.EXE`):** consumed over COM. Owner: epic-read-only-release (gateway).
@@ -93,9 +94,10 @@ Touch points:
 
 ## Notes
 
-- Decision (2026-11-03, Phill): four epics, with distribution folded into epic 1 so every epic ships a release. Order: read-only release, safe writes, round 2, round 3.
-- Decision (2026-11-03, Phill): permanent delete is in v1 (epic 2), behind its second grant and the OneNote-format backup.
+- Decision (2026-11-03, Phill): four epics, with distribution folded into epic 1 so every epic ships a release. Order: read-only release, safe writes, round 2, round 3. Amended 2026-11-09: five epics; order 1, 2, 5, 3, 4.
+- Decision (2026-11-03, Phill): permanent delete is in v1 (epic 2), behind its second grant and the OneNote-format backup. Amended 2026-11-09: it moves to epic 5, still in v1.
 - Decision (2026-11-03, Phill): spike 1 (done) moves under epic 1. Its files moved with it, and the references to them were updated.
 - Decision (2026-11-03): no new cross-epic decision is needed. Every shared contract lives in the spine (AD-7, AD-9, AD-10, AD-14, AD-17).
-- Unknown: `Publish` to OneNote format as the permanent-delete backup, and `DeleteHierarchy` on a whole notebook, were never probed. Epic 2 owns both. If the backup route fails, permanent delete is blocked and the spine is amended.
+- Unknown: `Publish` to OneNote format as the permanent-delete backup, and `DeleteHierarchy` on a whole notebook, were never probed. Epic 5 owns both. If the backup route fails, permanent delete is blocked and the spine is amended.
 - Unknown: managed-code events (Microsoft says they aren't supported). Owned by epic 4.
+- Decision (2026-11-09, Phill, epic 2 inception): epic 2 splits in two. Epic 2, "Safe page writes", keeps the pipeline, write grants, the journal, page writes and `restore_from_journal`. A new epic 5, "Hierarchy writes and deletes", takes hierarchy creation, rename and reorder, soft delete and permanent delete with its backup. Epic 5 builds after epic 2 and before round 2, whose move and `restore_from_recycle_bin` need it. v1 is epics 1, 2 and 5. Each ships its own release. Reason: page writes reach real use sooner, and the riskiest work in v1 comes after a retrospective on page writes.
