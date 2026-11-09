@@ -1,0 +1,152 @@
+# tickets.toml — epic-safe-writes ("Safe page writes"). Table order is the build order.
+# Agreed at inception, 2026-11-09 (Phill). The draft and its reviews are in review/.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Opening refactor"
+description = "Clears the epic 1 retrospective's \"epic 2 first refactor\" group before write code lands beside it: D1–D5, P2 with an .editorconfig rule, P3 (the only behaviour change: the XPSFile probe stops swallowing Timeout and Cancelled), S2 (split ReadAccess), S3 and A3 (the grant CLI's EncryptedSections call moves behind Core)."
+verify = "All suites pass, the stress harness on MCP Test shows 0 mismatches, a P3 test fails on the old code, and a security review of the ReadAccess split finds no change in who can read what."
+covers = ["R4"]
+after = ["1.14"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-onenote-mcp-v1/deferred-work.md", "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/epic-read-only-release-retrospective.md"]
+
+[[entry]]
+id = 2
+type = "spike"
+title = "Write probes, part 1: pages, paths and search"
+description = "Phill first creates the throwaway OneDrive notebook \"MCP Test Cloud\" (one page with an image that isn't downloaded) and the integration guard is widened to allow it; then probes on MCP Test and MCP Test Cloud settle page-write behaviour (merge by objectID, ignored edits and read-back, a cloud image dropped on Outline replace, side effects, ModalDialogOpen per method, HRESULTs), the dates UpdatePageContent and DeletePageContent accept, the Column/@width and pathCache hash quirks, xs2026 and merged cells, notebook and section path stability, and the Q5 search probe."
+verify = "A findings doc gives one probe result per question and its constraints are logged in the spine memlog, with Phill present for the live writes."
+covers = ["R4", "R6"]
+after = ["1.14"]
+hitl = true
+risk = "high"
+unknown = "Everything it probes; the width quirk was seen only on a real notebook and may not reproduce."
+references = ["_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/research-onemore-lessons.md", "spikes/stress-harness/README.md"]
+
+[[entry]]
+id = 3
+type = "story"
+title = "Spine amendments from the page-write probes"
+description = "Amends the spine from entry 2's findings and the inception decisions: AD-4 schema, AD-7 read-back and image refusal, AD-9 page-write HRESULTs and InvalidArgument, AD-16 gate, AD-17 hash exclusions and element-delete comparison, AD-6/AD-21 NotebookKey and SectionKey, and writes in protected sections (AD-6, AD-7, AD-8, AD-9, AD-10, AD-21: both grants, DPAPI journal entries, restore only into the same section, the dialog order, whether a once grant covers a write, whether create_page needs the read grant, restore into a locked or missing section), plus the Deferred rows."
+verify = "The Fable final review has run and Phill has approved the amended spine."
+covers = ["R4", "R5", "R6"]
+after = [2]
+hitl = true
+risk = "high"
+unknown = "What the spike finds."
+
+[[entry]]
+id = 4
+type = "story"
+title = "Tracer: create_page through the write pipeline"
+description = "The tracer bullet: the AD-7 step runner with the Create class's steps and deadline, the Local\\OneNoteMcp.Write mutex, the notebooks{} settings model with `grant --write <notebook>` that Phill runs, CreateNewPage on the port and both gateways, a create_page tool with Create validation, outcomeUnknown on Timeout/ComUnavailable/Cancelled, cache eviction, the NewerSchema advice, and the two readOnlyHint checks (the harness's and NavigateToToolTests) updated for write tools."
+verify = "After Phill runs `grant --write \"MCP Test\"`, create_page from Claude Code adds a page there, an ungranted notebook returns WriteNotGranted, a two-process integration test shows writes never interleave, and the harness passes."
+covers = ["R4", "R6"]
+after = [1]
+hitl = true
+risk = "high"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Reject unknown argument names"
+description = "Every tool refuses an argument name it doesn't declare and names it, using the InvalidArgument error code entry 3 adds to AD-9, with a contract minor bump; it shares ToolRunner.cs and the contract snapshot with entry 4."
+verify = "A misnamed optional argument returns InvalidArgument naming it, for a read tool and for create_page, and McpSdkBindingTests is updated."
+covers = ["R4"]
+after = [3, 4]
+hitl = false
+risk = "medium"
+unknown = "Whether SDK 2.3.1 exposes the raw arguments; if not, a filter."
+
+[[entry]]
+id = 6
+type = "story"
+title = "Write grants: dialog, revoke and listing"
+description = "Completes AD-6 for notebooks: the elicitation dialog for write grants, `grant --revoke` for notebooks, list_grants showing write grants as active or notebookNotOpen, the NotebookKey and SectionKey amendments from entry 3, and R4 (purge takes the settings mutex and warns about running servers); it shares ToolRunner.cs with entry 5 and uses the existing WriteNotGranted text."
+verify = "From Claude Code, create_page on an ungranted notebook raises the dialog, Phill types the name and the write goes through, list_grants shows the grant, and unit tests cover ambiguous names, decline and revoke."
+covers = ["R4"]
+after = [5]
+hitl = true
+risk = "high"
+unknown = "How elicitation behaves in Claude Code for a write."
+
+[[entry]]
+id = 7
+type = "story"
+title = "Write gateway, timeouts and error map"
+description = "Adds UpdatePageContent and DeletePageContent to the port and both gateways, the AD-3 gateway-side write rules (ComBusy while an abandoned write is outstanding, busy retries confirmed safe for writes), and the whole HRESULT triage in HResultMap (the page-write codes from entry 3, the 23 untriaged codes and hrDisabledByPolicy); it shares ToolErrors.cs with entry 5."
+verify = "Unit tests map each triaged HRESULT and cover the abandoned-write rule, and an integration test calls both methods on an MCP Test page through the guard."
+covers = ["R4", "R6"]
+after = [5]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Journal"
+description = "Builds AD-8's writer (gzip JSON written to a temp file and renamed, binaryComplete and missingBinary, pruning by age and size at startup and daily), the pipeline's page-snapshot step, JournalFailed aborting the write, and DPAPI-encrypted entries for protected sections per entry 3; it shares the pipeline runner with entry 6."
+verify = "Unit tests cover the entry format, a DPAPI entry, retention and the size cap against a temp folder, and a write whose snapshot fails is refused."
+covers = ["R5"]
+after = [6]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 9
+type = "story"
+title = "update_page_content"
+description = "The PageWrite class end to end: the AD-17 basis check with the amended hash rules, the XSD gate or its stand-in, referenced objectIDs exist and the section isn't locked, the image refusal, the read-back check, a journal snapshot, and in a protected section the section's read grant as entry 3 settles it."
+verify = "On MCP Test an edit with a fresh basis lands, a stale basis returns StaleWrite including on a page that isn't displayed, each write leaves a journal entry, and Phill checks one edit live from Claude Code."
+covers = ["R4", "R5", "R6"]
+after = [7, 8]
+hitl = true
+risk = "high"
+
+[[entry]]
+id = 10
+type = "story"
+title = "delete_page_content"
+description = "DeletePageContent through the same PageWrite pipeline, comparing the target element's hash (AD-17 as entry 3 amends it) and passing the basis date; it shares the PageWrite class code with entry 9."
+verify = "On MCP Test a delete with a fresh basis removes the element and leaves a journal entry, and a stale delete on a page that isn't displayed returns StaleWrite."
+covers = ["R4", "R5", "R6"]
+after = [9]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 11
+type = "story"
+title = "restore_from_journal"
+description = "Recreates a page entry as a new page under its parentId, else by parentNamePath, else in a Recovered section (a protected entry only into its own section, as entry 3 settles a locked or missing one), returns NotSupported for hierarchy and backup entries, reports missing binaries, and adds OpenHierarchy section creation by parent ID to the gateway, which epic 5's entry 3 builds on."
+verify = "From Claude Code, a page overwritten by update_page_content on MCP Test comes back as a new page from its journal entry."
+covers = ["R5"]
+after = [10]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 12
+type = "story"
+title = "Skill and README for page writes"
+description = "The guide skill's page-write recipes, and the README sections on grants, safety limits and the journal (DPAPI for protected sections included)."
+verify = "claude plugin validate --strict passes, and after Phill grants MCP Test through the CLI an agent following the README makes an edit and restores it."
+covers = ["R4", "R5", "R6"]
+after = [11]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 13
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at its start from the build records and the review findings deferred during the epic."
+verify = "All suites pass, the harness shows 0 mismatches, and no behaviour changes."
+covers = ["R4"]
+after = [12]
+hitl = false
+risk = "medium"
+unknown = "Its scope, set when it starts."

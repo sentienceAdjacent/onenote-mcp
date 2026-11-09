@@ -43,4 +43,5 @@ The `ExternalWrite` class and the move/merge path of `HierarchyWrite`, the expor
 ## Notes
 
 - Waits on epic 2 because it uses the pipeline, grants, write lock and journal.
+- Waits on epic 5 because move builds on its `UpdateHierarchy`, and `restore_from_recycle_bin` needs its soft delete.
 - Unknown: move semantics through `UpdateHierarchy`, and how `MergeSections` and `MergeFiles` behave. None was probed; this epic settles them, starting with a spike if needed.

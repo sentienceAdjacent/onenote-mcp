@@ -1,0 +1,93 @@
+# tickets.toml — epic-hierarchy-writes-and-deletes. Table order is the build order.
+# Agreed at epic 2's inception, 2026-11-09 (Phill). The draft is in ../epic-safe-writes/review/.
+
+[[entry]]
+id = 1
+type = "spike"
+title = "Write probes, part 2: hierarchy, delete and backup"
+description = "Probes on MCP Test, extending epic 2's probe code: OpenHierarchy create, UpdateHierarchy add/rename/reorder, DeleteHierarchy soft and permanent on a page, section, section group and notebook, a soft delete in a protected section and a protected section deleted whole, Publish in pfOneNote format, the date DeleteHierarchy accepts, and ModalDialogOpen and HRESULTs per method."
+verify = "A findings doc gives one probe result per question and its constraints are logged in the spine memlog, with Phill present for the live writes."
+covers = ["R4", "R5", "R6"]
+after = ["2.2"]
+hitl = true
+risk = "high"
+unknown = "Everything it probes."
+
+[[entry]]
+id = 2
+type = "story"
+title = "Spine amendments from the hierarchy probes"
+description = "Amends AD-7, AD-8, AD-9 and AD-21 from entry 1's findings and updates the Deferred rows; it edits the spine after epic 2's entry 3."
+verify = "The Fable final review has run and Phill has approved the amended spine."
+covers = ["R4", "R5", "R6"]
+after = [1, "2.3"]
+hitl = true
+risk = "high"
+unknown = "What the spike finds."
+
+[[entry]]
+id = 3
+type = "story"
+title = "Create: section, section group and notebook"
+description = "OpenHierarchy create through the Create class, building on the section creation from epic 2's entry 11: by parent ID with the parent-exists-and-not-locked check, a notebook at a path checked empty, its automatic grant under the settings mutex inside the write mutex, and createdNotGranted; OpenHierarchy on an existing path stays AppState (epic 4)."
+verify = "On MCP Test each kind is created, and a new notebook shows in list_grants as grantedVia: created; a security review of the diff runs before merge."
+covers = ["R4", "R6"]
+after = [2, "2.11"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Rename and reorder: update_hierarchy"
+description = "UpdateHierarchy add, rename and reorder (not move) through HierarchyWrite: the XSD check, the IDs exist, the lastModifiedTime basis check, and a hierarchy snapshot; it shares tool registration and the contract with entry 3."
+verify = "On MCP Test a rename lands, a stale one returns StaleWrite, and the journal holds the hierarchy snapshot."
+covers = ["R4", "R5", "R6"]
+after = [3]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Soft delete"
+description = "DeleteHierarchy permanent=false for a page, section or section group with a page or hierarchy snapshot, following entry 2's rule and epic 2's both-grants rule for protected sections."
+verify = "On MCP Test a deleted page is in the recycle bin with a journal entry, restore_from_journal brings it back, and a stale basis returns StaleWrite on a page that isn't displayed."
+covers = ["R4", "R5", "R6"]
+after = [4]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Permanent delete"
+description = "The permanent-delete grant (CLI, dialog, listing) and DeleteHierarchy permanent=true: a page gets a full page snapshot, and a section, section group or notebook gets a Publish backup first under Publish's 300 s timeout and the 600 s pipeline deadline, with BackupFailed refusing the delete."
+verify = "On MCP Test, without the second grant the delete returns PermanentDeleteNotGranted, with it a backup file exists before a section is gone, a forced backup failure refuses the delete, and a security review of the diff runs before merge."
+covers = ["R4", "R5", "R6"]
+after = [5]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Skill, README and harness for hierarchy writes"
+description = "The guide skill's recipes for create, rename, reorder and delete, the README on permanent delete and backups, and the stress harness's write-tool list and contract check for the new tools."
+verify = "Plugin validation and the harness pass, and after Phill grants through the CLI an agent following the README runs a permanent delete on MCP Test."
+covers = ["R4", "R5", "R6"]
+after = [6]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at its start from the build records and the review findings deferred during the epic."
+verify = "All suites pass, the harness shows 0 mismatches, and no behaviour changes."
+covers = ["R4"]
+after = [7]
+hitl = false
+risk = "medium"
+unknown = "Its scope, set when it starts."
