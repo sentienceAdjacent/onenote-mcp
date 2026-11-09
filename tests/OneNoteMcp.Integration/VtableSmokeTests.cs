@@ -133,35 +133,35 @@ public sealed class VtableSmokeTests(VtableSmokeTests.OneNoteFixture fixture) : 
     /// <summary>Owns one STA thread and one COM reference for the class; creates nothing unless the flag is set.</summary>
     public sealed class OneNoteFixture : IDisposable
     {
-        private readonly Lazy<StaThread> _sta = new(() => new StaThread("OneNote-STA-Integration"));
-        private IApplication? _app;
-        private PageTarget? _target;
+        private readonly Lazy<StaThread> sta = new(() => new StaThread("OneNote-STA-Integration"));
+        private IApplication? app;
+        private PageTarget? target;
 
         public static bool Enabled => Environment.GetEnvironmentVariable("ONENOTE_MCP_INTEGRATION") == "1";
 
         internal Task<T> Run<T>(Func<IApplication, T> call)
         {
             Assert.SkipUnless(Enabled, "Set ONENOTE_MCP_INTEGRATION=1 to run against a real OneNote.");
-            return _sta.Value.InvokeAsync(() =>
+            return sta.Value.InvokeAsync(() =>
             {
-                if (_app is null)
+                if (app is null)
                 {
                     // Never activate OneNote: the suite needs the user's running instance.
                     Assert.True(new ProcessProbe().IsOneNoteRunning(), "OneNote desktop must already be running.");
                     var type = Type.GetTypeFromCLSID(OneNoteClsid.Application, throwOnError: true)!;
-                    _app = (IApplication)Activator.CreateInstance(type)!;
+                    app = (IApplication)Activator.CreateInstance(type)!;
                 }
 
-                return call(_app);
+                return call(app);
             });
         }
 
         /// <summary>The first non-recycle-bin page, preferring a cloud notebook so the web-link slot can run.</summary>
         public async Task<PageTarget> Target()
         {
-            if (_target is not null)
+            if (target is not null)
             {
-                return _target;
+                return target;
             }
 
             var xml = await Run(app =>
@@ -185,29 +185,29 @@ public sealed class VtableSmokeTests(VtableSmokeTests.OneNoteFixture fixture) : 
                     (string)page.Attribute("ID")!,
                     isCloud);
 
-            _target = candidates.FirstOrDefault()
+            target = candidates.FirstOrDefault()
                 ?? throw new InvalidOperationException("No readable page found in any open notebook.");
-            return _target;
+            return target;
         }
 
         public void Dispose()
         {
-            if (!_sta.IsValueCreated)
+            if (!sta.IsValueCreated)
             {
                 return;
             }
 
-            _sta.Value.InvokeAsync(() =>
+            sta.Value.InvokeAsync(() =>
             {
-                if (_app is not null)
+                if (app is not null)
                 {
-                    System.Runtime.InteropServices.Marshal.FinalReleaseComObject(_app);
-                    _app = null;
+                    System.Runtime.InteropServices.Marshal.FinalReleaseComObject(app);
+                    app = null;
                 }
 
                 return true;
             }).Wait(TimeSpan.FromSeconds(5));
-            _sta.Value.Dispose();
+            sta.Value.Dispose();
         }
     }
 }

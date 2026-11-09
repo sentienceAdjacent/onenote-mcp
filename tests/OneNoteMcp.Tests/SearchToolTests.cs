@@ -413,7 +413,7 @@ public sealed class SearchToolTests
     /// </summary>
     private sealed class SearchGateway : IOneNoteGateway
     {
-        private readonly FakeGateway _inner = new();
+        private readonly FakeGateway inner = new();
 
         public SearchGateway()
         {
@@ -436,20 +436,20 @@ public sealed class SearchToolTests
         public List<(string PageId, PageInfo Info)> PageReads { get; } = [];
 
         /// <summary>The inner <see cref="FakeGateway"/>'s scripted hierarchies (AD-21's scope reads).</summary>
-        public Dictionary<(string Id, HierarchyScope Scope), string> Hierarchies => _inner.Hierarchies;
+        public Dictionary<(string Id, HierarchyScope Scope), string> Hierarchies => inner.Hierarchies;
 
-        public List<(string StartNodeId, HierarchyScope Scope)> HierarchyCalls => _inner.Calls;
+        public List<(string StartNodeId, HierarchyScope Scope)> HierarchyCalls => inner.Calls;
 
         public Task<string> FindPagesAsync(string startNodeId, string query, bool includeUnindexed, CancellationToken ct)
         {
             FindPagesCalls.Add((startNodeId, query, includeUnindexed));
-            return Search(() => _inner.FindPagesAsync(startNodeId, query, includeUnindexed, ct));
+            return Search(() => inner.FindPagesAsync(startNodeId, query, includeUnindexed, ct));
         }
 
         public Task<string> FindMetaAsync(string startNodeId, string name, bool includeUnindexed, CancellationToken ct)
         {
             FindMetaCalls.Add((startNodeId, name, includeUnindexed));
-            return Search(() => _inner.FindMetaAsync(startNodeId, name, includeUnindexed, ct));
+            return Search(() => inner.FindMetaAsync(startNodeId, name, includeUnindexed, ct));
         }
 
         public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct)
@@ -460,20 +460,20 @@ public sealed class SearchToolTests
                 return Task.FromException<string>(failure);
             }
 
-            return PageXml.TryGetValue(pageId, out var xml) ? Task.FromResult(xml) : _inner.GetPageContentAsync(pageId, pageInfo, ct);
+            return PageXml.TryGetValue(pageId, out var xml) ? Task.FromResult(xml) : inner.GetPageContentAsync(pageId, pageInfo, ct);
         }
 
-        public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) => _inner.GetHierarchyAsync(startNodeId, scope, ct);
+        public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct) => inner.GetHierarchyAsync(startNodeId, scope, ct);
 
-        public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => _inner.GetHierarchyParentAsync(objectId, ct);
+        public Task<string> GetHierarchyParentAsync(string objectId, CancellationToken ct) => inner.GetHierarchyParentAsync(objectId, ct);
 
-        public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct) => _inner.GetBinaryPageContentAsync(pageId, callbackId, ct);
+        public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct) => inner.GetBinaryPageContentAsync(pageId, callbackId, ct);
 
-        public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => _inner.GetHyperlinkToObjectAsync(hierarchyId, pageContentObjectId, ct);
+        public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => inner.GetHyperlinkToObjectAsync(hierarchyId, pageContentObjectId, ct);
 
-        public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => _inner.GetWebHyperlinkToObjectAsync(hierarchyId, pageContentObjectId, ct);
+        public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) => inner.GetWebHyperlinkToObjectAsync(hierarchyId, pageContentObjectId, ct);
 
-        public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => _inner.GetSpecialLocationAsync(location, ct);
+        public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => inner.GetSpecialLocationAsync(location, ct);
 
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 

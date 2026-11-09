@@ -27,14 +27,14 @@ internal sealed class FakeGateway : IOneNoteGateway
 
     private static readonly Lazy<Fixtures> Shared = new(() => Fixtures.Load(DefaultDirectory));
 
-    private readonly Fixtures _fixtures;
+    private readonly Fixtures fixtures;
 
     public FakeGateway()
         : this(Shared.Value)
     {
     }
 
-    private FakeGateway(Fixtures fixtures) => _fixtures = fixtures;
+    private FakeGateway(Fixtures fixtures) => this.fixtures = fixtures;
 
     /// <summary>The committed manifest, for tests that look up fixture IDs.</summary>
     public static FixtureManifest Manifest => Shared.Value.Manifest;
@@ -128,7 +128,7 @@ internal sealed class FakeGateway : IOneNoteGateway
         }
 
         var method = asyncMethod[..^"Async".Length];
-        if (!_fixtures.Entries.TryGetValue(FixtureManifest.Key(method, [.. args.Select(a => a ?? string.Empty)]), out var entry))
+        if (!fixtures.Entries.TryGetValue(FixtureManifest.Key(method, [.. args.Select(a => a ?? string.Empty)]), out var entry))
         {
             // OneNote's own words for an unknown ID (hrObjectDoesNotExist); no content in the message (AD-9).
             return Task.FromException<string>(new OneNoteException(
@@ -145,17 +145,17 @@ internal sealed class FakeGateway : IOneNoteGateway
                 error.HResult is null ? null : unchecked((int)uint.Parse(error.HResult.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture))));
         }
 
-        return Task.FromResult(_fixtures.Read(entry.File!));
+        return Task.FromResult(fixtures.Read(entry.File!));
     }
 
     private sealed class Fixtures
     {
-        private readonly string _directory;
-        private readonly Dictionary<string, string> _texts = new(StringComparer.Ordinal);
+        private readonly string directory;
+        private readonly Dictionary<string, string> texts = new(StringComparer.Ordinal);
 
         private Fixtures(string directory, FixtureManifest manifest)
         {
-            _directory = directory;
+            this.directory = directory;
             Manifest = manifest;
             Entries = manifest.Entries.ToDictionary(e => e.Key, StringComparer.Ordinal);
         }
@@ -169,13 +169,13 @@ internal sealed class FakeGateway : IOneNoteGateway
 
         public string Read(string relativePath)
         {
-            lock (_texts)
+            lock (texts)
             {
-                if (!_texts.TryGetValue(relativePath, out var text))
+                if (!texts.TryGetValue(relativePath, out var text))
                 {
                     // UTF-8 without a BOM, as the capture writes it: the bytes on disk are the string served.
-                    text = File.ReadAllText(Path.Combine(_directory, relativePath), new System.Text.UTF8Encoding(false));
-                    _texts.Add(relativePath, text);
+                    text = File.ReadAllText(Path.Combine(directory, relativePath), new System.Text.UTF8Encoding(false));
+                    texts.Add(relativePath, text);
                 }
 
                 return text;

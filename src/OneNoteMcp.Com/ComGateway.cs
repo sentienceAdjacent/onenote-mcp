@@ -43,20 +43,20 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     // Attempts that never reached COM (the reference was released under them) retry without spending the read's one retry.
     private const int MaxAttempts = 4;
 
-    private readonly IProcessProbe _probe;
-    private readonly Func<GatewaySettings> _readSettings;
-    private readonly Func<object> _createApplication;
-    private readonly Lock _gate = new();
-    private readonly SemaphoreSlim _activationLock = new(1, 1);
-    private readonly Timer _idleTimer;
+    private readonly IProcessProbe probe;
+    private readonly Func<GatewaySettings> readSettings;
+    private readonly Func<object> createApplication;
+    private readonly Lock gate = new();
+    private readonly SemaphoreSlim activationLock = new(1, 1);
+    private readonly Timer idleTimer;
 
-    // Guarded by _gate.
-    private StaThread? _worker;
-    private GatewaySettings _settings = GatewaySettings.Default;
-    private int _abandoned;
-    private int _inFlight;
-    private int _workerSerial;
-    private bool _disposed;
+    // Guarded by gate.
+    private StaThread? worker;
+    private GatewaySettings settings = GatewaySettings.Default;
+    private int abandoned;
+    private int inFlight;
+    private int workerSerial;
+    private bool disposed;
 
     public ComGateway(IProcessProbe probe, SettingsStore settings)
         : this(probe, () => GatewaySettings.From(settings.Read()), CreateApplication)
@@ -76,10 +76,10 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(readSettings);
         ArgumentNullException.ThrowIfNull(createApplication);
-        _probe = probe;
-        _readSettings = readSettings;
-        _createApplication = createApplication;
-        _idleTimer = new Timer(_ => OnIdle(), null, Timeout.Infinite, Timeout.Infinite);
+        this.probe = probe;
+        this.readSettings = readSettings;
+        this.createApplication = createApplication;
+        idleTimer = new Timer(_ => OnIdle(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
     /// <summary>Abandoned workers whose hung call hasn't returned yet.</summary>
@@ -87,9 +87,9 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     {
         get
         {
-            lock (_gate)
+            lock (gate)
             {
-                return _abandoned;
+                return abandoned;
             }
         }
     }
@@ -99,9 +99,9 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     {
         get
         {
-            lock (_gate)
+            lock (gate)
             {
-                return _worker?.HasApplication ?? false;
+                return worker?.HasApplication ?? false;
             }
         }
     }
@@ -240,25 +240,25 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     public void Dispose()
     {
         StaThread? worker;
-        lock (_gate)
+        lock (gate)
         {
-            if (_disposed)
+            if (disposed)
             {
                 return;
             }
 
-            _disposed = true;
-            worker = _worker;
-            _worker = null;
+            disposed = true;
+            worker = this.worker;
+            this.worker = null;
         }
 
-        _idleTimer.Dispose();
+        idleTimer.Dispose();
 
         // Queued behind any work already there; the thread releases its reference on exit too.
         worker?.Post(worker.ReleaseApplication);
         worker?.Dispose();
 
-        // _activationLock is left undisposed: it never allocates a wait handle, and a call still in flight releases it.
+        // activationLock is left undisposed: it never allocates a wait handle, and a call still in flight releases it.
     }
 
     internal static InteropScope MapScope(CoreScope scope) => scope switch
@@ -386,7 +386,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     private async Task<(StaThread Worker, GatewaySettings Settings)> EnsureActivatedAsync(CancellationToken ct)
     {
         var (worker, settings) = LiveWorker();
-        if (worker.HasApplication && !_probe.IsOneNoteRunning())
+        if (worker.HasApplication && !probe.IsOneNoteRunning())
         {
             // OneNote closed: the reference is dead. Release it on its own thread; activation decides what happens next.
             worker.Post(worker.ReleaseApplication);
@@ -398,7 +398,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
         // Bounded: a hung activation ahead of this call is abandoned within its own activation timeout.
         var lockTimeout = settings.Timeouts.Activation;
-        if (!await _activationLock.WaitAsync(lockTimeout, ct).ConfigureAwait(false))
+        if (!await activationLock.WaitAsync(lockTimeout, ct).ConfigureAwait(false))
         {
             throw new OneNoteException(
                 ErrorCode.Timeout,
@@ -414,9 +414,9 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             }
 
             (worker, _) = LiveWorker();
-            settings = _readSettings();
+            settings = readSettings();
 
-            if (!_probe.IsOneNoteRunning())
+            if (!probe.IsOneNoteRunning())
             {
                 worker.Post(worker.ReleaseApplication);
                 if (!settings.AllowSilentActivation)
@@ -433,7 +433,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 return (worker, settings);
             }
 
-            var integrity = _probe.CheckIntegrity();
+            var integrity = probe.CheckIntegrity();
             if (!integrity.Matches)
             {
                 throw new OneNoteException(
@@ -451,7 +451,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
                     try
                     {
-                        worker.Application = (IApplication)_createApplication();
+                        worker.Application = (IApplication)createApplication();
                     }
                     catch (Exception ex) when (ex is not OneNoteException)
                     {
@@ -468,7 +468,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
         finally
         {
-            _activationLock.Release();
+            activationLock.Release();
         }
     }
 
@@ -537,24 +537,24 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     private (StaThread Worker, GatewaySettings Settings) LiveWorker()
     {
-        lock (_gate)
+        lock (gate)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_abandoned >= MaxAbandonedWorkers)
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (abandoned >= MaxAbandonedWorkers)
             {
                 throw new OneNoteException(
                     ErrorCode.ComUnavailable,
-                    $"OneNote has not returned {_abandoned.ToString(CultureInfo.InvariantCulture)} earlier calls, so the server stopped calling it. Retry once OneNote responds again.");
+                    $"OneNote has not returned {abandoned.ToString(CultureInfo.InvariantCulture)} earlier calls, so the server stopped calling it. Retry once OneNote responds again.");
             }
 
-            _worker ??= new StaThread($"OneNote-STA-{(++_workerSerial).ToString(CultureInfo.InvariantCulture)}");
-            return (_worker, _settings);
+            worker ??= new StaThread($"OneNote-STA-{(++workerSerial).ToString(CultureInfo.InvariantCulture)}");
+            return (worker, settings);
         }
     }
 
     private void Poison(StaThread worker)
     {
-        lock (_gate)
+        lock (gate)
         {
             if (worker.IsPoisoned)
             {
@@ -562,21 +562,21 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             }
 
             worker.Poison(PoisonedFailure);
-            if (_worker == worker)
+            if (this.worker == worker)
             {
-                _worker = null;
+                this.worker = null;
             }
 
-            _abandoned++;
+            abandoned++;
         }
 
         // The abandoned call came back: it released its reference and exited, so OneNote is reachable again.
         _ = worker.Exited.ContinueWith(
             _ =>
             {
-                lock (_gate)
+                lock (gate)
                 {
-                    _abandoned--;
+                    abandoned--;
                 }
             },
             CancellationToken.None,
@@ -586,41 +586,41 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     private void SetSettings(GatewaySettings settings)
     {
-        lock (_gate)
+        lock (gate)
         {
-            _settings = settings;
+            this.settings = settings;
         }
     }
 
     private void BeginCall()
     {
-        lock (_gate)
+        lock (gate)
         {
-            _inFlight++;
-            if (!_disposed)
+            inFlight++;
+            if (!disposed)
             {
-                _idleTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                idleTimer.Change(Timeout.Infinite, Timeout.Infinite);
             }
         }
     }
 
     private void EndCall()
     {
-        lock (_gate)
+        lock (gate)
         {
-            _inFlight--;
-            if (_inFlight == 0 && !_disposed)
+            inFlight--;
+            if (inFlight == 0 && !disposed)
             {
-                _idleTimer.Change(_settings.Timeouts.IdleRelease, Timeout.InfiniteTimeSpan);
+                idleTimer.Change(settings.Timeouts.IdleRelease, Timeout.InfiniteTimeSpan);
             }
         }
     }
 
     private void OnIdle()
     {
-        lock (_gate)
+        lock (gate)
         {
-            if (_disposed || _inFlight > 0 || _worker is not { HasApplication: true } worker)
+            if (disposed || inFlight > 0 || this.worker is not { HasApplication: true } worker)
             {
                 return;
             }

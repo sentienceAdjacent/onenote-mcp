@@ -12,16 +12,16 @@ namespace OneNoteMcp.Tests;
 /// <summary>AD-13: the rolling file log beside stderr, its size cap and the cross-process startup prune.</summary>
 public sealed class FileLoggingTests : IDisposable
 {
-    private readonly TempDirectory _dir = new();
+    private readonly TempDirectory dir = new();
 
-    public void Dispose() => _dir.Dispose();
+    public void Dispose() => dir.Dispose();
 
     private string[] LogFiles() =>
-        [.. Directory.GetFiles(_dir.Path, FileLog.FilePattern).Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal)];
+        [.. Directory.GetFiles(dir.Path, FileLog.FilePattern).Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal)];
 
     private string MakeOldLog(string name, int minutesAgo)
     {
-        var path = _dir.Combine(name);
+        var path = dir.Combine(name);
         File.WriteAllText(path, "old");
         File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-minutesAgo));
         return path;
@@ -33,9 +33,9 @@ public sealed class FileLoggingTests : IDisposable
     [Fact]
     public void ResolveDirectory_WithOverride_UsesIt()
     {
-        var dir = FileLog.ResolveDirectory(name => name == FileLog.DirectoryOverrideVariable ? _dir.Path : null);
+        var dir = FileLog.ResolveDirectory(name => name == FileLog.DirectoryOverrideVariable ? this.dir.Path : null);
 
-        Assert.Equal(_dir.Path, dir);
+        Assert.Equal(this.dir.Path, dir);
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public sealed class FileLoggingTests : IDisposable
     [Fact]
     public void Start_WritesToTheGivenDirectory()
     {
-        var start = FileLog.Start(new FileLogOptions(_dir.Path) { StartedAt = new DateTime(2026, 11, 4, 9, 30, 5), ProcessId = 7 });
+        var start = FileLog.Start(new FileLogOptions(dir.Path) { StartedAt = new DateTime(2026, 11, 4, 9, 30, 5), ProcessId = 7 });
         Assert.NotNull(start.Logger);
         Assert.Null(start.FailureReason);
 
@@ -64,7 +64,7 @@ public sealed class FileLoggingTests : IDisposable
             factory.CreateLogger("Test").LogInformation("hello id={Id}", "abc");
         }
 
-        Assert.Equal(_dir.Combine("onenote-mcp-20261104T093005-7.log"), start.FilePath);
+        Assert.Equal(dir.Combine("onenote-mcp-20261104T093005-7.log"), start.FilePath);
         var text = File.ReadAllText(start.FilePath!);
         Assert.Contains("[INF] Test: hello id=abc", text, StringComparison.Ordinal);
     }
@@ -73,7 +73,7 @@ public sealed class FileLoggingTests : IDisposable
     public void Start_DropsDebugAndTrace()
     {
         // The MCP SDK logs whole JSON-RPC messages, tool results with XML included, at Debug and Trace.
-        var start = FileLog.Start(new FileLogOptions(_dir.Path));
+        var start = FileLog.Start(new FileLogOptions(dir.Path));
 
         using (var factory = FactoryFor(start))
         {
@@ -92,7 +92,7 @@ public sealed class FileLoggingTests : IDisposable
     [Fact]
     public async Task ToolCall_LogsTheCallLineWithoutXml()
     {
-        var start = FileLog.Start(new FileLogOptions(_dir.Path));
+        var start = FileLog.Start(new FileLogOptions(dir.Path));
         string correlationId;
 
         using (var factory = FactoryFor(start))
@@ -118,7 +118,7 @@ public sealed class FileLoggingTests : IDisposable
     [Fact]
     public void Start_RollsAtTheSizeCapAndKeepsAtMostTheRetainedCount()
     {
-        var start = FileLog.Start(new FileLogOptions(_dir.Path) { FileSizeLimitBytes = 1024, RetainedFileCount = 5 });
+        var start = FileLog.Start(new FileLogOptions(dir.Path) { FileSizeLimitBytes = 1024, RetainedFileCount = 5 });
 
         using (var factory = FactoryFor(start))
         {
@@ -132,7 +132,7 @@ public sealed class FileLoggingTests : IDisposable
         var files = LogFiles();
         Assert.True(files.Length > 1, $"expected a roll, found {files.Length} file(s)");
         Assert.True(files.Length <= 5, $"expected at most 5 files, found {files.Length}");
-        Assert.All(files, f => Assert.True(new FileInfo(_dir.Combine(f)).Length <= 1024 + 256, $"{f} passed the size cap"));
+        Assert.All(files, f => Assert.True(new FileInfo(dir.Combine(f)).Length <= 1024 + 256, $"{f} passed the size cap"));
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public sealed class FileLoggingTests : IDisposable
 
         var unrelated = MakeOldLog("other.log", minutesAgo: 1000);
 
-        var deleted = FileLog.Prune(_dir.Path, keep: 5);
+        var deleted = FileLog.Prune(dir.Path, keep: 5);
 
         Assert.Equal(3, deleted);
         Assert.Equal(
@@ -162,21 +162,21 @@ public sealed class FileLoggingTests : IDisposable
             MakeOldLog($"onenote-mcp-2026110{i}T000000-1.log", minutesAgo: 100 - i);
         }
 
-        var oldest = _dir.Combine("onenote-mcp-20261100T000000-1.log");
+        var oldest = dir.Combine("onenote-mcp-20261100T000000-1.log");
         using (new FileStream(oldest, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
         {
-            var deleted = FileLog.Prune(_dir.Path, keep: 5);
+            var deleted = FileLog.Prune(dir.Path, keep: 5);
 
             Assert.Equal(1, deleted);
             Assert.True(File.Exists(oldest));
-            Assert.False(File.Exists(_dir.Combine("onenote-mcp-20261101T000000-1.log")));
+            Assert.False(File.Exists(dir.Combine("onenote-mcp-20261101T000000-1.log")));
         }
     }
 
     [Fact]
     public void Prune_MissingDirectory_DeletesNothing()
     {
-        Assert.Equal(0, FileLog.Prune(_dir.Combine("absent"), keep: 5));
+        Assert.Equal(0, FileLog.Prune(dir.Combine("absent"), keep: 5));
     }
 
     [Fact]
@@ -187,7 +187,7 @@ public sealed class FileLoggingTests : IDisposable
             MakeOldLog($"onenote-mcp-2026110{i}T000000-1.log", minutesAgo: 100 - i);
         }
 
-        var start = FileLog.Start(new FileLogOptions(_dir.Path) { ProcessId = 2 });
+        var start = FileLog.Start(new FileLogOptions(dir.Path) { ProcessId = 2 });
         using (var factory = FactoryFor(start))
         {
             factory.CreateLogger("Test").LogInformation("started");
@@ -206,7 +206,7 @@ public sealed class FileLoggingTests : IDisposable
             MakeOldLog($"onenote-mcp-2026110{i}T000000-1.log", minutesAgo: 100 - i);
         }
 
-        var start = FileLog.Start(new FileLogOptions(_dir.Path) { ProcessId = 2, FileSizeLimitBytes = 1024, RetainedFileCount = 5 });
+        var start = FileLog.Start(new FileLogOptions(dir.Path) { ProcessId = 2, FileSizeLimitBytes = 1024, RetainedFileCount = 5 });
         using (var factory = FactoryFor(start))
         {
             var logger = factory.CreateLogger("Roll");
@@ -224,7 +224,7 @@ public sealed class FileLoggingTests : IDisposable
     [Fact]
     public void Start_UnusableDirectory_ReturnsNoLoggerAndDoesNotThrow()
     {
-        var notADirectory = _dir.Combine("a-file");
+        var notADirectory = dir.Combine("a-file");
         File.WriteAllText(notADirectory, "x");
 
         var start = FileLog.Start(new FileLogOptions(notADirectory));

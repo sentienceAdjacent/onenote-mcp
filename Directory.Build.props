@@ -7,6 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
+    <!-- Runs the .editorconfig code-style rules in the build; today only the private-field naming rule (IDE1006). -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Deterministic>true</Deterministic>
   </PropertyGroup>

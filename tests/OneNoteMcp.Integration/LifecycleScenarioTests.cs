@@ -22,7 +22,7 @@ public sealed class LifecycleScenarioTests : IDisposable
 {
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
 
-    private readonly string _settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
+    private readonly string settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -206,7 +206,7 @@ public sealed class LifecycleScenarioTests : IDisposable
     {
         try
         {
-            Directory.Delete(_settingsDir, recursive: true);
+            Directory.Delete(settingsDir, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {
@@ -220,8 +220,8 @@ public sealed class LifecycleScenarioTests : IDisposable
 
     private ComGateway Gateway(string settingsJson)
     {
-        Directory.CreateDirectory(_settingsDir);
-        var path = Path.Combine(_settingsDir, "settings.json");
+        Directory.CreateDirectory(settingsDir);
+        var path = Path.Combine(settingsDir, "settings.json");
         File.WriteAllText(path, settingsJson);
         return new ComGateway(new ProcessProbe(), new SettingsStore(path));
     }

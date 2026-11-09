@@ -31,22 +31,22 @@ public sealed class BallastFixture : IDisposable
 
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
 
-    private readonly string _settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-ballast", Guid.NewGuid().ToString("N"));
-    private readonly string _attachmentsDir;
-    private readonly ITestOutputHelper _output;
+    private readonly string settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-ballast", Guid.NewGuid().ToString("N"));
+    private readonly string attachmentsDir;
+    private readonly ITestOutputHelper output;
 
-    private ComGateway _gateway = null!;
-    private string _notebookId = string.Empty;
-    private int _scale;
-    private int _writes;
-    private int _pagesCreated;
-    private int _pagesRecycled;
-    private int _pagesChecked;
+    private ComGateway gateway = null!;
+    private string notebookId = string.Empty;
+    private int scale;
+    private int writes;
+    private int pagesCreated;
+    private int pagesRecycled;
+    private int pagesChecked;
 
     public BallastFixture(ITestOutputHelper output)
     {
-        _output = output;
-        _attachmentsDir = Path.Combine(_settingsDir, "attachments");
+        this.output = output;
+        attachmentsDir = Path.Combine(settingsDir, "attachments");
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -58,25 +58,25 @@ public sealed class BallastFixture : IDisposable
         Assert.SkipUnless(
             Environment.GetEnvironmentVariable("ONENOTE_MCP_SCENARIO") == ScenarioName,
             $"Hitl scenario: set ONENOTE_MCP_SCENARIO={ScenarioName}.");
-        _scale = BallastContent.ParseScale(Environment.GetEnvironmentVariable(BallastContent.ScaleVariable));
+        scale = BallastContent.ParseScale(Environment.GetEnvironmentVariable(BallastContent.ScaleVariable));
 
         using var gateway = Gateway();
-        _gateway = gateway;
+        this.gateway = gateway;
         var notebook = await TestNotebook.EnsureAsync(gateway, Ct);
-        _notebookId = notebook.NotebookId;
+        notebookId = notebook.NotebookId;
 
         // Section Ballast: oversized, images, files.
-        var sectionId = await EnsureSectionAsync(_notebookId, BallastContent.SectionName);
+        var sectionId = await EnsureSectionAsync(notebookId, BallastContent.SectionName);
         var owned = await CompletePagesAsync(sectionId);
-        var oversizedId = await EnsurePageAsync(sectionId, owned, BallastContent.OversizedTitle, BallastContent.CompleteContent(_scale), () => BallastContent.OversizedUpdates(_scale));
-        var imagesId = await EnsurePageAsync(sectionId, owned, BallastContent.ImagesTitle, BallastContent.CompleteContent(_scale), ImagesUpdates);
-        var filesId = await EnsurePageAsync(sectionId, owned, BallastContent.FilesTitle, BallastContent.CompleteContent(_scale), FilesUpdates);
+        var oversizedId = await EnsurePageAsync(sectionId, owned, BallastContent.OversizedTitle, BallastContent.CompleteContent(scale), () => BallastContent.OversizedUpdates(scale));
+        var imagesId = await EnsurePageAsync(sectionId, owned, BallastContent.ImagesTitle, BallastContent.CompleteContent(scale), ImagesUpdates);
+        var filesId = await EnsurePageAsync(sectionId, owned, BallastContent.FilesTitle, BallastContent.CompleteContent(scale), FilesUpdates);
 
         // Group tree.
         var treePages = 0;
-        foreach (var plan in BallastContent.TreePlan(_scale))
+        foreach (var plan in BallastContent.TreePlan(scale))
         {
-            var parentId = _notebookId;
+            var parentId = notebookId;
             foreach (var group in plan.GroupPath)
             {
                 parentId = await EnsureGroupAsync(parentId, group);
@@ -102,7 +102,7 @@ public sealed class BallastFixture : IDisposable
         }
         else
         {
-            vaultId = await EnsureSectionAsync(_notebookId, BallastContent.VaultSectionName);
+            vaultId = await EnsureSectionAsync(notebookId, BallastContent.VaultSectionName);
             var complete = await CompletePagesAsync(vaultId);
             for (var i = 0; i < BallastContent.VaultPages; i++)
             {
@@ -112,18 +112,18 @@ public sealed class BallastFixture : IDisposable
         }
 
         // Sizes as OneNote returns them.
-        var pagesScope = await _gateway.GetHierarchyAsync(_notebookId, CoreScope.Pages, Ct);
-        var oversizedChars = (await _gateway.GetPageContentAsync(oversizedId, PageInfo.Basic, Ct)).Length;
+        var pagesScope = await this.gateway.GetHierarchyAsync(notebookId, CoreScope.Pages, Ct);
+        var oversizedChars = (await this.gateway.GetPageContentAsync(oversizedId, PageInfo.Basic, Ct)).Length;
         var finalTree = XDocument.Parse(pagesScope).Root!;
         var finalVault = ChildSection(finalTree, BallastContent.VaultSectionName)!;
 
-        _output.WriteLine($"Ballast (scale {_scale}): writes {_writes}; pages created {_pagesCreated}, recycled {_pagesRecycled}, checked {_pagesChecked}.");
-        _output.WriteLine($"Section {sectionId}: oversized {oversizedId} ({oversizedChars} chars piBasic), images {imagesId}, files {filesId}.");
-        _output.WriteLine($"Tree: {BallastContent.TreePlan(_scale).Count} sections, {treePages} pages. Notebook pages-scope listing: {pagesScope.Length} chars.");
-        _output.WriteLine($"Vault {vaultId}: encrypted={IsTrue(finalVault, "encrypted")}, locked={IsTrue(finalVault, "locked")}{(vaultProtected ? " (protected: not written or read)" : string.Empty)}.");
+        output.WriteLine($"Ballast (scale {scale}): writes {writes}; pages created {pagesCreated}, recycled {pagesRecycled}, checked {pagesChecked}.");
+        output.WriteLine($"Section {sectionId}: oversized {oversizedId} ({oversizedChars} chars piBasic), images {imagesId}, files {filesId}.");
+        output.WriteLine($"Tree: {BallastContent.TreePlan(scale).Count} sections, {treePages} pages. Notebook pages-scope listing: {pagesScope.Length} chars.");
+        output.WriteLine($"Vault {vaultId}: encrypted={IsTrue(finalVault, "encrypted")}, locked={IsTrue(finalVault, "locked")}{(vaultProtected ? " (protected: not written or read)" : string.Empty)}.");
         if (!IsTrue(finalVault, "encrypted"))
         {
-            _output.WriteLine(
+            output.WriteLine(
                 $"Owner (hitl): in OneNote, password-protect section {vaultId} (Ballast Vault in MCP Test): right-click its tab > "
                 + "Password Protect This Section, set any password, then lock it (Lock All). COM can't set a password. "
                 + "Rerun this scenario to confirm it reports the Vault protected, then run the stress harness on MCP Test.");
@@ -137,7 +137,7 @@ public sealed class BallastFixture : IDisposable
     {
         try
         {
-            Directory.Delete(_settingsDir, recursive: true);
+            Directory.Delete(settingsDir, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {
@@ -156,13 +156,13 @@ public sealed class BallastFixture : IDisposable
     private async Task<Dictionary<string, (string Id, string Content)>> CompletePagesAsync(string sectionId)
     {
         var complete = new Dictionary<string, (string Id, string Content)>(StringComparer.Ordinal);
-        var section = XDocument.Parse(await _gateway.GetHierarchyAsync(sectionId, CoreScope.Pages, Ct)).Root!;
+        var section = XDocument.Parse(await gateway.GetHierarchyAsync(sectionId, CoreScope.Pages, Ct)).Root!;
         foreach (var page in section.Elements(One + "Page").Where(p => !IsTrue(p, "isInRecycleBin")))
         {
             var pageId = (string)page.Attribute("ID")!;
             var title = (string?)page.Attribute("name") ?? string.Empty;
-            _pagesChecked++;
-            var content = CompletionContent(await _gateway.GetPageContentAsync(pageId, PageInfo.Basic, Ct));
+            pagesChecked++;
+            var content = CompletionContent(await gateway.GetPageContentAsync(pageId, PageInfo.Basic, Ct));
             if (content is not null && !complete.ContainsKey(title))
             {
                 complete[title] = (pageId, content);
@@ -208,7 +208,7 @@ public sealed class BallastFixture : IDisposable
                 return id;
             },
             "CreateNewPage(Ballast)");
-        _pagesCreated++;
+        pagesCreated++;
 
         foreach (var body in updates())
         {
@@ -231,33 +231,33 @@ public sealed class BallastFixture : IDisposable
     private IEnumerable<string> ImagesUpdates()
     {
         yield return BallastContent.TitleBody(BallastContent.ImagesTitle);
-        for (var i = 0; i < BallastContent.ImagesPerScale * _scale; i++)
+        for (var i = 0; i < BallastContent.ImagesPerScale * scale; i++)
         {
             yield return BallastContent.ImageOutline(BallastContent.NoisePng(i), i);
         }
 
-        yield return BallastContent.Meta(BallastContent.CompleteMeta, BallastContent.CompleteContent(_scale));
+        yield return BallastContent.Meta(BallastContent.CompleteMeta, BallastContent.CompleteContent(scale));
     }
 
     /// <summary>Title, then one random attachment per update from the temp folder (deleted in Dispose), then the completion Meta.</summary>
     private IEnumerable<string> FilesUpdates()
     {
         yield return BallastContent.TitleBody(BallastContent.FilesTitle);
-        Directory.CreateDirectory(_attachmentsDir);
-        for (var i = 0; i < BallastContent.AttachmentsPerScale * _scale; i++)
+        Directory.CreateDirectory(attachmentsDir);
+        for (var i = 0; i < BallastContent.AttachmentsPerScale * scale; i++)
         {
             var name = BallastContent.AttachmentName(i);
-            var path = Path.Combine(_attachmentsDir, name);
+            var path = Path.Combine(attachmentsDir, name);
             File.WriteAllBytes(path, BallastContent.Attachment(i));
             yield return BallastContent.InsertedFileOutline(path, name, i);
         }
 
-        yield return BallastContent.Meta(BallastContent.CompleteMeta, BallastContent.CompleteContent(_scale));
+        yield return BallastContent.Meta(BallastContent.CompleteMeta, BallastContent.CompleteContent(scale));
     }
 
     private Task RecycleAsync(string pageId)
     {
-        _pagesRecycled++;
+        pagesRecycled++;
         return WriteAsync(
             pageId,
             app =>
@@ -311,13 +311,13 @@ public sealed class BallastFixture : IDisposable
     /// <summary>The notebook or section group element with <paramref name="parentId"/>, from a sections-scope read of MCP Test.</summary>
     private async Task<XElement> ParentElementAsync(string parentId)
     {
-        var tree = XDocument.Parse(await _gateway.GetHierarchyAsync(_notebookId, CoreScope.Sections, Ct)).Root!;
+        var tree = XDocument.Parse(await gateway.GetHierarchyAsync(notebookId, CoreScope.Sections, Ct)).Root!;
         return tree.DescendantsAndSelf().FirstOrDefault(e => (string?)e.Attribute("ID") == parentId)
             ?? throw new InvalidOperationException($"{parentId} is not in MCP Test.");
     }
 
     private async Task<XDocument> NotebookTreeAsync() =>
-        XDocument.Parse(await _gateway.GetHierarchyAsync(_notebookId, CoreScope.Sections, Ct));
+        XDocument.Parse(await gateway.GetHierarchyAsync(notebookId, CoreScope.Sections, Ct));
 
     private static XElement? ChildSection(XElement parent, string name) =>
         parent.Elements(One + "Section").FirstOrDefault(s => (string?)s.Attribute("name") == name && !IsTrue(s, "isInRecycleBin"));
@@ -333,16 +333,16 @@ public sealed class BallastFixture : IDisposable
 
     private async Task<T> WriteAsync<T>(string targetId, Func<IApplication, T> write, string method)
     {
-        _writes++;
-        return await TestNotebook.WriteAsync(_gateway, targetId, write, method, Ct);
+        writes++;
+        return await TestNotebook.WriteAsync(gateway, targetId, write, method, Ct);
     }
 
     private static bool IsTrue(XElement e, string attribute) => (string?)e.Attribute(attribute) is "true" or "1";
 
     private ComGateway Gateway()
     {
-        Directory.CreateDirectory(_settingsDir);
-        var path = Path.Combine(_settingsDir, "settings.json");
+        Directory.CreateDirectory(settingsDir);
+        var path = Path.Combine(settingsDir, "settings.json");
         File.WriteAllText(path, """{ "schemaVersion": 1 }""");
         Assert.True(new ProcessProbe().IsOneNoteRunning(), "OneNote desktop must already be running.");
         return new ComGateway(new ProcessProbe(), new SettingsStore(path));

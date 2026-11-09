@@ -1,0 +1,34 @@
+root = true
+
+[*.cs]
+# Private instance fields are camelCase with no underscore (story 2.1, P2). EnforceCodeStyleInBuild in
+# Directory.Build.props makes this rule fail the build (IDE1006). Constants and static fields are PascalCase by
+# convention; the two rules below only exempt them from this one, and report nothing.
+# The command-line build reads the severity from here, not from the rules below.
+dotnet_diagnostic.IDE1006.severity = warning
+
+dotnet_naming_rule.private_constants_exempt.symbols = private_constants
+dotnet_naming_rule.private_constants_exempt.style = pascal_case
+dotnet_naming_rule.private_constants_exempt.severity = none
+
+dotnet_naming_rule.private_static_fields_exempt.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields_exempt.style = pascal_case
+dotnet_naming_rule.private_static_fields_exempt.severity = none
+
+dotnet_naming_rule.private_fields_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_camel_case.style = camel_case
+dotnet_naming_rule.private_fields_camel_case.severity = warning
+
+dotnet_naming_symbols.private_constants.applicable_kinds = field
+dotnet_naming_symbols.private_constants.applicable_accessibilities = private
+dotnet_naming_symbols.private_constants.required_modifiers = const
+
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+dotnet_naming_style.camel_case.capitalization = camel_case

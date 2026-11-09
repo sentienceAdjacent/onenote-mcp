@@ -7,11 +7,11 @@ namespace OneNoteMcp.Tests;
 /// <summary>AD-10 read side: the I/O matrix of story 1.4, from Absent to Unreadable, plus one case per validated field.</summary>
 public sealed class SettingsStoreTests : IDisposable
 {
-    private readonly TempDirectory _dir = new();
+    private readonly TempDirectory dir = new();
 
-    public void Dispose() => _dir.Dispose();
+    public void Dispose() => dir.Dispose();
 
-    private string SettingsPath => _dir.Combine("settings.json");
+    private string SettingsPath => dir.Combine("settings.json");
 
     private SettingsSnapshot ReadWith(string json)
     {

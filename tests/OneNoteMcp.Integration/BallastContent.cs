@@ -414,14 +414,14 @@ internal static class BallastContent
 /// <summary>xorshift64*: small, fast and the same on every machine and runtime, which <see cref="Random"/> doesn't promise.</summary>
 internal sealed class BallastRng(ulong seed)
 {
-    private ulong _state = seed == 0 ? 0x9E3779B97F4A7C15UL : seed;
+    private ulong state = seed == 0 ? 0x9E3779B97F4A7C15UL : seed;
 
     public ulong NextUInt64()
     {
-        _state ^= _state >> 12;
-        _state ^= _state << 25;
-        _state ^= _state >> 27;
-        return _state * 2685821657736338717UL;
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        return state * 2685821657736338717UL;
     }
 
     public int Next(int maxExclusive) => (int)(NextUInt64() % (ulong)maxExclusive);

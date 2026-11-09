@@ -27,7 +27,7 @@ public sealed class SearchToolsIntegrationTests : IDisposable
 
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
 
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
+    private readonly string dir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -79,7 +79,7 @@ public sealed class SearchToolsIntegrationTests : IDisposable
     {
         try
         {
-            Directory.Delete(_dir, recursive: true);
+            Directory.Delete(dir, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {
@@ -112,8 +112,8 @@ public sealed class SearchToolsIntegrationTests : IDisposable
 
     private ComGateway Gateway()
     {
-        Directory.CreateDirectory(_dir);
-        var path = Path.Combine(_dir, "settings.json");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "settings.json");
         File.WriteAllText(path, """{ "schemaVersion": 1 }""");
         return new ComGateway(new ProcessProbe(), new SettingsStore(path));
     }

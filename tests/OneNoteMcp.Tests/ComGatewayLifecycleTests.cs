@@ -616,24 +616,24 @@ public sealed class ComGatewayLifecycleTests
 
     private sealed class TestProbe : IProcessProbe
     {
-        private int _integrityChecks;
-        private volatile bool _running = true;
+        private int integrityChecks;
+        private volatile bool running = true;
 
         public bool Running
         {
-            get => _running;
-            set => _running = value;
+            get => running;
+            set => running = value;
         }
 
         public IntegrityReport Integrity { get; set; } = new(0x2000, [new OneNoteIntegrity(1, 0x2000)]);
 
-        public int IntegrityChecks => Volatile.Read(ref _integrityChecks);
+        public int IntegrityChecks => Volatile.Read(ref integrityChecks);
 
         public bool IsOneNoteRunning() => Running;
 
         public IntegrityReport CheckIntegrity()
         {
-            Interlocked.Increment(ref _integrityChecks);
+            Interlocked.Increment(ref integrityChecks);
             return Integrity;
         }
     }

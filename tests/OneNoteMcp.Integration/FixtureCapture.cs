@@ -40,10 +40,10 @@ public sealed class FixtureCapture : IDisposable
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
-    private readonly string _settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-capture", Guid.NewGuid().ToString("N"));
-    private readonly ITestOutputHelper _output;
+    private readonly string settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-capture", Guid.NewGuid().ToString("N"));
+    private readonly ITestOutputHelper output;
 
-    public FixtureCapture(ITestOutputHelper output) => _output = output;
+    public FixtureCapture(ITestOutputHelper output) => this.output = output;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -179,14 +179,14 @@ public sealed class FixtureCapture : IDisposable
         manifest.Probe = probe;
         SaveManifest(manifest);
 
-        _output.WriteLine($"Fixtures written to {FixturesDir}: {recorder.Entries.Count} calls.");
-        _output.WriteLine($"Seeds: {string.Join("; ", probe.SeedResults.Select(kv => $"{kv.Key}: {kv.Value}"))}");
-        _output.WriteLine($"callbackID stable: {probe.CallbackIdStable}");
-        _output.WriteLine($"Attributes changed on untouched elements: {string.Join(", ", probe.ChangedAttributesOnUntouched.DefaultIfEmpty("(none)"))}");
-        _output.WriteLine($"Not excluded by ElementHash (report to Phill): {string.Join(", ", probe.UnexcludedChanges.DefaultIfEmpty("(none)"))}");
+        output.WriteLine($"Fixtures written to {FixturesDir}: {recorder.Entries.Count} calls.");
+        output.WriteLine($"Seeds: {string.Join("; ", probe.SeedResults.Select(kv => $"{kv.Key}: {kv.Value}"))}");
+        output.WriteLine($"callbackID stable: {probe.CallbackIdStable}");
+        output.WriteLine($"Attributes changed on untouched elements: {string.Join(", ", probe.ChangedAttributesOnUntouched.DefaultIfEmpty("(none)"))}");
+        output.WriteLine($"Not excluded by ElementHash (report to Phill): {string.Join(", ", probe.UnexcludedChanges.DefaultIfEmpty("(none)"))}");
         foreach (var note in probe.Notes)
         {
-            _output.WriteLine(note);
+            output.WriteLine(note);
         }
     }
 
@@ -272,15 +272,15 @@ public sealed class FixtureCapture : IDisposable
         manifest.Cloud = cloud;
         SaveManifest(manifest);
 
-        _output.WriteLine($"Cloud capture ({cloud.Source}): piBasic {cloud.BasicImageCount} images, piBinaryData {cloud.BinaryImageCount}.");
-        _output.WriteLine("Phill: review tests/OneNoteMcp.Tests/Fixtures/cloud/ and git diff before committing.");
+        output.WriteLine($"Cloud capture ({cloud.Source}): piBasic {cloud.BasicImageCount} images, piBinaryData {cloud.BinaryImageCount}.");
+        output.WriteLine("Phill: review tests/OneNoteMcp.Tests/Fixtures/cloud/ and git diff before committing.");
     }
 
     public void Dispose()
     {
         try
         {
-            Directory.Delete(_settingsDir, recursive: true);
+            Directory.Delete(settingsDir, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {
@@ -601,8 +601,8 @@ public sealed class FixtureCapture : IDisposable
 
     private ComGateway Gateway()
     {
-        Directory.CreateDirectory(_settingsDir);
-        var path = Path.Combine(_settingsDir, "settings.json");
+        Directory.CreateDirectory(settingsDir);
+        var path = Path.Combine(settingsDir, "settings.json");
         File.WriteAllText(path, """{ "schemaVersion": 1 }""");
         Assert.True(new ProcessProbe().IsOneNoteRunning(), "OneNote desktop must already be running.");
         return new ComGateway(new ProcessProbe(), new SettingsStore(path));
