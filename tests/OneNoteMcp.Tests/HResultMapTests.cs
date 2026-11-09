@@ -12,7 +12,7 @@ public sealed partial class HResultMapTests
     // Every HRESULT that is not Internal. Anything else in the psm1 table must map to Internal.
     private static readonly Dictionary<uint, ErrorCode> ExpectedNonInternal = new()
     {
-        [0x80080005] = ErrorCode.IntegrityMismatch,
+        [0x80080005] = ErrorCode.ComUnavailable,
         [0x800706BA] = ErrorCode.ComUnavailable,
         [0x80010108] = ErrorCode.ComUnavailable,
         [0x80010001] = ErrorCode.ComBusy,

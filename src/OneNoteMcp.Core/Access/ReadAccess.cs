@@ -462,7 +462,7 @@ public sealed class ReadAccess
         catch (OneNoteXmlException ex)
         {
             // OneNoteXmlException messages carry only positions and element names, never content (AD-13).
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}", innerException: ex);
+            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}");
         }
     }
 }

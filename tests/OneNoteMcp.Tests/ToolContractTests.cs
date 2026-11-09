@@ -121,17 +121,24 @@ public sealed class ToolContractTests
         var tools = new JsonArray();
         foreach (var tool in services.GetServices<McpServerTool>().Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal))
         {
-            tools.Add(new JsonObject
-            {
-                ["name"] = tool.Name,
-                ["inputSchema"] = StripDescriptions(JsonNode.Parse(tool.InputSchema.GetRawText())),
-                ["outputSchema"] = tool.OutputSchema is { } output ? StripDescriptions(JsonNode.Parse(output.GetRawText())) : null,
-                ["annotations"] = StripDescriptions(JsonSerializer.SerializeToNode(tool.Annotations, McpJsonUtilities.DefaultOptions)),
-                ["_meta"] = tool.Meta is { } meta ? JsonNode.Parse(meta.ToJsonString(McpJsonUtilities.DefaultOptions)) : null,
-            });
+            tools.Add(SnapshotOf(tool));
         }
 
         return new JsonObject { ["contractVersion"] = contractVersion, ["tools"] = tools };
+    }
+
+    /// <summary>One tool as the snapshot records it: descriptions stripped. Shared with the SDK test's wire <c>tools/list</c>.</summary>
+    internal static JsonObject SnapshotOf(ModelContextProtocol.Protocol.Tool tool)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+        return new JsonObject
+        {
+            ["name"] = tool.Name,
+            ["inputSchema"] = StripDescriptions(JsonNode.Parse(tool.InputSchema.GetRawText())),
+            ["outputSchema"] = tool.OutputSchema is { } output ? StripDescriptions(JsonNode.Parse(output.GetRawText())) : null,
+            ["annotations"] = StripDescriptions(JsonSerializer.SerializeToNode(tool.Annotations, McpJsonUtilities.DefaultOptions)),
+            ["_meta"] = tool.Meta is { } meta ? JsonNode.Parse(meta.ToJsonString(McpJsonUtilities.DefaultOptions)) : null,
+        };
     }
 
     // Strips "description" only as schema metadata. Keys directly under a "properties" object are names of

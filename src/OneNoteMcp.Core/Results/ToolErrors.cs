@@ -4,8 +4,8 @@ namespace OneNoteMcp.Core.Results;
 
 /// <summary>
 /// The per-code retryable and userAction table (AD-9). "Retryable" means a retry can succeed, possibly after a
-/// user action. <see cref="ErrorCode.ComUnavailable"/> and <see cref="ErrorCode.Timeout"/> are retryable for
-/// <see cref="OperationClass.Read"/> only. An unknown outcome always forces <c>retryable: false</c>.
+/// user action. <see cref="ErrorCode.ComUnavailable"/>, <see cref="ErrorCode.Timeout"/> and <see cref="ErrorCode.Cancelled"/>
+/// are retryable for <see cref="OperationClass.Read"/> only. An unknown outcome always forces <c>retryable: false</c>.
 /// </summary>
 public static class ToolErrors
 {
@@ -52,7 +52,7 @@ public static class ToolErrors
             or ErrorCode.PermanentDeleteNotGranted
             or ErrorCode.ReadNotGranted
             or ErrorCode.SettingsInvalid => true,
-        ErrorCode.ComUnavailable or ErrorCode.Timeout => operationClass == OperationClass.Read,
+        ErrorCode.ComUnavailable or ErrorCode.Timeout or ErrorCode.Cancelled => operationClass == OperationClass.Read,
         _ => false,
     };
 
@@ -63,6 +63,7 @@ public static class ToolErrors
         ErrorCode.ComUnavailable => "Check that OneNote is running and responding, then retry.",
         ErrorCode.ComBusy => "Wait for OneNote to finish what it is doing, then retry.",
         ErrorCode.Timeout => "Check that OneNote is responding, then retry.",
+        ErrorCode.Cancelled => "The call was cancelled before it finished. Retry it if the result is still needed.",
         ErrorCode.ModalDialogOpen => "Close the open dialog in OneNote, then retry.",
         ErrorCode.SectionLocked => "Unlock the section in OneNote, then retry. " + AddInAccessOptionNote,
         ErrorCode.StaleWrite => "Re-read the object, then make the change against the current version.",

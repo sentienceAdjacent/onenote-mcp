@@ -89,7 +89,7 @@ public sealed class ListGrantsUseCase(IOneNoteGateway gateway, Func<SettingsSnap
         }
         catch (System.Xml.XmlException ex)
         {
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read (line {ex.LineNumber}).", innerException: ex);
+            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read (line {ex.LineNumber}).");
         }
     }
 }

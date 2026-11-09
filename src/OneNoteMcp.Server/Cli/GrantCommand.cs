@@ -233,7 +233,7 @@ public sealed class GrantCommand
         }
         catch (OneNoteXmlException ex)
         {
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}", innerException: ex);
+            throw new OneNoteException(ErrorCode.InvalidXml, $"GetHierarchy returned XML the server can't read: {ex.Message}");
         }
     }
 

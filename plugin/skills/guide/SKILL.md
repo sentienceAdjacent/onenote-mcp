@@ -181,7 +181,7 @@ To find pages by an add-in tag, use `mcp__plugin_onenote_desktop__find_meta` wit
 
 On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 
-- **`retryable: true`:** tell the user what `userAction` says, and retry only after they say they've done it. The one exception: for `ComBusy` or `Timeout` on the read tools, retry once straight away. If that also fails, relay `userAction` and stop. Never retry `mcp__plugin_onenote_desktop__navigate_to` without asking the user again.
+- **`retryable: true`:** tell the user what `userAction` says, and retry only after they say they've done it. The exceptions: for `ComBusy` or `Timeout` on the read tools, retry once straight away. If that also fails, relay `userAction` and stop. For `Cancelled`, repeat the call only if you still need the result; there's no need to ask the user. Never retry `mcp__plugin_onenote_desktop__navigate_to` without asking the user again.
 - **`retryable: false`:** don't retry with the same input. Follow `userAction`, which may mean re-reading to get a current ID, or telling the user.
 
 | Code | What to do |
@@ -191,7 +191,8 @@ On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 | `SectionLocked` | Ask the user to unlock the section in OneNote, then retry. If they say it's already unlocked, pass on the error's `userAction`: it names the OneNote option that keeps protected sections from add-ins. Never change that option yourself. |
 | `ComBusy` | OneNote is busy or syncing. Retry once now; then ask the user to wait and tell you when to try again. |
 | `Timeout` | Retry once now; then ask the user to check that OneNote is responding. |
-| `ComUnavailable` | The server already retried. Ask the user to check that OneNote is running and responding, then retry. |
+| `ComUnavailable` | The server may already have retried. Relay `userAction` (check that OneNote is running and responding, or restart it), then retry once the user says it's done. |
+| `Cancelled` | The call was cancelled before it finished, usually because the request was stopped. Repeat it only if you still need the result. |
 | `ObjectNotFound` | The ID is stale (pages get new IDs when deleted or moved to another section, and every ID changes when a notebook is closed and reopened). Re-read the hierarchy and use a current ID. If the notebook itself is missing, ask the user to open it. |
 | `InvalidQuery` | For a search: check that you gave exactly one of `startNodeId` or `fromRoot: true`. Otherwise change the query. From `mcp__plugin_onenote_desktop__read_result`: give exactly one of `ref`, `run` or `expand`, and keep `offset` below the element's `chars`. |
 | `IntegrityMismatch` | The server and OneNote run at different elevation. Relay `userAction`; this needs a restart, not a retry. |

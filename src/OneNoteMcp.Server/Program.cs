@@ -8,7 +8,6 @@ using OneNoteMcp.Server;
 using OneNoteMcp.Server.Cli;
 using OneNoteMcp.Server.Hooks;
 using OneNoteMcp.Server.Logging;
-using Serilog;
 
 // The plugin's PreToolUse guard (AD-6) runs before any host is built: hook JSON on stdin, a deny decision on stdout or
 // nothing. It never fails the hook: anything unexpected allows silently.
@@ -59,15 +58,8 @@ if (args.Length > 0 && args[0] == "uninstall")
 var builder = Host.CreateApplicationBuilder(args);
 
 // stdout carries MCP JSON-RPC only; every log line goes to stderr and the rolling file log (AD-13).
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
-builder.Logging.AddSimpleConsole(o => o.SingleLine = true); // one stderr line per log record
-
 var fileLog = FileLog.Start(new FileLogOptions(FileLog.ResolveDirectory(Environment.GetEnvironmentVariable)));
-if (fileLog.Logger is { } fileLogger)
-{
-    builder.Logging.AddSerilog(fileLogger, dispose: true);
-}
+builder.Logging.AddOneNoteMcpLogging(fileLog.Logger);
 
 builder.Services
     .AddOneNoteMcp()

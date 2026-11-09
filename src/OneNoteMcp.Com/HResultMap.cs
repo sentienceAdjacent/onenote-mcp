@@ -86,8 +86,9 @@ internal static class HResultMap
     /// </summary>
     internal static ErrorCode ToErrorCode(int hresult) => unchecked((uint)hresult) switch
     {
-        0x80080005 => ErrorCode.IntegrityMismatch,
-        0x800706BA or 0x80010108 => ErrorCode.ComUnavailable,
+        // CO_E_SERVER_EXEC_FAILURE: the gateway checks integrity levels before it calls COM (AD-3), so this can still come
+        // back at activation only after the check passed; cause not observed. ComUnavailable, not IntegrityMismatch.
+        0x80080005 or 0x800706BA or 0x80010108 => ErrorCode.ComUnavailable,
         0x80010001 or 0x8001010A or 0x8004201D => ErrorCode.ComBusy,
         0x80042030 => ErrorCode.ModalDialogOpen,
         0x8004201B => ErrorCode.SectionLocked,
@@ -107,6 +108,14 @@ internal static class HResultMap
         return Name(hresult) is { } name ? $"{what} failed: {name} ({hex})." : $"{what} failed: {hex}.";
     }
 
+    /// <summary>The userAction for <c>0x80080005</c>, which can still come back at activation after the integrity check passed; cause not observed.</summary>
+    internal const string ServerExecFailureUserAction = "Restart OneNote, then retry.";
+
     internal static OneNoteException ToException(string what, Exception ex) =>
-        new(ToErrorCode(ex.HResult), FailureMessage(what, ex.HResult), ex.HResult, ex);
+        new(
+            ToErrorCode(ex.HResult),
+            FailureMessage(what, ex.HResult),
+            ex.HResult,
+            ex,
+            userAction: unchecked((uint)ex.HResult) == 0x80080005 ? ServerExecFailureUserAction : null);
 }

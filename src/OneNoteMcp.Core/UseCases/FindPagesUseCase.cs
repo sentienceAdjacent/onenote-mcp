@@ -151,7 +151,7 @@ public sealed class FindPagesUseCase : IUseCase
         catch (OneNoteXmlException ex)
         {
             // OneNoteXmlException messages carry only positions and element names, never content (AD-13).
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetPageContent returned XML for page {pageId} that the server can't read: {ex.Message}", innerException: ex);
+            throw new OneNoteException(ErrorCode.InvalidXml, $"GetPageContent returned XML for page {pageId} that the server can't read: {ex.Message}");
         }
     }
 }

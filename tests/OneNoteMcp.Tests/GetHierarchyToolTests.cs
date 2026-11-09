@@ -170,12 +170,45 @@ public sealed class GetHierarchyToolTests
     }
 
     [Fact]
-    public async Task Cancellation_IsInternalEnvelope_NotAThrow()
+    public async Task StrayCancellation_WhileTheCallsTokenIsNotCancelled_IsInternalEnvelope_NotAThrow()
     {
         var result = await Tool(new ThrowingGateway(new OperationCanceledException())).GetHierarchy(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.IsError);
-        Assert.Equal("Internal", Structured(result).GetProperty("error").GetProperty("code").GetString());
+        var error = Structured(result).GetProperty("error");
+        Assert.Equal("Internal", error.GetProperty("code").GetString());
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ClientCancellation_IsCancelled_AndRetryable_NotAThrow()
+    {
+        // AD-9 (story 1.14 Q2): only the call's own token, cancelled, makes Cancelled.
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        await cancel.CancelAsync();
+
+        var result = await Tool(new ThrowingGateway(new OperationCanceledException(cancel.Token))).GetHierarchy(cancellationToken: cancel.Token);
+
+        Assert.True(result.IsError);
+        var error = Structured(result).GetProperty("error");
+        Assert.Equal("Cancelled", error.GetProperty("code").GetString());
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal("The call was cancelled.", error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task MalformedXml_IsInvalidXml_WithACleanedMessage_AndNoInnerException()
+    {
+        // Story 1.14: the parser's own exception, whose message can quote content, never travels with the error (AD-13).
+        var gateway = new FakeGateway { HierarchyXml = "<one:Notebooks xmlns:one='http://schemas.microsoft.com/office/onenote/2013/onenote'><one:Notebook name='secret text'" };
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => new GetHierarchyUseCase(gateway).ExecuteAsync(
+            new ToolCallContext("c"), string.Empty, HierarchyScope.Notebooks, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.InvalidXml, ex.Code);
+        Assert.Null(ex.InnerException);
+        Assert.StartsWith("GetHierarchy returned XML the server can't read: The XML is not well-formed (line ", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", ex.Message, StringComparison.Ordinal);
     }
 
     private static GetHierarchyTool Tool(IOneNoteGateway gateway) =>
