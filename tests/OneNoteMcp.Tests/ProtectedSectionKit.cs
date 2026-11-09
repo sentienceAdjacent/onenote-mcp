@@ -365,9 +365,9 @@ internal sealed class VaultHarness : IDisposable
         return Runner.RunAsync("find_meta", useCase, (c, ct) => useCase.ExecuteAsync(c, "tag", start, start.Length == 0, ct), Ct);
     }
 
-    public Task<CallToolResult> Read(string resultId, string @ref = "", string expand = "", int? offset = null)
+    public Task<CallToolResult> Read(string resultId, string @ref = "", string expand = "", int? offset = null, string[]? run = null)
     {
-        return Runner.RunAsync("read_result", ReadResult, (c, ct) => ReadResult.ExecuteAsync(c, resultId, @ref, null, expand, null, offset, null, ct), Ct);
+        return Runner.RunAsync("read_result", ReadResult, (c, ct) => ReadResult.ExecuteAsync(c, resultId, @ref, run, expand, null, offset, null, ct), Ct);
     }
 
     public Task<CallToolResult> ListGrants()
@@ -407,6 +407,25 @@ internal static class Grants
         Assert.Equal("ReadNotGranted", error.GetProperty("code").GetString());
         Assert.True(error.GetProperty("retryable").GetBoolean());
         Assert.Contains("OneNoteMcp grant --read-section", error.GetProperty("userAction").GetString()!, StringComparison.Ordinal);
+        Assert.Contains(sectionId, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        AssertNothingLeaks(result);
+        return error;
+    }
+
+    /// <summary>
+    /// Asserts a <c>read_result</c> refusal because the grant that allowed the original call has ended (bug 1.22, R3):
+    /// <c>ReadNotGranted</c>, not retryable for an expired <c>hours</c> grant (the default) and retryable for a revoked
+    /// one, the lapsed userAction (grant again, then repeat the original call), the section's ID, and no secret, name or
+    /// path in the whole result.
+    /// </summary>
+    public static JsonElement Lapsed(CallToolResult result, string sectionId, bool retryable = false)
+    {
+        Assert.True(result.IsError, result.StructuredContent?.GetRawText());
+        var error = result.StructuredContent!.Value.GetProperty("error");
+        Assert.Equal("ReadNotGranted", error.GetProperty("code").GetString());
+        Assert.Equal(retryable, error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(ReadAccess.LapsedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains("repeat the original call", error.GetProperty("userAction").GetString()!, StringComparison.Ordinal);
         Assert.Contains(sectionId, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
         AssertNothingLeaks(result);
         return error;

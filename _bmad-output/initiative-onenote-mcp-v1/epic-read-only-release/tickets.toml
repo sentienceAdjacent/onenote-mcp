@@ -378,3 +378,18 @@ after = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21]
 hitl = false
 risk = "low"
 unknown = "Scope is unknown until the other stories finish."
+
+[[entry]]
+id = 22
+type = "bug"
+title = "Protected-section grants leak or mislead at four seams in the 0.8.0-rc.1 release"
+description = "Fixes the four defects the epic 1 retrospective found where read grants meet older code: a stored search result served after its grant ends, the plugin hook allowing the model to purge, a lapsed grant reported as retryable, and protected page text left in the search cache."
+verify = "Unit tests fail on each defect and pass on the fix, and the stress harness on MCP Test still shows 0 mismatches with protected sections withheld."
+covers = ["R1", "R2"]
+after = [20]
+hitl = false
+risk = "high"
+references = [
+  "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/epic-read-only-release-retrospective.md",
+]
+notes = ["Phill, 2026-11-09: one bug ticket before epic 2, then release v0.8.0-rc.2."]

@@ -5,7 +5,8 @@ namespace OneNoteMcp.Core.Results;
 /// <summary>
 /// The per-code retryable and userAction table (AD-9). "Retryable" means a retry can succeed, possibly after a
 /// user action. <see cref="ErrorCode.ComUnavailable"/>, <see cref="ErrorCode.Timeout"/> and <see cref="ErrorCode.Cancelled"/>
-/// are retryable for <see cref="OperationClass.Read"/> only. An unknown outcome always forces <c>retryable: false</c>.
+/// are retryable for <see cref="OperationClass.Read"/> only. An exception's own <see cref="OneNoteException.Retryable"/>
+/// overrides its code's entry. An unknown outcome always forces <c>retryable: false</c>.
 /// </summary>
 public static class ToolErrors
 {
@@ -32,7 +33,7 @@ public static class ToolErrors
         var outcomeUnknown = exception.OutcomeUnknown;
         return new ToolError(
             Code: exception.Code,
-            Retryable: !outcomeUnknown && IsRetryable(exception.Code, operationClass),
+            Retryable: !outcomeUnknown && (exception.Retryable ?? IsRetryable(exception.Code, operationClass)),
             UserAction: outcomeUnknown ? OutcomeUnknownUserAction : exception.UserAction ?? UserAction(exception.Code),
             Message: exception.Message,
             HResult: exception.ComHResult is { } hr ? FormatHResult(hr) : null,

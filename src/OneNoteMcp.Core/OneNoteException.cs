@@ -11,13 +11,15 @@ public sealed class OneNoteException : Exception
         int? hresult = null,
         Exception? innerException = null,
         bool outcomeUnknown = false,
-        string? userAction = null)
+        string? userAction = null,
+        bool? retryable = null)
         : base(message, innerException)
     {
         Code = code;
         ComHResult = hresult;
         OutcomeUnknown = outcomeUnknown;
         UserAction = userAction;
+        Retryable = retryable;
     }
 
     public ErrorCode Code { get; }
@@ -36,4 +38,11 @@ public sealed class OneNoteException : Exception
     /// must change. An unknown outcome's userAction still wins (AD-9). Never carries page content.
     /// </summary>
     public string? UserAction { get; }
+
+    /// <summary>
+    /// A retryable flag more specific than the code's entry in the per-code table (AD-9), for a server-side check that knows
+    /// a retry of this exact call can't succeed (a stored result whose grant ended). Null keeps the table's value. An
+    /// unknown outcome still forces <c>retryable: false</c>.
+    /// </summary>
+    public bool? Retryable { get; }
 }

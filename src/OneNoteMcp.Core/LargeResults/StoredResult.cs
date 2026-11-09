@@ -10,7 +10,7 @@ namespace OneNoteMcp.Core.LargeResults;
 /// <param name="SectionId">The section's ID in the stored body, whose span the grant covers.</param>
 /// <param name="Lifetime">The grant's lifetime. A grant that couldn't be saved is recorded as <c>once</c>.</param>
 /// <param name="ExpiresAt">When an <c>hours</c> grant ends.</param>
-/// <param name="WholeResult">True when the whole body is inside the section (a page read), so every part needs the grant.</param>
+/// <param name="WholeResult">True when the whole body is inside the section (a page read, or a search started at the section or at one of its pages), so every part needs the grant.</param>
 public sealed record ResultGrant(string SectionKey, string SectionId, Access.ReadGrantLifetime Lifetime, DateTimeOffset? ExpiresAt, bool WholeResult);
 
 /// <summary>The AD-21 grants that allowed the original call (AD-20): <c>{sectionKey, lifetime, expiresAt?}</c> per section.</summary>
