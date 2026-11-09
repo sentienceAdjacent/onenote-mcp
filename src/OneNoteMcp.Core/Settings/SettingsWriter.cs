@@ -155,7 +155,7 @@ public sealed class SettingsWriter
         try
         {
             using var stream = new FileStream(store.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return JsonNode.Parse(stream, documentOptions: new JsonDocumentOptions { AllowDuplicateProperties = false }) as JsonObject
+            return JsonNode.Parse(stream, documentOptions: SettingsJson.Options(allowDuplicateProperties: false)) as JsonObject
                 ?? throw new OneNoteException(ErrorCode.SettingsInvalid, "settings.json: (root) must be a JSON object.");
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or IOException or UnauthorizedAccessException)
@@ -173,7 +173,7 @@ public sealed class SettingsWriter
             .Where(p => p.Value is JsonObject entry
                 && entry["expiresAt"] is JsonValue value
                 && value.TryGetValue<string>(out var text)
-                && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var end)
+                && SettingsJson.TryParseUtc(text, out var end)
                 && now >= end)
             .Select(p => p.Key)
             .ToList();

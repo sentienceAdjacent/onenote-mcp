@@ -68,7 +68,7 @@ public sealed class SettingsStore
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(bytes);
+            document = JsonDocument.Parse(bytes, SettingsJson.Options(allowDuplicateProperties: true));
         }
         catch (JsonException ex)
         {
@@ -90,7 +90,50 @@ public sealed class SettingsStore
         }
     }
 
+    /// <summary>
+    /// Reads every settings area in a fixed order, so the first field that fails is the one reported. A newer
+    /// <c>schemaVersion</c> stops the read. <c>protectedSections</c> is read last, so a key that differs only in case is the
+    /// file's only problem when it is reported.
+    /// </summary>
     private static SettingsSnapshot Validate(string path, JsonElement root)
+    {
+        if (ReadSchemaVersion(root) > SettingsSnapshot.KnownSchemaVersion)
+        {
+            // A newer shape may differ in any field, so none of it is read (AD-10, AD-19).
+            return SettingsSnapshot.Defaults(path, SettingsStatus.NewerSchema, "schemaVersion: newer than this server supports");
+        }
+
+        var allowSilentActivation = ReadAllowSilentActivation(root);
+        var timeouts = ReadTimeouts(root);
+        var journal = ReadJournal(root);
+        var results = ReadResults(root);
+        var search = ReadSearch(root);
+        var readGrants = ReadReadGrants(root);
+        var exportRoots = ReadExportRoots(root);
+
+        // Read last, so a duplicate key is the file's only problem when it is reported (AD-6: the CLI's revoke still runs).
+        var grants = ReadProtectedSections(root, out var duplicate);
+        if (duplicate)
+        {
+            return new SettingsSnapshot(
+                path,
+                SettingsStatus.Invalid,
+                "protectedSections: two keys differ only in case",
+                allowSilentActivation: false,
+                Timeouts.Default,
+                JournalSettings.Default(),
+                ResultSettings.Default,
+                SearchSettings.Default,
+                ExportRoots.Default(),
+                grants,
+                duplicateGrantKeysOnly: true);
+        }
+
+        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots, grants, readGrants: readGrants);
+    }
+
+    /// <summary><c>schemaVersion</c>: required, a whole number, and not older than this server's. A newer one is returned.</summary>
+    private static long ReadSchemaVersion(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
         {
@@ -107,97 +150,132 @@ public sealed class SettingsStore
             throw new InvalidSettingException("schemaVersion: must be a whole number");
         }
 
-        if (schemaVersion > SettingsSnapshot.KnownSchemaVersion)
-        {
-            // A newer shape may differ in any field, so none of it is read (AD-10, AD-19).
-            return SettingsSnapshot.Defaults(path, SettingsStatus.NewerSchema, "schemaVersion: newer than this server supports");
-        }
-
         if (schemaVersion < SettingsSnapshot.KnownSchemaVersion)
         {
             throw new InvalidSettingException("schemaVersion: must be 1");
         }
 
-        var allowSilentActivation = false;
-        if (root.TryGetProperty("allowSilentActivation", out var silent))
+        return schemaVersion;
+    }
+
+    private static bool ReadAllowSilentActivation(JsonElement root)
+    {
+        if (!root.TryGetProperty("allowSilentActivation", out var silent))
         {
-            allowSilentActivation = silent.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                _ => throw new InvalidSettingException("allowSilentActivation: must be true or false"),
-            };
+            return false;
         }
 
+        return silent.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw new InvalidSettingException("allowSilentActivation: must be true or false"),
+        };
+    }
+
+    private static Timeouts ReadTimeouts(JsonElement root)
+    {
         var timeouts = Timeouts.Default;
-        if (root.TryGetProperty("timeouts", out var t))
+        if (!root.TryGetProperty("timeouts", out var t))
         {
-            RequireObject(t, "timeouts");
-            timeouts = new Timeouts(
-                Seconds(t, "callSeconds", timeouts.Call),
-                Seconds(t, "publishSeconds", timeouts.Publish),
-                Seconds(t, "activationSeconds", timeouts.Activation),
-                Seconds(t, "idleReleaseSeconds", timeouts.IdleRelease));
+            return timeouts;
         }
 
+        RequireObject(t, "timeouts");
+        return new Timeouts(
+            Seconds(t, "callSeconds", timeouts.Call),
+            Seconds(t, "publishSeconds", timeouts.Publish),
+            Seconds(t, "activationSeconds", timeouts.Activation),
+            Seconds(t, "idleReleaseSeconds", timeouts.IdleRelease));
+    }
+
+    private static JournalSettings ReadJournal(JsonElement root)
+    {
         var journal = JournalSettings.Default();
-        if (root.TryGetProperty("journal", out var j))
+        if (!root.TryGetProperty("journal", out var j))
         {
-            RequireObject(j, "journal");
-            journal = new JournalSettings(
-                AbsolutePath(j, "path", "journal.path") ?? journal.Path,
-                PositiveInt(j, "retentionDays", "journal.retentionDays") ?? journal.RetentionDays,
-                PositiveInt(j, "maxSizeMB", "journal.maxSizeMB") ?? journal.MaxSizeMB);
+            return journal;
         }
 
+        RequireObject(j, "journal");
+        return new JournalSettings(
+            AbsolutePath(j, "path", "journal.path") ?? journal.Path,
+            PositiveInt(j, "retentionDays", "journal.retentionDays") ?? journal.RetentionDays,
+            PositiveInt(j, "maxSizeMB", "journal.maxSizeMB") ?? journal.MaxSizeMB);
+    }
+
+    private static ResultSettings ReadResults(JsonElement root)
+    {
         var results = ResultSettings.Default;
-        if (root.TryGetProperty("results", out var r))
+        if (!root.TryGetProperty("results", out var r))
         {
-            RequireObject(r, "results");
-            results = new ResultSettings(
-                RangedInt(r, "inlineMaxChars", "results.inlineMaxChars", ResultSettings.InlineMaxCharsMin, ResultSettings.InlineMaxCharsMax) ?? results.InlineMaxChars,
-                RangedInt(r, "ttlMinutes", "results.ttlMinutes", ResultSettings.TtlMinutesMin, ResultSettings.TtlMinutesMax) ?? results.TtlMinutes,
-                RangedInt(r, "maxStoreMB", "results.maxStoreMB", ResultSettings.MaxStoreMBMin, ResultSettings.MaxStoreMBMax) ?? results.MaxStoreMB);
+            return results;
         }
 
+        RequireObject(r, "results");
+        return new ResultSettings(
+            RangedInt(r, "inlineMaxChars", "results.inlineMaxChars", ResultSettings.InlineMaxCharsMin, ResultSettings.InlineMaxCharsMax) ?? results.InlineMaxChars,
+            RangedInt(r, "ttlMinutes", "results.ttlMinutes", ResultSettings.TtlMinutesMin, ResultSettings.TtlMinutesMax) ?? results.TtlMinutes,
+            RangedInt(r, "maxStoreMB", "results.maxStoreMB", ResultSettings.MaxStoreMBMin, ResultSettings.MaxStoreMBMax) ?? results.MaxStoreMB);
+    }
+
+    private static SearchSettings ReadSearch(JsonElement root)
+    {
         var search = SearchSettings.Default;
-        if (root.TryGetProperty("search", out var q))
+        if (!root.TryGetProperty("search", out var q))
         {
-            RequireObject(q, "search");
-            search = new SearchSettings(
-                RangedInt(q, "cacheMaxMB", "search.cacheMaxMB", SearchSettings.CacheMaxMBMin, SearchSettings.CacheMaxMBMax) ?? search.CacheMaxMB);
+            return search;
         }
 
+        RequireObject(q, "search");
+        return new SearchSettings(
+            RangedInt(q, "cacheMaxMB", "search.cacheMaxMB", SearchSettings.CacheMaxMBMin, SearchSettings.CacheMaxMBMax) ?? search.CacheMaxMB);
+    }
+
+    private static ReadGrantSettings ReadReadGrants(JsonElement root)
+    {
         var readGrants = ReadGrantSettings.Default;
-        if (root.TryGetProperty("readGrants", out var rg))
+        if (!root.TryGetProperty("readGrants", out var rg))
         {
-            RequireObject(rg, "readGrants");
-            readGrants = new ReadGrantSettings(
-                RangedInt(rg, "onceMinutes", "readGrants.onceMinutes", ReadGrantSettings.OnceMinutesMin, ReadGrantSettings.OnceMinutesMax) ?? readGrants.OnceMinutes);
+            return readGrants;
         }
 
-        var exportRoots = ExportRoots.Default();
-        if (root.TryGetProperty("exportRoots", out var roots))
+        RequireObject(rg, "readGrants");
+        return new ReadGrantSettings(
+            RangedInt(rg, "onceMinutes", "readGrants.onceMinutes", ReadGrantSettings.OnceMinutesMin, ReadGrantSettings.OnceMinutesMax) ?? readGrants.OnceMinutes);
+    }
+
+    private static ExportRoots ReadExportRoots(JsonElement root)
+    {
+        if (!root.TryGetProperty("exportRoots", out var roots))
         {
-            if (roots.ValueKind != JsonValueKind.Array)
-            {
-                throw new InvalidSettingException("exportRoots: must be an array of absolute paths");
-            }
-
-            var paths = new List<string>();
-            var index = 0;
-            foreach (var entry in roots.EnumerateArray())
-            {
-                paths.Add(RequireAbsolutePath(entry, $"exportRoots[{index.ToString(CultureInfo.InvariantCulture)}]"));
-                index++;
-            }
-
-            exportRoots = new ExportRoots(paths.AsReadOnly());
+            return ExportRoots.Default();
         }
 
-        // Read last, so a duplicate key is the file's only problem when it is reported (AD-6: the CLI's revoke still runs).
+        if (roots.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidSettingException("exportRoots: must be an array of absolute paths");
+        }
+
+        var paths = new List<string>();
+        var index = 0;
+        foreach (var entry in roots.EnumerateArray())
+        {
+            paths.Add(RequireAbsolutePath(entry, $"exportRoots[{index.ToString(CultureInfo.InvariantCulture)}]"));
+            index++;
+        }
+
+        return new ExportRoots(paths.AsReadOnly());
+    }
+
+    /// <summary>
+    /// <c>protectedSections{}</c>: every entry, in file order. <paramref name="duplicate"/> is true when two keys differ
+    /// only in case (AD-6). Two identical keys are both read too, since the parse allows them (<see cref="SettingsJson.Options"/>).
+    /// </summary>
+    private static IReadOnlyList<ProtectedSectionGrant> ReadProtectedSections(JsonElement root, out bool duplicate)
+    {
         var grants = new List<ProtectedSectionGrant>();
-        var duplicate = false;
+        duplicate = false;
         if (root.TryGetProperty("protectedSections", out var sections))
         {
             RequireObject(sections, "protectedSections");
@@ -209,23 +287,7 @@ public sealed class SettingsStore
             }
         }
 
-        if (duplicate)
-        {
-            return new SettingsSnapshot(
-                path,
-                SettingsStatus.Invalid,
-                "protectedSections: two keys differ only in case",
-                allowSilentActivation: false,
-                Timeouts.Default,
-                JournalSettings.Default(),
-                ResultSettings.Default,
-                SearchSettings.Default,
-                ExportRoots.Default(),
-                grants.AsReadOnly(),
-                duplicateGrantKeysOnly: true);
-        }
-
-        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots, grants.AsReadOnly(), readGrants: readGrants);
+        return grants.AsReadOnly();
     }
 
     /// <summary>One <c>protectedSections{}</c> entry. Reasons name fields and never quote the file's values.</summary>
@@ -274,7 +336,7 @@ public sealed class SettingsStore
         }
 
         if (value.ValueKind != JsonValueKind.String
-            || !DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date))
+            || !SettingsJson.TryParseUtc(value.GetString(), out var date))
         {
             throw new InvalidSettingException($"{field} entry {name}: must be an ISO-8601 date-time");
         }
