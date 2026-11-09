@@ -53,6 +53,12 @@ public sealed class SettingsGuardTests
     [InlineData("Bash", "cmd /c \"move g.json %APPDATA%\\OneNoteMcp\"")]
     [InlineData("Bash", "cp g.json C:/Users/someone/AppData/Roaming/OneNoteMcp/")]
     [InlineData("PowerShell", "Copy-Item g.json C:\\Users\\someone\\AppData\\Roaming\\OneNoteMcp")]
+    [InlineData("Bash", "cd ~/AppData/Roaming/OneNoteMcp && mv g.json settings.json")]
+    [InlineData("Bash", "cd \"$HOME/AppData/Roaming/OneNoteMcp\" && mv g.json settings.json")]
+    [InlineData("Bash", "cd \"${HOME}\"/appdata/roaming/onenotemcp && mv g.json settings.json")]
+    [InlineData("PowerShell", "cd $env:USERPROFILE\\AppData\\Roaming\\OneNoteMcp; mv g.json settings.json")]
+    [InlineData("Bash", "cmd /c \"cd %USERPROFILE%\\AppData\\Roaming\\OneNoteMcp && move g.json settings.json\"")]
+    [InlineData("Bash", "cd /c/Users/other/AppData/Roaming/OneNoteMcp && mv g.json settings.json")]
     public void ShellCommands_NamingTheSettingsFolder_AreDenied(string tool, string command) =>
         Assert.Equal(SettingsGuard.Reason, SettingsGuard.Decide(Input(tool, new { command }), SettingsPath));
 

@@ -11,7 +11,7 @@ namespace OneNoteMcp.Server.Hooks;
 /// folder (the resolved settings path's folder, and <c>%APPDATA%\OneNoteMcp</c>), ignoring case, so a file written there
 /// can't be renamed over <c>settings.json</c>; and a shell command (<c>Bash</c>, <c>PowerShell</c>) whose text names any
 /// of them, a settings folder also as <c>$APPDATA</c>, <c>$env:APPDATA</c> or <c>%APPDATA%</c> then <c>OneNoteMcp</c>,
-/// with either slash. Everything else, reads and unreadable input
+/// or any path ending <c>AppData\Roaming\OneNoteMcp</c>, with either slash. Everything else, reads and unreadable input
 /// included, is allowed silently. It also denies a shell command that runs the grant CLI (<c>OneNoteMcp</c>,
 /// <c>OneNoteMcp.exe</c> or a path ending in it, quoted or not, followed by <c>grant</c>), and one that runs
 /// <c>uninstall</c> the same way, whose <c>--purge</c> deletes <c>settings.json</c> and every grant in it: only the user
@@ -192,8 +192,9 @@ public static partial class SettingsGuard
     [GeneratedRegex(@"OneNoteMcp[\\/]+settings\.json", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex InOneNoteMcpFolder();
 
-    // $APPDATA, ${APPDATA}, $env:APPDATA or %APPDATA%, then OneNoteMcp, not as the start of a longer name.
-    [GeneratedRegex(@"(?:\$\{?(?:env:)?APPDATA\}?|%APPDATA%)[""']?[\\/]+OneNoteMcp(?![\w.-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    // $APPDATA, ${APPDATA}, $env:APPDATA or %APPDATA%, then OneNoteMcp; or any path ending AppData\Roaming\OneNoteMcp
+    // (~, $HOME, $env:USERPROFILE, %USERPROFILE%, /c/Users/<name>); either way not as the start of a longer name.
+    [GeneratedRegex(@"(?:\$\{?(?:env:)?APPDATA\}?|%APPDATA%|AppData[""']?[\\/]+[""']?Roaming)[""']?[\\/]+[""']?OneNoteMcp(?![\w.-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AppDataOneNoteMcp();
 
     // Not preceded by a word character, dot or hyphen, so OneNoteMcp.Tests or my-OneNoteMcp don't count.
