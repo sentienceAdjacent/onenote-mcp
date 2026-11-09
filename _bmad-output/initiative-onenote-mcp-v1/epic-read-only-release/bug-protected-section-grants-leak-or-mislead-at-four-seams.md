@@ -92,6 +92,6 @@ All against `v0.8.0-rc.1`, using MCP Test's protected section (Ballast Vault) un
 
 - Decision: one bug ticket for all four, built before epic 2, followed by release `v0.8.0-rc.2` (Phill, 2026-11-09, retro decision 1).
 - Decision: filed as epic 1 entry 22 rather than in `backlog/`, because in an initiative with epics every leaf sits under one (bmad-ticket rule). Epic 1 shipped the defects.
-- Decision: severity P1, not P0 (Phill, 2026-11-09). R1 is a security exposure, but a narrow one: page names and IDs (no content) of a section the user had granted, for at most `results.ttlMinutes` (30 by default) after the grant ends, and only for a search started inside that section. Change it if you disagree.
+- Decision: severity P1, not P0 (Phill, 2026-11-09). R1 is a security exposure, but a narrow one: page names and IDs (no content) of a section the user had granted, for at most `results.ttlMinutes` (30 by default) after the grant ends, and only for a search started inside that section.
 - Risk is high because this is access control. Check beyond the ticket's own tests: the stress harness on MCP Test (0 mismatches, protected sections still withheld), plus a security review of the diff before merge.
 - Open question: whether a page keeps its ID when its section is password-protected (R5). The fix shouldn't depend on it.
