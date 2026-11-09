@@ -131,3 +131,15 @@ Closes or routes every epic 1 entry above. Entries already marked "Epic 2" (writ
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-refactor-sweep-plan.md`
   summary: Resolved: a pinned release being deleted (Q4). The tag ruleset now exists.
   evidence: Phill, 2026-11-09. Ruleset "release tags" (id 26869745) on sentienceAdjacent/onenote-mcp: target tag, active, includes `refs/tags/v*`, rules `deletion` and `non_fast_forward`, no bypass actors (checked through the GitHub API). It protects the tag only: deleting the GitHub Release itself from the Releases page is still possible.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/epic-read-only-release-retrospective.md`
+  summary: "Epic 2 first refactor" group (Phill, 2026-11-09, retro decision 3). Clean these up before epic 2 adds write code next to them. D1, the xs:boolean `IsTrue` helper written 3 times (`LockedSections.cs:20`, `SearchResultFilter.cs:160`, `EncryptedSections.cs:55`). D2, the "XML can't be read → `InvalidXml`" mapping written 7 times, with `ListGrantsUseCase` bypassing `OneNoteXml.Parse`. D3, `ReadAccess`'s two parent walks and the two ways of building a section's location and a `ProtectedSectionGrant`. D4, settings.json parsed two ways (`SettingsStore` vs `SettingsWriter`). D5, `0x80042014` declared twice in Core. P2, private-field naming (`_x` vs `x`), with no `.editorconfig` rule. P3, the XPSFile probe in `GetBinaryPageContentUseCase.cs:93` swallowing `Timeout` and `Cancelled`. S2, split `ReadAccess.cs` (531 lines) when write grants arrive. S3, split `SettingsStore.Validate` (about 138 lines) per settings area.
+  evidence: The epic 1 retrospective's aggregate views, with file:line sources in its Findings tables.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/epic-read-only-release-retrospective.md`
+  summary: Moved to epic 2 (retro R4): `uninstall --purge` doesn't take the `Local\OneNoteMcp.Settings` mutex or detect a running server. A grant saved by a server still running after purge re-creates `settings.json`, and that server's in-memory `once` windows keep allowing reads.
+  evidence: `UninstallCommand.cs:155-158` vs `SettingsWriter.cs:97`. Today the README's step 1 (quit every client first) is the only guard.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/epic-read-only-release-retrospective.md`
+  summary: For bmad-correct-course (retro C1–C3, A2, A3). Epic Done-when 2 says "XML unchanged", but AD-4 now allows removals, withholding and parts. Its basis is page-only, though AD-17 also defines one for hierarchy nodes. The `navigate_to` boundary wording covers only fetching images. Spine AD-2 says only `ComGateway` touches the interop types, but `StaThread` holds `IApplication`. The spine diagram has no Server→Xml arrow (`GrantCommand.cs:5`).
+  evidence: The epic 1 retrospective's spec and architecture tables.
