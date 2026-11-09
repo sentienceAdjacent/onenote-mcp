@@ -3,7 +3,7 @@ title: 'Protected-section grants leak or mislead at four seams'
 type: 'bugfix'
 ticket: '22'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: 'f79fb93a21cf95c9f7303f81edcaf5bed26252f4'
 route: 'full'
 route_source: 'auto'
