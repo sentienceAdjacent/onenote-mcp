@@ -3,12 +3,13 @@ title: 'Protected-section grants leak or mislead at four seams'
 type: 'bugfix'
 ticket: '22'
 created: '2026-11-09'
-status: 'draft'
+status: 'built'
+baseline_revision: 'f79fb93a21cf95c9f7303f81edcaf5bed26252f4'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick', 'security']
 review_loop_iteration: 0
 context: []
 ---
@@ -29,6 +30,10 @@ context: []
 - A lapsed-grant refusal carries an explicit `retryable: false`.
 - Search evicts protected pages from the cache.
 - Each fix gets tests that fail before it and pass after it.
+
+**Scope added by Phill (2026-11-09, review pass 1):**
+- **S2:** the plugin guard also blocks the whole OneNoteMcp app-data folder. Writes and edits to any file in it are denied, and so are shell commands that name it. Without this, the model can write a grant file under another name and rename it to `settings.json`.
+- The version goes to `0.8.0-rc.2`.
 
 ## Boundaries & Constraints
 
@@ -106,16 +111,16 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `ReadAccess.cs`: R1, the `Overlaps` fail-closed rule, and `WholeResult: true` for a search started at a section or a page. R3, throw the lapsed refusal with `retryable: false`.
-- [ ] `OneNoteException.cs`, `ToolErrors.cs`: an optional retryable override. Every other code keeps the table's value.
-- [ ] `SettingsGuard.cs`: deny the uninstall/purge invocation with its own reason.
-- [ ] `FindPagesUseCase.cs`: evict protected pages from the cache.
-- [ ] Tests, one per matrix row:
+- [x] `ReadAccess.cs`: R1, the `Overlaps` fail-closed rule, and `WholeResult: true` for a search started at a section or a page. R3, throw the lapsed refusal with `retryable: false`.
+- [x] `OneNoteException.cs`, `ToolErrors.cs`: an optional retryable override. Every other code keeps the table's value.
+- [x] `SettingsGuard.cs`: deny the uninstall/purge invocation with its own reason.
+- [x] `FindPagesUseCase.cs`: evict protected pages from the cache.
+- [x] Tests, one per matrix row:
   - R1: three separate tests (search at a section, search at a page, no index), plus the still-valid and rooted-unrelated rows.
   - R2: deny and allow theories.
   - R3: the flag and userAction on each lapsed path, plus a `ToolErrorsTests` override case.
   - R5: eviction, both withheld and granted.
-- [ ] Spine AD-6 sentence and README: name the purge. Add a memlog entry.
+- [x] Spine AD-6 sentence and README: name the purge. Add a memlog entry.
 
 **Acceptance Criteria:**
 - Given the fix, when the unit and integration suites run, then both pass, and every new test fails on `main` at `1efd814`.
@@ -123,9 +128,41 @@ context: []
 
 ## Implementation Notes
 
+- **R1:** `ResultGrantCheck.Overlaps` treats a part as overlapping when the grant is `WholeResult`, when the tree has no index (`Root.Element is null`), or when `Find(sectionId)` is null. `CheckSearchScopeAsync` marks the start section's grant `WholeResult: true` for a search started at a protected section or at one of its pages (`WholeResult` helper). The section-root case is caught twice: by `WholeResult`, and by `Find` returning null for the root.
+- **R3:** `OneNoteException` gains `bool? retryable`; `ToolErrors.From` uses it in place of the table when set, and an unknown outcome still forces false. Only the lapsed refusal in `ResultGrantCheck.Check` sets it, and only to false when an `hours` grant has passed its `expiresAt` (review fix S1): a revoked grant (`untilRevoked`, or `hours` before its end) holds again after a new grant, so it keeps the table's `true`. The refusal message says the part "may hold pages of" the section (review fix Q3), since fail-closed can't always place it.
+- **R2:** `PurgeInvocation` is `GrantInvocation`'s shape with `uninstall`; checked after the settings and grant checks, with its own `PurgeReason`. Review fix S2: the guard also denies any file write into a settings folder (the resolved settings path's folder and `%APPDATA%\OneNoteMcp`) and any shell command naming one, including `$APPDATA`, `${APPDATA}`, `$env:APPDATA` and `%APPDATA%` forms, so a file can't be written there and renamed over `settings.json`. `Reason` now speaks of the folder.
+- **R5:** `cache.Remove(page.Id)` at the top of the loop whenever `broad.IsProtected(page.SectionId)`, so withheld, name-only and granted pages are all evicted. It doesn't count toward `searchCache.evicted` (that counts capacity evictions).
+- **Tests:** the existing lapsed tests (`ReadResult_PartFromAResultMadeUnderALapsedGrant_*`, `ReadResult_AfterARevoke_*`) now assert `Grants.Lapsed` (retryable false, `LapsedUserAction`). `VaultHarness.Read` takes `run`. The still-valid search test skips the offset read: at `inlineMaxChars: 200` an offset part has no room for a body, which is unrelated to grants.
+- **Review fixes (Phill chose all, 2026-11-09):** spine AD-6 (folder block, Limits: the guard is best effort and Claude Code only), AD-9 (exception override; expired `hours` refusal not retryable), AD-19 (asks for `purge` or takes `--yes`; only the user runs it), AD-20 (fail-closed rule); memlog decision and event entries; guide skill `ReadNotGranted` row (after a new grant, repeat the original call); README skill sentence, Security bullet (folder) and agent step 6 (the plugin's guard blocks it; the step 2 command with the installed exe's path). `<Version>` is `0.8.0-rc.2`; no contract change, so contract stays 0.8.
+- **Docs beyond the plan's list:** README "For agents installing this" step 6 told agents to run `uninstall --purge --yes` themselves, which the hook now denies; it now says to give the user the command. The guide skill's never-run bullet names the uninstall block.
+- **Fails before the fix:** on a baseline worktree (HEAD `f79fb93`, whose `src/` and `tests/` equal `main` at `1efd814`, with only compile stubs: `PurgeReason` and an ignored `retryable` parameter), 19 tests fail: all R1/R3/R5 defect tests, the 7 purge-deny cases and the `ToolErrorsTests` override case. The rows that describe today's behaviour (grant still valid, no-index under a valid grant, the uninstall-mention allow cases) pass there by design.
+
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+**Pass 1 (2026-11-09):**
+- Three reviews ran: Fable on the AD-6 edit (5 findings), the quick lens (8) and a security review (2). The security review found no remaining path to protected data through `read_result`.
+- Phill chose all of them in `review/1-22-findings.md`, and option (a) for S2.
+- All went to impl-1-22 as patches.
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---|---|---|---|
+| F1 | AD-6 Limits never say the guard is best effort | medium | patch | Spine Limits section vs the cites at `SettingsGuard.cs:15-16` and README:73 |
+| Q1 | AD-9's `ReadNotGranted` row and the AD-20 re-check bullet lag the code | medium | patch | Spine:241 and :456 |
+| Q2 | The skill tells the model to retry a lapsed `read_result` | medium | patch | `SKILL.md:199` |
+| F2 | AD-19 doesn't say who purges, or the confirm rule | low | patch | Spine Uninstall section; `UninstallCommand.cs:47,105-109` |
+| F3 | The memlog entry under-describes the edit | low | patch | `.memlog.md:158` |
+| F4 | Wording: "with every grant" | low | patch | Spine:129 |
+| F5 | README:45 lags the skill | low | patch | `SKILL.md:79` |
+| Q4 | README step 6 overstates the block for non-plugin installs | low | patch | README:203 |
+| S1 | `retryable: false` is wrong after an untilRevoked revoke and re-grant | low | patch | `Holds` checks the key only for untilRevoked |
+| Q3 | The refusal message asserts a location the check didn't establish | low | patch | The fail-closed `Overlaps` |
+| S2 | The model can give itself a grant through a renamed file (since 1.20) | medium | patch (scope added by Phill) | `SettingsGuard.cs:110-114,143` |
+| x1 | "Every new test fails on main" isn't met as written | false | reject | The plan's wording: tests for the still-valid rows can't fail on main |
+| x2 | The no-index test duplicates the absent-section rule | low | reject | It still pins the behaviour criterion 5 asks for, and a fix would only add complexity |
+| x3 | The Fable review is pending | false | reject | It ran; see F1–F5 |
 
 ## Verification
 
@@ -134,7 +171,15 @@ context: []
 - `dotnet test tests/OneNoteMcp.Tests`: all pass
 - `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration`: unchanged (87 passed, 7 skipped)
 
+**Stress harness run (2026-11-09, before the review fixes):** `pack-plugin.ps1` then the harness on MCP Test against `dist/publish/OneNoteMcp.exe` (written 17:38Z, server 0.8.0-rc.1 built from the fixed working tree): 620 comparisons, 0 mismatches, 2 `unstableRead`, 0 `changedDuringRun`; the 1 password-protected section withheld (3 pages withheld, `ReadNotGranted` on its page reads); 31 stored results reassembled through `read_result`, max text block 100,000 chars, 0 over the inline threshold. Exit 0.
+
 **Manual checks:**
 - Stress harness on MCP Test: `pwsh -File scripts/pack-plugin.ps1`, then the harness per `spikes/stress-harness/README.md`. Expect 0 mismatches.
 - A name grep on the diff finds nothing.
 - The Fable final review of the AD-6 edit is done, and Phill has chosen which findings to fix.
+
+**Final run after the review fixes (2026-11-09, team lead):**
+- `dotnet build -warnaserror`: 0 warnings.
+- Unit tests: 1273 passed. Integration tests: 87 passed, 7 skipped.
+- `pack-plugin.ps1` built `0.8.0-rc.2`, and `claude plugin validate --strict` passes.
+- Stress harness on MCP Test against that exe: 620 comparisons, 0 mismatches, 2 unstableRead, 31 stored results, none over 100,000 characters.

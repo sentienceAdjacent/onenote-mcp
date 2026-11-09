@@ -236,16 +236,28 @@ public sealed class ReadAccess
                 return BroadAccess.None;
             }
 
+            // Every result is in the start page's section, so a grant for it covers the whole stored result (bug 1.22).
             var access = CheckBroad([new EncryptedSection(section.Id, section.Name, section.Path, section.Locked, [])], includesPages: true);
-            return access.Withheld.Count > 0 ? access with { WithholdAll = true } : access;
+            return access.Withheld.Count > 0 ? access with { WithholdAll = true } : WholeResult(access, section.Id);
         }
 
-        // A start node that is itself a withheld section: every result is in it, whatever the search XML wraps them in.
+        // A start node that is itself a protected section: every result is in it, whatever the search XML wraps them in.
+        // Withheld, everything is; granted, the grant covers the whole stored result, since the section is its root,
+        // whose ID a stored result's index never holds (AD-20, bug 1.22).
         var broad = CheckBroad(Readable(() => EncryptedSections.Find(xml)), includesPages: true);
-        return root.Kind == HierarchyKind.Section && root.Encrypted && broad.Withheld.Contains(root.Id, StringComparer.Ordinal)
-            ? broad with { WithholdAll = true }
-            : broad;
+        if (root.Kind != HierarchyKind.Section || !root.Encrypted)
+        {
+            return broad;
+        }
+
+        return broad.Withheld.Contains(root.Id, StringComparer.Ordinal) ? broad with { WithholdAll = true } : WholeResult(broad, root.Id);
     }
+
+    /// <summary><paramref name="access"/> with the grant for <paramref name="sectionId"/>, if any, covering the whole result.</summary>
+    private static BroadAccess WholeResult(BroadAccess access, string sectionId) => access with
+    {
+        Granted = [.. access.Granted.Select(g => string.Equals(g.SectionId, sectionId, StringComparison.Ordinal) ? g with { WholeResult = true } : g)],
+    };
 
     /// <summary>
     /// The section that owns <paramref name="objectId"/>: up the <c>GetHierarchyParent</c> chain to the first
@@ -501,10 +513,14 @@ public sealed class ResultGrantCheck(Func<SettingsSnapshot> settings, TimeProvid
             snapshot ??= settings();
             if (!Holds(grant, snapshot, now))
             {
+                // An expired hours grant stays expired for this stored result, even after a new grant, so only the original
+                // call can succeed: not retryable. A revoked grant (untilRevoked, or hours before its end) holds again once
+                // the user grants the same section again, so it keeps the table's flag (bug 1.22).
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
-                    $"This part of result {entry.ResultId} is in password-protected section {grant.SectionId}, and the read grant that allowed the original call has ended.",
-                    userAction: ReadAccess.LapsedUserAction);
+                    $"This part of result {entry.ResultId} may hold pages of password-protected section {grant.SectionId}, and the read grant that allowed the original call has ended.",
+                    userAction: ReadAccess.LapsedUserAction,
+                    retryable: grant.Lifetime == ReadGrantLifetime.Hours && grant.ExpiresAt is { } expiry && now >= expiry ? false : null);
             }
         }
     }
@@ -518,14 +534,18 @@ public sealed class ResultGrantCheck(Func<SettingsSnapshot> settings, TimeProvid
         _ => false,
     };
 
+    /// <summary>
+    /// True when the part [<paramref name="start"/>, <paramref name="end"/>) could hold the grant's section's pages.
+    /// Fails closed (AD-21): when the section's place in the stored body can't be told (a body stored without an index,
+    /// only <c>/</c>, or no element with the section's ID), every part counts as holding them (bug 1.22).
+    /// </summary>
     private static bool Overlaps(StoredResult entry, ResultGrant grant, int start, int end)
     {
-        if (grant.WholeResult)
+        if (grant.WholeResult || entry.Tree.Root.Element is null)
         {
             return true;
         }
 
-        // A section absent from the stored body contributed nothing to it.
-        return entry.Tree.Find(grant.SectionId) is { } section && start < section.End && section.Start < end;
+        return entry.Tree.Find(grant.SectionId) is not { } section || (start < section.End && section.Start < end);
     }
 }

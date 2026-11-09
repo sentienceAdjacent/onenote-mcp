@@ -30,6 +30,41 @@ public sealed class SettingsGuardTests
     public void FileWrites_ToTheSettings_AreDenied(string tool, string path) =>
         Assert.Equal(SettingsGuard.Reason, SettingsGuard.Decide(Input(tool, new { file_path = path, content = "x" }), SettingsPath));
 
+    public static TheoryData<string, string> DeniedFolderWrites() => new()
+    {
+        // Bug 1.22 S2: a file written into the settings folder could be renamed over settings.json.
+        { "Write", @"C:\Users\someone\AppData\Roaming\OneNoteMcp\g.json" },
+        { "Edit", "c:/users/someone/appdata/roaming/onenotemcp/notes.txt" },
+        { "Write", "%APPDATA%\\OneNoteMcp\\g.json" },
+        { "MultiEdit", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OneNoteMcp", "x.json") },
+    };
+
+    [Theory]
+    [MemberData(nameof(DeniedFolderWrites))]
+    public void FileWrites_IntoTheSettingsFolder_AreDenied(string tool, string path) =>
+        Assert.Equal(SettingsGuard.Reason, SettingsGuard.Decide(Input(tool, new { file_path = path, content = "x" }), SettingsPath));
+
+    [Theory]
+    [InlineData("Bash", "cd \"$APPDATA/OneNoteMcp\" && mv g.json settings.json")]
+    [InlineData("Bash", "cd $APPDATA/onenotemcp; mv g.json settings.json")]
+    [InlineData("Bash", "mv /tmp/g.json \"${APPDATA}\"/OneNoteMcp/")]
+    [InlineData("PowerShell", "Set-Location $env:APPDATA\\OneNoteMcp; Move-Item g.json settings.json -Force")]
+    [InlineData("PowerShell", "Move-Item g.json \"$env:APPDATA/OneNoteMcp/\"")]
+    [InlineData("Bash", "cmd /c \"move g.json %APPDATA%\\OneNoteMcp\"")]
+    [InlineData("Bash", "cp g.json C:/Users/someone/AppData/Roaming/OneNoteMcp/")]
+    [InlineData("PowerShell", "Copy-Item g.json C:\\Users\\someone\\AppData\\Roaming\\OneNoteMcp")]
+    public void ShellCommands_NamingTheSettingsFolder_AreDenied(string tool, string command) =>
+        Assert.Equal(SettingsGuard.Reason, SettingsGuard.Decide(Input(tool, new { command }), SettingsPath));
+
+    [Theory]
+    [InlineData("& \"C:\\Users\\x\\.claude\\plugins\\cache\\sentienceadjacent\\onenote\\0.8.0\\OneNoteMcp.exe\" --version")]
+    [InlineData("OneNoteMcp.exe --version")]
+    [InlineData("ls $LOCALAPPDATA/OneNoteMcp/logs")]
+    [InlineData("ls $APPDATA/OneNoteMcpOld")]
+    [InlineData("cat C:/Users/someone/AppData/Roaming/OneNoteMcp-backup/notes.txt")]
+    public void ShellCommands_MentioningOneNoteMcp_WithoutTheSettingsFolder_AreAllowed(string command) =>
+        Assert.Null(SettingsGuard.Decide(Input("Bash", new { command }), SettingsPath));
+
     [Fact]
     public void NotebookEdit_ByNotebookPath_IsDenied() =>
         Assert.NotNull(SettingsGuard.Decide(Input("NotebookEdit", new { notebook_path = SettingsPath }), SettingsPath));
@@ -66,6 +101,26 @@ public sealed class SettingsGuardTests
     [InlineData("grep -rn grant src/OneNoteMcp.Server")]
     [InlineData("OneNoteMcp hook guard-settings")]
     public void ShellCommands_MerelyMentioningGrant_AreAllowed(string command) =>
+        Assert.Null(SettingsGuard.Decide(Input("Bash", new { command }), SettingsPath));
+
+    [Theory]
+    [InlineData("Bash", "OneNoteMcp uninstall --purge --yes")]
+    [InlineData("Bash", "onenotemcp.exe UNINSTALL --purge")]
+    [InlineData("Bash", "OneNoteMcp uninstall")]
+    [InlineData("PowerShell", "& \"C:\\Users\\x\\.claude\\plugins\\cache\\sentienceadjacent\\onenote\\0.8.0\\OneNoteMcp.exe\" uninstall --purge --yes")]
+    [InlineData("PowerShell", "& 'C:\\tools\\OneNoteMcp.exe' uninstall --purge")]
+    [InlineData("Bash", "C:/tools/OneNoteMcp.exe uninstall --purge --yes")]
+    [InlineData("Bash", "echo y | OneNoteMcp uninstall --purge")]
+    public void ShellCommands_RunningThePurge_AreDenied_SayingOnlyTheUserRunsIt(string tool, string command) =>
+        Assert.Equal(SettingsGuard.PurgeReason, SettingsGuard.Decide(Input(tool, new { command }), SettingsPath));
+
+    [Theory]
+    [InlineData("echo uninstall")]
+    [InlineData("cat D:/notes/uninstall/OneNoteMcp.md")]
+    [InlineData("ls C:/tools/OneNoteMcp/uninstall-notes.txt")]
+    [InlineData("dotnet test tests/OneNoteMcp.Tests --filter UninstallCommandTests")]
+    [InlineData("git commit -m \"document OneNoteMcp's uninstall --purge\"")]
+    public void ShellCommands_MerelyMentioningUninstall_AreAllowed(string command) =>
         Assert.Null(SettingsGuard.Decide(Input("Bash", new { command }), SettingsPath));
 
     public static TheoryData<string> Allowed() => new()

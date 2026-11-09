@@ -53,6 +53,21 @@ public sealed class ToolErrorsTests
     }
 
     [Fact]
+    public void AnExceptionsOwnRetryable_OverridesTheTable_ForThatErrorOnly()
+    {
+        // Bug 1.22: a stored result whose grant ended stays refused, so its ReadNotGranted isn't retryable.
+        var lapsed = ToolErrors.From(new OneNoteException(ErrorCode.ReadNotGranted, "m", retryable: false), OperationClass.Read);
+        var other = ToolErrors.From(new OneNoteException(ErrorCode.ReadNotGranted, "m"), OperationClass.Read);
+        var forcedOn = ToolErrors.From(new OneNoteException(ErrorCode.Internal, "m", retryable: true), OperationClass.Read);
+        var unknown = ToolErrors.From(new OneNoteException(ErrorCode.Timeout, "m", outcomeUnknown: true, retryable: true), OperationClass.PageWrite);
+
+        Assert.False(lapsed.Retryable);
+        Assert.True(other.Retryable);
+        Assert.True(forcedOn.Retryable);
+        Assert.False(unknown.Retryable);
+    }
+
+    [Fact]
     public void EveryCode_HasItsOwnShortUserAction()
     {
         var actions = Enum.GetValues<ErrorCode>().Select(ToolErrors.UserAction).ToList();

@@ -19,7 +19,8 @@ namespace OneNoteMcp.Core.UseCases;
 /// </para>
 /// <para>
 /// Before any of that, pages in password-protected sections without a read grant are dropped (AD-21): never read, never
-/// looked up in or added to the cache, never in <c>meta.filtered</c>; their sections go in <c>meta.withheld</c>.
+/// looked up in or added to the cache, never in <c>meta.filtered</c>; their sections go in <c>meta.withheld</c>. Any page
+/// in a protected section, withheld or granted, is removed from the cache if it is there (AD-12).
 /// </para>
 /// </summary>
 public sealed class FindPagesUseCase : IUseCase
@@ -76,6 +77,13 @@ public sealed class FindPagesUseCase : IUseCase
         int hits = 0, misses = 0;
         foreach (var page in pages)
         {
+            // A page in a protected section, withheld or granted, never stays cached (AD-12): text cached before its
+            // section was protected is dropped here, before any other step can skip the page (bug 1.22).
+            if (broad.IsProtected(page.SectionId))
+            {
+                cache.Remove(page.Id);
+            }
+
             // Withheld before the recycle-bin step, any read and the cache (AD-12, AD-21).
             if (broad.IsWithheld(page.SectionId))
             {

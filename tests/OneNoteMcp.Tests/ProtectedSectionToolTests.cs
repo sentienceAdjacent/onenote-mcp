@@ -582,12 +582,12 @@ public sealed class ProtectedSectionToolTests
         h.Clock.Advance(TimeSpan.FromMinutes(20));
         Grants.Ok(await h.Read(id, @ref: "{O0}{1}{B0}"));
         h.Clock.Advance(TimeSpan.FromMinutes(21));
-        Grants.NotGranted(await h.Read(id, @ref: "{O0}{1}{B0}"), V.VaultId);
-        Grants.NotGranted(await h.Read(id, expand: "/"), V.VaultId);
+        Grants.Lapsed(await h.Read(id, @ref: "{O0}{1}{B0}"), V.VaultId);
+        Grants.Lapsed(await h.Read(id, expand: "/"), V.VaultId);
     }
 
     [Fact]
-    public async Task ReadResult_AfterARevoke_IsReadNotGranted()
+    public async Task ReadResult_AfterARevoke_IsReadNotGranted_Retryable_AndServedAgainOnceTheUserGrantsAgain()
     {
         using var h = new VaultHarness(inlineMaxChars: 20_000);
         h.Gateway.PageXml[V.VaultPageId] = BigXml.Page(outlines: 30, oes: 10);
@@ -596,7 +596,10 @@ public sealed class ProtectedSectionToolTests
         var id = Envelope.ResultId(Grants.Ok(await h.PageContent(V.VaultPageId)));
         h.Writer.RevokeReadGrant(GrantKeys.SectionKey(V.VaultPath));
 
-        Grants.NotGranted(await h.Read(id, @ref: "/", offset: 0), V.VaultId);
+        // A revoked untilRevoked grant holds again after a new grant, so the refusal keeps the table's retryable: true.
+        Grants.Lapsed(await h.Read(id, @ref: "/", offset: 0), V.VaultId, retryable: true);
+        h.Grant(V.VaultPath, V.VaultId);
+        Grants.Ok(await h.Read(id, @ref: "/", offset: 0));
     }
 
     [Fact]
@@ -621,6 +624,205 @@ public sealed class ProtectedSectionToolTests
         var ex = Assert.Throws<OneNoteException>(() => { check.Check(entry, protectedSection.Start, protectedSection.End); });
         Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
         Assert.Throws<OneNoteException>(() => { check.Check(entry, 0, xml.Length); });
+    }
+
+    // --- Bug 1.22: a stored broad result after its grant ends (R1, R3) -----------------------------------------------
+
+    /// <summary>
+    /// Every read_result part of a stored search result: <c>expand /</c>, <c>ref /</c> (whole and by offset), <c>ref</c>
+    /// and <c>expand</c> of each child of the root, and a <c>run</c> over the root's children when it has any. Without
+    /// <paramref name="offsets"/>, no offset read: at these tests' tiny threshold an offset part has no room for any body.
+    /// </summary>
+    private static IEnumerable<Func<Task<ModelContextProtocol.Protocol.CallToolResult>>> EveryPart(VaultHarness h, string id, bool offsets = true)
+    {
+        var children = h.Store.Get(id).Entry.Tree.Root.Children;
+        yield return () => h.Read(id, expand: "/");
+        yield return () => h.Read(id, @ref: "/");
+        if (offsets)
+        {
+            yield return () => h.Read(id, @ref: "/", offset: 0);
+        }
+
+        foreach (var child in children)
+        {
+            var childRef = child.Ref;
+            yield return () => h.Read(id, @ref: childRef);
+            yield return () => h.Read(id, expand: childRef);
+        }
+
+        if (children.Count > 0)
+        {
+            var (first, last) = (children[0].Ref, children[^1].Ref);
+            yield return () => h.Read(id, run: [first, last]);
+        }
+    }
+
+    /// <summary>A find_pages at <paramref name="start"/> under a Vault grant, stored (a low inline threshold): its resultId.</summary>
+    private static async Task<string> StoredVaultSearch(VaultHarness h, string start)
+    {
+        var id = Envelope.ResultId(Grants.Ok(await h.FindPages("Vault page", start)));
+        Assert.Contains(V.VaultPageId, h.Store.Get(id).Entry.Body, StringComparison.Ordinal);
+        return id;
+    }
+
+    [Fact]
+    public async Task ReadResult_SearchStartedAtTheVault_AfterARevoke_EveryPartIsLapsed()
+    {
+        using var h = new VaultHarness(inlineMaxChars: 200);
+        h.Grant(V.VaultPath, V.VaultId);
+        var id = await StoredVaultSearch(h, V.VaultId);
+
+        h.Writer.RevokeReadGrant(GrantKeys.SectionKey(V.VaultPath));
+
+        foreach (var part in EveryPart(h, id))
+        {
+            Grants.Lapsed(await part(), V.VaultId, retryable: true);
+        }
+    }
+
+    [Fact]
+    public async Task ReadResult_SearchStartedAtAVaultPage_AfterItsHoursGrantExpires_EveryPartIsLapsed()
+    {
+        using var h = new VaultHarness(inlineMaxChars: 200);
+        h.Grant(V.VaultPath, V.VaultId, h.Clock.GetUtcNow().AddHours(1));
+        var id = await StoredVaultSearch(h, V.VaultPageId);
+
+        // Reads every 20 minutes keep the entry alive (30-minute TTL) past the grant's hour.
+        for (var i = 0; i < 3; i++)
+        {
+            Grants.Ok(await h.Read(id, expand: "/"));
+            h.Clock.Advance(TimeSpan.FromMinutes(20));
+        }
+
+        foreach (var part in EveryPart(h, id))
+        {
+            Grants.Lapsed(await part(), V.VaultId);
+        }
+    }
+
+    [Fact]
+    public async Task ReadResult_SearchStartedAtTheVaultOrAVaultPage_WhileTheGrantHolds_EveryPartIsServed()
+    {
+        using var h = new VaultHarness(inlineMaxChars: 200);
+        h.Grant(V.VaultPath, V.VaultId);
+        var sectionSearch = await StoredVaultSearch(h, V.VaultId);
+        var pageSearch = await StoredVaultSearch(h, V.VaultPageId);
+
+        foreach (var part in EveryPart(h, sectionSearch, offsets: false).Concat(EveryPart(h, pageSearch, offsets: false)))
+        {
+            Grants.Ok(await part());
+        }
+    }
+
+    [Fact]
+    public async Task ReadResult_SearchAtTheNotebook_AfterARevoke_RefusesOnlyPartsOverlappingTheVault()
+    {
+        using var h = new VaultHarness(inlineMaxChars: 200);
+        h.Grant(V.VaultPath, V.VaultId);
+        var id = Envelope.ResultId(Grants.Ok(await h.FindPages("page", V.NotebookId)));
+
+        h.Writer.RevokeReadGrant(GrantKeys.SectionKey(V.VaultPath));
+
+        Grants.Ok(await h.Read(id, @ref: V.OpenSectionId));
+        Grants.Ok(await h.Read(id, expand: V.OpenSectionId));
+        Grants.Lapsed(await h.Read(id, @ref: V.VaultId), V.VaultId, retryable: true);
+        Grants.Lapsed(await h.Read(id, @ref: V.VaultPageId), V.VaultId, retryable: true);
+        Grants.Lapsed(await h.Read(id, expand: "/"), V.VaultId, retryable: true);
+        Grants.Lapsed(await h.Read(id, run: [V.OpenSectionId, V.VaultId]), V.VaultId, retryable: true);
+    }
+
+    [Fact]
+    public void ResultGrantCheck_ABroadResultStoredWithoutAnIndex_RefusesEveryPart_OnceItsGrantLapses()
+    {
+        // XML that couldn't be indexed is stored as one span, / (AD-20): the section's place in it can't be told.
+        var xml = BigXml.Hierarchy(sections: 3, pages: 2);
+        var entry = StoredHierarchy(ElementSpans.Text(xml), xml, "{S1}{1}{B0}");
+        var check = new ResultGrantCheck(ReadAccess_NoSettings, TimeProvider.System);
+
+        var ex = Assert.Throws<OneNoteException>(() => { check.Check(entry, 0, xml.Length); });
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.True(ToolErrors.From(ex, OperationClass.Read).Retryable); // untilRevoked: holds again after a new grant
+        Assert.Throws<OneNoteException>(() => { check.Check(entry, 0, 1); });
+        Assert.Throws<OneNoteException>(() => { check.Check(entry, xml.Length - 1, xml.Length); });
+    }
+
+    [Fact]
+    public void ResultGrantCheck_ABroadResultWithoutTheGrantedSection_RefusesEveryPart_OnceItsGrantLapses()
+    {
+        // Fail closed (AD-21): a lapsed grant whose section has no element in the result can't be placed in it.
+        var xml = BigXml.Hierarchy(sections: 3, pages: 2);
+        var tree = ElementSpans.Hierarchy(xml);
+        var entry = StoredHierarchy(tree, xml, "{ABSENT}{1}{B0}");
+        var check = new ResultGrantCheck(ReadAccess_NoSettings, TimeProvider.System);
+
+        var open = tree.Find("{S0}{1}{B0}")!;
+        Assert.Throws<OneNoteException>(() => { check.Check(entry, open.Start, open.End); });
+        Assert.Throws<OneNoteException>(() => { check.Check(entry, 0, xml.Length); });
+    }
+
+    [Fact]
+    public void ResultGrantCheck_ABroadResultStoredWithoutAnIndex_IsServed_WhileItsGrantHolds()
+    {
+        using var temp = new TempDirectory();
+        var store = new SettingsStore(temp.Combine("settings.json"));
+        new SettingsWriter(store, TimeProvider.System).SaveReadGrant(
+            new ProtectedSectionGrant(GrantKeys.SectionKey(V.VaultPath), V.VaultName, V.NotebookPath, "{S1}{1}{B0}", DateTimeOffset.UtcNow, GrantedVia.Cli, null));
+        var xml = BigXml.Hierarchy(sections: 3, pages: 2);
+        var entry = StoredHierarchy(ElementSpans.Text(xml), xml, "{S1}{1}{B0}", GrantKeys.SectionKey(V.VaultPath));
+
+        new ResultGrantCheck(store.Read, TimeProvider.System).Check(entry, 0, xml.Length);
+    }
+
+    private static StoredResult StoredHierarchy(SpanTree tree, string xml, string grantedSectionId, string sectionKey = "k") => new(
+        "r1",
+        ResultKind.HierarchyXml,
+        tree,
+        null,
+        ToolSuccess.WithXml(xml, new ToolMeta("c")),
+        new int[tree.Nodes.Count],
+        new ResultGrants([new ResultGrant(sectionKey, grantedSectionId, ReadGrantLifetime.UntilRevoked, null, WholeResult: false)]));
+
+    // --- Bug 1.22: protected page text leaves the search cache (R5) --------------------------------------------------
+
+    private static readonly DateTimeOffset VaultModified = DateTimeOffset.Parse("2026-11-07T00:00:00.000Z", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>A cache holding text for both Vault pages and the open page, as if read before the Vault was protected.</summary>
+    private static PageTextCache CacheWithVaultText()
+    {
+        var cache = PageTextCache.WithDefaults();
+        var max = cache.Settings.CacheMaxBytes;
+        cache.Set(V.VaultPageId, VaultModified, V.Secret, max);
+        cache.Set(V.VaultPage2Id, VaultModified, V.Secret, max);
+        cache.Set(V.OpenPageId, VaultModified, "Open text", max);
+        return cache;
+    }
+
+    public static TheoryData<bool, string> ProtectedCacheCases() => new()
+    {
+        { false, "SECRET" },
+        { false, "Vault page" },
+        { true, "SECRET" },
+        // Every term in the page's name: kept without a read or a cache lookup, but still evicted.
+        { true, "Vault page" },
+    };
+
+    [Theory]
+    [MemberData(nameof(ProtectedCacheCases))]
+    public async Task FindPages_EvictsCachedTextOfAPageNowInAProtectedSection_WithheldOrGranted(bool granted, string query)
+    {
+        using var h = new VaultHarness();
+        if (granted)
+        {
+            h.Grant(V.VaultPath, V.VaultId);
+        }
+
+        var cache = CacheWithVaultText();
+
+        Grants.Ok(await h.FindPages(query, V.NotebookId, cache));
+
+        Assert.False(cache.TryGet(V.VaultPageId, VaultModified, out _));
+        Assert.False(cache.TryGet(V.VaultPage2Id, VaultModified, out _));
+        Assert.True(cache.TryGet(V.OpenPageId, VaultModified, out _));
     }
 
     // --- list_grants -------------------------------------------------------------------------------------------------
