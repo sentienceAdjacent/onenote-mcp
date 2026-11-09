@@ -98,6 +98,10 @@ public sealed class SettingsGuardTests
     [InlineData("PowerShell", "& 'C:\\tools\\OneNoteMcp.exe' grant --revoke --read-section Vault")]
     [InlineData("Bash", "C:/tools/OneNoteMcp.exe grant --read-section Vault")]
     [InlineData("Bash", "echo 1 | OneNoteMcp grant --read-section Vault")]
+    [InlineData("Bash", "dotnet run --project src/OneNoteMcp.Server -- grant --read-section Vault")]
+    [InlineData("PowerShell", "dotnet run --project \"D:\\repo\\src\\OneNoteMcp.Server\\OneNoteMcp.Server.csproj\" -c Release -- grant --revoke --read-section Vault")]
+    [InlineData("Bash", "dotnet src/OneNoteMcp.Server/bin/Debug/net10.0-windows/OneNoteMcp.dll grant --read-section Vault")]
+    [InlineData("PowerShell", "dotnet 'C:\\tools\\OneNoteMcp.dll' grant --read-section Vault")]
     public void ShellCommands_RunningTheGrantCli_AreDenied_SayingOnlyTheUserRunsIt(string tool, string command) =>
         Assert.Equal(SettingsGuard.GrantReason, SettingsGuard.Decide(Input(tool, new { command }), SettingsPath));
 
@@ -106,6 +110,8 @@ public sealed class SettingsGuardTests
     [InlineData("dotnet test tests/OneNoteMcp.Tests --filter GrantCommandTests")]
     [InlineData("grep -rn grant src/OneNoteMcp.Server")]
     [InlineData("OneNoteMcp hook guard-settings")]
+    [InlineData("dotnet run --project src/OneNoteMcp.Server -- hook guard-settings")]
+    [InlineData("dotnet build src/OneNoteMcp.Server && git commit -m \"grant fix\"")]
     public void ShellCommands_MerelyMentioningGrant_AreAllowed(string command) =>
         Assert.Null(SettingsGuard.Decide(Input("Bash", new { command }), SettingsPath));
 
@@ -117,6 +123,10 @@ public sealed class SettingsGuardTests
     [InlineData("PowerShell", "& 'C:\\tools\\OneNoteMcp.exe' uninstall --purge")]
     [InlineData("Bash", "C:/tools/OneNoteMcp.exe uninstall --purge --yes")]
     [InlineData("Bash", "echo y | OneNoteMcp uninstall --purge")]
+    [InlineData("Bash", "dotnet run --project src/OneNoteMcp.Server -- uninstall --purge --yes")]
+    [InlineData("PowerShell", "dotnet run --project \"D:\\repo\\src\\OneNoteMcp.Server\\OneNoteMcp.Server.csproj\" -- uninstall --purge")]
+    [InlineData("Bash", "dotnet src/OneNoteMcp.Server/bin/Debug/net10.0-windows/OneNoteMcp.dll uninstall --purge --yes")]
+    [InlineData("PowerShell", "dotnet \"C:\\tools\\OneNoteMcp.dll\" uninstall --purge")]
     public void ShellCommands_RunningThePurge_AreDenied_SayingOnlyTheUserRunsIt(string tool, string command) =>
         Assert.Equal(SettingsGuard.PurgeReason, SettingsGuard.Decide(Input(tool, new { command }), SettingsPath));
 

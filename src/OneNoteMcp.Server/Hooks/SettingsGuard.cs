@@ -13,7 +13,8 @@ namespace OneNoteMcp.Server.Hooks;
 /// of them, a settings folder also as <c>$APPDATA</c>, <c>$env:APPDATA</c> or <c>%APPDATA%</c> then <c>OneNoteMcp</c>,
 /// or any path ending <c>AppData\Roaming\OneNoteMcp</c>, with either slash. Everything else, reads and unreadable input
 /// included, is allowed silently. It also denies a shell command that runs the grant CLI (<c>OneNoteMcp</c>,
-/// <c>OneNoteMcp.exe</c> or a path ending in it, quoted or not, followed by <c>grant</c>), and one that runs
+/// <c>OneNoteMcp.exe</c>, <c>OneNoteMcp.dll</c> or a path ending in one, quoted or not, or <c>dotnet run</c> of the
+/// <c>OneNoteMcp.Server</c> project then <c>--</c>, followed by <c>grant</c>), and one that runs
 /// <c>uninstall</c> the same way, whose <c>--purge</c> deletes <c>settings.json</c> and every grant in it: only the user
 /// runs them. A bare <c>uninstall</c> only prints its usage, so denying it too costs nothing. Best effort: an
 /// obfuscated shell command gets past it (AD-6 Limits; the README says so).
@@ -163,8 +164,9 @@ public static partial class SettingsGuard
     }
 
     /// <summary>
-    /// True when a shell command runs the grant CLI: <c>OneNoteMcp</c> or <c>OneNoteMcp.exe</c>, bare or at the end of a
-    /// path, quoted or not, then <c>grant</c>, ignoring case (so <c>grant --revoke</c> too).
+    /// True when a shell command runs the grant CLI: <c>OneNoteMcp</c>, <c>OneNoteMcp.exe</c> or <c>OneNoteMcp.dll</c>,
+    /// bare or at the end of a path, quoted or not, or <c>dotnet run</c> of the <c>OneNoteMcp.Server</c> project then
+    /// <c>--</c>; then <c>grant</c>, ignoring case (so <c>grant --revoke</c> too).
     /// </summary>
     public static bool RunsGrant(string? command) => !string.IsNullOrEmpty(command) && GrantInvocation().IsMatch(command);
 
@@ -197,11 +199,16 @@ public static partial class SettingsGuard
     [GeneratedRegex(@"(?:\$\{?(?:env:)?APPDATA\}?|%APPDATA%|AppData[""']?[\\/]+[""']?Roaming)[""']?[\\/]+[""']?OneNoteMcp(?![\w.-])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AppDataOneNoteMcp();
 
-    // Not preceded by a word character, dot or hyphen, so OneNoteMcp.Tests or my-OneNoteMcp don't count.
-    [GeneratedRegex(@"(?<![\w.-])OneNoteMcp(?:\.exe)?[""']?\s+grant\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    // What runs the CLI, before its verb: OneNoteMcp, OneNoteMcp.exe or OneNoteMcp.dll (bare, at the end of a path, or
+    // after dotnet), not preceded by a word character, dot or hyphen, so OneNoteMcp.Tests or my-OneNoteMcp don't count;
+    // or dotnet run naming the OneNoteMcp.Server project, then --. Within one command (no |, ;, & or newline between).
+    private const string Invocation =
+        @"(?:(?<![\w.-])OneNoteMcp(?:\.exe|\.dll)?[""']?|\bdotnet\s+run\b[^|;&\r\n]*?\bOneNoteMcp\.Server\b[^|;&\r\n]*?\s--)\s+[""']?";
+
+    [GeneratedRegex(Invocation + @"grant\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex GrantInvocation();
 
-    // The same invocation shape as GrantInvocation, with uninstall.
-    [GeneratedRegex(@"(?<![\w.-])OneNoteMcp(?:\.exe)?[""']?\s+uninstall\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    // The same invocation shapes as GrantInvocation, with uninstall.
+    [GeneratedRegex(Invocation + @"uninstall\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PurgeInvocation();
 }
