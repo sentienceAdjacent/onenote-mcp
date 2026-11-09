@@ -6,14 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A local MCP server that lets an MCP client (Claude Code, Claude Desktop) read and manage OneNote desktop notebooks on this Windows machine. It drives the installed OneNote desktop app through its COM automation API (`OneNote.Application`).
 
-**Status:** epic 1 (read-only release) is in progress. Story 1.2 (scaffold, CI, hand-declared `IApplication`, and the `get_hierarchy` tracer tool) is done. Stories 1.3 and 1.10 are next. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-19), with its rationale in the `.memlog.md` beside it. The ticket tree is under `_bmad-output/initiative-onenote-mcp-v1/`. Spike evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`.
+**Status:** epic 1 (read-only release) is nearly done: release `v0.7.0-rc.2` is out, and story 1.14 (refactor sweep) is the last one left. Ask `bmad-ticket` for the current board. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-21), with its rationale in the `.memlog.md` beside it. The ticket tree is under `_bmad-output/initiative-onenote-mcp-v1/`. Spike evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`.
 
 ## Build, test, run
 
 - Build: `dotnet build OneNoteMcp.slnx -warnaserror`. Warnings are errors, and the SDK is pinned by `global.json`.
 - Unit tests (CI): `dotnet test tests/OneNoteMcp.Tests`
 - Integration tests (opt-in, real OneNote must already be running, read-only): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration`
-- Run the server: `src/OneNoteMcp.Server/bin/Debug/net10.0-windows/OneNoteMcp.exe` speaks MCP over stdio. It's registered locally as `onenote` (`claude mcp add`). Don't rebuild while a Claude session has it running: the exe is locked.
+- Run the server: `src/OneNoteMcp.Server/bin/Debug/net10.0-windows/OneNoteMcp.exe` speaks MCP over stdio. To try a build in Claude Code, register it under a name of its own (`claude mcp add --scope user onenote-dev -- "<path>\OneNoteMcp.exe"`) or pass it with `--mcp-config` for one session. Don't rebuild while a Claude session has it running: the exe is locked.
 - Pack the plugin: `pwsh -File scripts/pack-plugin.ps1` publishes the self-contained exe and writes `dist/onenote-<ver>-win-x64.zip` (plugin at the zip root, version from `Directory.Build.props`). Validate with `claude plugin validate --strict dist/stage/onenote`. The marketplace catalog lives in its own repo, `sentienceAdjacent/plugins` (local clone `D:\Development\sentienceAdjacent-plugins`); validate it there with `claude plugin validate --strict .`. Local loop: `claude --plugin-dir dist/onenote-<ver>-win-x64.zip` loads the zip for one session.
 - Layout: `src/OneNoteMcp.{Core,Xml,Com,Server}` and `tests/OneNoteMcp.{Tests,Integration}`. COM interop types are `internal` to Com (AD-2).
 
