@@ -3,7 +3,7 @@ title: 'Write probes, part 1: pages, paths and search'
 type: 'chore'
 ticket: '2'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: 'cd131117ba6a6e39ab9d6131c1ff33c00dbc3dc7'
 route: 'full'
 route_source: 'auto'
