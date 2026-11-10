@@ -195,3 +195,24 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: none (Phill, 2026-11-10, in the 2.2 session)
   summary: Possibility for later, not scheduled: a shared-server mode. Today every Claude session starts its own stdio `OneNoteMcp.exe` (about 18–55 MB working set each, idle CPU near zero). One long-running server on a localhost HTTP transport (`claude mcp add --transport http ...`) would serve every session and funnel all COM through one STA thread. Costs: a new transport, something to start it (login task or tray), a required auth token (any local process can reach a port), and one failure point for every session.
   evidence: four servers measured 2026-11-10 (working set 17.9, 20.4, 48.4, 54.5 MB). Consider at the next initiative or packaging epic.
+
+## Spine amendments, story 2.3 (2026-11-10)
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-spine-amendments-from-the-page-write-probes-plan.md`
+  summary: Resolved (rule) the alternating `Column/@width` item (spike 1.15 run, above): AD-17's `ElementHash` now leaves out `width` on a `one:Column` without `isLocked="true"`. Story 2.9 builds it.
+  evidence: Phill, 2026-11-10, 2.3 plan Q2. Spike 2.2 didn't reproduce the alternation (20 reads of a cloud table and a fresh MCP Test table, one value set), but OneNote replaced the unlocked widths 80 and 120 sent on create with 37.11 and kept the locked 105.51 (`width-fresh-mcp-test-table`). A concurrent change to an unlocked width alone then goes undetected; the spine says so. The spike 1.15 evidence doesn't record whether its alternating columns had `isLocked="true"`, so the Q2 rule resolves it only if they were unlocked: a locked column that alternates would still give `StaleWrite`.
+- source_plan: same
+  summary: Resolved (rule) the `InsertedFile/@pathCache` item (story 1.17, above): AD-17's `ElementHash` now leaves out `one:InsertedFile@pathCache`. Story 2.9 builds it.
+  evidence: Phill, 2026-11-10, 2.3 plan Q2. Spike 2.2 saw one value in 20 reads of a page with 6 attachments (`pathcache-ballast-files`), so the change isn't reproducible on demand; the attribute is a local cache path, not content.
+- source_plan: same
+  summary: Resolved (rule) the exact duplicate grant key item (2.1, above): exact and case-only duplicate keys in `notebooks{}` or `protectedSections{}` alike make `settings.json` `SettingsInvalid`, and `grant --revoke` runs anyway and removes every entry matching the key (AD-6, AD-21). Story 2.6 builds it and updates `SettingsDuplicateKeyTests`.
+  evidence: Phill, 2026-11-10, 2.3 plan Q7. Today the writer refuses the revoke (`Writer_AnExactDuplicateGrantKey_RefusesTheRevoke_AndLeavesTheFile`), which the new rule reverses.
+- source_plan: same
+  summary: Resolved (rule) the hidden `ONENOTE.EXE -Embedding` after a crash (spike 2.2 live probe run, above): AD-3 now says a crashed `ONENOTE.EXE`, still listed while Windows Error Reporting writes its dump, doesn't count as running, so a reconnect falls under the first-activation rule and never starts a hidden instance silently. The exception: with `allowSilentActivation` on, a reconnect after a crash may start a windowless instance, as the setting allows. Story 2.7 builds the detection in `ComGateway`.
+  evidence: AD-3 Activation (spine, story 2.3). AD-9 also gives a write that fails with `0x800706BE` `outcomeUnknown`, since that HRESULT came back from the call during which OneNote crashed.
+
+## Deferred from: story 2.3 review (2026-11-10)
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-spine-amendments-from-the-page-write-probes-plan.md`
+  summary: Ticket text predates story 2.3's answers. `epic-safe-writes.md` Notes still record inception decision 3 ("both grants"), superseded by Q3 option c (write grant alone). `tickets.toml` entry 9 still lists the image refusal (dropped, Q1) and the section's read grant (Q3c); entries 3 and 11 are worded from before Q3c. Entry 7 doesn't name crashed-process detection (AD-3), and entry 4 doesn't name `outcomeUnknown` on `0x800706BE` (AD-7 step 7).
+  evidence: 2.3 quick review, finding 1. A build never writes ticket files; refresh them with `bmad-ticket` before entry 4 or 7 starts.
