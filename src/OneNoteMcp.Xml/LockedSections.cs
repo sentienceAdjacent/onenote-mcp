@@ -13,9 +13,6 @@ public static class LockedSections
     public static IReadOnlyList<string> Find(string hierarchyXml) =>
         [.. OneNoteXml.Parse(hierarchyXml)
             .Descendants(OneNoteXml.One + "Section")
-            .Where(s => IsTrue((string?)s.Attribute("locked")))
+            .Where(s => OneNoteXml.IsTrue((string?)s.Attribute("locked")))
             .Select(s => (string?)s.Attribute("ID") ?? string.Empty)];
-
-    // xs:boolean allows "true" or "1".
-    private static bool IsTrue(string? value) => value is "true" or "1";
 }

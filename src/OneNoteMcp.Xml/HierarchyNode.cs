@@ -38,6 +38,6 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
             EncryptedSections.DisplayName(root),
             (string?)root.Attribute("path") ?? string.Empty,
             kind == HierarchyKind.Section && EncryptedSections.IsEncrypted(root),
-            EncryptedSections.IsTrue((string?)root.Attribute("locked")));
+            OneNoteXml.IsTrue((string?)root.Attribute("locked")));
     }
 }

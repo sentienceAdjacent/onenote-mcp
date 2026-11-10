@@ -13,20 +13,20 @@ internal sealed record FakeCall(string Method, object?[] Args, int ThreadId);
 /// </summary>
 internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IApplication
 {
-    private readonly Lock _gate = new();
-    private readonly List<FakeCall> _calls = [];
-    private int _activations;
+    private readonly Lock gate = new();
+    private readonly List<FakeCall> calls = [];
+    private int activations;
 
     public Func<string> OnGetHierarchy { get; set; } = onGetHierarchy ?? (() => throw new NotSupportedException());
 
     public Func<FakeCall, string>? OnCall { get; set; }
 
-    public int Activations => Volatile.Read(ref _activations);
+    public int Activations => Volatile.Read(ref activations);
 
     /// <summary>A <c>createApplication</c> seam that counts each activation and returns this fake.</summary>
     public Func<object> Factory => () =>
     {
-        Interlocked.Increment(ref _activations);
+        Interlocked.Increment(ref activations);
         return this;
     };
 
@@ -34,9 +34,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
     {
         get
         {
-            lock (_gate)
+            lock (gate)
             {
-                return [.. _calls];
+                return [.. calls];
             }
         }
     }
@@ -71,9 +71,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
     private string Answer(string method, object?[] args, Func<string>? fallback = null)
     {
         var call = new FakeCall(method, args, Environment.CurrentManagedThreadId);
-        lock (_gate)
+        lock (gate)
         {
-            _calls.Add(call);
+            calls.Add(call);
         }
 
         if (OnCall is { } onCall)

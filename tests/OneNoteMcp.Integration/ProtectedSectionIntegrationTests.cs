@@ -21,9 +21,9 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
 {
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
 
-    private readonly string _settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
-    private readonly LargeResults _large = new();
-    private IOneNoteGateway? _gateway;
+    private readonly string settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
+    private readonly LargeResults large = new();
+    private IOneNoteGateway? gateway;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -32,12 +32,12 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
     {
         Assert.SkipUnless(VtableSmokeTests.OneNoteFixture.Enabled, "Set ONENOTE_MCP_INTEGRATION=1 to run against a real OneNote.");
         Assert.True(new ProcessProbe().IsOneNoteRunning(), "OneNote desktop must already be running.");
-        Directory.CreateDirectory(_settingsDir);
-        var settingsPath = Path.Combine(_settingsDir, "settings.json");
+        Directory.CreateDirectory(settingsDir);
+        var settingsPath = Path.Combine(settingsDir, "settings.json");
         File.WriteAllText(settingsPath, """{ "schemaVersion": 1 }""");
         var store = new SettingsStore(settingsPath);
         using var gateway = new ComGateway(new ProcessProbe(), store);
-        _gateway = gateway;
+        this.gateway = gateway;
         var notebook = await TestNotebook.EnsureAsync(gateway, Ct);
 
         var children = XDocument.Parse(await gateway.GetHierarchyAsync(notebook.NotebookId, HierarchyScope.Children, Ct));
@@ -56,7 +56,7 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
 
         // --- No grant -----------------------------------------------------------------------------------------
         var broad = await OkAsync(Hierarchy(access, notebook.NotebookId, HierarchyScope.Pages), "get_hierarchy(MCP Test, pages)");
-        var broadXml = XDocument.Parse(await _large.XmlAsync(broad, Ct));
+        var broadXml = XDocument.Parse(await large.XmlAsync(broad, Ct));
         var keptVault = broadXml.Descendants(One + "Section").Single(s => (string?)s.Attribute("ID") == vaultId);
         Assert.Empty(keptVault.Elements(One + "Page"));
         Assert.Contains(vaultId, Withheld(broad));
@@ -71,10 +71,10 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
 
         var findPages = new FindPagesUseCase(gateway, PageTextCache.WithDefaults(), access);
         var search = await OkAsync(Run(findPages, (c, ct) => findPages.ExecuteAsync(c, BallastContent.VaultSectionName, notebook.NotebookId, false, ct)), "find_pages(Ballast Vault)");
-        AssertNoVaultPage(await _large.XmlAsync(search, Ct), search, vaultPages, vaultId);
+        AssertNoVaultPage(await large.XmlAsync(search, Ct), search, vaultPages, vaultId);
         var findMeta = new FindMetaUseCase(gateway, access);
         var meta = await OkAsync(Run(findMeta, (c, ct) => findMeta.ExecuteAsync(c, BallastContent.CompleteMeta, notebook.NotebookId, false, ct)), "find_meta(ballast-complete)");
-        AssertNoVaultPage(await _large.XmlAsync(meta, Ct), meta, vaultPages, vaultId);
+        AssertNoVaultPage(await large.XmlAsync(meta, Ct), meta, vaultPages, vaultId);
 
         // Deferred items AD-21 left to this story: does search XML mark the Vault, and is the recycle bin's section marked?
         var rawSearch = XDocument.Parse(await gateway.FindPagesAsync(notebook.NotebookId, BallastContent.VaultSectionName, includeUnindexed: true, Ct));
@@ -101,7 +101,7 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
         writer.SaveReadGrant(new ProtectedSectionGrant(key, BallastContent.VaultSectionName, GrantKeys.NotebookKey((string)children.Root.Attribute("path")!), vaultId, DateTimeOffset.UtcNow, GrantedVia.Cli, DateTimeOffset.UtcNow.AddHours(1)));
 
         var granted = await OkAsync(Hierarchy(access, vaultId, HierarchyScope.Pages), "get_hierarchy(Vault, pages) granted");
-        Assert.Equal(vaultPages.Count, XDocument.Parse(await _large.XmlAsync(granted, Ct)).Descendants(One + "Page").Count());
+        Assert.Equal(vaultPages.Count, XDocument.Parse(await large.XmlAsync(granted, Ct)).Descendants(One + "Page").Count());
         var grantedBroad = await OkAsync(Hierarchy(access, notebook.NotebookId, HierarchyScope.Pages), "get_hierarchy(MCP Test, pages) granted");
         Assert.DoesNotContain(vaultId, Withheld(grantedBroad));
 
@@ -117,7 +117,7 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
             else
             {
                 var page = await OkAsync(Task.FromResult(result), "get_page_content(Vault page) granted");
-                Assert.Contains(BallastContent.VaultSectionName, await _large.XmlAsync(page, Ct), StringComparison.Ordinal);
+                Assert.Contains(BallastContent.VaultSectionName, await large.XmlAsync(page, Ct), StringComparison.Ordinal);
             }
         }
 
@@ -139,7 +139,7 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
     {
         try
         {
-            Directory.Delete(_settingsDir, recursive: true);
+            Directory.Delete(settingsDir, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {
@@ -151,13 +151,13 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
 
     private Task<CallToolResult> Hierarchy(ReadAccess access, string start, HierarchyScope scope)
     {
-        var useCase = new GetHierarchyUseCase(_gateway!, access);
+        var useCase = new GetHierarchyUseCase(gateway!, access);
         return Run(useCase, (c, ct) => useCase.ExecuteAsync(c, start, scope, ct));
     }
 
     private Task<CallToolResult> Page(ReadAccess access, string pageId)
     {
-        var useCase = new GetPageContentUseCase(_gateway!, access);
+        var useCase = new GetPageContentUseCase(gateway!, access);
         return Run(useCase, (c, ct) => useCase.ExecuteAsync(c, pageId, false, ct));
     }
 
@@ -166,7 +166,7 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
         Run(useCase, (c, ct) => run(useCase, c, ct));
 
     private Task<CallToolResult> Run(IUseCase useCase, Func<ToolCallContext, CancellationToken, Task<Core.Results.ToolSuccess>> run) =>
-        _large.Runner.RunAsync("integration", useCase, run, Ct);
+        large.Runner.RunAsync("integration", useCase, run, Ct);
 
     private static async Task<JsonElement> OkAsync(Task<CallToolResult> call, string what)
     {

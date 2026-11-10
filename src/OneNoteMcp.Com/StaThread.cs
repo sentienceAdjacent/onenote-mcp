@@ -14,45 +14,45 @@ namespace OneNoteMcp.Com;
 /// </summary>
 internal sealed class StaThread : IDisposable
 {
-    private readonly Lock _gate = new();
-    private readonly Queue<WorkItem> _queue = new();
-    private readonly AutoResetEvent _signal = new(false);
-    private readonly Thread _thread;
-    private readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Lock gate = new();
+    private readonly Queue<WorkItem> queue = new();
+    private readonly AutoResetEvent signal = new(false);
+    private readonly Thread thread;
+    private readonly TaskCompletionSource exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    // Guarded by _gate.
-    private bool _stopping;
-    private Func<Exception>? _poison;
+    // Guarded by gate.
+    private bool stopping;
+    private Func<Exception>? poison;
 
     // Touched only on the STA thread; HasApplication mirrors it for other threads.
-    private IApplication? _application;
-    private volatile bool _hasApplication;
+    private IApplication? application;
+    private volatile bool hasApplication;
 
     public StaThread(string name)
     {
-        _thread = new Thread(Loop) { IsBackground = true, Name = name };
-        _thread.SetApartmentState(ApartmentState.STA);
-        _thread.Start();
+        thread = new Thread(Loop) { IsBackground = true, Name = name };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
     }
 
-    public int ManagedThreadId => _thread.ManagedThreadId;
+    public int ManagedThreadId => thread.ManagedThreadId;
 
     /// <summary>Completes once the thread has released its COM reference and exited.</summary>
-    public Task Exited => _exited.Task;
+    public Task Exited => exited.Task;
 
     public bool IsPoisoned
     {
         get
         {
-            lock (_gate)
+            lock (gate)
             {
-                return _poison is not null;
+                return poison is not null;
             }
         }
     }
 
     /// <summary>Whether the worker holds a COM reference. Readable from any thread; may lag the STA by one item.</summary>
-    public bool HasApplication => _hasApplication;
+    public bool HasApplication => hasApplication;
 
     /// <summary>The owned COM reference. Read and set only on this worker's STA thread.</summary>
     public IApplication? Application
@@ -60,14 +60,14 @@ internal sealed class StaThread : IDisposable
         get
         {
             AssertOnThread();
-            return _application;
+            return application;
         }
 
         set
         {
             AssertOnThread();
-            _application = value;
-            _hasApplication = value is not null;
+            application = value;
+            hasApplication = value is not null;
         }
     }
 
@@ -81,24 +81,24 @@ internal sealed class StaThread : IDisposable
     public WorkItem<T> Enqueue<T>(Func<T> work, CancellationToken ct = default)
     {
         var item = new WorkItem<T>(work, ct);
-        lock (_gate)
+        lock (gate)
         {
-            if (_poison is not null)
+            if (poison is not null)
             {
-                item.TryAbandon(_poison());
+                item.TryAbandon(poison());
                 return item;
             }
 
-            if (_stopping)
+            if (stopping)
             {
                 item.TryAbandon(new ObjectDisposedException(nameof(StaThread)));
                 return item;
             }
 
-            _queue.Enqueue(item);
+            queue.Enqueue(item);
         }
 
-        _signal.Set();
+        signal.Set();
         return item;
     }
 
@@ -119,7 +119,7 @@ internal sealed class StaThread : IDisposable
     public void ReleaseApplication()
     {
         AssertOnThread();
-        var app = _application;
+        var app = application;
         Application = null;
         if (app is not null && Marshal.IsComObject(app))
         {
@@ -135,17 +135,17 @@ internal sealed class StaThread : IDisposable
     {
         ArgumentNullException.ThrowIfNull(failure);
         List<WorkItem> drained;
-        lock (_gate)
+        lock (gate)
         {
-            if (_poison is not null)
+            if (poison is not null)
             {
                 return;
             }
 
-            _poison = failure;
-            _stopping = true;
-            drained = [.. _queue];
-            _queue.Clear();
+            poison = failure;
+            stopping = true;
+            drained = [.. queue];
+            queue.Clear();
         }
 
         foreach (var item in drained)
@@ -153,32 +153,32 @@ internal sealed class StaThread : IDisposable
             item.TryAbandon(failure());
         }
 
-        _signal.Set();
+        signal.Set();
     }
 
     /// <summary>Drains work already queued, then stops the thread, releasing its COM reference.</summary>
     public void Dispose()
     {
-        lock (_gate)
+        lock (gate)
         {
-            if (_stopping)
+            if (stopping)
             {
                 return;
             }
 
-            _stopping = true;
+            stopping = true;
         }
 
-        _signal.Set();
-        if (Thread.CurrentThread != _thread)
+        signal.Set();
+        if (Thread.CurrentThread != thread)
         {
-            _thread.Join(TimeSpan.FromSeconds(5));
+            thread.Join(TimeSpan.FromSeconds(5));
         }
     }
 
     private void AssertOnThread()
     {
-        if (Thread.CurrentThread != _thread)
+        if (Thread.CurrentThread != thread)
         {
             throw new InvalidOperationException("The COM reference is touched only on its own STA thread (AD-2).");
         }
@@ -191,9 +191,9 @@ internal sealed class StaThread : IDisposable
             while (true)
             {
                 WorkItem? item;
-                lock (_gate)
+                lock (gate)
                 {
-                    if (!_queue.TryDequeue(out item) && _stopping)
+                    if (!queue.TryDequeue(out item) && stopping)
                     {
                         return;
                     }
@@ -201,7 +201,7 @@ internal sealed class StaThread : IDisposable
 
                 if (item is null)
                 {
-                    _signal.WaitOne();
+                    signal.WaitOne();
                     continue;
                 }
 
@@ -218,10 +218,10 @@ internal sealed class StaThread : IDisposable
             catch (Exception)
 #pragma warning restore CA1031
             {
-                _hasApplication = false;
+                hasApplication = false;
             }
 
-            _exited.TrySetResult();
+            exited.TrySetResult();
         }
     }
 }
@@ -233,15 +233,15 @@ internal abstract class WorkItem
     private const int Running = 1;
     private const int Finished = 2;
 
-    private int _state;
+    private int state;
 
     /// <summary>True once the STA thread has started running it (or it finished).</summary>
-    public bool Started => Volatile.Read(ref _state) != Queued;
+    public bool Started => Volatile.Read(ref state) != Queued;
 
     /// <summary>Fails the item with <paramref name="failure"/> if it hasn't started. Returns false if it already started.</summary>
     public bool TryAbandon(Exception failure)
     {
-        if (Interlocked.CompareExchange(ref _state, Finished, Queued) != Queued)
+        if (Interlocked.CompareExchange(ref state, Finished, Queued) != Queued)
         {
             return false;
         }
@@ -252,7 +252,7 @@ internal abstract class WorkItem
 
     internal void Run()
     {
-        if (Interlocked.CompareExchange(ref _state, Running, Queued) != Queued)
+        if (Interlocked.CompareExchange(ref state, Running, Queued) != Queued)
         {
             return;
         }
@@ -267,27 +267,27 @@ internal abstract class WorkItem
 
 internal sealed class WorkItem<T>(Func<T> work, CancellationToken ct) : WorkItem
 {
-    private readonly TaskCompletionSource<T> _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<T> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public Task<T> Task => _tcs.Task;
+    public Task<T> Task => tcs.Task;
 
     protected override void Execute()
     {
         if (ct.IsCancellationRequested)
         {
-            _tcs.TrySetCanceled(ct);
+            tcs.TrySetCanceled(ct);
             return;
         }
 
         try
         {
-            _tcs.TrySetResult(work());
+            tcs.TrySetResult(work());
         }
 #pragma warning disable CA1031 // Every failure is handed to the awaiting caller.
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            _tcs.TrySetException(ex);
+            tcs.TrySetException(ex);
         }
     }
 
@@ -295,11 +295,11 @@ internal sealed class WorkItem<T>(Func<T> work, CancellationToken ct) : WorkItem
     {
         if (failure is OperationCanceledException oce)
         {
-            _tcs.TrySetCanceled(oce.CancellationToken);
+            tcs.TrySetCanceled(oce.CancellationToken);
         }
         else
         {
-            _tcs.TrySetException(failure);
+            tcs.TrySetException(failure);
         }
     }
 }

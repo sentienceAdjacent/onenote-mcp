@@ -62,16 +62,5 @@ internal static class SearchResults
         };
     }
 
-    private static T Readable<T>(Func<T> read, string method)
-    {
-        try
-        {
-            return read();
-        }
-        catch (OneNoteXmlException ex)
-        {
-            // OneNoteXmlException messages carry only positions and element names, never content (AD-13).
-            throw new OneNoteException(ErrorCode.InvalidXml, $"{method} returned XML the server can't read: {ex.Message}");
-        }
-    }
+    private static T Readable<T>(Func<T> read, string method) => XmlReads.Readable(read, method);
 }

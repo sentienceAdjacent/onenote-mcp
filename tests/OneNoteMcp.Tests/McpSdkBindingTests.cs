@@ -26,16 +26,16 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         + "<one:Notebook name=\"MCP Test\" ID=\"{1}{1}{B0}\" path=\"C:\\notebooks\\MCP Test\" lastModifiedTime=\"2026-11-03T00:00:00.000Z\" />"
         + "</one:Notebooks>";
 
-    private readonly TempDirectory _dir = new();
-    private readonly FakeGateway _gateway = new() { HierarchyXml = NotebooksXml };
-    private readonly Pipe _clientToServer = new();
-    private readonly Pipe _serverToClient = new();
-    private IHost? _host;
-    private McpClient? _client;
+    private readonly TempDirectory dir = new();
+    private readonly FakeGateway gateway = new() { HierarchyXml = NotebooksXml };
+    private readonly Pipe clientToServer = new();
+    private readonly Pipe serverToClient = new();
+    private IHost? host;
+    private McpClient? client;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private McpClient Client => _client ?? throw new InvalidOperationException("Not initialised.");
+    private McpClient Client => client ?? throw new InvalidOperationException("Not initialised.");
 
     public async ValueTask InitializeAsync()
     {
@@ -43,34 +43,34 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         builder.Logging.ClearProviders();
         builder.Services
             .AddOneNoteMcp()
-            .WithStreamServerTransport(_clientToServer.Reader.AsStream(), _serverToClient.Writer.AsStream());
+            .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream());
 
         // The real registration, with the gateway and settings.json swapped for test ones (the last registration wins).
-        builder.Services.AddSingleton<IOneNoteGateway>(_gateway);
-        builder.Services.AddSingleton(new SettingsStore(_dir.Combine("settings.json")));
+        builder.Services.AddSingleton<IOneNoteGateway>(gateway);
+        builder.Services.AddSingleton(new SettingsStore(dir.Combine("settings.json")));
 
-        _host = builder.Build();
-        await _host.StartAsync(Ct);
+        host = builder.Build();
+        await host.StartAsync(Ct);
 
-        _client = await McpClient.CreateAsync(
-            new StreamClientTransport(_clientToServer.Writer.AsStream(), _serverToClient.Reader.AsStream()),
+        client = await McpClient.CreateAsync(
+            new StreamClientTransport(clientToServer.Writer.AsStream(), serverToClient.Reader.AsStream()),
             cancellationToken: Ct);
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_client is not null)
+        if (client is not null)
         {
-            await _client.DisposeAsync();
+            await client.DisposeAsync();
         }
 
-        if (_host is not null)
+        if (host is not null)
         {
-            await _host.StopAsync(CancellationToken.None);
-            _host.Dispose();
+            await host.StopAsync(CancellationToken.None);
+            host.Dispose();
         }
 
-        _dir.Dispose();
+        dir.Dispose();
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var envelope = result.StructuredContent.Value;
         Assert.True(envelope.GetProperty("ok").GetBoolean());
         Assert.Equal(NotebooksXml, envelope.GetProperty("xml").GetString());
-        Assert.Equal([(string.Empty, HierarchyScope.Notebooks)], _gateway.Calls);
+        Assert.Equal([(string.Empty, HierarchyScope.Notebooks)], gateway.Calls);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         await Client.CallToolAsync("get_hierarchy", new Dictionary<string, object?> { ["scope"] = "sections" }, cancellationToken: Ct);
 
-        Assert.Equal([(string.Empty, HierarchyScope.Sections)], _gateway.Calls);
+        Assert.Equal([(string.Empty, HierarchyScope.Sections)], gateway.Calls);
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Equal(
             "result isError=True [{\"type\":\"text\",\"text\":\"An error occurred invoking \\u0027get_hierarchy\\u0027.\"}] structuredContent=none",
             await Outcome("get_hierarchy", new Dictionary<string, object?> { ["scope"] = "bogus" }));
-        Assert.Empty(_gateway.Calls);
+        Assert.Empty(gateway.Calls);
     }
 
     /// <summary>What the client sees, whether the SDK answers with a JSON-RPC error or a tool result.</summary>

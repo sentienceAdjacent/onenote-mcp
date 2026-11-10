@@ -19,14 +19,14 @@ namespace OneNoteMcp.Integration;
 /// </summary>
 public sealed class HierarchyToolsIntegrationTests : IDisposable
 {
-    private readonly string _settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
+    private readonly string settingsDir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     // Reads back a result over the inline threshold (AD-20): with the Ballast fixture, MCP Test at pages scope is one.
-    private readonly LargeResults _large = new();
+    private readonly LargeResults large = new();
 
-    private ToolRunner Runner => _large.Runner;
+    private ToolRunner Runner => large.Runner;
 
     [Fact]
     public async Task HierarchyReadTools_OverMcpTest()
@@ -41,13 +41,13 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
         foreach (var scope in Enum.GetValues<HierarchyScopeArgument>())
         {
             var root = Ok(await hierarchy.GetHierarchy(notebook.NotebookId, scope, Ct), $"get_hierarchy({scope})");
-            var xml = await _large.XmlAsync(root, Ct);
+            var xml = await large.XmlAsync(root, Ct);
             Assert.Empty(SchemaValidation.Validate(xml));
             AssertLockedWarnings(xml, root.GetProperty("warnings"), $"get_hierarchy({scope})");
         }
 
         var notebooks = Ok(await hierarchy.GetHierarchy(cancellationToken: Ct), "get_hierarchy(root)");
-        var notebooksXml = await _large.XmlAsync(notebooks, Ct);
+        var notebooksXml = await large.XmlAsync(notebooks, Ct);
         Assert.Empty(SchemaValidation.Validate(notebooksXml));
         Assert.Equal(notebook.NotebookId, TestNotebookGuard.FindNotebookId(notebooksXml, notebook.Folder));
 
@@ -83,7 +83,7 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
     {
         try
         {
-            Directory.Delete(_settingsDir, recursive: true);
+            Directory.Delete(settingsDir, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {
@@ -95,8 +95,8 @@ public sealed class HierarchyToolsIntegrationTests : IDisposable
 
     private ComGateway Gateway()
     {
-        Directory.CreateDirectory(_settingsDir);
-        var path = Path.Combine(_settingsDir, "settings.json");
+        Directory.CreateDirectory(settingsDir);
+        var path = Path.Combine(settingsDir, "settings.json");
         File.WriteAllText(path, """{ "schemaVersion": 1 }""");
         return new ComGateway(new ProcessProbe(), new SettingsStore(path));
     }

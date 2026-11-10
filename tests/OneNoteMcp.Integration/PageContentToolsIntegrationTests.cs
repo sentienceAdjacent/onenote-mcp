@@ -28,7 +28,7 @@ public sealed class PageContentToolsIntegrationTests : IDisposable
 
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
 
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
+    private readonly string dir = Path.Combine(Path.GetTempPath(), "onenote-mcp-integration", Guid.NewGuid().ToString("N"));
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -54,7 +54,7 @@ public sealed class PageContentToolsIntegrationTests : IDisposable
             "UpdatePageContent(sentinel)",
             Ct);
 
-        var log = FileLog.Start(new FileLogOptions(Path.Combine(_dir, "logs")));
+        var log = FileLog.Start(new FileLogOptions(Path.Combine(dir, "logs")));
         Assert.NotNull(log.Logger);
         using (var factory = LoggerFactory.Create(b => b.AddSerilog(log.Logger, dispose: true)))
         {
@@ -80,7 +80,7 @@ public sealed class PageContentToolsIntegrationTests : IDisposable
     {
         try
         {
-            Directory.Delete(_dir, recursive: true);
+            Directory.Delete(dir, recursive: true);
         }
         catch (DirectoryNotFoundException)
         {
@@ -123,8 +123,8 @@ public sealed class PageContentToolsIntegrationTests : IDisposable
 
     private ComGateway Gateway()
     {
-        Directory.CreateDirectory(_dir);
-        var path = Path.Combine(_dir, "settings.json");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "settings.json");
         File.WriteAllText(path, """{ "schemaVersion": 1 }""");
         return new ComGateway(new ProcessProbe(), new SettingsStore(path));
     }

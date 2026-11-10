@@ -115,6 +115,22 @@ public sealed record ProtectedSectionGrant(
 
     /// <summary>True once an <c>hours</c> grant's <see cref="ExpiresAt"/> has passed.</summary>
     public bool IsExpired(DateTimeOffset now) => ExpiresAt is { } end && now >= end;
+
+    /// <summary>
+    /// The one way a read grant is made (AD-21), by the grant CLI, the grant dialog and a <c>once</c> window alike.
+    /// <paramref name="key"/> is the section's <c>SectionKey</c>; <see cref="NotebookKey"/> is computed from
+    /// <paramref name="notebookPath"/> (empty when the notebook isn't known). <paramref name="now"/> becomes
+    /// <see cref="GrantedAt"/>, and <paramref name="via"/> is a <see cref="Access.GrantedVia"/> value.
+    /// </summary>
+    public static ProtectedSectionGrant Create(
+        string key,
+        string sectionName,
+        string sectionId,
+        string notebookPath,
+        DateTimeOffset now,
+        string via,
+        DateTimeOffset? expiresAt) =>
+        new(key, sectionName, Access.GrantKeys.NotebookKey(notebookPath), sectionId, now, via, expiresAt);
 }
 
 /// <summary>

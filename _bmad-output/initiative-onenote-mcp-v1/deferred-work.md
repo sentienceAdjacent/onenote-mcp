@@ -151,3 +151,38 @@ Closes or routes every epic 1 entry above. Entries already marked "Epic 2" (writ
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/change-epic-1-retro-wording/change-epic-1-retro-wording.md`
   summary: The bmad-correct-course item above (retro C1–C3, A2, A3) is resolved by that change proposal. C1, C2 (option b), C3 and A2 are reconciled in the epic 1 file, the initiative, the epic 3 file, the spine (AD-2, AD-17) and the README. A3 is the refactor entry just above.
   evidence: the change proposal's section 4.
+
+## Story 2.1 opening refactor (2026-11-09)
+
+Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4 stays open for epic 2 as written.
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-opening-refactor-plan.md`
+  summary: Resolved D1: one xs:boolean `IsTrue`.
+  evidence: `OneNoteXml.IsTrue` (`src/OneNoteMcp.Xml/OneNoteXml.cs:33`); the copies in `LockedSections`, `SearchResultFilter` and `EncryptedSections` are gone, and `HierarchyNode` calls the shared one.
+- source_plan: same
+  summary: Resolved D2: one "XML can't be read → `InvalidXml`" mapping.
+  evidence: `XmlReads.Readable(read, what)` (`src/OneNoteMcp.Core/XmlReads.cs:14`) gives `"{what} returned XML the server can't read: {reason}"` and never attaches the inner exception. `GetHierarchyUseCase`, `SearchResults`, `GetPageContentUseCase`, `FindPagesUseCase`, `ListGrantsUseCase`, `ReadAccess` (and `HierarchyWalk`) and `ProtectedSections` (for the grant CLI) all go through it. `list_grants` now parses through `OneNoteXml.Parse` via the new public `SectionPaths.Find`, and its message takes the common text (Phill, plan review). The page reads' `what` is `GetPageContent for page {id}`. `ResultDelivery`'s warning path is unchanged.
+- source_plan: same
+  summary: Resolved D5: `0x80042014` and `0x8004200F` are declared once in Core.
+  evidence: `OneNoteHResults` (`src/OneNoteMcp.Core/OneNoteHResults.cs`); `NavigateToUseCase` and `GetBinaryPageContentUseCase` use it. `HResultMap` in Com keeps its name table.
+- source_plan: same
+  summary: Resolved P3: the XPSFile probe no longer hides a timeout. The story's one behaviour change. A cancellation was never hidden: it arrives as `OperationCanceledException`, which the old `catch (OneNoteException)` didn't catch.
+  evidence: `GetBinaryPageContentUseCase.IsXpsFileAsync` catches `OneNoteException` only when its code isn't `Timeout` or `Cancelled` (`:93`). The `Timeout` case of `PageContentToolTests.ObjectNotFound_WhenTheConfirmingPageReadTimesOutOrIsCancelled_IsThatError` returned `ObjectNotFound` on the old code and passes now. Its `Cancelled` case is defensive only: no gateway throws `OneNoteException` with `Cancelled` (only `ToolRunner` creates it). `..._WhenTheClientCancelsDuringTheConfirmingPageRead_IsCancelled` covers the real path (`OperationCanceledException`) and passes on the old and new code. `..._FailsOtherwise_IsTheOriginalError` pins that any other page-read failure still gives the original `ObjectNotFound`.
+- source_plan: same
+  summary: Resolved S2 and D3: `ReadAccess.cs` is split, the two parent walks share one lazy iterator, and one factory makes every `ProtectedSectionGrant`.
+  evidence: `src/OneNoteMcp.Core/Access/`: `AccessDecisions.cs` (`TargetAccess`, `BroadAccess`), `HierarchyWalk.cs` (`AncestorsAsync` at `:78`; `OwningSectionAsync` and `LocationAsync` keep their own stop rule and depth-overflow handling), `OnceWindows.cs` (the dictionary and its lock), `GrantDialog.cs` (`AskAsync`, `Save`), `ResultGrantCheck.cs`, and `ReadAccess.cs` (224 lines, was 551). `ProtectedSectionGrant.Create` (`src/OneNoteMcp.Core/Settings/SettingsSnapshot.cs:125`) is used by the once window, the dialog and the CLI. `ParentWalkTests` pin both walks' exact gateway call sequences, the 64-level overflow rules and that the dialog is asked only after the walk; they pass on the code before the split too. The CLI still takes its location from the Sections XML, so its COM calls are unchanged.
+- source_plan: same
+  summary: Resolved A3: the grant CLI no longer calls into `OneNoteMcp.Xml`. The spine stays as it is.
+  evidence: Core's `ProtectedSections.Find` returns `ProtectedSection` (ID, name, key, locked, notebook name and path, groups) through `XmlReads.Readable`; `GrantCommand.ProtectedSectionsAsync` (`src/OneNoteMcp.Server/Cli/GrantCommand.cs:219`) calls it and has no catch of its own. `grep -rn "using OneNoteMcp.Xml" src/OneNoteMcp.Server` finds nothing. `Describe` is unchanged (`GrantCommandTests`); `ProtectedSectionsTests` checks the location matches `EncryptedSections`, which gained `NotebookName` and `SectionGroups`.
+- source_plan: same
+  summary: Resolved D4: settings.json's shared parse rules are in one place, and the store/writer difference on exact duplicate keys is kept and made explicit (Phill, plan review).
+  evidence: `SettingsJson.TryParseUtc` and `SettingsJson.Options(allowDuplicateProperties)` (`src/OneNoteMcp.Core/Settings/SettingsJson.cs:16,19`); `SettingsStore` passes true, `SettingsWriter` false. `SettingsDuplicateKeyTests` pin today's behaviour, gap included, and pass on the code before the change too.
+- source_plan: same
+  summary: Epic 2, entry 6 (write grants: dialog, revoke and listing) owns the fix, and entry 3 (spine amendments) the rule: an exact duplicate key inside `protectedSections` can't be revoked. The store reads it as "two keys differ only in case" (`DuplicateGrantKeysOnly`), so `grant --revoke` runs, but the writer's load forbids duplicates and throws `SettingsInvalid`, so nothing is removed. AD-21 covers only keys that differ in case; it says nothing about identical ones.
+  evidence: `SettingsDuplicateKeyTests.Store_AnExactDuplicateGrantKey_CountsLikeACaseOnlyDuplicate` and `Writer_AnExactDuplicateGrantKey_RefusesTheRevoke_AndLeavesTheFile`; `SettingsJson.Options`' doc comment points here. Decide the rule in entry 3, then change the store or the writer in entry 6 and update those tests.
+- source_plan: same
+  summary: Resolved S3: `SettingsStore.Validate` is one short method over one private static per settings area.
+  evidence: `Validate` (`src/OneNoteMcp.Core/Settings/SettingsStore.cs:98`, about 37 lines) calls `ReadSchemaVersion`, `ReadAllowSilentActivation`, `ReadTimeouts`, `ReadJournal`, `ReadResults`, `ReadSearch`, `ReadReadGrants`, `ReadExportRoots` and last `ReadProtectedSections(root, out bool duplicate)`, in the old order, so the first failing field still wins. `SettingsStoreTests` and `ReadGrantSettingsTests` pass unchanged.
+- source_plan: same
+  summary: Resolved P2: private instance fields are camelCase across src and tests, and the build enforces it.
+  evidence: `.editorconfig` (repo root) has one naming rule for private instance fields at `warning`, `dotnet_diagnostic.IDE1006.severity = warning` (the command-line build reads the severity only from there), and two `none` rules that exempt constants and static fields. `Directory.Build.props` sets `EnforceCodeStyleInBuild`. The 64 `_x` fields in Com (`ComGateway`, `StaThread`) and the tests were renamed, adding `this.` only where a local or parameter has the same name. A private field named `_x` or `BadName` now fails `dotnet build -warnaserror` with IDE1006 (checked by hand). `spikes/` keeps its own `Directory.Build.props`, so its frozen code isn't checked.

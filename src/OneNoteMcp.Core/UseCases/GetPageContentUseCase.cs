@@ -68,16 +68,5 @@ public sealed class GetPageContentUseCase(IOneNoteGateway gateway, ReadAccess ac
         return new ToolSuccess(binary, meta with { BinaryUnavailable = missing }, warnings) { Source = source };
     }
 
-    private static T Readable<T>(Func<T> read, string pageId)
-    {
-        try
-        {
-            return read();
-        }
-        catch (OneNoteXmlException ex)
-        {
-            // OneNoteXmlException messages carry only positions and element names, never content (AD-13).
-            throw new OneNoteException(ErrorCode.InvalidXml, $"GetPageContent returned XML for page {pageId} that the server can't read: {ex.Message}");
-        }
-    }
+    private static T Readable<T>(Func<T> read, string pageId) => XmlReads.Readable(read, $"GetPageContent for page {pageId}");
 }

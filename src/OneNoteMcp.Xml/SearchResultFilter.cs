@@ -153,11 +153,8 @@ public static class SearchResultFilter
         return result;
     }
 
-    // xs:boolean allows "true" or "1".
     private static bool IsBinFlagged(XmlReader reader) =>
-        IsTrue(reader.GetAttribute("isInRecycleBin")) || IsTrue(reader.GetAttribute("isRecycleBin"));
-
-    private static bool IsTrue(string? value) => value is "true" or "1";
+        OneNoteXml.IsTrue(reader.GetAttribute("isInRecycleBin")) || OneNoteXml.IsTrue(reader.GetAttribute("isRecycleBin"));
 
     private static DateTimeOffset? ParseDateTime(string? value)
     {
