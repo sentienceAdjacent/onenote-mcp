@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A local MCP server that lets an MCP client (Claude Code, Claude Desktop) read and manage OneNote desktop notebooks on this Windows machine. It drives the installed OneNote desktop app through its COM automation API (`OneNote.Application`).
 
-**Status:** epic 1 (read-only release) is nearly done: release `v0.7.0-rc.2` is out, and story 1.14 (refactor sweep) is the last one left. Ask `bmad-ticket` for the current board. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-21), with its rationale in the `.memlog.md` beside it. The ticket tree is under `_bmad-output/initiative-onenote-mcp-v1/`. Spike evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`.
+**Status:** epic 1 (read-only release) is done, released up to `v0.8.0-rc.2`. Epic 2 (safe page writes) is under way: the opening refactor and the page-write probes spike are done, and its spine amendments (2.3) follow them; epic 5 (hierarchy writes and deletes) runs its probe spike alongside. Ask `bmad-ticket` for the current board. The binding design is the spine at `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` (AD-1…AD-21), with its rationale in the `.memlog.md` beside it. The ticket tree is under `_bmad-output/initiative-onenote-mcp-v1/`. Spike evidence is in `spikes/` and `epic-read-only-release/spike-*-findings.md`.
 
 ## Build, test, run
 
