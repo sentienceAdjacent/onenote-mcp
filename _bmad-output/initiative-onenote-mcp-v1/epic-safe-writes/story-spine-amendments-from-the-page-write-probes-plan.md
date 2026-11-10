@@ -3,7 +3,7 @@ title: 'Spine amendments from the page-write probes'
 type: 'chore'
 ticket: '3'
 created: '2026-11-10'
-status: built
+status: done
 baseline_revision: '1bf82b7b8637fc6dee0e47b780a1212d6bf3d0b0'
 route: 'full'
 route_source: 'auto'
