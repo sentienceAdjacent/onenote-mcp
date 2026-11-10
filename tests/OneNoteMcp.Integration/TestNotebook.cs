@@ -9,7 +9,8 @@ namespace OneNoteMcp.Integration;
 /// <summary>
 /// The integration suite's only write path (AD-16). It creates or reuses the <c>MCP Test</c> notebook in a scratch
 /// folder, seeds one section and one page, and runs any other write only after a live <c>GetHierarchy</c> shows the
-/// target inside that notebook. It never writes to any other notebook, never closes a notebook and never navigates.
+/// target inside that notebook or, from story 2.2, inside the OneDrive notebook <c>MCP Test Cloud</c>, which it finds
+/// but never creates. It never writes to any other notebook, never closes a notebook and never navigates.
 /// The folder sits outside <c>%LOCALAPPDATA%\OneNoteMcp\</c> so <c>uninstall --purge</c> never touches it; the
 /// notebook stays open in OneNote for later stories' fixtures.
 /// </summary>
@@ -18,6 +19,9 @@ internal sealed class TestNotebook
     public const string FolderOverrideVariable = "ONENOTE_MCP_TEST_DIR";
     public const string NotebookName = "MCP Test";
     public const string SeedSectionName = "Seed";
+
+    /// <summary>Story 2.2's OneDrive test notebook. Phill created it; the suite only finds it (never creates or opens it).</summary>
+    public const string CloudNotebookName = "MCP Test Cloud";
 
     private TestNotebook(string folder, string notebookId, string sectionId, string pageId)
     {
@@ -111,8 +115,9 @@ internal sealed class TestNotebook
     }
 
     /// <summary>
-    /// The guarded write: refuses unless a live <c>GetHierarchy</c> shows <paramref name="targetId"/> is MCP Test or
-    /// inside it. Runs through the gateway's raw seam with no automatic retry (AD-3).
+    /// The guarded write: refuses unless a live <c>GetHierarchy</c> shows <paramref name="targetId"/> is MCP Test, MCP
+    /// Test Cloud (story 2.2; found, never created) or inside one of them. Runs through the gateway's raw seam with no
+    /// automatic retry (AD-3).
     /// </summary>
     public static async Task<T> WriteAsync<T>(ComGateway gateway, string targetId, Func<IApplication, T> write, string method, CancellationToken ct)
     {
@@ -120,12 +125,37 @@ internal sealed class TestNotebook
         var folder = ResolveFolder(Environment.GetEnvironmentVariable);
 
         var notebooks = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
-        var notebookId = TestNotebookGuard.FindNotebookId(notebooks, folder)
-            ?? throw new InvalidOperationException($"Refusing {method}: MCP Test is not open at {folder}.");
-        var tree = await gateway.GetHierarchyAsync(notebookId, CoreScope.Pages, ct);
-        TestNotebookGuard.EnsureInside(tree, targetId, method);
+        var notebookIds = TestNotebookGuard.TestNotebookIds(notebooks, folder);
+        if (notebookIds.Count == 0)
+        {
+            throw new InvalidOperationException($"Refusing {method}: neither MCP Test (at {folder}) nor MCP Test Cloud is open.");
+        }
+
+        var inside = false;
+        foreach (var notebookId in notebookIds)
+        {
+            var tree = await gateway.GetHierarchyAsync(notebookId, CoreScope.Pages, ct);
+            if (TestNotebookGuard.Contains(tree, targetId))
+            {
+                inside = true;
+                break;
+            }
+        }
+
+        if (!inside)
+        {
+            throw new InvalidOperationException($"Refusing {method}: {targetId} is not inside MCP Test or MCP Test Cloud.");
+        }
 
         return await gateway.InvokeAsync(write, ct, retryOnDisconnect: false, method: method);
+    }
+
+    /// <summary>MCP Test Cloud's ID from a live read, or null when it isn't open. Never creates it.</summary>
+    public static async Task<string?> FindCloudAsync(ComGateway gateway, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        var notebooks = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
+        return TestNotebookGuard.FindCloudNotebookId(notebooks);
     }
 }
 
@@ -161,6 +191,72 @@ internal static class TestNotebookGuard
         return (string?)matches[0].Attribute("ID");
     }
 
+    /// <summary>The OneDrive host every MCP Test Cloud path must have.</summary>
+    public const string CloudHost = "d.docs.live.net";
+
+    /// <summary>
+    /// The ID of MCP Test Cloud, or null when it isn't open. A notebook counts only when its <c>name</c> is exactly
+    /// <c>MCP Test Cloud</c> and its <c>path</c> is an <c>https</c> URL on <see cref="CloudHost"/> whose last folder is
+    /// <c>/MCP Test Cloud/</c>, compared ignoring case (OneNote spells the account ID in different cases on the notebook
+    /// and its sections). Throws when that path belongs to a notebook with another name, or to more than one notebook.
+    /// Lookup only: nothing creates or opens it.
+    /// </summary>
+    public static string? FindCloudNotebookId(string notebooksXml)
+    {
+        var matches = XDocument.Parse(notebooksXml).Root!
+            .Elements(One + "Notebook")
+            .Where(n => IsCloudTestPath((string?)n.Attribute("path")))
+            .ToList();
+        if (matches.Count == 0)
+        {
+            return null;
+        }
+
+        if (matches.Count > 1 || (string?)matches[0].Attribute("name") != TestNotebook.CloudNotebookName)
+        {
+            throw new InvalidOperationException("Refusing: the notebook open at the MCP Test Cloud path is not the one MCP Test Cloud notebook.");
+        }
+
+        return (string?)matches[0].Attribute("ID");
+    }
+
+    /// <summary>True for an <c>https://d.docs.live.net/…/MCP Test Cloud/</c> path (case-insensitive, trailing slash optional).</summary>
+    public static bool IsCloudTestPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)
+            || !Uri.TryCreate(path, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.Equals(uri.Host, CloudHost, StringComparison.OrdinalIgnoreCase)
+            || !uri.IsDefaultPort
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
+        {
+            return false;
+        }
+
+        var segments = Uri.UnescapeDataString(uri.AbsolutePath).TrimEnd('/').Split('/');
+        return segments.Length >= 3 // "", the account ID, …, the notebook folder
+            && string.Equals(segments[^1], TestNotebook.CloudNotebookName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The IDs of the open test notebooks: MCP Test at <paramref name="folder"/>, then MCP Test Cloud. Either may be absent.</summary>
+    public static IReadOnlyList<string> TestNotebookIds(string notebooksXml, string folder)
+    {
+        var ids = new List<string>(2);
+        if (FindNotebookId(notebooksXml, folder) is { Length: > 0 } local)
+        {
+            ids.Add(local);
+        }
+
+        if (FindCloudNotebookId(notebooksXml) is { Length: > 0 } cloud)
+        {
+            ids.Add(cloud);
+        }
+
+        return ids;
+    }
+
     /// <summary>The ID of the non-recycle-bin section named <paramref name="name"/> directly in the notebook.</summary>
     public static string? FindSectionId(string notebookTreeXml, string name) =>
         XDocument.Parse(notebookTreeXml).Root!
@@ -189,14 +285,6 @@ internal static class TestNotebookGuard
         var root = XDocument.Parse(notebookTreeXml).Root!;
         return root.Name == One + "Notebook"
             && root.DescendantsAndSelf().Any(e => (string?)e.Attribute("ID") == targetId);
-    }
-
-    public static void EnsureInside(string notebookTreeXml, string targetId, string method)
-    {
-        if (!Contains(notebookTreeXml, targetId))
-        {
-            throw new InvalidOperationException($"Refusing {method}: {targetId} is not inside the MCP Test notebook.");
-        }
     }
 
     /// <summary>Before creating MCP Test: the folder must be absent or empty, so creation never opens or adopts existing files.</summary>
