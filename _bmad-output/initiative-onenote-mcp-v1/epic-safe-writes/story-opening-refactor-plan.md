@@ -3,7 +3,7 @@ title: 'Opening refactor'
 type: 'refactor'
 ticket: '1'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: 'ee7597fa6d94011ef96410cb2114af5de82f5a54'
 route: 'full'
 route_source: 'auto'
