@@ -31,13 +31,11 @@ public sealed class GetHyperlinkToObjectTool(ToolRunner runner, GetHyperlinkToOb
         [Description("objectID of an element on that page, such as an outline or paragraph. Omit or leave empty to link to the hierarchy object itself.")]
         string pageContentObjectId = "",
         CancellationToken cancellationToken = default,
-        McpServer? server = null,
-        RequestContext<CallToolRequestParams>? request = null) =>
+        McpServer? server = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, hierarchyId ?? string.Empty, pageContentObjectId ?? string.Empty, ct),
             cancellationToken,
-            ElicitationGrantPrompt.For(server),
-            request: request);
+            ElicitationGrantPrompt.For(server));
 }

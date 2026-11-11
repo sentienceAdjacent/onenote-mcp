@@ -21,7 +21,8 @@
         },
         "required": [
           "sectionId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -526,7 +527,8 @@
         },
         "required": [
           "name"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -1031,7 +1033,8 @@
         },
         "required": [
           "query"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -1532,7 +1535,8 @@
         "required": [
           "pageId",
           "callbackId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -2038,7 +2042,8 @@
             ],
             "default": "notebooks"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -2535,7 +2540,8 @@
         },
         "required": [
           "objectId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -3036,7 +3042,8 @@
         },
         "required": [
           "hierarchyId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -3537,7 +3544,8 @@
         },
         "required": [
           "pageId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -4039,7 +4047,8 @@
         },
         "required": [
           "location"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -4540,7 +4549,8 @@
         },
         "required": [
           "hierarchyId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -5030,7 +5040,8 @@
       "name": "list_grants",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -5531,7 +5542,8 @@
         },
         "required": [
           "hierarchyId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",
@@ -6070,7 +6082,8 @@
         },
         "required": [
           "resultId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "outputSchema": {
         "type": "object",

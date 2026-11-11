@@ -36,12 +36,10 @@ public sealed class FindPagesTool(ToolRunner runner, FindPagesUseCase useCase)
         [Description("The words to search for, separated by spaces. Every word must appear on a page for it to match.")] string query,
         [Description("OneNote ID of the notebook, section group or section to search under. Leave empty only with fromRoot: true.")] string startNodeId = "",
         [Description("True to search every open notebook. Only with an empty startNodeId. Defaults to false.")] bool fromRoot = false,
-        CancellationToken cancellationToken = default,
-        RequestContext<CallToolRequestParams>? request = null) =>
+        CancellationToken cancellationToken = default) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, query ?? string.Empty, startNodeId ?? string.Empty, fromRoot, ct),
-            cancellationToken,
-            request: request);
+            cancellationToken);
 }

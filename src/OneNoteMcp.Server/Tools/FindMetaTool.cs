@@ -34,12 +34,10 @@ public sealed class FindMetaTool(ToolRunner runner, FindMetaUseCase useCase)
         [Description("The one:Meta name to find, compared exactly.")] string name,
         [Description("OneNote ID of the notebook, section group or section to search under. Leave empty only with fromRoot: true.")] string startNodeId = "",
         [Description("True to search every open notebook. Only with an empty startNodeId. Defaults to false.")] bool fromRoot = false,
-        CancellationToken cancellationToken = default,
-        RequestContext<CallToolRequestParams>? request = null) =>
+        CancellationToken cancellationToken = default) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, name ?? string.Empty, startNodeId ?? string.Empty, fromRoot, ct),
-            cancellationToken,
-            request: request);
+            cancellationToken);
 }
