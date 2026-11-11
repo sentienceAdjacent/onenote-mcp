@@ -43,10 +43,12 @@ public sealed class ReadResultTool(ToolRunner runner, ReadResultUseCase useCase)
         [Description("The index page, from 0, with expand (or a run returned as an index). Defaults to 0.")] int? page = null,
         [Description("With ref: the first character to read, from 0, counted in that element's span (markup included).")] int? offset = null,
         [Description("With offset: how many characters to read. Defaults to, and is capped at, as many as fit.")] int? length = null,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        RequestContext<CallToolRequestParams>? request = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, resultId ?? string.Empty, @ref, run, expand, page, offset, length, ct),
-            cancellationToken);
+            cancellationToken,
+            request: request);
 }

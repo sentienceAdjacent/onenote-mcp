@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Pipelines;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -30,6 +31,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     private readonly FakeGateway gateway = new() { HierarchyXml = NotebooksXml };
     private readonly Pipe clientToServer = new();
     private readonly Pipe serverToClient = new();
+    private readonly CapturingLoggerProvider logs = new();
     private IHost? host;
     private McpClient? client;
 
@@ -41,6 +43,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings());
         builder.Logging.ClearProviders();
+        builder.Logging.AddProvider(logs);
         builder.Services
             .AddOneNoteMcp()
             .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream());
@@ -139,6 +142,139 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.Calls);
     }
 
+    [Fact]
+    public async Task MisnamedOptionalArgument_ReadTool_IsInvalidArgument_InTheEnvelope_AndNothingRuns()
+    {
+        // Story 2.5: until then the SDK ignored scop and get_hierarchy ran with its default scope.
+        var result = await Client.CallToolAsync("get_hierarchy", new Dictionary<string, object?> { ["scop"] = "sections" }, cancellationToken: Ct);
+
+        var error = AssertInvalidArgument(result);
+        Assert.Equal(
+            "get_hierarchy doesn't declare the argument \"scop\". Its arguments are: startNodeId, scope.",
+            error.GetProperty("message").GetString());
+        Assert.Equal(
+            "Call again using only the argument names the tool declares, spelled exactly as listed.",
+            error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.Calls);
+
+        // One call line with the code; the caller's argument names and the message are never logged (AD-13).
+        var correlationId = result.StructuredContent!.Value.GetProperty("meta").GetProperty("correlationId").GetString();
+        var callLines = logs.Messages.Where(m => m.StartsWith("tool call correlationId=", StringComparison.Ordinal)).ToList();
+        Assert.Equal(
+            [$"tool call correlationId={correlationId} tool=get_hierarchy result=InvalidArgument hresult=-"],
+            callLines.Select(l => l[..l.IndexOf(" ms=", StringComparison.Ordinal)]));
+        Assert.DoesNotContain(logs.Messages, m => m.Replace("scope", string.Empty, StringComparison.Ordinal).Contains("scop", StringComparison.Ordinal));
+        Assert.DoesNotContain(logs.Messages, m => m.Contains("Its arguments are", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MisnamedOptionalArgument_WriteTool_IsInvalidArgument_AndNoPageIsCreated()
+    {
+        var result = await Client.CallToolAsync(
+            "create_page",
+            new Dictionary<string, object?> { ["sectionId"] = "{11111111-2222-3333-4444-555555555555}{1}{B0}", ["Style"] = "blankPageNoTitle" },
+            cancellationToken: Ct);
+
+        var error = AssertInvalidArgument(result);
+        Assert.Equal(
+            "create_page doesn't declare the argument \"Style\". Its arguments are: sectionId, style.",
+            error.GetProperty("message").GetString());
+        Assert.False(error.TryGetProperty("outcomeUnknown", out _));
+        Assert.Empty(gateway.CreateCalls);
+        Assert.Empty(gateway.Calls);
+    }
+
+    [Fact]
+    public async Task SeveralUnknownNames_AreNamedInOneError_SortedOrdinally()
+    {
+        var result = await Client.CallToolAsync(
+            "find_pages",
+            new Dictionary<string, object?> { ["query"] = "a", ["zeta"] = 1, ["alpha"] = 2 },
+            cancellationToken: Ct);
+
+        var error = AssertInvalidArgument(result);
+        Assert.Equal(
+            "find_pages doesn't declare the arguments \"alpha\", \"zeta\". Its arguments are: query, startNodeId, fromRoot.",
+            error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task AToolWithoutArguments_RefusesAnyName()
+    {
+        var result = await Client.CallToolAsync("list_grants", new Dictionary<string, object?> { ["x"] = 1 }, cancellationToken: Ct);
+
+        var error = AssertInvalidArgument(result);
+        Assert.Equal("list_grants doesn't declare the argument \"x\". It takes no arguments.", error.GetProperty("message").GetString());
+    }
+
+    public static TheoryData<string> SnapshotToolNames()
+    {
+        var data = new TheoryData<string>();
+        foreach (var tool in SnapshotTools())
+        {
+            data.Add(tool!["name"]!.GetValue<string>());
+        }
+
+        return data;
+    }
+
+    [Fact]
+    public void SnapshotToolNames_AreAllThirteenTools()
+    {
+        Assert.Equal(13, SnapshotToolNames().Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(SnapshotToolNames))]
+    public async Task EveryTool_WithItsRequiredArguments_RefusesAnUndeclaredOne(string name)
+    {
+        // Proves every tool hands the SDK's request to the runner: without it the call would run, or fail on the "x" IDs.
+        var schema = SnapshotTools().Single(t => t!["name"]!.GetValue<string>() == name)!["inputSchema"]!;
+        var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var required in schema["required"]?.AsArray().Select(n => n!.GetValue<string>()) ?? [])
+        {
+            Assert.Equal("string", schema["properties"]![required]!["type"]!.GetValue<string>());
+            arguments[required] = (name, required) == ("get_special_location", "location") ? "backUpFolder" : "x";
+        }
+
+        arguments["bogusArgument"] = true;
+
+        var result = await Client.CallToolAsync(name, arguments, cancellationToken: Ct);
+
+        var error = AssertInvalidArgument(result);
+        Assert.StartsWith($"{name} doesn't declare the argument \"bogusArgument\".", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(gateway.Calls);
+        Assert.Empty(gateway.CreateCalls);
+        Assert.Empty(gateway.NavigateCalls);
+    }
+
+    [Fact]
+    public async Task AnUnknownName_WithAnUnbindableValue_IsTheSdksError_First()
+    {
+        // AD-9: the SDK's own argument errors come before InvalidArgument.
+        Assert.Equal(
+            "result isError=True [{\"type\":\"text\",\"text\":\"An error occurred invoking \\u0027get_hierarchy\\u0027.\"}] structuredContent=none",
+            await Outcome("get_hierarchy", new Dictionary<string, object?> { ["scope"] = "bogus", ["extra"] = 1 }));
+        Assert.Empty(gateway.Calls);
+    }
+
+    /// <summary>The call failed inside the envelope with <c>InvalidArgument</c>, not retryable, with a correlationId; returns <c>error</c>.</summary>
+    private static JsonElement AssertInvalidArgument(CallToolResult result)
+    {
+        Assert.True(result.IsError);
+        Assert.NotNull(result.StructuredContent);
+        var envelope = result.StructuredContent.Value;
+        Assert.False(envelope.GetProperty("ok").GetBoolean());
+        Assert.False(string.IsNullOrEmpty(envelope.GetProperty("meta").GetProperty("correlationId").GetString()));
+        var error = envelope.GetProperty("error");
+        Assert.Equal("InvalidArgument", error.GetProperty("code").GetString());
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+        return error;
+    }
+
+    private static JsonArray SnapshotTools() =>
+        JsonNode.Parse(File.ReadAllText(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json")))!["tools"]!.AsArray();
+
     /// <summary>What the client sees, whether the SDK answers with a JSON-RPC error or a tool result.</summary>
     private async Task<string> Outcome(string tool, Dictionary<string, object?> arguments)
     {
@@ -151,6 +287,31 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         catch (McpProtocolException ex)
         {
             return "json-rpc " + ex.ErrorCode + " " + ex.Message;
+        }
+    }
+
+    /// <summary>Every formatted log message from every category, so a test can check what the server logged.</summary>
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        private readonly ConcurrentQueue<string> messages = new();
+
+        public IReadOnlyList<string> Messages => [.. messages];
+
+        public ILogger CreateLogger(string categoryName) => new Logger(messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Logger(ConcurrentQueue<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                messages.Enqueue(formatter(state, exception));
         }
     }
 }
