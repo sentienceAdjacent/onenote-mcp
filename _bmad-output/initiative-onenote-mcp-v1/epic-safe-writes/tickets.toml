@@ -85,6 +85,18 @@ hitl = false
 risk = "high"
 
 [[entry]]
+id = 14
+type = "story"
+title = "Name the argument in every argument error"
+description = "Added 2026-11-11 (Phill, 2.5 Q2: as accurate error reporting as we can). A misnamed required argument, or a value the SDK can't read (get_page_content {page_id}, get_hierarchy {scope: \"bogus\"}), today returns the SDK's bare \"An error occurred invoking '<tool>'.\" with no code and no structuredContent. Check required names and value types against each tool's input schema before the SDK binds (likely a call-tool filter), and return InvalidArgument naming the argument and what it expects. Needs an AD-9 wording change, since AD-9 lets the SDK's own errors come first."
+verify = "McpSdkBindingTests' two generic-error cases now return InvalidArgument naming page_id/pageId and scope, for a read tool and for create_page, and valid calls are unchanged."
+covers = ["R4"]
+after = [5]
+hitl = false
+risk = "medium"
+unknown = "Whether SDK 2.3.1 lets a filter see the raw arguments before binding; if not, a schema-driven pre-check in ToolRunner."
+
+[[entry]]
 id = 8
 type = "story"
 title = "Journal"
