@@ -66,6 +66,12 @@ internal sealed class ToolClient(McpClient client)
     /// <summary>The user-visible tool (story 1.21, AD-11). The harness never calls it: every call path refuses it.</summary>
     public const string NavigateTo = "navigate_to";
 
+    /// <summary>The write tools (story 2.4 on). The harness never calls them either: it only reads.</summary>
+    public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal) { "create_page" };
+
+    /// <summary>The tools that may lack readOnlyHint: the user-visible one and the writes. Every other contract tool must be read-only.</summary>
+    public static bool MayWrite(string tool) => string.Equals(tool, NavigateTo, StringComparison.Ordinal) || WriteTools.Contains(tool);
+
     /// <summary>The unreduced result, for the diag modes; null on a protocol failure.</summary>
     public async Task<CallToolResult?> CallRawAsync(string tool, Dictionary<string, object?> args)
     {
@@ -260,12 +266,17 @@ internal sealed class ToolClient(McpClient client)
         return new Reassembly(JsonSerializer.SerializeToElement(node), parts, maxText, null);
     }
 
-    // A guard against a future phase calling it by mistake; outside each call's try, so it stops the run.
+    // A guard against a future phase calling one by mistake; outside each call's try, so it stops the run.
     private static void RefuseUserVisible(string tool)
     {
         if (string.Equals(tool, NavigateTo, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("the harness never calls navigate_to (AD-11)");
+        }
+
+        if (WriteTools.Contains(tool))
+        {
+            throw new InvalidOperationException("the harness never calls a write tool (AD-7)");
         }
     }
 }

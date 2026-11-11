@@ -2,7 +2,7 @@
 
 A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and other MCP clients, read and manage the notebooks in your **OneNote desktop app** on Windows. It talks to OneNote through its COM automation API on your own machine. No cloud account, Microsoft Graph or sign-in is involved.
 
-> **Status: early preview.** The read-only tools work, and preview builds are published as GitHub prereleases. Writing, exports and the safety features that come with them are planned, not built yet. Items marked *(planned)* below don't exist yet.
+> **Status: early preview.** The read-only tools work, and preview builds are published as GitHub prereleases. The first write tool, `create_page`, is in preview; other writes, exports and the safety features that come with them are planned, not built yet. Items marked *(planned)* below don't exist yet.
 
 ## What it does
 
@@ -27,6 +27,12 @@ A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and
 |---|---|
 | `navigate_to` | shows a notebook, section group, section or page in OneNote, optionally selecting one object on it. It takes keyboard focus and changes what OneNote shows, so the plugin's `guide` skill tells Claude to call it only when you explicitly ask, for example to download a page's missing images. It changes no content |
 
+**Writes, only in notebooks you grant (first preview):**
+
+| Tool | What it does |
+|---|---|
+| `create_page` | adds an empty page at the end of a section, and returns its ID. It works only in a notebook you've granted with `OneNoteMcp grant --write "Notebook name"` (below); otherwise it fails with `WriteNotGranted`. In a password-protected section it needs only that write grant, never a read grant |
+
 Results are always OneNote's own XML, so tables, tags, ink, images and attachments survive the trip. The server never edits it: it only leaves out whole pages, such as recycle-bin pages in search results and pages of a password-protected section you haven't granted, and the result names the pages it filtered or the sections it withheld. When something is degraded, such as a cloud image that isn't on this PC, a locked section or search results that may be incomplete, the result says so in `warnings` instead of failing.
 
 **Password-protected sections.** A section with a password stays private even after you unlock it in OneNote. Claude sees that it exists, but its pages are left out of hierarchy listings and searches (`meta.withheld` names the section by ID, with a `readNotGranted` warning), and reading inside it fails with `ReadNotGranted`, until you grant a read of that one section:
@@ -34,6 +40,7 @@ Results are always OneNote's own XML, so tables, tags, ink, images and attachmen
 - **In Claude Code**, reading one of its pages raises a dialog. Type the section's name (the field's hint shows it, to copy) and pick from one list: **this section, for 5 minutes** (the default), **1 hour**, **8 hours**, **24 hours**, **7 days** or **until I revoke it**. For any other number of hours (1 to 168), use the terminal command below. Declining, or a client that can't show dialogs, grants nothing. The dialog's name field gets a new name on every request, so the client has no earlier answer to fill it in from.
 - **In a terminal**, with any client: `OneNoteMcp grant --read-section "Section name"`. It lists the matches if several open sections share the name, and offers hours or until revoked. It refuses to run without an interactive terminal, so a program can't run it for you.
 - **Revoke** with `OneNoteMcp grant --revoke --read-section "Section name"`. `list_grants` shows what's stored.
+- **Allow writes** to a notebook with `OneNoteMcp grant --write "Notebook name"`, in a terminal like the command above. It matches the notebook's displayed name, shows the match and its path, and grants only when you type `yes`. The grant is keyed by the notebook's path and saved in `settings.json` (`notebooks`). Revoking a write grant, and listing it in `list_grants`, come in a later preview.
 - **Where `OneNoteMcp` is.** A plugin install doesn't put the exe on your PATH: it sits in the plugin's install folder, `%USERPROFILE%\.claude\plugins\cache\sentienceadjacent\onenote\<version>\OneNoteMcp.exe` (the newest `<version>` folder). Run it by its full path, in quotes, and in PowerShell with `&` in front: `& "$env:USERPROFILE\.claude\plugins\cache\sentienceadjacent\onenote\<version>\OneNoteMcp.exe" grant --read-section "Section name"`. When a read is refused, the error's `userAction` names the exact path of the exe that's running.
 
 A grant is for one section, keyed by its file path: renaming or moving the section means granting again. OneNote won't move a page from a password-protected section to its recycle bin (deleting one is permanent), but pages deleted before a section was protected stay readable there. **This section, for 5 minutes** lets Claude read the whole section (pages, listings and searches) for that long, then asks again. It's held in memory by that one server process, never saved, can't be revoked, and `list_grants` shows it while it lasts; the minutes are `readGrants.onceMinutes` in `settings.json` (1 to 60, default 5). A grant for hours or until revoked that can't be saved (because `settings.json` is invalid) works the same way, with a `grantNotSaved` warning. Pages of protected sections are never kept in the search cache, even under a grant. Saved grants live in `settings.json` (`protectedSections`). A large result read under a grant for hours or until revoked can be paged with `read_result` only while that grant lasts. One read under the 5-minute grant stays pageable for the stored result's life, `results.ttlMinutes` after the original call (default 30), even after the window ends; `read_result` never asks.

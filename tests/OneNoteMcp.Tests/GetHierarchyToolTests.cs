@@ -254,6 +254,8 @@ public sealed class GetHierarchyToolTests
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => throw exception;
 
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw exception;
+
+        public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw exception;
     }
 
     private sealed class FixedProbe(bool running) : IProcessProbe

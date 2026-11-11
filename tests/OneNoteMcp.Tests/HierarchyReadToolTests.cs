@@ -346,6 +346,8 @@ public sealed class HierarchyReadToolTests
 
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 
+        public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
+
         public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct) => throw new NotSupportedException();

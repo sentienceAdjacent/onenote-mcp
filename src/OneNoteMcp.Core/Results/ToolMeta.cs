@@ -8,8 +8,9 @@ namespace OneNoteMcp.Core.Results;
 /// (<c>get_page_content</c>; AD-17, AD-4), <see cref="Binary"/> (<c>get_binary_page_content</c>),
 /// <see cref="Filtered"/> and <see cref="PossiblyIncomplete"/> (the search tools; AD-12), <see cref="Result"/> (a
 /// stored oversized result and every <c>read_result</c> response; AD-20), <see cref="Withheld"/> (the IDs of the
-/// password-protected sections whose pages a broad read left out; AD-21) and <see cref="Grants"/> (<c>list_grants</c>).
-/// They are null, and so omitted on the wire, on every other result.
+/// password-protected sections whose pages a broad read left out; AD-21), <see cref="Grants"/> (<c>list_grants</c>) and
+/// <see cref="PageId"/> (the page <c>create_page</c> made; Phill, 2026-11-10, 2.4 plan Q2). They are null, and so omitted
+/// on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
     string CorrelationId,
@@ -23,7 +24,8 @@ public sealed record ToolMeta(
     bool? PossiblyIncomplete = null,
     ResultMeta? Result = null,
     IReadOnlyList<string>? Withheld = null,
-    IReadOnlyList<GrantListing>? Grants = null);
+    IReadOnlyList<GrantListing>? Grants = null,
+    string? PageId = null);
 
 /// <summary>
 /// One stored grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21

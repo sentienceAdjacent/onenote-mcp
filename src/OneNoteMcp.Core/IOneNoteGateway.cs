@@ -3,8 +3,9 @@ namespace OneNoteMcp.Core;
 /// <summary>
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
-/// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11); every XML result is 2013-schema, returned unchanged
-/// (AD-4). IDs are opaque strings, passed through unchanged.
+/// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and <see cref="CreateNewPageAsync"/>, a <c>Create</c>
+/// call only the write pipeline makes (AD-7); every XML result is 2013-schema, returned unchanged (AD-4). IDs are
+/// opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
 {
@@ -41,4 +42,11 @@ public interface IOneNoteGateway
     /// it, on the user's explicit request; no read use case does.
     /// </summary>
     Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>Create</c>, AD-7): adds a page of <paramref name="style"/> to the section <paramref name="sectionId"/>
+    /// and returns its ID. Never retried after a disconnect (AD-3). Only the write pipeline calls it, after the access
+    /// check and under the write lock (AD-18).
+    /// </summary>
+    Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct);
 }

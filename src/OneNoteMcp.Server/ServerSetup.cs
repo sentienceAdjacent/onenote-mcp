@@ -8,6 +8,8 @@ using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
+using OneNoteMcp.Core.Writes;
+using OneNoteMcp.Server.Logging;
 using OneNoteMcp.Server.Tools;
 
 namespace OneNoteMcp.Server;
@@ -89,6 +91,17 @@ public static class ServerSetup
         services.AddSingleton<NavigateToUseCase>();
         services.AddSingleton(sp => new ListGrantsUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System, sp.GetRequiredService<ReadAccess>()));
 
+        // Writes (AD-7): the machine-wide write lock (AD-18), logging each hold with IDs and timings only (AD-13); the
+        // write-grant check, re-reading settings.json at every check (AD-10); and the step runner.
+        services.AddSingleton(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("OneNoteMcp.Server.WriteLock");
+            return new WriteLock(WriteLock.DefaultName, held => WriteLockLog.Held(logger, held));
+        });
+        services.AddSingleton(sp => new WriteAccess(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read));
+        services.AddSingleton(sp => new WritePipeline(sp.GetRequiredService<WriteLock>(), sp.GetRequiredService<PageTextCache>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
+        services.AddSingleton<CreatePageUseCase>();
+
         return services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -102,7 +115,8 @@ public static class ServerSetup
             .WithTools<FindMetaTool>(EnvelopeJson.Options)
             .WithTools<ReadResultTool>(EnvelopeJson.Options)
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
-            .WithTools<ListGrantsTool>(EnvelopeJson.Options);
+            .WithTools<ListGrantsTool>(EnvelopeJson.Options)
+            .WithTools<CreatePageTool>(EnvelopeJson.Options);
     }
 
     private static string ReadVersion()

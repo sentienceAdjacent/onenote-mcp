@@ -18,9 +18,9 @@ $h = "spikes/stress-harness/bin/Release/net10.0-windows/StressHarness.exe"
 
 Options: `--exe <path>`, `--root-pages` (also read every open notebook at pages scope), `--max-binaries <n>` (200), `--queries <n>` (20), `--seed <n>` (1), `--inline-max <n>` (100000: the server's `results.inlineMaxChars`, which no text block may exceed). There's no default notebook and no option that lists notebooks. A `--notebook-name` is matched against each notebook's nickname or name, ignoring case, and is never echoed.
 
-Exit codes: 0 done with no mismatches; 1 done with mismatches, or with a text block over `--inline-max`; 2 usage or refusal (no notebook, no single match, `--out` inside the repo, exe missing); 3 the server's `tools/list` isn't exactly the contract tools in `tests/OneNoteMcp.Tests/Contract/tool-contract.json` (twelve since story 1.20 added `list_grants`), each `readOnlyHint: true` except `navigate_to` (checked before any read); 4 OneNote not running, or the notebook list can't be read at startup; 5 a phase aborted, including when the notebook's own pages-scope hierarchy can't be read raw (the summary is still written, with `abortedBy`).
+Exit codes: 0 done with no mismatches; 1 done with mismatches, or with a text block over `--inline-max`; 2 usage or refusal (no notebook, no single match, `--out` inside the repo, exe missing); 3 the server's `tools/list` isn't exactly the contract tools in `tests/OneNoteMcp.Tests/Contract/tool-contract.json` (thirteen since story 2.4 added `create_page`), each `readOnlyHint: true` except `navigate_to` and the write tools (checked before any read); 4 OneNote not running, or the notebook list can't be read at startup; 5 a phase aborted, including when the notebook's own pages-scope hierarchy can't be read raw (the summary is still written, with `abortedBy`).
 
-The harness never calls `navigate_to`: its tool client refuses it.
+The harness never calls `navigate_to` or a write tool (`create_page`): its tool client refuses them.
 
 ## What it does
 

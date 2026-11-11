@@ -500,6 +500,37 @@ public sealed class ComGatewayLifecycleTests
         Assert.Equal(ErrorCode.ModalDialogOpen, modal.Code);
     }
 
+    [Theory]
+    [InlineData(NewPageStyle.Default, 0)] // npsDefault
+    [InlineData(NewPageStyle.BlankPageWithTitle, 1)] // npsBlankPageWithTitle
+    [InlineData(NewPageStyle.BlankPageNoTitle, 2)] // npsBlankPageNoTitle
+    public async Task CreateNewPage_PassesTheSectionAndMappedStyle_AndReturnsTheNewId(NewPageStyle style, int expected)
+    {
+        var app = new FakeApplication { OnCall = _ => "{new}" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal("{new}", await gateway.CreateNewPageAsync("{s}", style, Ct));
+
+        Assert.Equal([["{s}", (Com.Interop.NewPageStyle)expected]], app.Calls.Where(c => c.Method == "CreateNewPage").Select(c => c.Args));
+    }
+
+    [Fact]
+    public async Task CreateNewPage_IsNotRetriedAfterADisconnect_AndFailuresMapLikeAnyCall()
+    {
+        // A write: a disconnect that reached COM is never repeated (AD-3); the pipeline then reports outcomeUnknown.
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateNewPageAsync("{s}", NewPageStyle.BlankPageWithTitle, Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        app.OnCall = _ => throw new COMException("locked", unchecked((int)0x8004201B));
+        var locked = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateNewPageAsync("{s}", NewPageStyle.BlankPageWithTitle, Ct));
+        Assert.Equal(ErrorCode.SectionLocked, locked.Code);
+    }
+
     [Fact]
     public async Task GetHierarchy_PassesStartScopeAndXs2013()
     {

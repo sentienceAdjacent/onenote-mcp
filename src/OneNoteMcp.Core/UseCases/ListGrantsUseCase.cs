@@ -66,7 +66,7 @@ public sealed class ListGrantsUseCase(IOneNoteGateway gateway, Func<SettingsSnap
                     snapshot.Status == SettingsStatus.NewerSchema
                         ? "settings.json was written by a newer version of OneNoteMcp, so its saved grants count as absent and none of them is listed. Live once grants (lifetime once) are in memory, not in the file, and still apply."
                         : $"settings.json is invalid ({snapshot.Reason}), so its saved grants count as absent: none of the listed grants with lifetime hours or untilRevoked applies. Live once grants (lifetime once) are in memory, not in the file, and still apply.",
-                    snapshot.DuplicateGrantKeysOnly
+                    snapshot.DuplicateSectionKeys
                         ? "Two grants have keys that differ only in case. Ask the user to revoke that section's grant with " + GrantCli.Run("--revoke --read-section \"<section name>\"") + ", then grant it again if they want."
                         : "Ask the user to fix settings.json, or to update OneNoteMcp if a newer version wrote it."),
             ]

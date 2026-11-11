@@ -46,6 +46,56 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
         Assert.Equal(2, snapshot.ProtectedSectionEntries.Count);
     }
 
+    private const string WriteGrant = """{"name": "A", "idAtGrant": "{NB}{1}{B0}", "write": true, "permanentDelete": false, "grantedAt": "2026-11-10T12:00:00.000Z", "grantedVia": "cli"}""";
+
+    [Theory]
+    [InlineData(@"C:\\nb\\A", @"C:\\nb\\A")] // exact
+    [InlineData(@"C:\\nb\\A", @"c:\\NB\\a")] // case only
+    public void Store_TwoEqualNotebookKeys_AreInvalid_CountedLikeTheSectionDuplicate(string first, string second)
+    {
+        // Story 2.4 (AD-6, 2.3 plan Q7): the write grant counts as absent, and a revoke (story 2.6) still runs.
+        File.WriteAllText(SettingsPath, "{\"schemaVersion\": 1, \"notebooks\": {\"" + first + "\": " + WriteGrant + ", \"" + second + "\": " + WriteGrant + "}}");
+
+        var snapshot = new SettingsStore(SettingsPath).Read();
+
+        Assert.Equal(SettingsStatus.Invalid, snapshot.Status);
+        Assert.Equal("notebooks: two keys differ only in case", snapshot.Reason);
+        Assert.True(snapshot.DuplicateGrantKeysOnly);
+        Assert.True(snapshot.DuplicateNotebookKeys);
+        Assert.False(snapshot.DuplicateSectionKeys);
+        Assert.Equal(2, snapshot.NotebookEntries.Count);
+        Assert.Empty(snapshot.Notebooks);
+        Assert.Equal(ErrorCode.SettingsInvalid, Assert.Throws<OneNoteException>(snapshot.EnsureWritable).Code);
+    }
+
+    [Fact]
+    public void Store_DuplicatesInBothGrantAreas_NameBoth()
+    {
+        File.WriteAllText(
+            SettingsPath,
+            """{"schemaVersion": 1, "notebooks": {"C:\\nb": @W@, "c:\\NB": @W@}, "protectedSections": {"C:\\nb\\Vault.one": @G@, "C:\\NB\\Vault.one": @G@}}"""
+                .Replace("@W@", WriteGrant, StringComparison.Ordinal)
+                .Replace("@G@", Grant, StringComparison.Ordinal));
+
+        var snapshot = new SettingsStore(SettingsPath).Read();
+
+        Assert.Equal("notebooks and protectedSections: two keys differ only in case", snapshot.Reason);
+        Assert.True(snapshot.DuplicateNotebookKeys && snapshot.DuplicateSectionKeys && snapshot.DuplicateGrantKeysOnly);
+    }
+
+    [Fact]
+    public void Writer_SaveWriteGrant_OnADuplicateKeyFile_Refuses_AndLeavesIt()
+    {
+        var json = "{\"schemaVersion\": 1, \"notebooks\": {\"C:\\\\nb\": " + WriteGrant + ", \"c:\\\\NB\": " + WriteGrant + "}}";
+        File.WriteAllText(SettingsPath, json);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+
+        var ex = Assert.Throws<OneNoteException>(() => writer.SaveWriteGrant(new NotebookGrant(@"C:\nb", "A", "{NB}", true, false, DateTimeOffset.UnixEpoch, "cli")));
+
+        Assert.Equal(ErrorCode.SettingsInvalid, ex.Code);
+        Assert.Equal(json, File.ReadAllText(SettingsPath));
+    }
+
     [Fact]
     public void Writer_AnExactDuplicateGrantKey_RefusesTheRevoke_AndLeavesTheFile()
     {

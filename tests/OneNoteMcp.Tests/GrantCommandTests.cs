@@ -152,6 +152,123 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Equal("{ nope", File.ReadAllText(Store.Path));
     }
 
+    // --- grant --write (story 2.4, AD-6) ----------------------------------------------------------------------------
+
+    private const string NotebooksXml =
+        "<?xml version=\"1.0\"?>\n<one:Notebooks xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\">"
+        + "<one:Notebook name=\"Notebook A\" nickname=\"Notebook A\" ID=\"{NA}{1}{B0}\" path=\"C:\\notebooks\\A\"><one:Section name=\"S\" ID=\"{S}{1}{B0}\" path=\"C:\\notebooks\\A\\S.one\" /></one:Notebook>"
+        + "<one:Notebook name=\"folder-b\" nickname=\"Notebook B\" ID=\"{NB1}{1}{B0}\" path=\"https://d.docs.live.net/abc/Documents/folder-b/\" />"
+        + "<one:Notebook name=\"Notebook B\" ID=\"{NB2}{1}{B0}\" path=\"C:\\notebooks\\B\" />"
+        + "<one:Notebook name=\"Notebook C\" ID=\"{NC}{1}{B0}\" path=\"\" />"
+        + "</one:Notebooks>";
+
+    private int notebookReads;
+
+    [Fact]
+    public async Task Write_NotInteractive_Refuses_ReadsNothing_WritesNothing()
+    {
+        var code = await WriteCommand("yes\n", interactive: false).RunAsync(["--write", "Notebook A"], Ct);
+
+        Assert.Equal(1, code);
+        Assert.Contains("interactive terminal", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, notebookReads);
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public async Task Write_SingleMatch_ShowsNameAndPath_GrantsOnYes()
+    {
+        var code = await WriteCommand(" YES \n").RunAsync(["--write", " notebook a "], Ct);
+
+        Assert.Equal(0, code);
+        var text = output.ToString();
+        Assert.Contains("Notebook: Notebook A", text, StringComparison.Ordinal);
+        Assert.Contains(@"Path:     C:\notebooks\A", text, StringComparison.Ordinal);
+        var grant = Assert.Single(Store.Read().Notebooks.Values);
+        Assert.Equal(new NotebookGrant(@"C:\notebooks\A", "Notebook A", "{NA}{1}{B0}", true, false, clock.GetUtcNow(), GrantedVia.Cli), grant);
+    }
+
+    [Theory]
+    [InlineData("no\n")]
+    [InlineData("y\n")]
+    [InlineData("\n")]
+    [InlineData("")]
+    public async Task Write_AnythingButYes_ChangesNothing(string input)
+    {
+        Assert.Equal(1, await WriteCommand(input).RunAsync(["--write", "Notebook A"], Ct));
+        Assert.Contains("Nothing changed", output.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public async Task Write_AmbiguousName_ListsEachWithItsPath_UserPicks_KeyedByThePickedPath()
+    {
+        // "Notebook B" is one notebook's nickname and another's name: both match the displayed name.
+        var code = await WriteCommand("1\nyes\n").RunAsync(["--write", "Notebook B"], Ct);
+
+        Assert.Equal(0, code);
+        var text = output.ToString();
+        Assert.Contains("Several notebooks match:", text, StringComparison.Ordinal);
+        Assert.Contains("1) Notebook B (https://d.docs.live.net/abc/Documents/folder-b/)", text, StringComparison.Ordinal);
+        Assert.Contains(@"2) Notebook B (C:\notebooks\B)", text, StringComparison.Ordinal);
+        var grant = Assert.Single(Store.Read().Notebooks.Values);
+        Assert.Equal("https://d.docs.live.net/abc/Documents/folder-b", grant.Key); // NotebookKey trims the trailing slash
+        Assert.Equal("{NB1}{1}{B0}", grant.IdAtGrant);
+    }
+
+    [Theory]
+    [InlineData("3\n")]
+    [InlineData("x\n")]
+    public async Task Write_AmbiguousName_ABadPick_ChangesNothing(string input)
+    {
+        Assert.Equal(1, await WriteCommand(input).RunAsync(["--write", "Notebook B"], Ct));
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public async Task Write_NoMatch_ChangesNothing()
+    {
+        // A notebook's folder name isn't its displayed name when it has a nickname.
+        Assert.Equal(1, await WriteCommand("yes\n").RunAsync(["--write", "folder-b"], Ct));
+        Assert.Contains("No open notebook has that name", output.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public async Task Write_NotebookWithNoPath_IsRefused_NothingWritten()
+    {
+        Assert.Equal(1, await WriteCommand("yes\n").RunAsync(["--write", "Notebook C"], Ct));
+        Assert.Contains("no path", output.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public async Task Write_NameAskedWhenNotGiven()
+    {
+        Assert.Equal(0, await WriteCommand("Notebook A\nyes\n").RunAsync(["--write"], Ct));
+        Assert.Contains("Notebook name: ", output.ToString(), StringComparison.Ordinal);
+        Assert.Single(Store.Read().Notebooks);
+    }
+
+    [Theory]
+    [InlineData("--write", "--revoke")]
+    [InlineData("--write", "--read-section")]
+    public async Task Write_WithRevokeOrReadSection_IsBadUsage(string a, string b)
+    {
+        Assert.Equal(2, await WriteCommand("yes\n").RunAsync([a, b], Ct));
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public void Usage_NamesWrite() => Assert.Contains("grant --write", GrantCommand.Usage, StringComparison.Ordinal);
+
+    private GrantCommand WriteCommand(string input, bool interactive = true) =>
+        new(new StringReader(input), output, interactive, _ =>
+        {
+            notebookReads++;
+            return Task.FromResult(NotebooksXml);
+        }, new SettingsWriter(Store, clock), clock);
+
     // --- Elicitation adapter --------------------------------------------------------------------------------------
 
     [Fact]
