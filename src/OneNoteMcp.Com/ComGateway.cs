@@ -3,9 +3,11 @@ using System.Runtime.InteropServices;
 using OneNoteMcp.Com.Interop;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Settings;
+using CoreNewPageStyle = OneNoteMcp.Core.NewPageStyle;
 using CorePageInfo = OneNoteMcp.Core.PageInfo;
 using CoreScope = OneNoteMcp.Core.HierarchyScope;
 using CoreSpecialLocation = OneNoteMcp.Core.SpecialLocation;
+using InteropNewPageStyle = OneNoteMcp.Com.Interop.NewPageStyle;
 using InteropPageInfo = OneNoteMcp.Com.Interop.PageInfo;
 using InteropScope = OneNoteMcp.Com.Interop.HierarchyScope;
 using InteropSpecialLocation = OneNoteMcp.Com.Interop.SpecialLocation;
@@ -228,6 +230,21 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             retryOnDisconnect: false,
             ct);
 
+    public Task<string> CreateNewPageAsync(string sectionId, CoreNewPageStyle style, CancellationToken ct)
+    {
+        var interopStyle = MapNewPageStyle(style);
+        return RunAsync(
+            nameof(IApplication.CreateNewPage),
+            app =>
+            {
+                app.CreateNewPage(sectionId ?? string.Empty, out var pageId, interopStyle);
+                return pageId;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            retryOnDisconnect: false,
+            ct);
+    }
+
     /// <summary>
     /// Raw seam for unit tests and the integration suite's guarded writes: runs <paramref name="call"/> under the same
     /// lifecycle as every port method. A write passes <paramref name="retryOnDisconnect"/> false, which turns off only the
@@ -282,6 +299,14 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         CorePageInfo.SelectionFileType => InteropPageInfo.piSelectionFileType,
         CorePageInfo.All => InteropPageInfo.piAll,
         _ => throw new OneNoteException(ErrorCode.Internal, $"Unknown page info {(int)pageInfo}."),
+    };
+
+    internal static InteropNewPageStyle MapNewPageStyle(CoreNewPageStyle style) => style switch
+    {
+        CoreNewPageStyle.Default => InteropNewPageStyle.npsDefault,
+        CoreNewPageStyle.BlankPageWithTitle => InteropNewPageStyle.npsBlankPageWithTitle,
+        CoreNewPageStyle.BlankPageNoTitle => InteropNewPageStyle.npsBlankPageNoTitle,
+        _ => throw new OneNoteException(ErrorCode.Internal, $"Unknown page style {(int)style}."),
     };
 
     internal static InteropSpecialLocation MapSpecialLocation(CoreSpecialLocation location) => location switch

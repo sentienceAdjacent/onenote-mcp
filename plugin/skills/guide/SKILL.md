@@ -1,11 +1,11 @@
 ---
 name: guide
-description: This skill should be used when the user asks about their OneNote notebooks, sections, section groups, pages or subpages, for example "list my OneNote notebooks", "what sections are in my Work notebook", "find the page called Trip plan", "read my meeting notes page", "search OneNote for budget", "show my To Do items on that page", "find pages tagged with project", "what's in Quick Notes", "where is the OneNote backup folder", "get a link to this OneNote page", "show the image on that page", "download the missing images on that page", "show me that page in OneNote" or "which notebook is this page in", "read my password-protected section". Also use it when the user asks to create, edit, move, rename or delete anything in OneNote, because this release is read-only. It covers tool choice and scope, reading OneNote 2013 XML, password-protected sections, search caveats, and errors.
+description: This skill should be used when the user asks about their OneNote notebooks, sections, section groups, pages or subpages, for example "list my OneNote notebooks", "what sections are in my Work notebook", "find the page called Trip plan", "read my meeting notes page", "search OneNote for budget", "show my To Do items on that page", "find pages tagged with project", "what's in Quick Notes", "where is the OneNote backup folder", "get a link to this OneNote page", "show the image on that page", "download the missing images on that page", "show me that page in OneNote" or "which notebook is this page in", "read my password-protected section", "add a new page to that section". Also use it when the user asks to create, edit, move, rename or delete anything in OneNote, because this release can only add empty pages. It covers tool choice and scope, reading OneNote 2013 XML, password-protected sections, search caveats, and errors.
 ---
 
 # OneNote desktop: reading notebooks
 
-The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. This release is **read-only**: it has eleven read tools (one of them, `list_grants`, only lists the user's read permissions), one user-visible tool that shows a page in OneNote (`navigate_to`), and no write tools.
+The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. It has eleven read tools (one of them, `list_grants`, only lists the user's read permissions), one user-visible tool that shows a page in OneNote (`navigate_to`), and one write tool, `create_page`, which adds an empty page to a section the user has allowed you to write to. It can't yet edit, move, rename or delete anything.
 
 The tools are thin wrappers over COM. Their descriptions say what each parameter means; this guide says which tool to pick, in what order, and how to interpret what comes back.
 
@@ -13,7 +13,9 @@ The tools are thin wrappers over COM. Their descriptions say what each parameter
 
 Use this guide for any OneNote read: listing notebooks, section groups, sections and pages, reading pages, searching, getting links, and looking up special locations such as Quick Notes.
 
-If the user asks to change a notebook (add, edit, move, rename or delete a page or section), say that this release can only read OneNote, and that they can make the change in OneNote themselves. Don't work around it: never edit `.one` files or other notebook files, never script or automate the OneNote window, and never use any other route to change a notebook.
+Call `mcp__plugin_onenote_desktop__create_page` only when the user asks for a new page; never to try something out. Each call adds another page. It needs the user's write grant for the section's notebook: without one it fails with `WriteNotGranted`, and only the user can grant it, with the terminal command in `userAction`. Never run that command yourself.
+
+If the user asks for any other change (edit, move, rename or delete a page or section), say that this release can't do it yet, and that they can make the change in OneNote themselves. Don't work around it: never edit `.one` files or other notebook files, never script or automate the OneNote window, and never use any other route to change a notebook.
 
 ## Tool map
 
@@ -33,6 +35,7 @@ Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its b
 | `mcp__plugin_onenote_desktop__read_result` (`read_result`) | Read a result that was too large to return whole, part by part (see Large results) | `xml` (a part) or `index` |
 | `mcp__plugin_onenote_desktop__list_grants` (`list_grants`) | Show which password-protected sections the user has allowed you to read, and until when (see Password-protected sections) | `meta.grants` |
 | `mcp__plugin_onenote_desktop__navigate_to` (`navigate_to`) | **User-visible.** Show a notebook, section group, section or page in OneNote (and select one object on it). Only when the user explicitly asks; see Missing images | nothing |
+| `mcp__plugin_onenote_desktop__create_page` (`create_page`) | **Writes.** Add an empty page at the end of a section (`style`: `blankPageWithTitle` by default, `blankPageNoTitle`, or `default` for the section's template). Only when the user asks for a new page; see When to use | `meta.pageId` |
 
 Every result is an envelope: `{ok: true, xml?, index?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
 
@@ -200,10 +203,12 @@ On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 | `ResultExpired` | The stored large result expired or the server restarted. Repeat the original call, then continue with its new `resultId`. |
 | `UnknownObjectId` | From `mcp__plugin_onenote_desktop__read_result`: the ref isn't in that result. Use a ref from its index, or `/`. |
 | `NotSupported` | Not in this release. Tell the user. |
+| `WriteNotGranted` | From `mcp__plugin_onenote_desktop__create_page`: the user hasn't allowed writes to that notebook. Tell the user, and if they want the page, give them the `grant --write` command from `userAction` to run in their own terminal. Never run it yourself; retry only after they say they have. |
+| `SettingsInvalid` | OneNoteMcp's `settings.json` is invalid, or a newer OneNoteMcp wrote it, so writes are off. Relay `userAction`. Never edit `settings.json` yourself. |
 | `InvalidXml` | OneNote or the server rejected the XML of a read; ignore the write-oriented `userAction`. Don't retry; tell the user, with `error.message` and `error.hresult` if present. |
 | `Internal` | Tell the user, quoting `error.hresult` if present. Don't retry. |
 
-Any other code: follow `userAction`. When reporting a failure the user may want to investigate, include `meta.correlationId`; it matches the server's log. `outcomeUnknown` only appears on writes, which this release doesn't have.
+Any other code: follow `userAction`. When reporting a failure the user may want to investigate, include `meta.correlationId`; it matches the server's log. `outcomeUnknown: true` only appears on writes: the page may or may not have been created. Re-read the section's pages (`mcp__plugin_onenote_desktop__get_hierarchy` with `scope: pages`) before you call `mcp__plugin_onenote_desktop__create_page` again, and never retry it blindly.
 
 Warnings (`ok: true`, with `warnings[]`) mean the result is usable but degraded. Mention them to the user:
 

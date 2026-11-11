@@ -516,6 +516,8 @@ public sealed class PageContentToolTests
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => inner.GetSpecialLocationAsync(location, ct);
 
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => inner.NavigateToAsync(hierarchyId, objectId, ct);
+
+        public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => inner.CreateNewPageAsync(sectionId, style, ct);
     }
 
     /// <summary>Answers every page read with fixed text (BinaryData with <paramref name="binaryData"/> when given), for malformed and edge-case XML.</summary>
@@ -559,6 +561,8 @@ public sealed class PageContentToolTests
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => throw new NotSupportedException();
 
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
     }
 
     private sealed class CapturingLogger : ILogger<ToolRunner>

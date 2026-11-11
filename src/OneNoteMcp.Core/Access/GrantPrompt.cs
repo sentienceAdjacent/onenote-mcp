@@ -50,6 +50,9 @@ public static class GrantedVia
 {
     public const string Elicitation = "elicitation";
     public const string Cli = "cli";
+
+    /// <summary>A write grant made automatically for a notebook the server created (AD-6, AD-7 <c>Create</c>). Never a read grant.</summary>
+    public const string Created = "created";
 }
 
 /// <summary>

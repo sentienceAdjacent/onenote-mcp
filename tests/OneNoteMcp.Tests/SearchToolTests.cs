@@ -477,6 +477,8 @@ public sealed class SearchToolTests
 
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 
+        public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
+
         private Task<string> Search(Func<Task<string>> serve) =>
             SearchFailure is not null ? Task.FromException<string>(SearchFailure)
             : SearchXml is not null ? Task.FromResult(SearchXml)

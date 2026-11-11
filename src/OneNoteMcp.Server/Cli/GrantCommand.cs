@@ -6,9 +6,15 @@ using OneNoteMcp.Core.Settings;
 namespace OneNoteMcp.Server.Cli;
 
 /// <summary>
-/// <c>OneNoteMcp grant</c> (AD-6, AD-21): the interactive command through which the user grants or revokes a read of a
-/// password-protected section. It refuses to run without an interactive terminal, so a model can't drive it.
+/// <c>OneNoteMcp grant</c> (AD-6, AD-21): the interactive command through which the user grants a write to a notebook,
+/// or grants or revokes a read of a password-protected section. It refuses to run without an interactive terminal, so a
+/// model can't drive it.
 /// <list type="bullet">
+/// <item><c>grant --write [name]</c>: the typed name is matched, trimmed and ignoring case, against each open notebook's
+/// displayed name (<c>nickname</c>, else <c>name</c>). Several matches are listed with their paths, and the user picks
+/// one. The match is shown with its path, and the grant is made only when the user types <c>yes</c>. It is keyed by the
+/// notebook's live <c>path</c> through <see cref="GrantKeys.NotebookKey"/> and keeps an existing permanent-delete
+/// grant. Revoking it is story 2.6's.</item>
 /// <item><c>grant --read-section [name]</c>: the typed name is matched, trimmed and ignoring case, against the protected
 /// sections of the open notebooks. Several matches are listed with their notebook and section groups, and the user picks
 /// one. It offers <c>hours</c> (1 to 168, default 8) and <c>untilRevoked</c>; <c>once</c> exists only in the dialog.</item>
@@ -23,6 +29,7 @@ public sealed class GrantCommand
 {
     public const string Usage =
         "Usage:\n"
+        + "  OneNoteMcp grant --write [\"<notebook name>\"]                  allow writing to a notebook\n"
         + "  OneNoteMcp grant --read-section [\"<section name>\"]            allow reading a password-protected section\n"
         + "  OneNoteMcp grant --revoke --read-section [\"<section name>\"]   remove that permission\n"
         + "Run it yourself in a terminal: it asks you to confirm, and it refuses to run without an interactive terminal.";
@@ -62,6 +69,7 @@ public sealed class GrantCommand
 
         var revoke = false;
         var readSection = false;
+        var write = false;
         string? name = null;
         for (var i = 0; i < args.Count; i++)
         {
@@ -70,8 +78,9 @@ public sealed class GrantCommand
                 case "--revoke":
                     revoke = true;
                     break;
-                case "--read-section":
-                    readSection = true;
+                case "--read-section" or "--write":
+                    readSection |= args[i] == "--read-section";
+                    write |= args[i] == "--write";
                     if (i + 1 < args.Count && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
                     {
                         name = args[++i];
@@ -85,23 +94,32 @@ public sealed class GrantCommand
             }
         }
 
-        if (!readSection)
+        if (readSection == write)
         {
-            output.WriteLine("Only --read-section grants exist in this release.");
+            output.WriteLine("Give exactly one of --write or --read-section.");
             output.WriteLine(Usage);
             return 2;
         }
 
-        name ??= Ask("Section name: ");
+        if (write && revoke)
+        {
+            output.WriteLine("Revoking a write grant isn't available in this release.");
+            output.WriteLine(Usage);
+            return 2;
+        }
+
+        name ??= Ask(write ? "Notebook name: " : "Section name: ");
         if (string.IsNullOrWhiteSpace(name))
         {
-            output.WriteLine("No section name given; nothing changed.");
+            output.WriteLine(write ? "No notebook name given; nothing changed." : "No section name given; nothing changed.");
             return 1;
         }
 
         try
         {
-            return revoke ? await RevokeAsync(name.Trim(), ct).ConfigureAwait(false) : await GrantAsync(name.Trim(), ct).ConfigureAwait(false);
+            return write ? await GrantWriteAsync(name.Trim(), ct).ConfigureAwait(false)
+                : revoke ? await RevokeAsync(name.Trim(), ct).ConfigureAwait(false)
+                : await GrantAsync(name.Trim(), ct).ConfigureAwait(false);
         }
         catch (OneNoteException ex)
         {
@@ -173,6 +191,48 @@ public sealed class GrantCommand
         return 0;
     }
 
+    /// <summary>
+    /// <c>grant --write</c> (AD-6): the typed name is matched against each open notebook's displayed name. The match is
+    /// shown with its path, and the grant is made only when the user types <c>yes</c> (Phill, 2026-11-10, 2.4 plan Q4),
+    /// since a name passed as an argument may have been pasted from the model's suggestion.
+    /// </summary>
+    private async Task<int> GrantWriteAsync(string name, CancellationToken ct)
+    {
+        var notebooks = OpenNotebooks.Find(await readSections(ct).ConfigureAwait(false));
+        var matches = notebooks.Where(n => GrantKeys.NameMatches(name, n.DisplayName)).ToList();
+        if (matches.Count == 0)
+        {
+            output.WriteLine("No open notebook has that name. Check the name, and that the notebook is open in OneNote.");
+            return 1;
+        }
+
+        var notebook = Pick(matches, n => $"{n.DisplayName} ({n.Path})", "notebooks");
+        if (notebook is null)
+        {
+            output.WriteLine("Nothing changed.");
+            return 1;
+        }
+
+        if (notebook.Key.Length == 0)
+        {
+            output.WriteLine("OneNote reports no path for that notebook, so no grant can be made for it. Nothing changed.");
+            return 1;
+        }
+
+        output.WriteLine($"Notebook: {notebook.DisplayName}");
+        output.WriteLine($"Path:     {notebook.Path}");
+        output.WriteLine("Claude will be able to create and change pages in it, through OneNoteMcp.");
+        if (!string.Equals(Ask("Type yes to allow it: ")?.Trim(), "yes", StringComparison.OrdinalIgnoreCase))
+        {
+            output.WriteLine("Nothing changed.");
+            return 1;
+        }
+
+        writer.SaveWriteGrant(new NotebookGrant(notebook.Key, notebook.DisplayName, notebook.Id, Write: true, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
+        output.WriteLine($"Granted: OneNoteMcp can now write to \"{notebook.DisplayName}\".");
+        return 0;
+    }
+
     private async Task<int> RevokeAsync(string name, CancellationToken ct)
     {
         var snapshot = writer.Store.Read();
@@ -220,14 +280,14 @@ public sealed class GrantCommand
         ProtectedSections.Find(await readSections(ct).ConfigureAwait(false));
 
     /// <summary>The only match, or the one the user picks from a numbered list; default when they pick none.</summary>
-    private T? Pick<T>(IReadOnlyList<T> matches, Func<T, string> describe)
+    private T? Pick<T>(IReadOnlyList<T> matches, Func<T, string> describe, string what = "sections")
     {
         if (matches.Count == 1)
         {
             return matches[0];
         }
 
-        output.WriteLine("Several sections match:");
+        output.WriteLine($"Several {what} match:");
         for (var i = 0; i < matches.Count; i++)
         {
             output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {i + 1}) {describe(matches[i])}"));

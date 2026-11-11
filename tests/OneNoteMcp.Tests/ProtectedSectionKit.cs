@@ -162,6 +162,8 @@ internal sealed class VaultGateway : IOneNoteGateway
 
     public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 
+    public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
+
     private static XElement Section(string name, string id, string path, bool encrypted, params XElement[] pages)
     {
         var section = new XElement(One + "Section", new XAttribute("name", name), new XAttribute("ID", id), new XAttribute("path", path));

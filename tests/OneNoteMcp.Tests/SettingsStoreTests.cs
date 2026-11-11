@@ -397,6 +397,170 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void EnsureWritable_NewerSchema_IsNotRetryable_AndSaysToUpdateNotToEdit()
+    {
+        // Story 2.4 (Q7): a retry in this server can't succeed, and editing the file is the wrong fix.
+        var s = ReadWith("""{"schemaVersion": 2}""");
+
+        var ex = Assert.Throws<OneNoteException>(s.EnsureWritable);
+        var error = Core.Results.ToolErrors.From(ex, OperationClass.Create);
+
+        Assert.False(error.Retryable);
+        Assert.Equal(SettingsSnapshot.NewerSchemaUserAction, error.UserAction);
+    }
+
+    [Fact]
+    public void EnsureWritable_Invalid_KeepsTheFixTheFileAdvice_AndIsRetryable()
+    {
+        var s = ReadWith("""{"schemaVersion": 1, "journal": {"retentionDays": 0}}""");
+
+        var error = Core.Results.ToolErrors.From(Assert.Throws<OneNoteException>(s.EnsureWritable), OperationClass.Create);
+
+        Assert.True(error.Retryable);
+        Assert.Equal(Core.Results.ToolErrors.UserAction(ErrorCode.SettingsInvalid), error.UserAction);
+    }
+
+    // --- notebooks{}: write grants (story 2.4, AD-6) -------------------------------------------------------------------
+
+    private const string WriteGrant = """{"name": "Notebook A", "idAtGrant": "{NB}{1}{B0}", "write": true, "permanentDelete": false, "grantedAt": "2026-11-10T12:00:00.000Z", "grantedVia": "cli"}""";
+
+    [Theory]
+    [InlineData("cli")]
+    [InlineData("elicitation")]
+    [InlineData("created")]
+    public void Read_Notebooks_EveryFieldIsRead(string via)
+    {
+        var s = ReadWith("""{"schemaVersion": 1, "notebooks": {"C:\\nb\\A": ENTRY}}""".Replace("ENTRY", WriteGrant.Replace("\"cli\"", $"\"{via}\"", StringComparison.Ordinal), StringComparison.Ordinal));
+
+        Assert.Equal(SettingsStatus.Ok, s.Status);
+        var grant = Assert.Single(s.Notebooks.Values);
+        Assert.Equal(new NotebookGrant(@"C:\nb\A", "Notebook A", "{NB}{1}{B0}", true, false, new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero), via), grant);
+        Assert.Same(grant, s.Notebooks[@"c:\NB\a"]); // keys compare ignoring case
+        Assert.Equal([grant], s.NotebookEntries);
+    }
+
+    [Fact]
+    public void Read_NoNotebooks_IsOk_AndGrantsNothing()
+    {
+        var s = ReadWith("""{"schemaVersion": 1}""");
+
+        Assert.Empty(s.Notebooks);
+        Assert.Empty(s.NotebookEntries);
+    }
+
+    [Theory]
+    [InlineData("\"notebooks\": []", "notebooks: must be an object")]
+    [InlineData("\"notebooks\": {\"C:\\\\nb\": 1}", "notebooks entry: must be an object")]
+    [InlineData("\"notebooks\": {\" \": ENTRY}", "notebooks: a key is empty")]
+    public void Read_Notebooks_BadShape_IsInvalid(string member, string reason)
+    {
+        var s = ReadWith("{\"schemaVersion\": 1, " + member.Replace("ENTRY", WriteGrant, StringComparison.Ordinal) + "}");
+
+        Assert.Equal(SettingsStatus.Invalid, s.Status);
+        Assert.Equal(reason, s.Reason);
+        Assert.Empty(s.Notebooks);
+    }
+
+    [Theory]
+    [InlineData("name", "1", "notebooks entry name: must be a string")]
+    [InlineData("idAtGrant", "null", "notebooks entry idAtGrant: must be a string")]
+    [InlineData("write", "\"true\"", "notebooks entry write: must be true or false")]
+    [InlineData("permanentDelete", "0", "notebooks entry permanentDelete: must be true or false")]
+    [InlineData("grantedAt", "\"yesterday\"", "notebooks entry grantedAt: must be an ISO-8601 date-time")]
+    [InlineData("grantedVia", "\"model\"", "notebooks entry grantedVia: must be elicitation, cli or created")]
+    public void Read_Notebooks_BadField_IsInvalid_NamingTheField_NeverTheValue(string field, string value, string reason)
+    {
+        var entry = System.Text.Json.Nodes.JsonNode.Parse(WriteGrant)!.AsObject();
+        entry[field] = System.Text.Json.Nodes.JsonNode.Parse(value);
+
+        var s = ReadWith("""{"schemaVersion": 1, "notebooks": {"C:\\nb\\A": ENTRY}}""".Replace("ENTRY", entry.ToJsonString(), StringComparison.Ordinal));
+
+        Assert.Equal(SettingsStatus.Invalid, s.Status);
+        Assert.Equal(reason, s.Reason);
+        Assert.Throws<OneNoteException>(s.EnsureWritable);
+    }
+
+    [Theory]
+    [InlineData("write")]
+    [InlineData("permanentDelete")]
+    [InlineData("grantedAt")]
+    public void Read_Notebooks_MissingField_IsInvalid(string field)
+    {
+        var entry = System.Text.Json.Nodes.JsonNode.Parse(WriteGrant)!.AsObject();
+        entry.Remove(field);
+
+        var s = ReadWith("""{"schemaVersion": 1, "notebooks": {"C:\\nb\\A": ENTRY}}""".Replace("ENTRY", entry.ToJsonString(), StringComparison.Ordinal));
+
+        Assert.Equal(SettingsStatus.Invalid, s.Status);
+        Assert.Contains($"notebooks entry {field}", s.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Read_Notebooks_InANewerFile_CountAsAbsent()
+    {
+        var s = ReadWith("""{"schemaVersion": 2, "notebooks": {"C:\\nb\\A": ENTRY}}""".Replace("ENTRY", WriteGrant, StringComparison.Ordinal));
+
+        Assert.Equal(SettingsStatus.NewerSchema, s.Status);
+        Assert.Empty(s.Notebooks);
+    }
+
+    [Fact]
+    public void Writer_SaveWriteGrant_OnNoFile_CreatesIt_WithEveryField()
+    {
+        var store = new SettingsStore(SettingsPath);
+        var at = new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
+
+        new SettingsWriter(store, new FakeClock()).SaveWriteGrant(new NotebookGrant(@"C:\nb\A", "Notebook A", "{NB}", true, false, at, Core.Access.GrantedVia.Cli));
+
+        var s = store.Read();
+        Assert.Equal(SettingsStatus.Ok, s.Status);
+        Assert.Equal(new NotebookGrant(@"C:\nb\A", "Notebook A", "{NB}", true, false, at, "cli"), Assert.Single(s.Notebooks.Values));
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(SettingsPath))!;
+        Assert.Equal(1, json["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(
+            ["name", "idAtGrant", "write", "permanentDelete", "grantedAt", "grantedVia"],
+            json["notebooks"]![@"C:\nb\A"]!.AsObject().Select(p => p.Key));
+    }
+
+    [Fact]
+    public void Writer_SaveWriteGrant_AgainKeepsPermanentDelete_ReplacesACaseVariantKey_AndKeepsEverythingElse()
+    {
+        var other = """{"name": "Vault", "notebookKey": "C:\\nb\\A", "idAtGrant": "{S}", "grantedAt": "2026-11-07T12:00:00.000Z", "grantedVia": "cli"}""";
+        File.WriteAllText(SettingsPath, ("""{"schemaVersion": 1, "timeouts": {"callSeconds": 7}, "custom": [1, 2], "protectedSections": {"C:\\nb\\A\\Vault.one": OTHER}, """
+            + """ "notebooks": {"c:\\NB\\a": {"name": "Old", "idAtGrant": "{OLD}", "write": true, "permanentDelete": true, "grantedAt": "2026-11-01T00:00:00.000Z", "grantedVia": "cli"}}}""")
+            .Replace("OTHER", other, StringComparison.Ordinal));
+        var store = new SettingsStore(SettingsPath);
+        var at = new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
+
+        new SettingsWriter(store, new FakeClock()).SaveWriteGrant(new NotebookGrant(@"C:\nb\A", "Notebook A", "{NB}", true, false, at, "cli"));
+
+        var s = store.Read();
+        Assert.Equal(SettingsStatus.Ok, s.Status);
+        var grant = Assert.Single(s.NotebookEntries);
+        Assert.Equal(@"C:\nb\A", grant.Key);
+        Assert.Equal("{NB}", grant.IdAtGrant);
+        Assert.True(grant.PermanentDelete); // kept
+        Assert.Single(s.ProtectedSections);
+        Assert.Equal(TimeSpan.FromSeconds(7), s.Timeouts.Call);
+        Assert.Equal("[1,2]", System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(SettingsPath))!["custom"]!.ToJsonString());
+    }
+
+    [Fact]
+    public void Writer_SaveWriteGrant_OnANewerOrInvalidFile_Refuses_AndLeavesIt()
+    {
+        foreach (var json in new[] { """{"schemaVersion": 2}""", """{"schemaVersion": 1, "notebooks": []}""" })
+        {
+            File.WriteAllText(SettingsPath, json);
+            var writer = new SettingsWriter(new SettingsStore(SettingsPath), new FakeClock());
+
+            var ex = Assert.Throws<OneNoteException>(() => writer.SaveWriteGrant(new NotebookGrant(@"C:\nb\A", "A", "{NB}", true, false, DateTimeOffset.UnixEpoch, "cli")));
+
+            Assert.Equal(ErrorCode.SettingsInvalid, ex.Code);
+            Assert.Equal(json, File.ReadAllText(SettingsPath));
+        }
+    }
+
+    [Fact]
     public void ResolvePath_WithOverride_UsesIt()
     {
         var path = SettingsStore.ResolvePath(name => name == SettingsStore.PathOverrideVariable ? SettingsPath : null);

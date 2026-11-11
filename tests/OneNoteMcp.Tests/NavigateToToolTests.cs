@@ -96,8 +96,9 @@ public sealed class NavigateToToolTests
     }
 
     [Fact]
-    public void Tool_SaysItIsUserVisible_AndIsTheOnlyToolThatIsNotReadOnly()
+    public void Tool_SaysItIsUserVisible_AndIsTheOnlyNonWriteToolThatIsNotReadOnly()
     {
+        // The write tools (story 2.4 on) aren't read-only either; every other tool is.
         using var services = BuildServer();
         var tools = services.GetServices<McpServerTool>().Select(t => t.ProtocolTool).ToList();
 
@@ -111,7 +112,21 @@ public sealed class NavigateToToolTests
         Assert.True(navigate.Annotations.IdempotentHint);
         Assert.False(navigate.Annotations.OpenWorldHint);
 
-        Assert.All(tools.Where(t => t.Name != NavigateToTool.Name), t => Assert.True(t.Annotations!.ReadOnlyHint, t.Name));
+        Assert.All(tools.Where(t => t.Name != NavigateToTool.Name && !WriteTools.Contains(t.Name)), t => Assert.True(t.Annotations!.ReadOnlyHint, t.Name));
+        Assert.All(WriteTools, name => Assert.False(Assert.Single(tools, t => t.Name == name).Annotations!.ReadOnlyHint, name));
+    }
+
+    /// <summary>The write tools: not read-only, and not user-visible either (they don't take focus).</summary>
+    internal static readonly string[] WriteTools = [CreatePageTool.Name];
+
+    [Fact]
+    public void WriteTools_DontClaimToBeUserVisible()
+    {
+        using var services = BuildServer();
+        foreach (var tool in services.GetServices<McpServerTool>().Select(t => t.ProtocolTool).Where(t => WriteTools.Contains(t.Name)))
+        {
+            Assert.DoesNotContain("User-visible", tool.Description, StringComparison.Ordinal);
+        }
     }
 
     private static NavigateToTool Tool(IOneNoteGateway gateway) => new(new ToolRunner(NullLogger<ToolRunner>.Instance), new NavigateToUseCase(gateway));

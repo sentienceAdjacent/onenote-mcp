@@ -5,7 +5,8 @@ using System.Text.Json.Nodes;
 namespace OneNoteMcp.Core.Settings;
 
 /// <summary>
-/// The write side of <c>settings.json</c> (AD-10), for grant writers only: elicitation and the CLI (AD-21). Every change
+/// The write side of <c>settings.json</c> (AD-10), for grant writers only: elicitation and the CLI, for read grants
+/// (<c>protectedSections{}</c>, AD-21) and write grants (<c>notebooks{}</c>, AD-6). Every change
 /// is one read-modify-write inside the named mutex <c>Local\OneNoteMcp.Settings</c>: re-read, change, write a temporary
 /// file beside it, then <c>File.Replace</c>. Members it doesn't know are kept as they were. Inside the same write it
 /// drops <c>protectedSections{}</c> entries whose <c>expiresAt</c> has passed, the one automatic pruning AD-10 allows. The
@@ -40,8 +41,9 @@ public sealed class SettingsWriter
     public void SaveReadGrant(ProtectedSectionGrant grant)
     {
         ArgumentNullException.ThrowIfNull(grant);
-        Change(allowDuplicateKeys: false, sections =>
+        Change(allowDuplicateKeys: false, root =>
         {
+            var sections = Area(root, ProtectedSectionsArea);
             RemoveKey(sections, grant.Key);
             var entry = new JsonObject
             {
@@ -69,12 +71,55 @@ public sealed class SettingsWriter
     {
         ArgumentNullException.ThrowIfNull(sectionKey);
         var removed = 0;
-        Change(allowDuplicateKeys: true, sections =>
+        Change(allowDuplicateKeys: true, root =>
         {
-            removed = RemoveKey(sections, sectionKey);
+            removed = RemoveKey(Area(root, ProtectedSectionsArea), sectionKey);
             return removed > 0;
         });
         return removed;
+    }
+
+    /// <summary>
+    /// Stores (or replaces) the write grant <paramref name="grant"/> in <c>notebooks{}</c> under its key (AD-6); an entry
+    /// whose key differs only in case is replaced too. Granting again keeps an existing <c>permanentDelete: true</c>,
+    /// which only its own grant gives or takes away. Same failures as <see cref="SaveReadGrant"/>.
+    /// </summary>
+    public void SaveWriteGrant(NotebookGrant grant)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+        Change(allowDuplicateKeys: false, root =>
+        {
+            var notebooks = Area(root, NotebooksArea);
+            var keptPermanentDelete = notebooks
+                .Where(p => Access.GrantKeys.Comparer.Equals(p.Key, grant.Key))
+                .Any(p => p.Value is JsonObject old && old["permanentDelete"] is JsonValue v && v.TryGetValue<bool>(out var b) && b);
+            RemoveKey(notebooks, grant.Key);
+            notebooks[grant.Key] = new JsonObject
+            {
+                ["name"] = grant.Name,
+                ["idAtGrant"] = grant.IdAtGrant,
+                ["write"] = grant.Write,
+                ["permanentDelete"] = grant.PermanentDelete || keptPermanentDelete,
+                ["grantedAt"] = Format(grant.GrantedAt),
+                ["grantedVia"] = grant.GrantedVia,
+            };
+            return true;
+        });
+    }
+
+    private const string ProtectedSectionsArea = "protectedSections";
+    private const string NotebooksArea = "notebooks";
+
+    /// <summary>The root's <paramref name="name"/> object, added when absent.</summary>
+    private static JsonObject Area(JsonObject root, string name)
+    {
+        if (root[name] is not JsonObject area)
+        {
+            area = [];
+            root[name] = area;
+        }
+
+        return area;
     }
 
     /// <summary>UTC ISO-8601 with milliseconds and <c>Z</c> (Consistency Conventions).</summary>
@@ -134,14 +179,11 @@ public sealed class SettingsWriter
         }
 
         var root = snapshot.Status == SettingsStatus.Absent ? new JsonObject { ["schemaVersion"] = SettingsSnapshot.KnownSchemaVersion } : Load();
-        if (root["protectedSections"] is not JsonObject sections)
+        var changed = change(root);
+        if (root[ProtectedSectionsArea] is JsonObject sections)
         {
-            sections = [];
-            root["protectedSections"] = sections;
+            changed |= PruneExpired(sections);
         }
-
-        var changed = change(sections);
-        changed |= PruneExpired(sections);
         if (!changed)
         {
             return;

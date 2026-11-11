@@ -6,8 +6,8 @@ namespace OneNoteMcp.Core.Settings;
 /// <summary>
 /// The one Core type that owns <c>%APPDATA%\OneNoteMcp\settings.json</c> (AD-10). This is the read side only:
 /// every <see cref="Read"/> reads the file again and returns a new snapshot, nothing is cached, and the store
-/// never writes the file (<see cref="SettingsWriter"/> does). <c>protectedSections{}</c> (read grants, AD-21) is read here;
-/// <c>notebooks{}</c> (write grants) is left to epic 2. Unknown keys are ignored.
+/// never writes the file (<see cref="SettingsWriter"/> does). <c>notebooks{}</c> (write grants, AD-6) and
+/// <c>protectedSections{}</c> (read grants, AD-21) are read here. Unknown keys are ignored.
 /// </summary>
 public sealed class SettingsStore
 {
@@ -92,8 +92,8 @@ public sealed class SettingsStore
 
     /// <summary>
     /// Reads every settings area in a fixed order, so the first field that fails is the one reported. A newer
-    /// <c>schemaVersion</c> stops the read. <c>protectedSections</c> is read last, so a key that differs only in case is the
-    /// file's only problem when it is reported.
+    /// <c>schemaVersion</c> stops the read. <c>notebooks</c> and then <c>protectedSections</c> are read last, so a key
+    /// that differs only in case is the file's only problem when it is reported.
     /// </summary>
     private static SettingsSnapshot Validate(string path, JsonElement root)
     {
@@ -112,13 +112,20 @@ public sealed class SettingsStore
         var exportRoots = ReadExportRoots(root);
 
         // Read last, so a duplicate key is the file's only problem when it is reported (AD-6: the CLI's revoke still runs).
-        var grants = ReadProtectedSections(root, out var duplicate);
-        if (duplicate)
+        var notebooks = ReadNotebooks(root, out var duplicateNotebook);
+        var grants = ReadProtectedSections(root, out var duplicateSection);
+        if (duplicateNotebook || duplicateSection)
         {
+            var where = (duplicateNotebook, duplicateSection) switch
+            {
+                (true, true) => "notebooks and protectedSections",
+                (true, false) => "notebooks",
+                _ => "protectedSections",
+            };
             return new SettingsSnapshot(
                 path,
                 SettingsStatus.Invalid,
-                "protectedSections: two keys differ only in case",
+                $"{where}: two keys differ only in case",
                 allowSilentActivation: false,
                 Timeouts.Default,
                 JournalSettings.Default(),
@@ -126,11 +133,69 @@ public sealed class SettingsStore
                 SearchSettings.Default,
                 ExportRoots.Default(),
                 grants,
-                duplicateGrantKeysOnly: true);
+                duplicateGrantKeysOnly: true,
+                notebookEntries: notebooks,
+                duplicateSectionKeys: duplicateSection,
+                duplicateNotebookKeys: duplicateNotebook);
         }
 
-        return new SettingsSnapshot(path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots, grants, readGrants: readGrants);
+        return new SettingsSnapshot(
+            path, SettingsStatus.Ok, reason: null, allowSilentActivation, timeouts, journal, results, search, exportRoots, grants, readGrants: readGrants, notebookEntries: notebooks);
     }
+
+    /// <summary>
+    /// <c>notebooks{}</c> (AD-6, AD-10): every write grant, in file order. <paramref name="duplicate"/> is true when two
+    /// keys are equal ignoring case, exact duplicates included, which the parse allows (<see cref="SettingsJson.Options"/>).
+    /// </summary>
+    private static IReadOnlyList<NotebookGrant> ReadNotebooks(JsonElement root, out bool duplicate)
+    {
+        var grants = new List<NotebookGrant>();
+        duplicate = false;
+        if (root.TryGetProperty("notebooks", out var notebooks))
+        {
+            RequireObject(notebooks, "notebooks");
+            var seen = new HashSet<string>(Access.GrantKeys.Comparer);
+            foreach (var entry in notebooks.EnumerateObject())
+            {
+                grants.Add(NotebookEntry(entry));
+                duplicate |= !seen.Add(entry.Name);
+            }
+        }
+
+        return grants.AsReadOnly();
+    }
+
+    /// <summary>One <c>notebooks{}</c> entry. Reasons name fields and never quote the file's values.</summary>
+    private static NotebookGrant NotebookEntry(JsonProperty entry)
+    {
+        const string Field = "notebooks";
+        if (string.IsNullOrWhiteSpace(entry.Name))
+        {
+            throw new InvalidSettingException($"{Field}: a key is empty");
+        }
+
+        var value = entry.Value;
+        RequireObject(value, $"{Field} entry");
+        var grantedVia = RequiredString(value, "grantedVia", Field);
+        if (grantedVia is not (Access.GrantedVia.Elicitation or Access.GrantedVia.Cli or Access.GrantedVia.Created))
+        {
+            throw new InvalidSettingException($"{Field} entry grantedVia: must be elicitation, cli or created");
+        }
+
+        return new NotebookGrant(
+            entry.Name,
+            RequiredString(value, "name", Field),
+            RequiredString(value, "idAtGrant", Field),
+            RequiredBool(value, "write", Field),
+            RequiredBool(value, "permanentDelete", Field),
+            Date(value, "grantedAt", Field) ?? throw new InvalidSettingException($"{Field} entry grantedAt: missing"),
+            grantedVia);
+    }
+
+    private static bool RequiredBool(JsonElement parent, string name, string field) =>
+        parent.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : throw new InvalidSettingException($"{field} entry {name}: must be true or false");
 
     /// <summary><c>schemaVersion</c>: required, a whole number, and not older than this server's. A newer one is returned.</summary>
     private static long ReadSchemaVersion(JsonElement root)
