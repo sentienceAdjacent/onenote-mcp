@@ -601,10 +601,329 @@ public sealed class ComGatewayLifecycleTests
         await sta.Exited.WaitAsync(TimeSpan.FromSeconds(5), Ct);
     }
 
+    // --- Page writes (story 2.7) --------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("2026-11-11T10:20:30.000Z")]
+    [InlineData("2026-11-11T12:20:30.000+02:00")]
+    [InlineData("2026-11-11T10:20:30")] // no offset: UTC
+    public async Task UpdatePageContent_PassesTheXml_AUtcDate_Xs2013_AndNoForce(string date)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.UpdatePageContentAsync("<one:Page/>", date, Ct);
+
+        var args = app.Calls.Single(c => c.Method == "UpdatePageContent").Args;
+        Assert.Equal(["<one:Page/>", new DateTime(2026, 11, 11, 10, 20, 30, DateTimeKind.Utc), XMLSchema.xs2013, false], args);
+        Assert.Equal(DateTimeKind.Utc, ((DateTime)args[1]!).Kind);
+    }
+
+    [Fact]
+    public async Task DeletePageContent_PassesThePageObjectAUtcDate_AndNoForce()
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.DeletePageContentAsync("{p}", "{oe}", "2026-11-11T10:20:30.000Z", Ct);
+
+        var args = app.Calls.Single(c => c.Method == "DeletePageContent").Args;
+        Assert.Equal(["{p}", "{oe}", new DateTime(2026, 11, 11, 10, 20, 30, DateTimeKind.Utc), false], args);
+        Assert.Equal(DateTimeKind.Utc, ((DateTime)args[2]!).Kind);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("x")]
+    [InlineData("0001-01-01T00:00:00Z")]
+    [InlineData(null)]
+    public async Task PageWrites_WithABadDate_AreInvalidArgument_BeforeCom(string? date)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var update = await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdatePageContentAsync("<one:Page/>", date!, Ct));
+        var delete = await Assert.ThrowsAsync<OneNoteException>(() => gateway.DeletePageContentAsync("{p}", "{oe}", date!, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, update.Code);
+        Assert.Equal(ErrorCode.InvalidArgument, delete.Code);
+        Assert.Contains("lastModifiedTime", update.UserAction, StringComparison.Ordinal);
+        Assert.Empty(app.Calls);
+        Assert.Equal(0, app.Activations);
+    }
+
+    [Fact]
+    public async Task PageWrite_Busy_IsRetriedWithBackoff()
+    {
+        // A rejected call never ran (COM's message filter refuses it before dispatch), so a write retries it too.
+        var attempts = 0;
+        var app = new FakeApplication
+        {
+            OnCall = _ => Interlocked.Increment(ref attempts) == 1 ? throw new COMException("rejected", RpcCallRejected) : string.Empty,
+        };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct);
+
+        Assert.Equal(2, app.Calls.Count(c => c.Method == "UpdatePageContent"));
+    }
+
+    [Fact]
+    public async Task PageWrites_AreNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var update = await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct));
+        var delete = await Assert.ThrowsAsync<OneNoteException>(() => gateway.DeletePageContentAsync("{p}", "{oe}", "2026-11-11T10:20:30.000Z", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, update.Code);
+        Assert.Equal(ErrorCode.ComUnavailable, delete.Code);
+        Assert.Single(app.Calls, c => c.Method == "UpdatePageContent");
+        Assert.Single(app.Calls, c => c.Method == "DeletePageContent");
+    }
+
+    [Fact]
+    public async Task AWriteThatTimesOut_IsOutstanding_OtherNonReadCallsAreComBusy_ReadsRun_UntilItSettles()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c => c.Method == "UpdatePageContent" && !gate.IsSet ? Hang(gate) : "<ok/>";
+        using var gateway = Gateway(app, Settings(callMs: 300));
+
+        var timeout = await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct));
+        Assert.Equal(ErrorCode.Timeout, timeout.Code);
+        Assert.Equal(1, gateway.OutstandingWrites);
+        var settled = gateway.WaitForAbandonedWritesAsync(Ct);
+        Assert.False(settled.IsCompleted);
+
+        // Every non-read call is refused before COM.
+        var calls = app.Calls.Count;
+        foreach (var call in new Func<Task>[]
+        {
+            () => gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct),
+            () => gateway.DeletePageContentAsync("{p}", "{oe}", "2026-11-11T10:20:30.000Z", Ct),
+            () => gateway.CreateNewPageAsync("{s}", NewPageStyle.Default, Ct),
+            () => gateway.NavigateToAsync("{p}", string.Empty, Ct),
+            () => gateway.InvokeAsync(_ => true, Ct, retryOnDisconnect: false),
+        })
+        {
+            var busy = await Assert.ThrowsAsync<OneNoteException>(call);
+            Assert.Equal(ErrorCode.ComBusy, busy.Code);
+        }
+
+        Assert.Equal(calls, app.Calls.Count);
+
+        // Reads run, on a fresh worker.
+        Assert.Equal("<ok/>", await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+        Assert.Equal("<ok/>", await gateway.InvokeAsync(_ => "<ok/>", Ct));
+
+        // The hung write returns: the count drops, the wait completes, and writes run again.
+        gate.Set();
+        await settled.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.Equal(0, gateway.OutstandingWrites);
+        Assert.True(gateway.WaitForAbandonedWritesAsync(Ct).IsCompleted);
+        await gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct);
+        await gateway.NavigateToAsync("{p}", string.Empty, Ct);
+    }
+
+    [Fact]
+    public async Task AWriteCancelledWhileRunning_IsOutstanding_UntilItReturns()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var entered = new ManualResetEventSlim(false);
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var app = new FakeApplication();
+        app.OnCall = c =>
+        {
+            if (c.Method == "DeletePageContent" && !gate.IsSet)
+            {
+                entered.Set();
+                return Hang(gate);
+            }
+
+            return string.Empty;
+        };
+        using var gateway = Gateway(app, Settings());
+
+        var write = gateway.DeletePageContentAsync("{p}", "{oe}", "2026-11-11T10:20:30.000Z", cancel.Token);
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5), Ct));
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => write);
+
+        Assert.Equal(1, gateway.OutstandingWrites);
+        var busy = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateNewPageAsync("{s}", NewPageStyle.Default, Ct));
+        Assert.Equal(ErrorCode.ComBusy, busy.Code);
+
+        gate.Set();
+        await gateway.WaitForAbandonedWritesAsync(Ct).WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.Equal(0, gateway.OutstandingWrites);
+    }
+
+    [Fact]
+    public async Task AWriteAbandonedWhileQueued_NeverRan_AndIsNotTracked()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var entered = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c =>
+        {
+            if (c.Method == "GetHierarchy")
+            {
+                entered.Set();
+                return Hang(gate);
+            }
+
+            return string.Empty;
+        };
+        using var gateway = Gateway(app, Settings(callMs: 400));
+
+        var hung = gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5), Ct));
+        await Task.Delay(100, Ct);
+        var queued = gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct);
+
+        Assert.Equal(ErrorCode.Timeout, (await Assert.ThrowsAsync<OneNoteException>(() => hung)).Code);
+
+        // Failed by the poisoned worker while still queued.
+        Assert.Equal(ErrorCode.ComBusy, (await Assert.ThrowsAsync<OneNoteException>(() => queued)).Code);
+
+        Assert.DoesNotContain(app.Calls, c => c.Method == "UpdatePageContent");
+        Assert.Equal(0, gateway.OutstandingWrites);
+        Assert.True(gateway.WaitForAbandonedWritesAsync(Ct).IsCompleted);
+        await gateway.NavigateToAsync("{p}", string.Empty, Ct);
+
+        gate.Set();
+    }
+
+    [Fact]
+    public async Task ACrashingOneNote_IsNotRunning_WithTheCrashWording_AndNothingIsActivated()
+    {
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        var probe = new TestProbe { Running = false, Crashing = true };
+        using var gateway = Gateway(app, Settings(), probe);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(ErrorCode.OneNoteNotRunning, ex.Code);
+        Assert.Equal(ComGateway.CrashingMessage, ex.Message);
+        Assert.Equal(ComGateway.CrashingUserAction, ex.UserAction);
+        Assert.Equal(0, app.Activations);
+    }
+
+    [Fact]
+    public async Task ANotRunningOneNote_KeepsTheCodesDefaultUserAction()
+    {
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = Gateway(app, Settings(), new TestProbe { Running = false });
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(ErrorCode.OneNoteNotRunning, ex.Code);
+        Assert.Null(ex.UserAction);
+    }
+
+    [Fact]
+    public async Task AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var entered = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c =>
+        {
+            if (c.Method == "GetHierarchy")
+            {
+                entered.Set();
+                return Hang(gate);
+            }
+
+            return string.Empty;
+        };
+        using var gateway = Gateway(app, Settings(callMs: 400));
+
+        var hung = gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5), Ct));
+
+        // Queued right away: its own deadline ends just after the hung read's, so it is abandoned while still queued
+        // (TryAbandon succeeds) or failed by the poisoned worker; either way it never reaches COM.
+        var queued = gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct);
+
+        Assert.Equal(ErrorCode.Timeout, (await Assert.ThrowsAsync<OneNoteException>(() => hung)).Code);
+        Assert.Contains((await Assert.ThrowsAsync<OneNoteException>(() => queued)).Code, new[] { ErrorCode.Timeout, ErrorCode.ComBusy });
+
+        Assert.DoesNotContain(app.Calls, c => c.Method == "UpdatePageContent");
+        Assert.Equal(0, gateway.OutstandingWrites);
+        Assert.True(gateway.WaitForAbandonedWritesAsync(Ct).IsCompleted);
+
+        gate.Set();
+    }
+
+    [Fact]
+    public async Task AWriteCancelledWhileQueued_NeverRan_AndIsNotTracked()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var entered = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c =>
+        {
+            if (c.Method == "GetHierarchy")
+            {
+                entered.Set();
+                return Hang(gate);
+            }
+
+            return string.Empty;
+        };
+        using var gateway = Gateway(app, Settings(callMs: 5000));
+
+        var hung = gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5), Ct));
+
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var queued = gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", cancel.Token);
+        await Task.Delay(100, Ct);
+        await cancel.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued);
+        Assert.Equal(0, gateway.OutstandingWrites);
+        Assert.True(gateway.WaitForAbandonedWritesAsync(Ct).IsCompleted);
+
+        gate.Set();
+        Assert.Equal(string.Empty, await hung);
+        Assert.DoesNotContain(app.Calls, c => c.Method == "UpdatePageContent");
+    }
+
+    [Theory]
+    [InlineData(@"C:\WINDOWS\system32\WerFault.exe -u -p 123 -s 456", 123)]
+    [InlineData("WerFault.exe /P 123", 123)]
+    [InlineData("\"C:\\Program Files\\x\\WerFault.exe\" -P 77", 77)]
+    [InlineData(@"C:\WINDOWS\system32\WerFault.exe -u -s 456", null)]
+    [InlineData("WerFault.exe -p", null)]
+    [InlineData("WerFault.exe -p abc", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void WerFaultTarget_ReadsThePidAfterP(string? commandLine, int? expected) =>
+        Assert.Equal(expected, ProcessProbe.WerFaultTarget(commandLine));
+
+    [Fact]
+    public void Running_ExcludesTheOneNoteWerTargets_AndAnUnreadableWerLineExcludesEveryOne()
+    {
+        Assert.Equal([1, 2], ProcessProbe.Running([1, 2], []));
+        Assert.Equal([1], ProcessProbe.Running([1, 2], ["WerFault.exe -u -p 2 -s 9"]));
+        Assert.Equal([1, 2], ProcessProbe.Running([1, 2], ["WerFault.exe -u -p 3 -s 9", "WerFault.exe -k"]));
+        Assert.Empty(ProcessProbe.Running([1, 2], ["WerFault.exe -u -p 3 -s 9", null]));
+    }
+
     // --- Helpers ------------------------------------------------------------------------------------------------
 
-    private static ComGateway Gateway(FakeApplication app, GatewaySettings settings) =>
-        new(new TestProbe(), () => settings, app.Factory);
+    private static string Hang(ManualResetEventSlim gate)
+    {
+        gate.Wait();
+        return string.Empty;
+    }
+
+    private static ComGateway Gateway(FakeApplication app, GatewaySettings settings, TestProbe? probe = null) =>
+        new(probe ?? new TestProbe(), () => settings, app.Factory);
 
     private static GatewaySettings Settings(int callMs = 5000, int activationMs = 5000, int idleMs = 60_000, bool silent = false) =>
         new(
@@ -660,7 +979,11 @@ public sealed class ComGatewayLifecycleTests
 
         public int IntegrityChecks => Volatile.Read(ref integrityChecks);
 
+        public bool Crashing { get; set; }
+
         public bool IsOneNoteRunning() => Running;
+
+        public bool IsOneNoteCrashing() => Crashing;
 
         public IntegrityReport CheckIntegrity()
         {

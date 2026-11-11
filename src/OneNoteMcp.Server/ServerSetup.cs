@@ -99,7 +99,7 @@ public static class ServerSetup
             return new WriteLock(WriteLock.DefaultName, held => WriteLockLog.Held(logger, held));
         });
         services.AddSingleton(sp => new WriteAccess(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read));
-        services.AddSingleton(sp => new WritePipeline(sp.GetRequiredService<WriteLock>(), sp.GetRequiredService<PageTextCache>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
+        services.AddSingleton(sp => new WritePipeline(sp.GetRequiredService<WriteLock>(), sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<PageTextCache>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
         services.AddSingleton<CreatePageUseCase>();
 
         return services

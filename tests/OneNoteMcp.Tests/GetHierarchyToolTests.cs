@@ -256,6 +256,12 @@ public sealed class GetHierarchyToolTests
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw exception;
 
         public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw exception;
+
+        public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => throw exception;
+
+        public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw exception;
+
+        public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
     private sealed class FixedProbe(bool running) : IProcessProbe
