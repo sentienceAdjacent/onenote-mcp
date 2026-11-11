@@ -111,6 +111,16 @@ deferred: []
 - findings:
   - The quick lens (`review-2-5-quick`, context-free, diff at the session scratchpad) was launched, but its findings hadn't arrived when the orchestrator had to hand back. The orchestrating session reads its report and triages it. The orchestrator's own read of the diff (`ArgumentNames.cs`, `ToolRunner.RunAsync`, `ErrorCode`, `ToolErrors`, the 13 tools, `SKILL.md`, `deferred-work.md`) found nothing to patch. `tool-contract.json` differs from the baseline only by 13 added `"InvalidArgument"` lines.
 
+
+Pass 2 (orchestrator, 2026-11-11): the build's reviewer `review-2-5-quick` and a second reviewer `review-2-5-lead` reported after commit acbfad9. No high or medium findings; all acceptance criteria met.
+
+| # | Finding | Verdict | Route | Action |
+|---|---|---|---|---|
+| Q1 | deferred-work marks the misnamed-argument entry resolved, but "say which argument failed to bind" isn't done | low | patch | Reworded as partly resolved; the rest is Phill's question 2 |
+| Q2 | `EveryTool_…_RefusesAnUndeclaredOne`'s "nothing ran" asserts cover only the 3 gateway methods `FakeGateway` records | low | rejected | The `InvalidArgument` assertion already proves the check ran first; making every fake method record adds complexity for no new protection |
+| L1 | `InvalidArgument`'s default `userAction` fits only unknown names; AD-7's refusals reuse the code | low | defer | deferred-work entry for 2.9/2.10: set their own `UserAction` |
+| L2 | Plan dates read 2026-11-11 while local time was 2026-11-10 | low | rejected | UTC date; harmless |
+
 ## Design Notes
 
 The SDK binds arguments, then invokes the tool method; only then does `ToolRunner` see the request. So an unbindable value or a missing required argument fails in the SDK first, and every call that reaches a tool is checked in one place. Message shape:

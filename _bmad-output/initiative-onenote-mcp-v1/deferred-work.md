@@ -128,7 +128,7 @@ Closes or routes every epic 1 entry above. Entries already marked "Epic 2" (writ
   summary: Epic 2 (Phill, 2026-11-09, matrix row "Misnamed argument" accepted as met): reject unknown argument names, and say which argument failed to bind.
   evidence: Today the SDK (2.3.1) answers a missing or misnamed required argument with a generic "An error occurred invoking '<tool>'." and silently ignores a misnamed optional argument, so the tool runs with its default (`McpSdkBindingTests`).
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-reject-unknown-argument-names-plan.md`
-  summary: Resolved (story 2.5): the misnamed-argument entry above. Every tool now refuses an argument name it doesn't declare with `InvalidArgument` (not retryable) inside the envelope, naming the argument and listing the tool's own. A misnamed required argument stays the SDK's generic error, by AD-9: the SDK's argument errors come first.
+  summary: Partly resolved (story 2.5): the "reject unknown argument names" half of the misnamed-argument entry above. The "say which argument failed to bind" half stays open: a misnamed required argument or an unbindable value (e.g. `get_hierarchy {scope: "bogus"}`) still gets the SDK's generic error, by AD-9 (the SDK's argument errors come first); whether to handle it later is Phill's call (2.5 question 2). Every tool now refuses an argument name it doesn't declare with `InvalidArgument` (not retryable) inside the envelope, naming the argument and listing the tool's own. A misnamed required argument stays the SDK's generic error, by AD-9: the SDK's argument errors come first.
   evidence: `ToolRunner.RunAsync` checks the call's argument names against the matched tool's input schema before the use case runs (`Tools/ArgumentNames.cs`). `McpSdkBindingTests`: `get_hierarchy {scop}`, `create_page {Style}` (no page created), several names, `list_grants {x}`, all 13 tools with `bogusArgument`, and an unknown name beside an unbindable value (the SDK's error first). `MisnamedArgument_FailsLikeAMissingOne_InTheSdk_BeforeTheToolRuns` is unchanged.
 
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-refactor-sweep-plan.md`
@@ -243,3 +243,9 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: same
   summary: Next spine story: AD-14 says tool names are the snake_case of the COM method, but `create_page` (for `CreateNewPage`) was Phill's choice (2.4 plan Q1) and AD-21 already uses it. Add one line to AD-14 recording the exception.
   evidence: 2.4 review (acceptance lens, verified): `CreatePageTool.cs:15`; spine AD-14 and AD-21 Writes.
+
+## Deferred from: story 2.5 review (2026-11-11)
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-reject-unknown-argument-names-plan.md`
+  summary: Stories 2.9 and 2.10: `InvalidArgument`'s default `userAction` ("Call again using only the argument names the tool declares…") fits only unknown names. AD-9 also assigns `InvalidArgument` to AD-7's refusals (an Outline sent without an OE step 3 read; a `delete_page_content` target that isn't an Outline). The stories that throw those must set their own `UserAction` on the exception; `ToolErrors.From` already prefers it.
+  evidence: 2.5 review (lead reviewer): `ToolErrors.cs:74`, `ToolErrors.From` line 37; spine AD-9 `InvalidArgument` row.
