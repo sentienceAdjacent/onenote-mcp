@@ -112,6 +112,8 @@ context:
 - Two-process test: the exe is `src/OneNoteMcp.Server/bin/<config>/net10.0-windows/OneNoteMcp.exe`, or `ONENOTE_MCP_TEST_EXE`; each server logs to its own temp `ONENOTE_MCP_LOG_DIR`. The soft delete passes the fresh read's `lastModifiedTime` (AD-17 forbids `MinValue`); a `StaleWrite` there is logged as evidence, not a failure.
 - Not run (safety limits): the integration suite, the stress harness, `grant`, the server exe. Built only.
 
+- Live checks with Phill (2026-11-11): `grant --write "MCP Test"` wrote one grant (`grantedVia: cli`); `create_page` from a separate Claude session created a page in MCP Test > Probes with `meta.pageId` (parent confirmed with the read tools); a create in another notebook returned `WriteNotGranted` with only the notebook ID in the message. `ONENOTE_MCP_INTEGRATION=1` integration suite: 121 passed, 11 skipped. Two-process test: 10 lock holds across two servers, none overlapping; every soft delete (`permanent=false`) returned S_OK, the old page ID stopped resolving, and the page reappeared in MCP Test's own recycle bin under a new ID (evidence for epic 5). Stress harness on MCP Test (0.9.0-rc.1 pack): 641 comparisons, 0 mismatches, 0 text blocks over 100,000 chars.
+
 ## Plan Change Log
 
 ## Review Triage Log
