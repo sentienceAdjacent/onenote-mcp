@@ -27,10 +27,11 @@ public sealed class ListGrantsTool(ToolRunner runner, ListGrantsUseCase useCase)
         + "The user revokes a stored grant with `OneNoteMcp grant --revoke --read-section \"<section name>\"`. "
         + "Success: {ok:true, meta:{correlationId, grants}, warnings:[]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
-    public Task<CallToolResult> ListGrants(CancellationToken cancellationToken = default) =>
+    public Task<CallToolResult> ListGrants(CancellationToken cancellationToken = default, RequestContext<CallToolRequestParams>? request = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, ct),
-            cancellationToken);
+            cancellationToken,
+            request: request);
 }

@@ -127,6 +127,9 @@ Closes or routes every epic 1 entry above. Entries already marked "Epic 2" (writ
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-refactor-sweep-plan.md`
   summary: Epic 2 (Phill, 2026-11-09, matrix row "Misnamed argument" accepted as met): reject unknown argument names, and say which argument failed to bind.
   evidence: Today the SDK (2.3.1) answers a missing or misnamed required argument with a generic "An error occurred invoking '<tool>'." and silently ignores a misnamed optional argument, so the tool runs with its default (`McpSdkBindingTests`).
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-reject-unknown-argument-names-plan.md`
+  summary: Resolved (story 2.5): the misnamed-argument entry above. Every tool now refuses an argument name it doesn't declare with `InvalidArgument` (not retryable) inside the envelope, naming the argument and listing the tool's own. A misnamed required argument stays the SDK's generic error, by AD-9: the SDK's argument errors come first.
+  evidence: `ToolRunner.RunAsync` checks the call's argument names against the matched tool's input schema before the use case runs (`Tools/ArgumentNames.cs`). `McpSdkBindingTests`: `get_hierarchy {scop}`, `create_page {Style}` (no page created), several names, `list_grants {x}`, all 13 tools with `bogusArgument`, and an unknown name beside an unbindable value (the SDK's error first). `MisnamedArgument_FailsLikeAMissingOne_InTheSdk_BeforeTheToolRuns` is unchanged.
 
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/story-refactor-sweep-plan.md`
   summary: Resolved: a pinned release being deleted (Q4). The tag ruleset now exists.

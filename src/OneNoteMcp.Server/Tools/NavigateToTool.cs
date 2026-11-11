@@ -31,10 +31,12 @@ public sealed class NavigateToTool(ToolRunner runner, NavigateToUseCase useCase)
         [Description("OneNote ID of the notebook, section group, section or page to show.")] string hierarchyId,
         [Description("objectID of an element on that page to select, such as an outline, paragraph or image. Omit or leave empty to show the hierarchy object itself.")]
         string pageContentObjectId = "",
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        RequestContext<CallToolRequestParams>? request = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, hierarchyId ?? string.Empty, pageContentObjectId ?? string.Empty, ct),
-            cancellationToken);
+            cancellationToken,
+            request: request);
 }

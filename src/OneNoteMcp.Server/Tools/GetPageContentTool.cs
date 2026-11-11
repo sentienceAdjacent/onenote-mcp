@@ -34,11 +34,13 @@ public sealed class GetPageContentTool(ToolRunner runner, GetPageContentUseCase 
         [Description("OneNote ID of the page.")] string pageId,
         [Description("True to include binary content (base64 one:Data) in the XML. Defaults to false.")] bool includeBinary = false,
         CancellationToken cancellationToken = default,
-        McpServer? server = null) =>
+        McpServer? server = null,
+        RequestContext<CallToolRequestParams>? request = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, pageId ?? string.Empty, includeBinary, ct),
             cancellationToken,
-            ElicitationGrantPrompt.For(server));
+            ElicitationGrantPrompt.For(server),
+            request: request);
 }

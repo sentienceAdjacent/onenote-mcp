@@ -26,10 +26,12 @@ public sealed class GetSpecialLocationTool(ToolRunner runner, GetSpecialLocation
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> GetSpecialLocation(
         [Description("Which location: backUpFolder, unfiledNotesSection or defaultNotebookFolder.")] SpecialLocationArgument location,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        RequestContext<CallToolRequestParams>? request = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, location.ToCore(), ct),
-            cancellationToken);
+            cancellationToken,
+            request: request);
 }

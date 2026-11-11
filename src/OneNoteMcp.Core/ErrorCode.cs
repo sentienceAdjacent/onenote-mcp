@@ -24,6 +24,12 @@ public enum ErrorCode
     ObjectNotFound,
     UnknownObjectId,
     InvalidXml,
+
+    /// <summary>
+    /// AD-9: an argument the server refuses. From story 2.5, an argument name the tool doesn't declare (checked after the
+    /// SDK has bound the call); later, the AD-7 refusals of a write's arguments.
+    /// </summary>
+    InvalidArgument,
     InvalidQuery,
     FileExists,
     WriteNotGranted,

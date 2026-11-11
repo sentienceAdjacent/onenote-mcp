@@ -35,10 +35,12 @@ public sealed class CreatePageTool(ToolRunner runner, CreatePageUseCase useCase)
         [Description("OneNote ID of the section to add the page to.")] string sectionId,
         [Description("The new page's layout: blankPageWithTitle (an empty page with a title line; the default), blankPageNoTitle (no title line), or default (the section's own page template, which may add content).")]
         PageStyleArgument style = PageStyleArgument.BlankPageWithTitle,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        RequestContext<CallToolRequestParams>? request = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, sectionId ?? string.Empty, style.ToCore(), ct),
-            cancellationToken);
+            cancellationToken,
+            request: request);
 }
