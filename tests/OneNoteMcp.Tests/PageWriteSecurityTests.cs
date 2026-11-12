@@ -158,6 +158,88 @@ public sealed class PageWriteSecurityTests : IDisposable
         Assert.EndsWith("a.txt", FilePathGate.Canonical(path, out _), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>A scripted file system: <c>links</c> maps a path to its immediate target; every path asked about is recorded.</summary>
+    private sealed class FakeLinks(Dictionary<string, string> links) : FilePathGate.ILinkReader
+    {
+        public List<string> Asked { get; } = [];
+
+        public string? ImmediateTarget(string path)
+        {
+            Asked.Add(path);
+            return links.GetValueOrDefault(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(@"\\evil\share\loot")]
+    [InlineData(@"\??\UNC\evil\share\loot")]
+    [InlineData("//evil/share/loot")]
+    public void Canonical_AChainLocalLocalUnc_IsRefusedAtTheUncHop_WhichIsNeverTouched(string uncTarget)
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\a"] = @"C:\b",
+            [@"C:\b"] = uncTarget,
+        });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+
+        Assert.Equal(FilePathRefusal.Network, refusal);
+        Assert.Equal([@"C:\a", @"C:\b"], links.Asked);
+        Assert.DoesNotContain(links.Asked, p => p.Contains("evil", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Canonical_ADeviceHop_IsRefusedWithoutTouchingIt()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\a"] = @"\\?\GLOBALROOT\Device\Mup\evil" });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+
+        Assert.Equal(FilePathRefusal.Device, refusal);
+        Assert.Equal([@"C:\a"], links.Asked);
+    }
+
+    [Fact]
+    public void Canonical_FollowsLocalHopsOneAtATime_RelativeTargetsIncluded()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\a"] = @"C:\b\c",
+            [@"C:\b"] = @"..\d", // relative to the link's folder, C:\
+            [@"C:\d\c"] = @"\??\C:\e",
+        });
+
+        Assert.Equal(@"C:\e\x.png", FilePathGate.Canonical(@"C:\a\x.png", links, out _));
+        Assert.Equal([@"C:\a", @"C:\b", @"C:\d", @"C:\d\c", @"C:\e", @"C:\e\x.png"], links.Asked);
+    }
+
+    [Fact]
+    public void Canonical_MoreThanTheHopCap_IsRefused()
+    {
+        var chain = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i <= FilePathGate.MaxLinkHops; i++)
+        {
+            chain[$@"C:\l{i}"] = $@"C:\l{i + 1}";
+        }
+
+        Assert.Null(FilePathGate.Canonical(@"C:\l0\x.png", new FakeLinks(chain), out var refusal));
+        Assert.Equal(FilePathRefusal.TooManyLinks, refusal);
+
+        chain.Remove($@"C:\l{FilePathGate.MaxLinkHops}"); // exactly the cap: allowed
+        Assert.Equal($@"C:\l{FilePathGate.MaxLinkHops}\x.png", FilePathGate.Canonical(@"C:\l0\x.png", new FakeLinks(chain), out _));
+    }
+
+    [Fact]
+    public void Canonical_ALinkCycle_IsRefused()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\a"] = @"C:\b", [@"C:\b"] = @"C:\a" });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+        Assert.Equal(FilePathRefusal.TooManyLinks, refusal);
+        Assert.True(links.Asked.Count <= FilePathGate.MaxLinkHops + 1);
+    }
+
     [Fact]
     public void Canonical_ResolvesAJunctionToItsTarget()
     {

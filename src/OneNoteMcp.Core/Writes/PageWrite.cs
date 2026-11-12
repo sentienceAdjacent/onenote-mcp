@@ -385,6 +385,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         FilePathRefusal.Network => "on the network (a UNC path, a mapped network drive, or a link to one)",
         FilePathRefusal.Device => "a device path",
         FilePathRefusal.InvalidCharacters => "written with control, invisible or wildcard characters",
+        FilePathRefusal.TooManyLinks => "reached through too many links or junctions (or a loop of them)",
         _ => "not a full local path such as C:\\folder\\file.png",
     };
 

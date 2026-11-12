@@ -19,6 +19,9 @@ public enum FilePathRefusal
     /// path can't hold (<c>&lt; &gt; " | ? *</c>): such a path could disguise itself or add lines in the dialog that names it.
     /// </summary>
     InvalidCharacters,
+
+    /// <summary>The path goes through more than <see cref="FilePathGate.MaxLinkHops"/> links or junctions, a cycle included.</summary>
+    TooManyLinks,
 }
 
 /// <summary>
@@ -31,14 +34,19 @@ public static class FilePathGate
 {
     /// <summary>
     /// The canonical form of <paramref name="path"/>: <see cref="Path.GetFullPath(string)"/>, then every existing link or
-    /// junction along it resolved to its final target, segment by segment. Null with a <paramref name="refusal"/> for a
-    /// device path, a UNC path, a mapped network drive or a path that leads to one, and anything that isn't a fully
-    /// qualified local path. Only fully qualified paths are ever resolved, so the result never depends on the server's
+    /// junction along it followed one hop at a time, each immediate target classified before it is followed. Null with a
+    /// <paramref name="refusal"/> for a device path, a UNC path, a mapped network drive or a path whose links lead to one
+    /// (refused at the first such hop, which is never touched), more than <see cref="MaxLinkHops"/> hops, and anything
+    /// that isn't a fully qualified local path. Only fully qualified paths are ever resolved, so the result never depends on the server's
     /// working directory.
     /// </summary>
-    public static string? Canonical(string path, out FilePathRefusal refusal)
+    public static string? Canonical(string path, out FilePathRefusal refusal) => Canonical(path, FileSystemLinks.Instance, out refusal);
+
+    /// <summary><see cref="Canonical(string, out FilePathRefusal)"/> over <paramref name="links"/>, the seam tests use.</summary>
+    internal static string? Canonical(string path, ILinkReader links, out FilePathRefusal refusal)
     {
         ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(links);
         refusal = default;
         if (Classify(path) is { } early)
         {
@@ -46,14 +54,19 @@ public static class FilePathGate
             return null;
         }
 
-        string resolved;
+        string? resolved;
         try
         {
-            resolved = ResolveLinks(Path.GetFullPath(path));
+            resolved = ResolveLinks(Path.GetFullPath(path), links, out refusal);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException or UnauthorizedAccessException)
         {
             refusal = FilePathRefusal.NotFullyQualified;
+            return null;
+        }
+
+        if (resolved is null)
+        {
             return null;
         }
 
@@ -108,30 +121,98 @@ public static class FilePathGate
         }
     }
 
-    /// <summary>Walks <paramref name="full"/> from its root, replacing each existing link or junction by its final target.</summary>
-    private static string ResolveLinks(string full)
+    /// <summary>
+    /// Walks <paramref name="full"/> from its root, one segment and one link hop at a time. At each existing link or
+    /// junction it reads only the link's own immediate target (never following it), makes that absolute against the
+    /// link's folder, and classifies it before going on: a network, device or otherwise refused target stops the walk at
+    /// once, so nothing that was classified as network or device is ever opened or looked up. A followed target is walked
+    /// again from its own root (its parent folders may be links too). More than <see cref="MaxLinkHops"/> hops, a cycle
+    /// included, is refused. Returns the canonical path, or null with <paramref name="refusal"/>.
+    /// </summary>
+    private static string? ResolveLinks(string full, ILinkReader links, out FilePathRefusal refusal)
     {
+        refusal = default;
+        var hops = 0;
         var root = Path.GetPathRoot(full) ?? string.Empty;
         var current = root;
-        var segments = full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-        for (var i = 0; i < segments.Length; i++)
+        var pending = new Queue<string>(full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries));
+        while (pending.TryDequeue(out var segment))
         {
-            var next = Path.Combine(current, segments[i]);
-            FileSystemInfo? info = Directory.Exists(next) ? new DirectoryInfo(next) : File.Exists(next) ? new FileInfo(next) : null;
-            if (info?.LinkTarget is not null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target)
+            var next = Path.Combine(current, segment);
+            if (links.ImmediateTarget(next) is not { } raw)
             {
-                next = Path.GetFullPath(target.FullName);
-
-                // A link to the network or a device: stop before touching it; the caller refuses the result.
-                if (Classify(next) is FilePathRefusal.Network or FilePathRefusal.Device)
-                {
-                    return Path.Combine([next, .. segments[(i + 1)..]]);
-                }
+                current = next;
+                continue;
             }
 
-            current = next;
+            if (++hops > MaxLinkHops)
+            {
+                refusal = FilePathRefusal.TooManyLinks;
+                return null;
+            }
+
+            var target = Absolute(raw, Path.GetDirectoryName(next) ?? root);
+            if (Classify(target) is { } refused)
+            {
+                // Refused before anything touches the target (the security review of 0f38576).
+                refusal = refused;
+                return null;
+            }
+
+            // Walk the target from its own root, then the segments that were left.
+            var targetRoot = Path.GetPathRoot(target) ?? string.Empty;
+            var rest = pending.ToArray();
+            pending = new Queue<string>([.. target[targetRoot.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries), .. rest]);
+            current = targetRoot;
         }
 
         return current.Length == 0 ? full : current;
+    }
+
+    /// <summary>
+    /// A link's raw target as an absolute path, without touching it: an NT-namespace prefix (<c>\??\</c>) is turned into
+    /// the form <see cref="Classify"/> refuses or accepts (<c>\??\UNC\server\…</c> becomes <c>\\server\…</c>, a network
+    /// path), and a relative target is resolved against <paramref name="linkFolder"/>.
+    /// </summary>
+    private static string Absolute(string raw, string linkFolder)
+    {
+        if (raw.StartsWith(@"\??\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + raw[8..];
+        }
+
+        if (raw.StartsWith(@"\??\", StringComparison.Ordinal) && raw.Length > 6 && raw[5] == ':')
+        {
+            raw = raw[4..];
+        }
+
+        if (raw.StartsWith(@"\\", StringComparison.Ordinal) || raw.StartsWith("//", StringComparison.Ordinal) || raw.StartsWith(@"\??\", StringComparison.Ordinal))
+        {
+            return raw; // network or device: classified, never resolved
+        }
+
+        return Path.IsPathFullyQualified(raw) ? Path.GetFullPath(raw) : Path.GetFullPath(Path.Combine(linkFolder, raw));
+    }
+
+    /// <summary>The most link hops one path may take; more, a cycle included, is <see cref="FilePathRefusal.TooManyLinks"/>.</summary>
+    public const int MaxLinkHops = 8;
+
+    /// <summary>Reads a link's immediate target, for <see cref="Canonical(string, ILinkReader, out FilePathRefusal)"/>; a seam for tests.</summary>
+    internal interface ILinkReader
+    {
+        /// <summary>The raw immediate target of <paramref name="path"/> when it is a link or junction; null when it isn't one or doesn't exist. Never follows the link.</summary>
+        string? ImmediateTarget(string path);
+    }
+
+    /// <summary>The real file system: <see cref="FileSystemInfo.LinkTarget"/> reads the link's own reparse data only.</summary>
+    private sealed class FileSystemLinks : ILinkReader
+    {
+        public static FileSystemLinks Instance { get; } = new();
+
+        public string? ImmediateTarget(string path)
+        {
+            FileSystemInfo? info = Directory.Exists(path) ? new DirectoryInfo(path) : File.Exists(path) ? new FileInfo(path) : null;
+            return info?.LinkTarget;
+        }
     }
 }
