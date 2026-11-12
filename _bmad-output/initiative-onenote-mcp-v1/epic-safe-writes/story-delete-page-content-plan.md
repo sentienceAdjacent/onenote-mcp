@@ -3,7 +3,8 @@ title: 'delete_page_content'
 type: 'feature'
 ticket: '10'
 created: '2026-11-12'
-status: 'draft'
+status: 'ready-for-dev'
+warnings: ['oversized']
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -30,11 +31,11 @@ context:
 - Step 4: `objectId` not in step 3's piBasic read → `UnknownObjectId`; on the page but not a `one:Outline` (an OE, the title's OE, an image, ink, a table…) → `InvalidArgument` with its own `userAction` (AD-7; deferred-work l.253's 2.10 half): OEs are removed with `update_page_content`'s `removeObjectIds`; images and ink can't be deleted in v1.
 - Step 5 (AD-17): a basis date must equal step 3's as UTC instants, else `StaleWrite`; the caller's date, never the live one, goes to COM. Only the deleted Outline's hash is compared (`pageHash` and other hashes ignored); a missing hash → `partialBasis`; no basis → step 3's date, `noBasis`. A date that isn't a date → `InvalidArgument`.
 - Read-back (under the lock, after success): piBasic re-read; the Outline still there → `readBackDiffers` naming it; a re-read that fails → `readBackFailed`. Never fails the write.
-- Protected section: per Q1's answer. Whatever it is, no message names anything inside the page except the caller's own `objectId` argument, and only where a read grant is held.
+- Protected section (Q1): a read grant for the section held at the call's start (`ReadAccess.HoldsReadGrant`, a `once` grant included, never prompting) is required; without one, `ReadNotGranted` before the page is read. So every message that names IDs is made with a read grant held.
 - Cache eviction whatever the outcome; messages and logs carry IDs and counts only (AD-9, AD-13). Contract snapshot updated; `<Version>` stays `0.9.0-rc.1`.
 - Merge `origin/story/2.9-update-page-content` again before implementing (it gains the security-review fixes).
 
-**Never:** forking 2.9's basis or read-back code; OE, image or ink deletes (spine Deferred); several targets per call unless Q2 says so; `force: true` or automatic retries; `restore_from_journal` (2.11); skill recipes beyond a tool row (2.12); spine edits; touching OneNote, setting `ONENOTE_MCP_INTEGRATION`, or running the server exe.
+**Never:** forking 2.9's basis or read-back code; OE, image or ink deletes (spine Deferred); several targets per call (Q2); `force: true` or automatic retries; `restore_from_journal` (2.11); skill recipes beyond a tool row (2.12); spine edits; touching OneNote, setting `ONENOTE_MCP_INTEGRATION`, or running the server exe.
 
 ## I/O & Edge-Case Matrix
 
@@ -54,6 +55,16 @@ context:
 | Snapshot fails | journal unwritable | no COM call | `JournalFailed` |
 | Locked / binned / not a page | as 2.9 | — | `SectionLocked` / `ObjectNotFound` |
 | Abandoned write outstanding | after step 2 | nothing read | `ComBusy` |
+| Protected, no read grant | write grant only | no page read, no dialog, no COM call | `ReadNotGranted`, `userAction`: read the page with `get_page_content` first |
+| Protected, read grant held | stored or `once` grant | as unprotected; `meta.basis` returned | — |
+
+## Decisions (Phill, 2026-11-12, plan approved, kept whole; all recommendations)
+
+- **Q1 (a):** in a password-protected section, `delete_page_content` needs the section's read grant held at the call's start (never prompting); otherwise `ReadNotGranted` before the page is read, with `userAction`: read the page with `get_page_content` first (which asks). Closes the hash and ID-kind oracles. Story 5.2 records the AD-21 amendment; no spine edit here.
+- **Q2 (a):** `delete_page_content(pageId, objectId, basis?)`: one Outline per call, one `DeletePageContent` call, one journal entry.
+- **Q3 (a):** the result carries `meta.basis` from the read-back's piBasic read, as 2.9 Q2; left out when the read-back fails (and, by Q1, there is always a read grant when the page was read in a protected section).
+- **Size:** keep the full plan (about 3,000 tokens; single goal, as 2.9).
+- 2.9's later security decisions (date-only basis without a read grant, DOCTYPE refused, file paths user-gated) arrive by re-merging `origin/story/2.9-update-page-content`; with Q1 the date-only rule is moot for deletes.
 
 </frozen-after-approval>
 
@@ -78,28 +89,12 @@ context:
 - [ ] `tests/OneNoteMcp.Tests/DeletePageContentToolTests.cs`, `FakeGateway.cs` -- every matrix row, the Q1 behaviour, lock free after each outcome, cache entry dropped, journal entry written.
 - [ ] Contract snapshot, tool lists, binding test, stress harness, `plugin/skills/guide/SKILL.md` and `README.md` tool rows (call only when the user asks to remove a block of a page).
 - [ ] `tests/OneNoteMcp.Integration/DeletePageContentIntegrationTests.cs` -- opt-in; not run here.
-- [ ] `deferred-work.md` -- resolve l.253's 2.10 half; add the spine-sync entry for what Q1–Q3 decide.
+- [ ] `deferred-work.md` -- resolve l.253's 2.10 half; add the spine-sync entry (AD-21: `delete_page_content` needs the read grant in a protected section, Q1; AD-17: its result carries `meta.basis`, Q3).
 
 **Acceptance Criteria:**
 - Given any refusal in steps 3–5, when the pipeline ends, then `DeleteCalls` is empty, no journal entry exists, and the lock is free.
 - Given the lift, when `UpdatePageContentToolTests` runs unchanged, then it passes.
 - Given `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`, then both pass; `dotnet test tests/OneNoteMcp.Integration` without the variable passes or skips.
-
-## Open Questions
-
-1. **Protected section without a read grant** (security review of 2.9, finding 2, applied to deletes). AD-21 lists `delete_page_content` under Writes that need no read grant. But with hashes compared, `StaleWrite` versus success tells a caller whether its guessed hash matches an Outline it can't read, and `UnknownObjectId` versus `InvalidArgument` tells it whether an ID is on the page and what kind it is.
-   - (a) Refuse: in a protected section, `delete_page_content` needs a read grant held at the call's start (never prompting), else `ReadNotGranted` before the page is read; `userAction`: read the page with `get_page_content` first (which asks). Closes both leaks. Costs little: the caller can only know an Outline's ID from a read, which needed the grant. Needs AD-21's Writes list amended (spine sync).
-   - (b) Allow, but without a read grant refuse any `elementHashes` in the basis (date only) and give one refusal for unknown and not-an-Outline. Keeps AD-21 as written; a stale delete on an undisplayed page then goes through unnoticed.
-   - (c) As 2.9 is today: compare hashes, counts-only messages. Leaves the oracle.
-   Recommended: (a). It is what the recommended 2.9 rule ("without a read grant, refuse existing objectIDs") means for a delete, since every delete names an existing objectID.
-2. **One target or several?**
-   - (a) `objectId: string`, one Outline, one COM call, one journal entry.
-   - (b) `objectIds: string[]`: one snapshot and lock, several `DeletePageContent` calls; a failure part-way leaves some deleted.
-   Recommended: (a). AD-5's one tool per COM method; (b)'s partial failure needs its own reporting.
-3. **`meta.basis` on the result?**
-   - (a) Yes, from the read-back's piBasic read, as 2.9 Q2 (left out when the read-back fails or no read grant), so a second write needs no re-read.
-   - (b) No: the caller re-reads before its next write.
-   Recommended: (a), for consistency with `update_page_content`.
 
 ## Design Notes
 
@@ -119,4 +114,4 @@ context:
 - `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter DeletePageContentIntegrationTests` on MCP Test: a fresh delete removes the Outline and leaves a journal entry; a hash-stale delete on an undisplayed page → `StaleWrite`.
 - Spine Deferred row: delete an Outline with the page XML's date on MCP Test and MCP Test Cloud, on a displayed and an undisplayed page in each (sync-check every cloud step); record whether OneNote accepts the date.
 - From Claude Code: Phill asks to remove one block of an MCP Test page; it goes, and an OE ID gives `InvalidArgument` with the `removeObjectIds` hint.
-- MCP Test's protected section with the write grant only: the Q1 behaviour.
+- MCP Test's protected section with the write grant only: `ReadNotGranted`, no dialog, nothing deleted; with a read grant: the delete goes through.
