@@ -187,12 +187,15 @@ public sealed class ProtectedPublishProbes(ITestOutputHelper output)
             utf16 = Count(bytes, Encoding.Unicode.GetBytes(n)),
             utf8 = Count(bytes, Encoding.UTF8.GetBytes(n)),
         }).ToList();
+        // Fable review finding 5: an encrypted section's .one carries <encryption …> key headers (7 in each live vault
+        // checked, 0 in both opened backups), a sharper marker than the absence of text.
         return new
         {
             exists = true,
             bytes = bytes.Length,
             sha256 = Convert.ToHexString(SHA256.HashData(bytes))[..16],
             plaintext = hits.Any(h => h.utf16 > 0 || h.utf8 > 0),
+            encryptionHeaders = Count(bytes, Encoding.UTF8.GetBytes("<encryption")) + Count(bytes, Encoding.Unicode.GetBytes("<encryption")),
             hits,
         };
     }
