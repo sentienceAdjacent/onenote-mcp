@@ -14,10 +14,19 @@ namespace OneNoteMcp.Com;
 public interface IProcessProbe
 {
     /// <summary>
-    /// True when an <c>ONENOTE.EXE</c> runs in this session that Windows Error Reporting isn't handling. A crashed one
-    /// stays listed while WER dumps it; activating COM against it would start a hidden <c>-Embedding</c> copy (AD-3).
+    /// The check before connecting (activation, or a reconnect): true when an <c>ONENOTE.EXE</c> runs in this session
+    /// that Windows Error Reporting isn't handling. A crashed one stays listed while WER dumps it; activating COM against
+    /// it would start a hidden <c>-Embedding</c> copy (AD-3). A WER process whose command line can't be read might be
+    /// handling any of them, so then none counts (fail safe).
     /// </summary>
     bool IsOneNoteRunning();
+
+    /// <summary>
+    /// The per-call check while a COM reference is live: true unless every <c>ONENOTE.EXE</c> has gone or is the
+    /// target of a WER process whose command line names it (a real crash). A WER process whose command line can't be
+    /// read doesn't count here (Phill, 2.7 Q3): it can't be tied to OneNote, and a working connection keeps going.
+    /// </summary>
+    bool IsOneNoteStillRunning() => IsOneNoteRunning();
 
     /// <summary>True when an <c>ONENOTE.EXE</c> in this session counts as crashing (see <see cref="IsOneNoteRunning"/>).</summary>
     bool IsOneNoteCrashing() => false;
@@ -67,24 +76,31 @@ public sealed class ProcessProbe : IProcessProbe
     public bool IsOneNoteRunning()
     {
         var oneNote = SessionProcessIds("ONENOTE");
-        return oneNote.Count > 0 && Running(oneNote, WerCommandLines()).Count > 0;
+        return oneNote.Count > 0 && Running(oneNote, WerCommandLines(), connecting: true).Count > 0;
+    }
+
+    public bool IsOneNoteStillRunning()
+    {
+        var oneNote = SessionProcessIds("ONENOTE");
+        return oneNote.Count > 0 && Running(oneNote, WerCommandLines(), connecting: false).Count > 0;
     }
 
     public bool IsOneNoteCrashing()
     {
         var oneNote = SessionProcessIds("ONENOTE");
-        return oneNote.Count > 0 && Running(oneNote, WerCommandLines()).Count < oneNote.Count;
+        return oneNote.Count > 0 && Running(oneNote, WerCommandLines(), connecting: true).Count < oneNote.Count;
     }
 
     /// <summary>
     /// The <c>ONENOTE.EXE</c> IDs that count as running: those no WER process targets. A WER process whose command line
-    /// couldn't be read (null) might target any of them, so then none counts (fail safe: never start a hidden copy).
+    /// couldn't be read (null) might target any of them: when <paramref name="connecting"/>, none then counts (fail
+    /// safe: never start a hidden copy); for a live reference's per-call check it is ignored (Phill, 2.7 Q3).
     /// </summary>
-    internal static IReadOnlyList<int> Running(IReadOnlyList<int> oneNote, IReadOnlyList<string?> werCommandLines)
+    internal static IReadOnlyList<int> Running(IReadOnlyList<int> oneNote, IReadOnlyList<string?> werCommandLines, bool connecting)
     {
         ArgumentNullException.ThrowIfNull(oneNote);
         ArgumentNullException.ThrowIfNull(werCommandLines);
-        if (werCommandLines.Any(line => line is null))
+        if (connecting && werCommandLines.Any(line => line is null))
         {
             return [];
         }

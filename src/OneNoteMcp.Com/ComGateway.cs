@@ -68,6 +68,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     private int workerSerial;
     private bool disposed;
     private int outstandingWrites;
+    private int abandonedWritesTracked;
     private TaskCompletionSource? writesSettled;
 
     public ComGateway(IProcessProbe probe, SettingsStore settings)
@@ -324,6 +325,21 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
     }
 
+    /// <summary>
+    /// Every write ever counted as abandoned, settled or not. Only grows, so a test can tell that a write was never
+    /// tracked even when a tracked one would have settled at once (a queued write that never ran has already ended).
+    /// </summary>
+    internal int AbandonedWritesTracked
+    {
+        get
+        {
+            lock (gate)
+            {
+                return abandonedWritesTracked;
+            }
+        }
+    }
+
     public void Dispose()
     {
         StaThread? worker;
@@ -478,16 +494,18 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     }
 
     /// <summary>
-    /// Returns the live worker with a COM reference, activating one if needed. The per-call process check drops a
-    /// reference to an OneNote that has gone. Activation re-reads settings, then runs the process check, the integrity
-    /// check and <c>CoCreateInstance</c>, in that order.
+    /// Returns the live worker with a COM reference, activating one if needed. The per-call process check
+    /// (<see cref="IProcessProbe.IsOneNoteStillRunning"/>) drops a reference to an OneNote that has gone or that WER
+    /// names as crashed; a WER process whose command line can't be read doesn't drop it (2.7 Q3). Activation re-reads
+    /// settings, then runs the connecting process check (<see cref="IProcessProbe.IsOneNoteRunning"/>, where that
+    /// unreadable WER process does count as a crash), the integrity check and <c>CoCreateInstance</c>, in that order.
     /// </summary>
     private async Task<(StaThread Worker, GatewaySettings Settings)> EnsureActivatedAsync(CancellationToken ct)
     {
         var (worker, settings) = LiveWorker();
-        if (worker.HasApplication && !probe.IsOneNoteRunning())
+        if (worker.HasApplication && !probe.IsOneNoteStillRunning())
         {
-            // OneNote closed: the reference is dead. Release it on its own thread; activation decides what happens next.
+            // OneNote closed or crashed: the reference is dead. Release it on its own thread; activation decides what happens next.
             worker.Post(worker.ReleaseApplication);
         }
         else if (worker.HasApplication)
@@ -515,6 +533,14 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             (worker, _) = LiveWorker();
             settings = readSettings();
 
+            if (worker.HasApplication && probe.IsOneNoteStillRunning())
+            {
+                // Another call activated while this one waited: that reference is live, so it gets the per-call check,
+                // not the connecting one (2.7 Q3). Still adopt the settings just read.
+                SetSettings(settings);
+                return (worker, settings);
+            }
+
             if (!probe.IsOneNoteRunning())
             {
                 worker.Post(worker.ReleaseApplication);
@@ -526,12 +552,6 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                         crashing ? CrashingMessage : "OneNote is not running. Start OneNote desktop, then retry.",
                         userAction: crashing ? CrashingUserAction : null);
                 }
-            }
-            else if (worker.HasApplication)
-            {
-                // Another call activated while this one waited; still adopt the settings just read.
-                SetSettings(settings);
-                return (worker, settings);
             }
 
             var integrity = probe.CheckIntegrity();
@@ -690,6 +710,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         lock (gate)
         {
             outstandingWrites++;
+            abandonedWritesTracked++;
             writesSettled ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 

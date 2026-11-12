@@ -32,7 +32,7 @@ deferred: []
 - Both write methods: `retryOnDisconnect: false`; busy (`0x80010001`, `0x8001010A`) still retried with backoff (a rejected call never ran: COM's message filter refuses it before dispatch).
 - Abandoned write = a write call that started in OneNote and whose caller stopped waiting (gateway timeout, or the caller's cancel while running). While one is outstanding, every non-read gateway call (writes, `NavigateTo`, the raw seam with `retryOnDisconnect: false`) fails `ComBusy` before COM; reads run. A write abandoned while still queued never ran and isn't tracked.
 - After a step-7 failure, `WritePipeline` releases the lock only when the gateway reports no outstanding abandoned write, or when its deadline runs out, whichever is first; the tool's result is never delayed by that wait.
-- Crash rule (AD-3): an `ONENOTE.EXE` that a `WerFault.exe`/`WerFaultSecure.exe` in this session targets (`-p <pid>`) doesn't count as running; a WER process in this session whose command line can't be read makes every OneNote count as crashing (fail safe: never start a hidden instance). `allowSilentActivation` keeps its meaning.
+- Crash rule (AD-3): an `ONENOTE.EXE` that a `WerFault.exe`/`WerFaultSecure.exe` in this session targets (`-p <pid>`) doesn't count as running; a WER process in this session whose command line can't be read makes every OneNote count as crashing (fail safe: never start a hidden instance) when connecting only (activation or reconnect); a live COM reference's per-call check ignores it (Phill, 2026-11-12, Q3). `allowSilentActivation` keeps its meaning.
 - Every OneNote HRESULT (`0x80042000`–`0x80042031`) has an explicit triage row; only codes already in AD-9's closed list are used. Messages and `userAction`s carry no page content.
 
 **Never:** tools, use cases or validation for page edits (2.9, 2.10); a new `ErrorCode`; changing AD-3's timeout values or the settings schema; touching the spine (`architecture-onenote-mcp.md`), `spikes/`, `Directory.Build.props` or the tool contract; running integration tests or `OneNoteMcp.exe` (a live probe sitting is using OneNote); killing or closing OneNote.
@@ -52,7 +52,10 @@ deferred: []
 | Settle | hung call returns | count drops; non-read calls run again; wait task completes | — |
 | Pipeline lock | step 7 `Timeout`/`Cancelled` with write outstanding | result returned at once; lock released when settled or at deadline | — |
 | Crash | ONENOTE pid targeted by WerFault | `IsOneNoteRunning()` false; reconnect refused | `OneNoteNotRunning`, crash wording |
-| Unreadable WER | WerFault in session, no command line | treated as crashing | `OneNoteNotRunning` |
+| Unreadable WER, connecting | WerFault in session, no command line; no live reference | treated as crashing; nothing activated | `OneNoteNotRunning`, crash wording |
+| Unreadable WER, live reference | same, while a COM reference is live | reference kept; reads and writes run (Q3) | — |
+| Crash, live reference | WerFault names our ONENOTE pid | reference released per call | `OneNoteNotRunning`, crash wording |
+| Bad date, OLE range | `1899-12-30T00:00:00Z` (OADate 0) or earlier, years 1–99 | COM not called | `InvalidArgument` |
 
 </intent-contract>
 
@@ -91,6 +94,12 @@ deferred: []
 - Given every OneNote HRESULT, when mapped, then its code and `userAction` match the triage table, and none falls to the default arm.
 - Given `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`, when run, then both pass.
 
+## Open Questions
+
+- **Q1 (resolved, Phill, 2026-11-12): write timeouts.** Keep AD-3's 30 s call timeout for every write, local and cloud, relying on `outcomeUnknown`, no retry, and the write lock held until the abandoned call returns (or the deadline runs out). Already built; no code change.
+- **Q2 (resolved, Phill, 2026-11-12): three HRESULTs that fit other codes better.** Remap them through an AD-9 amendment in the next spine story: `0x80042017` hrInvalidName → `InvalidArgument`, `0x80042024` hrRecordingInProgress → `ComBusy`, `0x8004202E` hrRecycleBinEditFailed → `ObjectNotFound`. This story keeps them `Internal` and doesn't touch the spine; deferred-work records the amendment.
+- **Q3 (resolved, Phill, 2026-11-12): an unreadable WER process.** The "treat OneNote as crashing" rule for a `WerFault`/`WerFaultSecure` whose command line can't be read applies only when connecting (activation or a reconnect, i.e. creating the COM reference). A live, healthy reference isn't released because of it, and reads and writes on it don't fail `OneNoteNotRunning`. A readable WER process that names our `ONENOTE.EXE` is a real crash and still drops a live reference per call.
+
 ## Implementation Notes
 
 - Assumption (unattended, 2026-11-11; Q1): AD-3's 30 s call timeout stays for writes, local and cloud. 5.1 live runs, 2026-11-11: OneDrive hierarchy creates took 3.4–13 s, once 60 s+, and a call the gateway abandoned still completed 2–3 s later. Page writes weren't measured slow (spike 2.2). This story makes that case safe (`outcomeUnknown`, no retry, lock held until it settles) rather than longer; a per-class or cloud limit is a spine change for Phill.
@@ -100,6 +109,14 @@ deferred: []
 - Build (2026-11-11): implemented per the Code Map. The port takes OneNote's date string; `ComGateway` converts it with `OneNoteDates.ToUtc` and refuses a bad one with `InvalidArgument` before COM. `CallKind` replaces the internal `retryOnDisconnect` flag; `InvokeAsync(retryOnDisconnect: false)` counts as a write. `WritePipeline` hands the lock to a background release after a step-7 failure while a write is outstanding, and evicts the written pages from the cache again when it settles. `IProcessProbe.IsOneNoteCrashing()` is a default interface member, so the test probes compile unchanged.
 - Build: the implementing subagent finished its edits but never handed back a report; the lane verified its diff itself and applied the review patches itself.
 - Verification: `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings, 0 errors; `dotnet test tests/OneNoteMcp.Tests` 1517 passed, 0 failed (three consecutive runs after the review patches). Under load from parallel runs, two pre-existing timing/file tests flaked once each and passed on rerun: `ReadGrantSettingsTests.ConcurrentWriters_LoseNoUpdate` (`File.Replace` "Unable to remove the file to be replaced") and `CreatePageToolTests.LockHeldElsewhere_PastTheWait_IsComBusy_Retryable_NoWrite` (unchanged by this story). Integration tests and the server exe were not run (a live probe sitting is using OneNote).
+
+- Fixes after Phill's answers and the review (2026-11-12):
+  - Q3: `IProcessProbe.IsOneNoteStillRunning()` (default: `IsOneNoteRunning()`) is the per-call check for a live reference; `ProcessProbe` implements it with `Running(..., connecting: false)`, which ignores an unreadable WER command line but still excludes an `ONENOTE.EXE` a readable one names. `IsOneNoteRunning()`/`IsOneNoteCrashing()` keep the fail-safe connecting rule. In `ComGateway.EnsureActivatedAsync`, the per-call check uses `IsOneNoteStillRunning()`; inside the activation lock, a reference another call created while this one waited is live, so it too gets the per-call check before the connecting one (decision: otherwise a WER process appearing between the two calls would release a reference that was just made, which Q3 forbids).
+  - F1: `OneNoteDates.ToUtc` returns null for any date on or before the OLE epoch 1899-12-30 00:00 UTC (`OleAutomationEpoch`), not only `DateTime.MinValue`. COM sends a `DateTime` as an OLE `DATE`: the epoch is OADate 0, which OneNote reads as "no date" and skips the check, and a year before 100 overflows `ToOADate` (`Internal 0x80131516`). The gateway refuses them with the existing `InvalidArgument` and re-read `userAction` (Boundaries' "bad date" rule); negative OADates are refused too, since OneNote never writes one.
+  - F2: `ComGateway.AbandonedWritesTracked` counts every write ever tracked and never drops. A write that never ran settles at once even if tracked, so `OutstandingWrites == 0` couldn't fail; the queued-write tests now assert the counter stays 0, and the running-write tests assert it reaches 1. Checked by mutation: tracking a write abandoned while queued fails `AWriteStillQueuedAtItsOwnDeadline_…` and `AWriteCancelledWhileQueued_…`.
+  - F3: `AWriteAbandonedWhileQueued_NeverRan_AndIsNotTracked` no longer depends on a 100 ms window: the write is queued halfway through the hung read's 1 s, and the test accepts `ComBusy` (the poisoned worker, expected) or `Timeout` (its own deadline, after a 0.5 s stall); both mean it never ran. Pinning the poison path with no timing at all would need a clock seam in `ComGateway`, which this story doesn't add. `AWriteCancelledWhileQueued_…` drops its 100 ms delay: with a live reference the write is queued before the call returns.
+  - F4: `CreatePageToolTests.AfterAStep7Timeout_TheWrittenPages_AreDroppedFromTheCacheAgain_WhenTheAbandonedWriteSettles` drives `WritePipeline` with a page write that names its page (create_page names none on failure): a page re-cached while the call is outstanding stays until it settles, then is dropped before the lock goes; other pages stay.
+  - Forward note (2.9/2.10): recorded in deferred-work's AD-3 sync entry.
 
 ## Plan Change Log
 
@@ -114,6 +131,13 @@ deferred: []
   - `[low]` `[patch]` `ComGateway.EnsureActivatedAsync`: the crash error carried no `userAction`, so the envelope showed the generic "Start OneNote desktop, then retry." — added `CrashingUserAction` ("Wait until the crashed OneNote has closed, …") and asserted it; a plain not-running error keeps the default.
   - `[low]` `[patch]` deferred-work 2.7 entry said reads run "on a fresh worker" while a write is outstanding; after a cancel the worker isn't poisoned until the deadline, so a read queues behind the write — corrected the text (behaviour unchanged from before this story).
   - `[low]` `[patch]` the timeout-while-queued and cancel-while-queued abandon paths had no test — added `AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked` and `AWriteCancelledWhileQueued_NeverRan_AndIsNotTracked` (plus `ANotRunningOneNote_KeepsTheCodesDefaultUserAction`); 5 repeated runs green.
+
+### 2026-11-12 — Follow-up review (lead), fixes approved by Phill
+- findings: 4, all patched
+  - `[patch]` F1 `OneNoteDates`: 1899-12-30 became OADate 0, which skips OneNote's date check, and years 1–99 overflowed to `Internal 0x80131516` — both now refused before COM with `InvalidArgument`.
+  - `[patch]` F2 the queued-write tests' not-tracked assertions couldn't fail — now assert `AbandonedWritesTracked`; mutation-checked.
+  - `[patch]` F3 `AWriteAbandonedWhileQueued_…` depended on a 100 ms window — made deterministic in pass/fail (see Implementation Notes).
+  - `[patch]` F4 the second cache eviction after a settled abandoned write was untested — new pipeline test.
 
 ## Design Notes
 
@@ -160,4 +184,4 @@ Triage: every row below stays `Internal` (Q2); `userAction` gist from OneMore's 
 - **Review:** quick lens, 6 findings: 5 patched (1 medium, 4 low), 0 deferred, 1 rejected (triple process scan per call: a few ms per call, and the fix is a restructuring).
 - **Follow-up review recommended:** false (patched: high 0, medium 1, low 4).
 - **Verification:** build 0 warnings, 0 errors; unit tests 1517/1517 (three runs). Matrix audit: every row has a passing test. Integration tests not run (live step).
-- **Residual risks:** WER detection is unproven live (WerFault could run outside the session, or its command line differ); an unreadable WER process blocks every call while it lives (Q3); writes keep the 30 s call timeout (Q1); the spine's AD-3/AD-9 text lags this build until a spine story syncs it.
+- **Residual risks:** WER detection is unproven live (WerFault could run outside the session, or its command line differ); an unreadable WER process blocks connecting (activation, reconnect) while it lives, though a live reference keeps working (Q3, narrowed 2026-11-12); writes keep the 30 s call timeout (Q1, confirmed); the spine's AD-3/AD-9 text lags this build until a spine story syncs it.

@@ -480,6 +480,36 @@ public sealed class CreatePageToolTests : IDisposable
         AssertNoWrite();
     }
 
+    [Fact]
+    public async Task AfterAStep7Timeout_TheWrittenPages_AreDroppedFromTheCacheAgain_WhenTheAbandonedWriteSettles()
+    {
+        // create_page names no page when its call fails, so a page write that names one drives the pipeline directly.
+        Grant();
+        const string OtherId = "{SW000000-0000-4000-8000-000000000001}{1}{E2}";
+        cache.Set(PageId, DateTimeOffset.UnixEpoch, "before the write", long.MaxValue);
+        gateway.AbandonedWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pipeline = new WritePipeline(writeLock, gateway, cache, Store.Read, TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => pipeline.RunAsync(new ToolCallContext("c"), new TimedOutPageWrite(PageId), Ct));
+        Assert.Equal(ErrorCode.Timeout, ex.Code);
+        Assert.True(ex.OutcomeUnknown);
+
+        // The first removal, before the result.
+        Assert.False(cache.TryGet(PageId, DateTimeOffset.UnixEpoch, out _));
+
+        // A search caches the page again while the abandoned call may still be changing it.
+        cache.Set(PageId, DateTimeOffset.UnixEpoch, "read mid-write", long.MaxValue);
+        cache.Set(OtherId, DateTimeOffset.UnixEpoch, "another page", long.MaxValue);
+        await AssertLockHeldAsync();
+        Assert.True(cache.TryGet(PageId, DateTimeOffset.UnixEpoch, out _));
+
+        // It settles: the page is dropped again before the lock goes; other pages stay.
+        gateway.AbandonedWrites.SetResult();
+        await AssertLockFreeAsync();
+        Assert.False(cache.TryGet(PageId, DateTimeOffset.UnixEpoch, out _));
+        Assert.True(cache.TryGet(OtherId, DateTimeOffset.UnixEpoch, out _));
+    }
+
     // --- The tool ---------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -546,6 +576,25 @@ public sealed class CreatePageToolTests : IDisposable
         var error = result.StructuredContent!.Value.GetProperty("error");
         Assert.Equal(code, error.GetProperty("code").GetString());
         return error;
+    }
+
+    /// <summary>A page write whose step-7 call times out after it may have written <paramref name="pageId"/>.</summary>
+    private sealed class TimedOutPageWrite(string pageId) : WriteOperation<string>
+    {
+        public override OperationClass Class => OperationClass.Create;
+
+        public override IReadOnlyCollection<string> WrittenPageIds => [pageId];
+
+        public override Task AuthorizeAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public override Task ReadAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public override void Validate()
+        {
+        }
+
+        public override Task<string> CallAsync(CancellationToken ct) =>
+            Task.FromException<string>(new OneNoteException(ErrorCode.Timeout, "UpdatePageContent did not return within 30 s; the connection to OneNote was reset."));
     }
 
     /// <summary>Wraps a gateway: step 3's read of <c>sectionId</c> at <c>self</c> throws, or runs a hook first.</summary>
