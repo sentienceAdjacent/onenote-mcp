@@ -5,7 +5,7 @@ namespace OneNoteMcp.Xml;
 
 /// <summary>
 /// The HTML stopgap's scan of one <c>one:T</c>'s HTML (Phill, 2026-11-12, until the <c>html-local-ref</c> probe shows
-/// what OneNote fetches). An allowlist (Phill, 2026-11-12, after the bypass review of <c>e0ba25b</c>): at every stage
+/// what OneNote fetches). An allowlist (Phill, 2026-11-12, after the bypass review of <c>e0ba25b</c>): an entity .NET can't decode left after the last stage refuses the text, and at every stage
 /// of entity decoding, the text is refused for a <c>file:</c> URL, a comment, declaration or processing instruction
 /// (<c>&lt;!</c>, <c>&lt;?</c>), or any tag or attribute outside the small set OneNote's own page text uses
 /// (<see cref="AllowedTags"/>, <see cref="GlobalAttributes"/>, <c>href</c> on <c>a</c>, and <c>face</c>, <c>size</c>,
@@ -70,15 +70,20 @@ internal static class HtmlStopgap
 
     private static readonly Regex NumericReference = new("&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?", RegexOptions.CultureInvariant);
 
-    /// <summary>The legacy named references HTML decodes without a semicolon, where they change the markup.</summary>
-    private static readonly Regex LegacyReference = new("&(lt|gt|quot|amp)(?![;a-zA-Z0-9=])", Options);
+    /// <summary>
+    /// The named references that change the markup, in any case (HTML5 has <c>&amp;LT;</c>, <c>&amp;GT;</c>,
+    /// <c>&amp;AMP;</c>, <c>&amp;QUOT;</c>, which .NET doesn't decode), with a semicolon or, as legacy references,
+    /// without one.
+    /// </summary>
+    private static readonly Regex LegacyReference = new("&(lt|gt|quot|amp)(?:;|(?![a-zA-Z0-9=]))", Options);
 
     private sealed record Tag(string Name, IReadOnlyList<(string Name, string? Value)> Attributes);
 
     public static bool IsRefused(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        if (Stages(text) is not { } stages)
+        // An entity left after the last stage is one .NET can't decode but an HTML5 parser may, into anything.
+        if (Stages(text) is not { } stages || UnknownReference.IsMatch(stages[^1]))
         {
             return true;
         }

@@ -259,6 +259,11 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"https://example.invalid/&lpar;\">a</a>")] // an entity .NET doesn't know, left in a value
     [InlineData("<span lang=\"en&NewLine;\">x</span>")]
     [InlineData("&amp;amp;amp;amp;amp;amp;amp;lt;b&gt;")] // still changing after five rounds of decoding
+    [InlineData("&LT;img src=\"https://example.invalid/a.png\"&GT;")] // HTML5's uppercase names, which .NET doesn't decode
+    [InlineData("&LT;img src=\"https://example.invalid/a.png\"&GT")]
+    [InlineData("&lt;img src=x&GT;")]
+    [InlineData("&lt;div&gt; &AMP;lt;img&AMP;gt;")]
+    [InlineData("a &lpar;b&rpar; c")] // any entity left undecoded after the last stage, in text too
     // onenote: web-notebook links only to OneDrive and SharePoint (Phill, 2026-11-12)
     [InlineData("<a href=\"onenote:https://example.invalid/n.one#p\">p</a>")]
     [InlineData("<a href=\"onenote:https://sharepoint.com/n.one#p\">p</a>")]
@@ -302,6 +307,8 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<em>a</em><strong>b</strong><s>c</s><strike>d</strike><sup>1</sup><sub>2</sub><del>e</del><ins>f</ins><cite>g</cite><code>h</code><small>i</small>")]
     [InlineData("`code` in backticks, as in markdown")]
     [InlineData("&copy; 2026 &amp; more")]
+    [InlineData("x&nbsp;y &eacute; &LT;b&GT;bold&LT;/b&GT;")]
+    [InlineData("R&D notes, AT&T and Q&A")]
     public void HasRefusedHtml_AllowsOrdinaryTextFormattingAndWebMailOrOneNoteLinks(string text) =>
         Assert.False(PageWriteScan.HasRefusedHtml(text));
 
