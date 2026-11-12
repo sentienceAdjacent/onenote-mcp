@@ -1,0 +1,134 @@
+# tickets.toml — epic-round-3-app-state-and-ui ("Round 3: app state and UI"). Table order is the build order.
+# Drafted in an autonomous inception, 2026-11-12, for Phill's review: the questions under "Needs Phill" in the epic's Notes are open, and the entries they touch say so.
+# Cross-epic waits: the epic file's `after` gates every entry on epic 3 being done (and so on epics 2 and 5, which epic 3 waits on), so entries name other epics' stories only as what they build on, never in `after`.
+# One lane: every story after the spine amendment touches the gateway port, the tool registration and contract snapshot, and the skill.
+
+[[entry]]
+id = 1
+type = "spike"
+title = "App-state probes: open, close, sync, windows, links and quick filing"
+description = "Probes, on MCP Test, MCP Test Cloud and 5.1's throwaway notebooks b, c and Cloud with the probe harness 2.2 and 5.1 built, each question in the epic's Notes under \"Unknown, settled by entry 1\", and only those, with a Sync Now check after each cloud step and Phill present for every call that takes focus, shows a dialog or changes a OneNote option."
+verify = "A findings doc gives one probe result per question, names the earlier findings it relied on instead of re-probing, records any OneNote option Phill restored by hand, and logs its constraints in the spine memlog."
+covers = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"]
+after = []
+hitl = true
+risk = "high"
+unknown = "Everything it probes; above all whether QuickFiling's callback reaches our 64-bit STA thread (OneMore receives it across processes from an MTA), and what CloseNotebook does with changes not yet synced."
+references = ["_bmad-output/initiative-onenote-mcp-v1/epic-hierarchy-writes-and-deletes/spike-write-probes-part-2-hierarchy-delete-and-backup-findings.md", "_bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/research-onemore-lessons.md"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Spine amendments for round 3"
+description = "Amends the spine after epic 3's 3.2, from entry 1's findings and Phill's answers to the questions under \"Needs Phill\" in the epic's Notes: the AppState pipeline (which AD-7 steps apply, which calls take the write lock, deadline and outcomeUnknown) and navigate_to moving onto it, AD-11's list of user-visible calls (Q5) and the skill's rule for every AppState tool, the close and open rules (Q1–Q3: force, grants, IDs that change, the search cache, AD-21 for what open_notebook opens), the URL and new-window rules (Q6, Q7), the codes for the new HRESULTs, the Deferred rows on events (Q10) and other modal dialogs, the tool names in AD-14, and a dated Decision for every Application member not exposed (Q4, Q8, Q9, Q11, Dummy1), with a coverage table of every IApplication slot across the five epics."
+verify = "The Fable final review has run and Phill has approved the amended spine."
+covers = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10"]
+after = [1]
+hitl = true
+risk = "medium"
+unknown = "What the spike finds, and Phill's answers."
+
+[[entry]]
+id = 3
+type = "story"
+title = "Tracer: sync_hierarchy through the AppState pipeline"
+description = "The tracer bullet: the AppState pipeline entry 2 sets, including which calls take the write lock (the epic's Source conflict on AD-7 step 2 and AD-18), built beside epic 2's write pipeline; SyncHierarchy on the port, ComGateway and FakeGateway; a sync_hierarchy tool whose result says the sync was requested, not that it finished (spike 1.15 saw S_OK in 0 ms); and navigate_to moved onto the same pipeline with its behaviour unchanged."
+verify = "From Claude Code, Phill asks for MCP Test Cloud to sync and gets ok, then checks with Sync Now that the notebook shows no sync error; an integration test syncs MCP Test and a section and page in it; unit tests on FakeGateway cover the pipeline's timeout (outcomeUnknown, no retry) and ModalDialogOpen paths, and navigate_to's existing tests still pass."
+covers = ["A1", "A2"]
+after = [2]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "close_notebook"
+description = "CloseNotebook through the AppState pipeline with the force rule Q1 sets and the grant rule Q2 sets, under the write lock: a notebook ID only (anything else refused before COM), the notebook's pages dropped from the search cache, and a result that gives the notebook's name and path so it can be reopened and warns that every ID in it changes when it reopens; a close that OneNote holds behind its syncing dialog reported as Timeout with outcomeUnknown; and the integration guard, which epic 3 opened to closing -unpacked notebooks, extended to close 5.1's throwaway notebooks b, c and Cloud too."
+verify = "An integration test closes MCP Test Throwaway b and the harness's own COM seam reopens it by path, after which list_grants shows its test grant active again; the tool refuses a section ID or an unknown ID before COM, and the integration guard refuses to close MCP Test; a unit test on FakeGateway covers the Timeout path; and Phill closes MCP Test Throwaway Cloud from Claude Code with a change waiting to sync and sees what entry 2 says happens."
+covers = ["A1", "A3"]
+after = [3]
+hitl = true
+risk = "high"
+unknown = "What CloseNotebook does with changes not yet synced, with and without force, including whether it blocks behind the syncing dialog (entry 1), and so the force rule (Q1)."
+
+[[entry]]
+id = 5
+type = "story"
+title = "open_notebook"
+description = "OpenHierarchy on an existing path through the AppState pipeline, never creating (cftNone, with the path checked to exist under the write lock, AD-7): the path forms Q3 allows, refusing before COM a package (open_package's job), a missing path and a folder with no .onetoc2, an already-open notebook answered with its current ID from the hierarchy without calling COM, no grant given though an existing grant for that path applies (AD-6), AD-21's rule for what it opens (Q3, epic 3's Q11), the opened notebook's ID and name in the result, and a warning that a cloud notebook may still be filling."
+verify = "An integration test reopens MCP Test Throwaway b after entry 4 closes it, by path, and gets its new ID; an already-open notebook returns its current ID with no COM call (FakeGateway records none); a missing path, a .onepkg and an existing folder that isn't a notebook are refused before COM and nothing is created in that folder; list_grants shows the throwaway's test grant active after the reopen; if entry 1 shows a OneDrive URL works, MCP Test Throwaway Cloud reopens by URL with the still-filling warning; a notebook under the test export root reads as protected (ReadNotGranted) until it has a read grant; unit tests cover the unlocked path."
+covers = ["A1", "A4"]
+after = [4]
+hitl = false
+risk = "medium"
+unknown = "Whether OpenHierarchy takes a OneDrive URL, and how long a cloud notebook takes to fill (entry 1)."
+
+[[entry]]
+id = 6
+type = "story"
+title = "get_windows, and navigate_to in a chosen window"
+description = "The Windows collection on the port and both gateways, declaring the Window interface and CurrentWindow early-bound (late binding fails here) and releasing every Window wrapper explicitly (OneMore row 10): a get_windows tool listing each window's handle, active state, notebook, section group, section and page IDs and view, classed as Q5 sets; and an optional window argument on navigate_to, which otherwise keeps targeting OneNote's first window, with the window setters Q4 allows."
+verify = "An integration test lists MCP Test's window with its current page ID and shows no change of foreground window across the read; with Phill present and two OneNote windows open, navigate_to shows an MCP Test page in the second window he names; with no window, get_windows returns an empty list rather than an error."
+covers = ["A1", "A6"]
+after = [5]
+hitl = true
+risk = "medium"
+unknown = "Whether reading the Windows collection changes focus or anything the user sees (entry 1), which decides Q5."
+
+[[entry]]
+id = 7
+type = "story"
+title = "navigate_to_url"
+description = "NavigateToUrl through the AppState pipeline as a user-visible tool: the URLs Q6 allows, checked before COM, the new-window rule Q7 sets for it and navigate_to, the window argument from entry 6, a read of the window's current page afterwards with a warning when it isn't the link's page (OneNote reports success for a missing page; this read needs Q5 (a) or an AD-11 exception from entry 2), and the repeat rule entry 1 measures for 0x80042014 (replacing the userAction navigate_to took from OneMore by inference)."
+verify = "With Phill present, a onenote: link that get_hyperlink_to_object returned for an MCP Test page shows that page, a link to a deleted page gives the warning, a URL outside Q6's rule is refused before COM with InvalidArgument and nothing opens, and a second call inside the measured window gets the measured userAction; unit tests cover the URL check."
+covers = ["A1", "A7"]
+after = [6]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "set_filing_location"
+description = "SetFilingLocation through the AppState pipeline, built only if Q8 keeps it: each FilingLocation and FilingLocationType value, a named section checked to exist and not to be in the recycle bin before COM, and a result that says what it changed and, as entry 1 found, whether the previous value can be read."
+verify = "With Phill present, a filing location set to an MCP Test section shows in OneNote's options and Phill restores his own value by hand; a recycled or unknown section is refused before COM; unit tests cover the enum mapping."
+covers = ["A1", "A5"]
+after = [7]
+hitl = true
+risk = "medium"
+unknown = "Whether it ships (Q8, where the recommendation is not to). If entry 2 records a Decision not to expose it, that Decision closes A5, this entry is dropped with Phill's agreement, and entry 9 goes after entry 7."
+
+[[entry]]
+id = 9
+type = "story"
+title = "quick_filing"
+description = "QuickFiling as a user-visible location picker, declaring IQuickFilingDialog and its callback interface early-bound, built only if entry 1 shows the dialog and its callback work from our process and Q9 keeps it: the dialog's title, description and tree depth from the arguments, a callback that only records the choice and returns at once (OneNote's UI thread waits on it), a wait for the user that doesn't count against the pipeline deadline (as for elicitation, AD-6) and that a cancelled tool call ends, and the chosen notebook, section or page ID in the result."
+verify = "With Phill present, Claude opens the picker, Phill chooses an MCP Test section and the result names it; when he cancels, the result says so; while the picker is open, another session's write gets the error entry 1 recorded rather than hanging."
+covers = ["A1", "A8"]
+after = [8]
+hitl = true
+risk = "high"
+unknown = "Whether it ships at all. If entry 1 finds no working callback, or Q9 chooses a Decision, entry 2 records it, which closes A8, this entry is dropped with Phill's agreement, and entry 10 goes after the last remaining entry."
+
+[[entry]]
+id = 10
+type = "story"
+title = "Skill, README, harness and coverage check for round 3"
+description = "The guide skill's recipes for the app-state tools (each called only when the user asks, as entry 2 sets; get_windows for \"this page\" if Q5 allows), the README sections on opening, closing and syncing notebooks (replacing epic 3's \"close an opened package in OneNote\" line, Q13), the stress harness's tool list and contract check for the new tools, the coverage check that every IApplication slot has a released tool or a dated Decision (the initiative's Done when 4), and one batched live run of the user-visible tools with Phill."
+verify = "Plugin validation and the harness pass; an agent following the README closes and reopens MCP Test Throwaway b; the coverage table in the spine matches the released tool list with no slot unaccounted for; and with Phill present each user-visible tool behaves as its description says."
+covers = ["A1", "A10"]
+after = [9]
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at its start from the build records and the review findings deferred during the epic."
+verify = "All suites pass, the harness shows 0 mismatches, and no behaviour changes."
+covers = ["A10"]
+after = [10]
+hitl = false
+risk = "medium"
+unknown = "Its scope, set when it starts."
