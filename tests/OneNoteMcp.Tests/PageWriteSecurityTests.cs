@@ -117,6 +117,47 @@ public sealed class PageWriteSecurityTests : IDisposable
         Assert.Single(PageWriteScan.NewFilePaths(Under(X, @"C:\p.bin"), null)); // no read grant: always new
     }
 
+    // --- The HTML stopgap -----------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("<img src=\"file:///C:/a.png\">")]
+    [InlineData("FILE://server/share/a.png")]
+    [InlineData("<a href=\"C:\\x\\a.txt\">a</a>")]
+    [InlineData("<a href=\"c:/x/a.txt\">a</a>")]
+    [InlineData("<a href='\\\\server\\share'>s</a>")]
+    [InlineData("<img src=//host/a.png>")]
+    [InlineData("<img SRC = \"\\\\?\\C:\\a.png\">")]
+    [InlineData("&#102;ile:///C:/a")]
+    [InlineData("&lt;img src=&quot;C:\\a.png&quot;&gt;")]
+    [InlineData("&amp;#102;ile:///C:/a")]
+    public void HasLocalReference_FindsFileUrlsAndLocalOrNetworkSrcHref(string text) => Assert.True(PageWriteScan.HasLocalReference(text));
+
+    [Theory]
+    [InlineData("<a href=\"https://example.invalid/a\">web</a>")]
+    [InlineData("<img src=\"https://example.invalid/a.png\">")]
+    [InlineData("my profile: settings")]
+    [InlineData("the share is \\\\server\\share")]
+    [InlineData("C:\\temp is a folder")]
+    [InlineData("<a href=\"onenote:#page\">p</a>")]
+    [InlineData("data-src=\"x\" srcset")]
+    public void HasLocalReference_LeavesOrdinaryTextAndWebLinksAlone(string text) => Assert.False(PageWriteScan.HasLocalReference(text));
+
+    [Fact]
+    public void HtmlProblems_CountsNewBlocksAndReferences_ButNotUnchangedOnesOnTheSameElement()
+    {
+        string Oe(string? id, string inner) => $"<one:OE{(id is null ? string.Empty : $" objectID=\"{id}\"")}>{inner}</one:OE>";
+        string Outline(string body) => Page($"<one:Outline objectID=\"{Y}\"><one:OEChildren>{body}</one:OEChildren></one:Outline>");
+        const string Link = "<one:T><![CDATA[<a href=\"file:///C:/a.txt\">a</a>]]></one:T>";
+        const string Block = "<one:HTMLBlock><one:Data><![CDATA[<p>x</p>]]></one:Data></one:HTMLBlock>";
+        var read = Outline(Oe(X, Link) + Block);
+
+        Assert.Equal((0, 0), PageWriteScan.HtmlProblems(read, read));
+        Assert.Equal((1, 1), PageWriteScan.HtmlProblems(read, null)); // no read grant: everything counts
+        Assert.Equal((0, 1), PageWriteScan.HtmlProblems(Outline(Oe(null, Link)), read)); // the same link on a new OE
+        Assert.Equal((1, 0), PageWriteScan.HtmlProblems(Outline(Block.Replace("x", "y", StringComparison.Ordinal)), read)); // a changed block
+        Assert.Equal((1, 0), PageWriteScan.HtmlProblems(Page($"<one:Outline><one:OEChildren>{Block}</one:OEChildren></one:Outline>"), read)); // no owner
+    }
+
     [Fact]
     public void SendsObjectId_FindsAnyObjectId()
     {

@@ -107,6 +107,94 @@ public static class PageWriteScan
 
     private static string Key(SentFilePath path) => string.Join('\n', path.OwnerObjectId, path.Element, path.Attribute, path.Value);
 
+    // --- The HTML stopgap (Phill, 2026-11-12, until the html-local-ref probe runs) ---------------------------------------
+
+    private static readonly XName HtmlBlock = OneNoteXml.One + "HTMLBlock";
+    private static readonly XName T = OneNoteXml.One + "T";
+    private static readonly XName OE = OneNoteXml.One + "OE";
+
+    /// <summary>A <c>file:</c> URL anywhere in the text.</summary>
+    private static readonly System.Text.RegularExpressions.Regex FileUrl = new(
+        "(?<![a-z0-9+.-])file:", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>An HTML <c>src</c> or <c>href</c> value, quoted or not.</summary>
+    private static readonly System.Text.RegularExpressions.Regex SrcOrHref = new(
+        """(?<![a-z0-9_-])(?:src|href)\s*=\s*(?:"(?<v>[^"]*)"|'(?<v>[^']*)'|(?<v>[^\s"'>]+))""",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The HTML stopgap's findings in <paramref name="sentXml"/> (Phill, 2026-11-12): how many <c>one:HTMLBlock</c>
+    /// elements it sends, and how many <c>one:T</c> texts hold a local or network reference
+    /// (<see cref="HasLocalReference"/>). An HTMLBlock or a text sent back unchanged on the same existing element (the
+    /// same nearest owner <c>objectID</c>, the same content) as in <paramref name="readXml"/> doesn't count; with
+    /// <paramref name="readXml"/> null (no read grant) everything counts. Counts only: the texts never leave this method.
+    /// Well-formed XML only.
+    /// </summary>
+    public static (int HtmlBlocks, int LocalReferences) HtmlProblems(string sentXml, string? readXml)
+    {
+        var sent = OneNoteXml.Parse(sentXml);
+        var read = readXml is null ? null : OneNoteXml.Parse(readXml);
+
+        var readBlocks = read?.Descendants(HtmlBlock).Select(BlockKey).OfType<string>().ToHashSet(StringComparer.Ordinal) ?? [];
+        var blocks = sent.Descendants(HtmlBlock).Count(b => BlockKey(b) is not { } key || !readBlocks.Contains(key));
+
+        var readTexts = read?.Descendants(T).Select(TextKey).OfType<string>().ToHashSet(StringComparer.Ordinal) ?? [];
+        var references = sent.Descendants(T).Count(t => HasLocalReference(t.Value) && (TextKey(t) is not { } key || !readTexts.Contains(key)));
+        return (blocks, references);
+    }
+
+    /// <summary>
+    /// True when <paramref name="text"/> (a <c>one:T</c>'s HTML), entity-decoded until stable, holds a <c>file:</c> URL,
+    /// or a <c>src</c>/<c>href</c> whose value is an absolute Windows path (<c>C:\</c>, <c>C:/</c>), a UNC or other
+    /// <c>\\</c> path, or a <c>//</c> network form. Case-insensitive.
+    /// </summary>
+    public static bool HasLocalReference(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var decoded = text;
+        for (var i = 0; i < 4; i++)
+        {
+            var next = System.Net.WebUtility.HtmlDecode(decoded);
+            if (next == decoded)
+            {
+                break;
+            }
+
+            decoded = next;
+        }
+
+        if (FileUrl.IsMatch(decoded))
+        {
+            return true;
+        }
+
+        foreach (System.Text.RegularExpressions.Match match in SrcOrHref.Matches(decoded))
+        {
+            var value = match.Groups["v"].Value.Trim();
+            if ((value.Length >= 3 && char.IsAsciiLetter(value[0]) && value[1] == ':' && value[2] is '\\' or '/')
+                || value.StartsWith(@"\\", StringComparison.Ordinal)
+                || value.StartsWith("//", StringComparison.Ordinal)
+                || value.StartsWith(@"\/", StringComparison.Ordinal)
+                || value.StartsWith(@"/\", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>An HTMLBlock's identity for the exemption: its nearest owner's <c>objectID</c> and its content; null without an owner.</summary>
+    private static string? BlockKey(XElement block) =>
+        NearestObjectId(block) is { } owner ? owner + "\n" + block.ToString(SaveOptions.DisableFormatting) : null;
+
+    /// <summary>A text's identity for the exemption: its OE's <c>objectID</c> and its text; null when the OE has none.</summary>
+    private static string? TextKey(XElement text) =>
+        text.Parent is { } oe && oe.Name == OE && (string?)oe.Attribute("objectID") is { Length: > 0 } id ? id + "\n" + text.Value : null;
+
+    private static string? NearestObjectId(XElement element) =>
+        element.Ancestors().Select(a => (string?)a.Attribute("objectID")).FirstOrDefault(id => !string.IsNullOrEmpty(id));
+
     private static string? Owner(XElement element)
     {
         var holder = element.Name == File ? element.Parent : element;
