@@ -26,14 +26,14 @@ The requirements are shared with other epics:
 
 ## Outcome
 
-Claude can create, rename, reorder and delete notebook structure, only where Phill has granted access. A permanent delete never happens without a backup that can bring the item back. This epic completes v1.
+Claude can create, rename, reorder and delete notebook structure, only where Phill has granted access. A section is permanently deleted only after a OneNote-format backup file of it exists. Restoring from that file isn't proven, and COM can't delete a notebook (spike 5.1 constraints 7 and 18). This epic completes v1.
 
 ## Done when
 
-1. Creating a section, section group or notebook, adding, renaming and reordering through `UpdateHierarchy`, and soft-deleting all succeed on a granted notebook. On an ungranted one, each returns `WriteNotGranted` and raises the grant dialog, where the client supports one. A new notebook is granted automatically.
-2. A hierarchy write or soft delete whose basis is stale returns `StaleWrite`, including a delete of a page that isn't displayed.
+1. Creating a section, section group or notebook, adding, renaming and reordering through `UpdateHierarchy`, and soft-deleting a page, section or section group all succeed on a granted notebook. On an ungranted one, each returns `WriteNotGranted` and raises the grant dialog, where the client supports one. A new notebook is granted automatically.
+2. A hierarchy write or soft delete whose basis date has moved returns `StaleWrite`, including a delete of a page that isn't displayed. The check is best effort, since a rename doesn't move the renamed node's date (AD-17).
 3. Every `HierarchyWrite` and `SoftDelete` leaves a journal entry. `restore_from_journal` brings back a soft-deleted page as a new page.
-4. A permanent delete needs both grants. A section, section group or notebook is deleted only after a OneNote-format backup succeeds, and a failed backup refuses the delete.
+4. A permanent delete needs both grants. A section is deleted only after its OneNote-format backup file exists, and a failed backup refuses the delete. A non-empty section group, a notebook and a password-protected section are refused with the reason (AD-7).
 5. It ships as a GitHub release through the epic 1 pipeline. The skill holds the recipes for these writes, and the README's sections on permanent delete and backups match the code.
 
 ## Boundaries
@@ -58,7 +58,7 @@ Out of scope: move, merge, exports and `restore_from_recycle_bin` (epic 3), and 
 
 - Decision (2026-11-09, Phill, epic 2 inception): split out of epic 2 so page writes ship first, and so permanent delete, the riskiest work in v1, comes after a retrospective on page writes. It builds after epic 2 and before round 2. Its id is 5, because ids are never reused; it builds third.
 - Waits on epic 2 because it needs the write pipeline, the write lock, write grants and their dialog, the journal, `restore_from_journal`, and the section creation that epic 2's restore adds to the gateway.
-- Decision (2026-11-09, Phill, epic 2 inception, decision 3): a write in a password-protected section is allowed with both the notebook's write grant and the section's read grant. Epic 2's entry 3 amends the spine, including how the journal holds that content. This epic's soft and permanent deletes follow the same rule.
+- Decision (2026-11-09, Phill, epic 2 inception, decision 3): a write in a password-protected section is allowed with both the notebook's write grant and the section's read grant. Epic 2's entry 3 amends the spine, including how the journal holds that content. Superseded for page writes by 2.3 plan Q3 option c (the write grant alone), and for this epic's deletes by 5.2 plan Q6 (Phill, 2026-11-12): the write grant alone, plus the permanent-delete grant for a permanent delete; a page soft delete in a protected section stays refused until entry 5's probe, and a protected section's permanent delete is refused (5.2 plan Q1).
 - Decision (2026-11-09, Phill): no release ticket. Phill tags the release after this epic's refactor sweep.
 - Unknown, settled by this epic's opening spike:
   - `Publish` to OneNote format as the backup route;
