@@ -85,10 +85,17 @@ public static class SchemaValidation
     public static IReadOnlyList<SchemaProblem> Problems(string xml)
     {
         ArgumentNullException.ThrowIfNull(xml);
+
+        // Before any other check, and never parsed: a DOCTYPE is refused outright (AD-16, story 2.9 security review).
+        if (OneNoteXml.HasDoctype(xml))
+        {
+            return [new SchemaProblem(0, 0, null) { IsDoctype = true }];
+        }
+
         XDocument document;
         try
         {
-            document = XDocument.Parse(xml, LoadOptions.SetLineInfo);
+            document = OneNoteXml.Load(xml, LoadOptions.SetLineInfo);
         }
         catch (XmlException ex)
         {
@@ -150,6 +157,9 @@ public static class SchemaValidation
 /// <param name="In2013">False when the element isn't in the OneNote 2013 namespace.</param>
 public sealed record SchemaProblem(int Line, int Position, string? Element, bool In2013 = true)
 {
+    /// <summary>True when the XML has a DOCTYPE, refused before any other check (AD-16); then there is no position or element.</summary>
+    public bool IsDoctype { get; init; }
+
     /// <summary>
     /// The element as a message names it: <c>one:OE</c> in the 2013 namespace, otherwise the bare local name followed by
     /// " (not in the OneNote 2013 namespace)", never the namespace itself; null when there is no element.

@@ -105,6 +105,8 @@ context:
 - An empty `objectId` is refused in the use case before the pipeline (no lock, no read), naming the argument.
 - Verification (lead, after review patches): build `-warnaserror` 0/0; unit 1890/1890; integration without the variable 154 passed, 46 skipped; stress harness builds.
 
+- Merge of `origin/story/2.9-update-page-content` at `0f38576` (2.9's security fixes; lead, 2026-11-12): conflicts in `PageWrite.cs` and `deferred-work.md`. 2.9's date-only rule lives in its `CheckWithoutReadGrant` hook, not in the basis check, so `PageWrite.CheckBasis` needed no change. The `NeedsReadGrant` hook above was replaced by that hook: `DeletePageContentWrite` overrides it to refuse always (Q1) and overrides `AuthorizeAsync` to check it in step 1 before the write grant, as AD-7 step 1 orders it at 5.2's `18dbcdb`; the shared step 3 re-checks it under the lock before `SectionLocked`. Test added: `ProtectedWithoutAReadGrant_AndNoWriteGrant_IsReadNotGranted_BeforeTheWriteGrantDialog`. Build 0/0; unit 1953/1953; integration without the variable 154 passed, 46 skipped; stress harness builds.
+
 ## Plan Change Log
 
 ## Review Triage Log

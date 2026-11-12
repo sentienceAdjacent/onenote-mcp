@@ -410,6 +410,23 @@ public sealed class DeletePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ProtectedWithoutAReadGrant_AndNoWriteGrant_IsReadNotGranted_BeforeTheWriteGrantDialog()
+    {
+        // AD-7 step 1 as amended by 5.2: the no-prompt read-grant check comes before the write grant, so the user is never
+        // asked for a write grant for a delete that would fail anyway.
+        File.Delete(Store.Path);
+        var prompt = new FakePrompt(FakePrompt.Accept("W", ReadGrantLifetime.Once));
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() =>
+            UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), VaultPageId, G(40), null, Ct));
+
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.Empty(prompt.Questions);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task ProtectedAndLocked_WithoutAReadGrant_IsReadNotGranted()
     {
         Error(await Tool().DeletePageContent(LockedPageId, G(40), cancellationToken: Ct), "ReadNotGranted");

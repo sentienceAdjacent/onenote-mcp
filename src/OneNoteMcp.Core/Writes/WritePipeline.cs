@@ -12,7 +12,9 @@ namespace OneNoteMcp.Core.Writes;
 /// <item>Access check (<see cref="WriteOperation{TResult}.AuthorizeAsync"/>). When it finds a notebook with a path but no
 /// write grant, and the call can ask (<see cref="ToolCallContext.Prompt"/>), it raises the write-grant dialog
 /// (<see cref="WriteGrantDialog"/>, AD-6) with the deadline paused and on the client's token only, then runs the check
-/// once more, with no second dialog.</item>
+/// once more, with no second grant dialog. A page write whose XML names new file paths throws
+/// <see cref="FilePathsUnconfirmed"/> from step 1; the runner then raises the file-path dialog (<see cref="FilePathDialog"/>,
+/// AD-7) the same way, at most once, and runs step 1 again.</item>
 /// <item>Take the write lock (AD-18), waiting up to <c>timeouts.callSeconds</c>, capped by what is left of the deadline.
 /// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable. Then, while the gateway reports an abandoned write
 /// still outstanding, the pipeline is <see cref="ErrorCode.ComBusy"/>, retryable, before anything is read (AD-3).</item>
@@ -87,22 +89,40 @@ public sealed class WritePipeline
         var callFailed = false;
         try
         {
-            // 1. Access check. A missing grant may raise the grant dialog (AD-6), then step 1 runs once more.
-            try
+            // 1. Access check. A missing write grant may raise the grant dialog (AD-6), and new file paths in a page write
+            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once.
+            var askedGrant = false;
+            var askedPaths = false;
+            while (true)
             {
-                await operation.AuthorizeAsync(token).ConfigureAwait(false);
+                try
+                {
+                    await operation.AuthorizeAsync(token).ConfigureAwait(false);
+                    break;
+                }
+                catch (WriteGrantMissing missing) when (!askedGrant && dialog is not null && context.Prompt is { } prompt)
+                {
+                    askedGrant = true;
+                    await PausedAsync(() => dialog.AskAsync(prompt, missing, ct)).ConfigureAwait(false);
+                }
+                catch (FilePathsUnconfirmed unconfirmed) when (!askedPaths && context.Prompt is { } prompt)
+                {
+                    askedPaths = true;
+                    await PausedAsync(() => FilePathDialog.AskAsync(prompt, unconfirmed, ct)).ConfigureAwait(false);
+                    unconfirmed.Confirm();
+                }
             }
-            catch (WriteGrantMissing missing) when (dialog is not null && context.Prompt is { } prompt)
+
+            // The deadline is paused while the user decides: a dialog waits on the client's token only, and nothing is
+            // held meanwhile (no STA call, no write lock, no settings mutex).
+            async Task PausedAsync(Func<Task> ask)
             {
                 token.ThrowIfCancellationRequested();
-
-                // The deadline is paused while the user decides: the dialog waits on the client's token only, and
-                // nothing is held meanwhile (no STA call, no write lock, no settings mutex).
                 deadlineSource.CancelAfter(Timeout.InfiniteTimeSpan);
                 var pausedAt = clock.GetTimestamp();
                 try
                 {
-                    await dialog.AskAsync(prompt, missing, ct).ConfigureAwait(false);
+                    await ask().ConfigureAwait(false);
                 }
                 finally
                 {
@@ -119,7 +139,6 @@ public sealed class WritePipeline
                 }
 
                 token.ThrowIfCancellationRequested();
-                await operation.AuthorizeAsync(token).ConfigureAwait(false);
             }
 
             // 2. The write lock.
