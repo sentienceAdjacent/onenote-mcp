@@ -5,7 +5,7 @@ description: This skill should be used when the user asks about their OneNote no
 
 # OneNote desktop: reading notebooks
 
-The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. It has eleven read tools (one of them, `list_grants`, only lists the user's read permissions), one user-visible tool that shows a page in OneNote (`navigate_to`), and one write tool, `create_page`, which adds an empty page to a section the user has allowed you to write to. It can't yet edit, move, rename or delete anything.
+The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. It has eleven read tools (one of them, `list_grants`, only lists the user's read and write permissions), one user-visible tool that shows a page in OneNote (`navigate_to`), and one write tool, `create_page`, which adds an empty page to a section the user has allowed you to write to. It can't yet edit, move, rename or delete anything.
 
 The tools are thin wrappers over COM. Their descriptions say what each parameter means; this guide says which tool to pick, in what order, and how to interpret what comes back.
 
@@ -13,7 +13,7 @@ The tools are thin wrappers over COM. Their descriptions say what each parameter
 
 Use this guide for any OneNote read: listing notebooks, section groups, sections and pages, reading pages, searching, getting links, and looking up special locations such as Quick Notes.
 
-Call `mcp__plugin_onenote_desktop__create_page` only when the user asks for a new page; never to try something out. Each call adds another page. It needs the user's write grant for the section's notebook: without one it fails with `WriteNotGranted`, and only the user can grant it, with the terminal command in `userAction`. Never run that command yourself.
+Call `mcp__plugin_onenote_desktop__create_page` only when the user asks for a new page; never to try something out. Each call adds another page. It needs the user's write grant for the section's notebook. Without one, the call may raise a dialog asking the user to type the notebook's name; if they don't, or the client can't show it, it fails with `WriteNotGranted`, and only the user can grant it, with the terminal command in `userAction`. Never run that command yourself. The user revokes a write grant with `OneNoteMcp grant --revoke --write "<notebook name>"`.
 
 If the user asks for any other change (edit, move, rename or delete a page or section), say that this release can't do it yet, and that they can make the change in OneNote themselves. Don't work around it: never edit `.one` files or other notebook files, never script or automate the OneNote window, and never use any other route to change a notebook.
 
@@ -33,7 +33,7 @@ Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its b
 | `mcp__plugin_onenote_desktop__get_web_hyperlink_to_object` (`get_web_hyperlink_to_object`) | Get an `https` link, for notebooks stored on OneDrive or SharePoint | `meta.link` |
 | `mcp__plugin_onenote_desktop__get_special_location` (`get_special_location`) | Get the path of the backup folder, the Quick Notes section or the default notebook folder | `meta.path` |
 | `mcp__plugin_onenote_desktop__read_result` (`read_result`) | Read a result that was too large to return whole, part by part (see Large results) | `xml` (a part) or `index` |
-| `mcp__plugin_onenote_desktop__list_grants` (`list_grants`) | Show which password-protected sections the user has allowed you to read, and until when (see Password-protected sections) | `meta.grants` |
+| `mcp__plugin_onenote_desktop__list_grants` (`list_grants`) | Show which password-protected sections the user has allowed you to read, and until when (see Password-protected sections), and which notebooks they have allowed you to write to (kind `writeNotebook`) | `meta.grants` |
 | `mcp__plugin_onenote_desktop__navigate_to` (`navigate_to`) | **User-visible.** Show a notebook, section group, section or page in OneNote (and select one object on it). Only when the user explicitly asks; see Missing images | nothing |
 | `mcp__plugin_onenote_desktop__create_page` (`create_page`) | **Writes.** Add an empty page at the end of a section (`style`: `blankPageWithTitle` by default, `blankPageNoTitle`, or `default` for the section's template). Only when the user asks for a new page; see When to use | `meta.pageId` |
 
@@ -81,7 +81,7 @@ A section with a password (`encrypted="true"` on its `one:Section`) stays privat
 - The user can also grant or revoke in a terminal, which works with any client: `OneNoteMcp grant --read-section "<section name>"` and `OneNoteMcp grant --revoke --read-section "<section name>"`. The exe isn't on PATH for a plugin install: give the user the exact command from the error's `userAction`, which names the running exe's full path.
 - **Never run the grant command yourself, and never edit OneNoteMcp's `settings.json`** (it holds the user's grants), by any tool or shell command. Grants are the user's alone. The plugin blocks such edits and commands, and the grant command refuses to run without an interactive terminal anyway. The plugin also blocks `OneNoteMcp uninstall`, whose `--purge` deletes every grant: give the user the command to run instead.
 - **This section, for N minutes** covers every read of that section (pages, listings and searches) for those minutes; after that the next read asks again. A large result read inside the window stays pageable with `read_result` for that result's life (30 minutes after the original call by default), even after the window ends; `read_result` never asks. Read what the user wants from it within the window rather than spreading reads out. A grant follows the section's path, so renaming or moving the section means asking again.
-- `mcp__plugin_onenote_desktop__list_grants` shows the stored grants (`status` `active`, `sectionNotOpen` or `expired`) and any live N-minute grant (lifetime `once`, with its `expiresAt`).
+- `mcp__plugin_onenote_desktop__list_grants` shows the stored grants (`status` `active`, `sectionNotOpen` or `expired`) and any live N-minute grant (lifetime `once`, with its `expiresAt`), plus the write grants (kind `writeNotebook`, `status` `active` or `notebookNotOpen`).
 
 ## Reading the XML
 
@@ -203,7 +203,7 @@ On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 | `ResultExpired` | The stored large result expired or the server restarted. Repeat the original call, then continue with its new `resultId`. |
 | `UnknownObjectId` | From `mcp__plugin_onenote_desktop__read_result`: the ref isn't in that result. Use a ref from its index, or `/`. |
 | `NotSupported` | Not in this release. Tell the user. |
-| `WriteNotGranted` | From `mcp__plugin_onenote_desktop__create_page`: the user hasn't allowed writes to that notebook. Tell the user, and if they want the page, give them the `grant --write` command from `userAction` to run in their own terminal. Never run it yourself; retry only after they say they have. |
+| `WriteNotGranted` | From `mcp__plugin_onenote_desktop__create_page`: the user hasn't allowed writes to that notebook (the message says why: no grant, or the dialog was declined, cancelled, unavailable or answered with another name). Tell the user, and if they want the page, give them the `grant --write` command from `userAction` to run in their own terminal. Never run it yourself; retry only after they say they have. |
 | `SettingsInvalid` | OneNoteMcp's `settings.json` is invalid, or a newer OneNoteMcp wrote it, so writes are off. Relay `userAction`. Never edit `settings.json` yourself. |
 | `InvalidXml` | OneNote or the server rejected the XML of a read; ignore the write-oriented `userAction`. Don't retry; tell the user, with `error.message` and `error.hresult` if present. |
 | `InvalidArgument` | You passed an argument name the tool doesn't declare; `error.message` names it and lists the tool's arguments. Fix the name to one the tool declares, spelled exactly, and call again. Don't drop the argument just to get past the error: the tool would then use its default, which may not be what the user asked for. |

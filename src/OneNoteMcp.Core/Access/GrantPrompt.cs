@@ -77,18 +77,34 @@ public enum GrantPromptStatus
     Accepted,
 }
 
-/// <summary>The dialog's outcome. With <see cref="GrantPromptStatus.Accepted"/>, the typed text and the chosen lifetime.</summary>
+/// <summary>
+/// The dialog's outcome. With <see cref="GrantPromptStatus.Accepted"/>, the typed text and, for a read grant, the chosen
+/// lifetime.
+/// </summary>
 public sealed record GrantPromptResult(GrantPromptStatus Status, string? TypedName = null, ReadGrantLifetime? Lifetime = null, int? Hours = null)
 {
     public static GrantPromptResult Unsupported { get; } = new(GrantPromptStatus.Unsupported);
 }
 
 /// <summary>
-/// The port through which a target-scoped read asks the user for a read grant (AD-21). The Server adapts MCP
-/// elicitation to it, so Core stays free of the SDK. The caller holds no STA call and no settings mutex while it waits,
-/// and the wait counts against no timeout.
+/// What the write-grant dialog shows the user (AD-6): the notebook by its displayed name (<c>nickname</c>, else
+/// <c>name</c>) and its live path. The name and path go to the user's client only, never into a tool result (AD-9).
+/// Write grants have no lifetime (AD-10): the dialog says the grant lasts until revoked.
+/// </summary>
+public sealed record WriteGrantQuestion(string NotebookId, string NotebookName, string NotebookPath);
+
+/// <summary>
+/// The port through which the server asks the user for a grant: a read grant for a target-scoped read (AD-21), or a
+/// write grant at AD-7 step 1 (AD-6). The Server adapts MCP elicitation to it, so Core stays free of the SDK. The caller
+/// holds no STA call, no write lock and no settings mutex while it waits, and the wait counts against no timeout.
 /// </summary>
 public interface IGrantPrompt
 {
     Task<GrantPromptResult> AskAsync(GrantQuestion question, CancellationToken ct);
+
+    /// <summary>
+    /// Asks for a write grant on a notebook (AD-6). An <see cref="GrantPromptStatus.Accepted"/> result carries only the
+    /// typed name: <see cref="GrantPromptResult.Lifetime"/> is null, since write grants last until revoked.
+    /// </summary>
+    Task<GrantPromptResult> AskWriteAsync(WriteGrantQuestion question, CancellationToken ct);
 }

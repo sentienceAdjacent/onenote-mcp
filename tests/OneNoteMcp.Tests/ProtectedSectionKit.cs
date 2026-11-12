@@ -266,9 +266,17 @@ internal sealed class FakePrompt(params GrantPromptResult[] answers) : IGrantPro
 
     public List<GrantQuestion> Questions { get; } = [];
 
+    public List<WriteGrantQuestion> WriteQuestions { get; } = [];
+
     public Task<GrantPromptResult> AskAsync(GrantQuestion question, CancellationToken ct)
     {
         Questions.Add(question);
+        return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : new GrantPromptResult(GrantPromptStatus.Cancelled));
+    }
+
+    public Task<GrantPromptResult> AskWriteAsync(WriteGrantQuestion question, CancellationToken ct)
+    {
+        WriteQuestions.Add(question);
         return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : new GrantPromptResult(GrantPromptStatus.Cancelled));
     }
 

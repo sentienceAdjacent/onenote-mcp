@@ -3,12 +3,13 @@ title: 'Write grants: dialog, revoke and listing'
 type: 'feature'
 ticket: '6'
 created: '2026-11-11'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '4e6533d184659036608cd66fbb1f7f4f930a71b6'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/CLAUDE.md'
@@ -77,15 +78,15 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/Access/GrantPrompt.cs`, `ElicitationGrantPrompt.cs` -- write question, port method, form and reader -- the Server adapts MCP, Core stays SDK-free.
-- [ ] `src/OneNoteMcp.Core/Access/WriteGrantDialog.cs` (new), `WriteAccess.cs` -- ask, re-read, match, save; `WriteGrantMissing` -- AD-6 creation path.
-- [ ] `src/OneNoteMcp.Core/Writes/WritePipeline.cs`, `ServerSetup.cs`, `CreatePageTool.cs` -- step-1 dialog with deadline pause and one re-check -- AD-7 step 1.
-- [ ] `src/OneNoteMcp.Core/Settings/SettingsWriter.cs`, `SettingsJson.cs` -- `RevokeWriteGrant`, duplicate-tolerant revoke, `RunLocked` -- Q7, R4.
-- [ ] `src/OneNoteMcp.Server/Cli/GrantCommand.cs` -- `--revoke --write`.
-- [ ] `ListGrantsUseCase.cs`, `ListGrantsTool.cs` -- `writeNotebook` rows and advice.
-- [ ] `UninstallCommand.cs`, `Program.cs` -- R4.
-- [ ] Tests -- every matrix row. Plus: the dialog form (field renamed per request, hint, no lifetime) and the reader; a deadline shorter than a fake prompt's delay still writes; the write lock isn't taken until the dialog has ended (a second process can take it meanwhile); a client cancel during the dialog is `Cancelled` with no grant.
-- [ ] `README.md`, `skills/` -- one `grant --revoke --write` line, a sentence that `create_page` can raise the dialog, and the purge warning -- `PluginPackagingTests` stays green.
+- [x] `src/OneNoteMcp.Core/Access/GrantPrompt.cs`, `ElicitationGrantPrompt.cs` -- write question, port method, form and reader -- the Server adapts MCP, Core stays SDK-free.
+- [x] `src/OneNoteMcp.Core/Access/WriteGrantDialog.cs` (new), `WriteAccess.cs` -- ask, re-read, match, save; `WriteGrantMissing` -- AD-6 creation path.
+- [x] `src/OneNoteMcp.Core/Writes/WritePipeline.cs`, `ServerSetup.cs`, `CreatePageTool.cs` -- step-1 dialog with deadline pause and one re-check -- AD-7 step 1.
+- [x] `src/OneNoteMcp.Core/Settings/SettingsWriter.cs`, `SettingsJson.cs` -- `RevokeWriteGrant`, duplicate-tolerant revoke, `RunLocked` -- Q7, R4.
+- [x] `src/OneNoteMcp.Server/Cli/GrantCommand.cs` -- `--revoke --write`.
+- [x] `ListGrantsUseCase.cs`, `ListGrantsTool.cs` -- `writeNotebook` rows and advice.
+- [x] `UninstallCommand.cs`, `Program.cs` -- R4.
+- [x] Tests -- every matrix row. Plus: the dialog form (field renamed per request, hint, no lifetime) and the reader; a deadline shorter than a fake prompt's delay still writes; the write lock isn't taken until the dialog has ended (a second process can take it meanwhile); a client cancel during the dialog is `Cancelled` with no grant.
+- [x] `README.md`, `skills/` -- one `grant --revoke --write` line, a sentence that `create_page` can raise the dialog, and the purge warning -- `PluginPackagingTests` stays green.
 
 **Acceptance Criteria:**
 - Given an ungranted notebook and a client that elicits, when `create_page` runs and the user types the notebook's name, then the grant is stored with `grantedVia: elicitation`, the page is created, and `list_grants` shows a `writeNotebook` row with status `active`.
@@ -122,6 +123,32 @@ None. Phill answered all four and approved the plan (2026-11-12, Inbox thread "2
 
 ## Implementation Notes
 
+- Build lane constraints (2026-11-11, from the team lead): work only in this worktree (`D:\Development\OneNote COM MCP\.claude\worktrees\agent-a2127fef2e50a5c92`, branch `story/2.6-write-grants`). Verify with unit tests only (`dotnet build OneNoteMcp.slnx -warnaserror`, `dotnet test tests/OneNoteMcp.Tests`). Do not run the integration tests or anything that starts or touches OneNote/COM: a live probe sitting is using OneNote. The live manual checks above are left for a later sitting. Do not commit; the build lane commits after review.
+- Q2's deferred-work entry: append one entry to `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` asking the next spine story to add a one-line AD-6 clarification (a typed name that matches a different open notebook gives no grant). No spine edit in 2.6.
+- A decision the plan doesn't settle: pick the option most consistent with the plan and the spine, and record it here as a bullet.
+- Decision: `OneNoteException` is no longer `sealed`, so `WriteGrantMissing : OneNoteException` (internal, in `WriteAccess.cs`) can exist as the Code Map says. Every other error is still a plain `OneNoteException`; uncaught, `WriteGrantMissing` reaches the tool runner as one (same code, message and `userAction`).
+- Decision: `WriteGrantDialog` is public (the Server builds it in `ServerSetup`) with an internal `AskAsync`, and takes a non-null `SettingsWriter`: with nowhere to store the grant there is nothing to ask for. `WritePipeline` takes it as an optional last constructor argument; without it, or when the call has no `context.Prompt`, step 1's refusal stays the plain "has no write grant from the user." (no dialog).
+- Decision: the dialog's grant stores the matched open notebook's displayed name as `name` and its live ID as `idAtGrant`, as `grant --write` does.
+- Decision: the duplicate-tolerant revoke doesn't go through `JsonObject` at all (it throws on a duplicate key even with `AllowDuplicateProperties`). Both revokes (`RevokeReadGrant`, `RevokeWriteGrant`) parse a `JsonDocument` with duplicates allowed and write the file back with `Utf8JsonWriter`, property by property: in the revoked area every key equal to the revoked one (exact or case-only) is dropped, expired read grants are pruned as every grant writer does, and everything else, duplicates elsewhere included, is copied unchanged. A revoke that removes nothing leaves the file byte for byte. Saves keep the strict `JsonObject` path.
+- Decision: `list_grants` row order is stored read grants, then live `once` grants, then write grants, each sorted by key, so existing read-grant output is unchanged. The `settingsInvalid` advice names `--revoke --write` for notebook duplicates, `--revoke --read-section` for section duplicates, and both when both areas have them.
+- Decision: `UninstallCommand` takes the running-servers probe and the settings lock as required constructor arguments (`UninstallCommand.OtherServerProcesses`, `UninstallCommand.SettingsLock(path)` in `Program.cs`, fakes in tests). The warning is printed with `--yes` too (before the removal, where there is no question). With no settings files to remove, the lock isn't taken.
+- Decision: after the dialog, if the paused deadline has nothing left, the pipeline cancels it at once rather than re-arming a zero-length timer, so the re-check and lock wait see it expired.
+- Decision (not in the plan, found while verifying): `SettingsWriter` now retries `File.Replace` up to 4 times, 50 ms apart, on `IOException`, still inside the settings mutex. Back-to-back grant saves in the unit tests intermittently failed with "Unable to remove the file to be replaced" (a scanner holding the just-written file); the same can hit a user who grants twice quickly. It is a file-system retry, not a OneNote write retry (AD-7/AD-17 unaffected).
+- Small additions: `grant --write`'s success line now names `grant --revoke --write "<name>"`, as the read grant's does; `create_page`'s and `list_grants`' tool descriptions mention the dialog and the `writeNotebook` rows (descriptions aren't in `tool-contract.json`, which is unchanged).
+- Verification (2026-11-11): `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings; `dotnet test tests/OneNoteMcp.Tests` 1496 passed, run 8 times in a row with no failure after the `File.Replace` retry. No integration tests and nothing touching OneNote/COM were run (lane constraint); the live manual checks are still open.
+- Decision (review fix): a write revoke never touches the permanent-delete grant (the Never list keeps it to epic 5). `grant --revoke --write` offers only entries with `write: true`. `SettingsWriter.RevokeWriteGrant` drops every entry equal to the key as before, except that when any of them has `"permanentDelete": true`, the first such entry is written back under its own key spelling with `"write": false` and every other member copied, so exactly one entry with that key remains and the file is valid. The read-grant revoke is unchanged.
+- Review fixes: `uninstall --purge` lists `settings.json` and its temp files again under the settings mutex (taken whenever the settings folder exists), so a file a running server created during the question goes too. `ReplaceWithRetry` (bug 2.15) now tries about half a second (10 x 50 ms) and, after a replace that removed the target and failed (1176), moves the temp file into place; `Write` never deletes the temp file when `settings.json` is gone. `OneNoteMcp.Core` gains `InternalsVisibleTo` for the unit tests, for that seam.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Quick lens (review loop 0). Findings were relayed by the team lead.
+
+| # | Finding | Verdict | Route | Evidence |
+|---|---|---|---|---|
+| 1 | Purge lists the settings files before the question, so a settings.json created meanwhile survives and purge reports success | medium | patch | `UninstallCommand.Plan` fills `SettingsFiles` before the prompt; `Run` deletes only that list and skips the lock when it's empty. The dialog's `SaveWriteGrant` can create the file during the prompt. |
+| 2 | `grant --revoke --write` matches entries with `write: false` and deletes `permanentDelete` | medium | patch | `RevokeWriteAsync` builds its candidates from `NotebookEntries` with no `Write` filter; `Revoke` drops the whole entry. The plan's Never list leaves the permanent-delete grant out of 2.6, and `SaveWriteGrant` keeps it. |
+| 3 | A failed `File.Replace` (1176) can lose settings.json, and the retry window is shorter than bug 2.15's | medium | patch | With no backup name, ReplaceFile's ERROR_UNABLE_TO_MOVE_REPLACEMENT leaves the target deleted and the new content in temp. Each retry then throws, and `Write`'s catch deletes temp. The single-attempt path had the same loss before 2.6. |
+| 4 | The `ToolCallContext.Prompt` doc says read grants only | low | patch | `ToolCallContext.cs:9`. The prompt now also drives the AD-6 dialog. |
+| 5 | Plan dates 2026-11-12 are "future" | false | rejected | Phill's answers came in on 2026-11-12 UTC (team lead). |

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using OneNoteMcp.Core.UseCases;
+using OneNoteMcp.Server.Grants;
 
 namespace OneNoteMcp.Server.Tools;
 
@@ -26,7 +27,7 @@ public sealed class CreatePageTool(ToolRunner runner, CreatePageUseCase useCase)
     [Description(
         "Writes to OneNote: adds an empty page at the end of a section and returns its ID in meta.pageId. Call it only when the user asks for a new page. "
         + "Each call adds another page; it is never undone automatically. "
-        + "The section's notebook needs the user's write grant: without one the call fails with WriteNotGranted, and only the user can grant it (never run the grant command yourself). "
+        + "The section's notebook needs the user's write grant. Without one, the user may be shown a dialog asking them to type the notebook's name to grant it; if they don't, or the client can't show it, the call fails with WriteNotGranted, and only the user can grant it (never run the grant command yourself). "
         + "An ID that isn't a section, or a section in the recycle bin, fails with ObjectNotFound; a locked section fails with SectionLocked. "
         + "If the call fails with outcomeUnknown: true, the page may or may not exist: re-read the section's pages before trying again. "
         + "Success: {ok:true, meta:{correlationId, pageId}, warnings:[]}. "
@@ -36,11 +37,13 @@ public sealed class CreatePageTool(ToolRunner runner, CreatePageUseCase useCase)
         [Description("The new page's layout: blankPageWithTitle (an empty page with a title line; the default), blankPageNoTitle (no title line), or default (the section's own page template, which may add content).")]
         PageStyleArgument style = PageStyleArgument.BlankPageWithTitle,
         CancellationToken cancellationToken = default,
+        McpServer? server = null,
         RequestContext<CallToolRequestParams>? request = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, sectionId ?? string.Empty, style.ToCore(), ct),
             cancellationToken,
+            ElicitationGrantPrompt.For(server),
             request: request);
 }

@@ -249,3 +249,15 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-reject-unknown-argument-names-plan.md`
   summary: Stories 2.9 and 2.10: `InvalidArgument`'s default `userAction` ("Call again using only the argument names the tool declares…") fits only unknown names. AD-9 also assigns `InvalidArgument` to AD-7's refusals (an Outline sent without an OE step 3 read; a `delete_page_content` target that isn't an Outline). The stories that throw those must set their own `UserAction` on the exception; `ToolErrors.From` already prefers it.
   evidence: 2.5 review (lead reviewer): `ToolErrors.cs:74`, `ToolErrors.From` line 37; spine AD-9 `InvalidArgument` row.
+
+## Story 2.6 write grants (2026-11-11)
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/story-write-grants-dialog-revoke-and-listing-plan.md`
+  summary: Next spine story: add a one-line AD-6 clarification under "How a grant is created": a name typed in the write-grant dialog that matches exactly one open notebook, but not the notebook the write targets, makes no grant and returns `WriteNotGranted` ("the name typed in the grant dialog didn't match this notebook").
+  evidence: Phill, 2026-11-12, 2.6 plan Q2 (no spine edit in 2.6). `WriteGrantDialog.AskAsync` (the key check after the single match); `CreatePageToolTests.Dialog_NotAnsweredWithThisNotebooksName_IsWriteNotGranted_Retryable_NoGrant_NoLock_NoWrite` (`Typed("Other")`).
+- source_plan: same
+  summary: Resolved: the exact duplicate grant key (2.1 D4, then 2.3 Q7, above). `grant --revoke --read-section` and `grant --revoke --write` now remove every entry equal to the key, exact or case-only, and run on a file invalid only for them; the revoke parses with duplicates allowed and writes the file back property by property, keeping everything else as it was.
+  evidence: `SettingsWriter.Revoke`; `SettingsDuplicateKeyTests` (`Writer_AnExactDuplicateSectionKey_IsRevoked_BothEntriesGone_AndTheFileIsValid` replaces `Writer_AnExactDuplicateGrantKey_RefusesTheRevoke_AndLeavesTheFile`).
+- source_plan: same
+  summary: Resolved: retro R4 (story 1.14 sweep, above). `uninstall --purge` warns with the process ID of every other running `OneNoteMcp.exe` before its question, and removes `settings.json` and its temporary files only while holding `Local\OneNoteMcp.Settings` (never across the question); a lock timeout keeps those files, says so and exits 1, and the other files are still removed.
+  evidence: `UninstallCommand.Run`, `UninstallCommand.OtherServerProcesses`, `SettingsWriter.RunLocked`; `UninstallCommandTests` (R4 section).

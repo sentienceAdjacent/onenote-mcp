@@ -22,9 +22,10 @@ public sealed class ListGrantsTool(ToolRunner runner, ListGrantsUseCase useCase)
     [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Read-only. Lists the stored grants plus this server process's live once grants, in meta.grants. No tool can create, change or remove a grant: only the user can, through a dialog or the OneNoteMcp grant command. "
-        + "Today these are read grants for password-protected sections (kind readSection): {kind, key (the section's path), name, notebookKey, idAtGrant, grantedAt, grantedVia (elicitation or cli), lifetime (once, hours or untilRevoked), status (active, sectionNotOpen or expired), expiresAt?}. "
+        + "Read grants for password-protected sections (kind readSection): {kind, key (the section's path), name, notebookKey, idAtGrant, grantedAt, grantedVia (elicitation or cli), lifetime (once, hours or untilRevoked), status (active, sectionNotOpen or expired), expiresAt?}. "
         + "A grant the user gave in the dialog with \"This section, for N minutes\" (lifetime once) is listed while its window lasts, with its expiresAt; it lives only in this server's memory and can't be revoked. "
-        + "The user revokes a stored grant with `OneNoteMcp grant --revoke --read-section \"<section name>\"`. "
+        + "Write grants for notebooks (kind writeNotebook): {kind, key (the notebook's path), name, notebookKey (the same path), idAtGrant, grantedAt, grantedVia (elicitation, cli or created), lifetime (always untilRevoked), status (active or notebookNotOpen)}. "
+        + "The user revokes a stored grant with `OneNoteMcp grant --revoke --read-section \"<section name>\"` or `OneNoteMcp grant --revoke --write \"<notebook name>\"`. "
         + "Success: {ok:true, meta:{correlationId, grants}, warnings:[]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> ListGrants(CancellationToken cancellationToken = default, RequestContext<CallToolRequestParams>? request = null) =>

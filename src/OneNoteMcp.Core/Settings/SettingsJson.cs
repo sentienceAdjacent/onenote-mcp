@@ -8,10 +8,11 @@ internal static class SettingsJson
 {
     /// <summary>
     /// The parse options. The store reads with <paramref name="allowDuplicateProperties"/> true: an exact duplicate key
-    /// is allowed, a lookup gets the last one, and inside <c>protectedSections</c> it counts like two keys that differ
-    /// only in case. The writer loads with false: it refuses a file with any duplicate key, so <c>grant --revoke</c> can't
-    /// clear an exact duplicate. Exact duplicate keys are a spec gap (AD-21 covers only keys that differ in case), so this
-    /// difference is kept, and kept visible here, until epic 2 decides it (<c>deferred-work.md</c>).
+    /// is allowed, a lookup gets the last one, and inside <c>notebooks{}</c> or <c>protectedSections{}</c> it counts like
+    /// two keys that differ only in case, which makes the file invalid (AD-6). A writer's save loads with false: it refuses
+    /// a file with any duplicate key. <c>grant --revoke</c> parses with true, since a <c>JsonObject</c> can't hold a
+    /// duplicate key, and writes the file back property by property without every entry equal to its key, exact
+    /// duplicates included (story 2.6, 2.3 plan Q7).
     /// </summary>
     internal static JsonDocumentOptions Options(bool allowDuplicateProperties) => new() { AllowDuplicateProperties = allowDuplicateProperties };
 

@@ -11,7 +11,9 @@ public sealed record WriteTarget(string NotebookId, string NotebookKey);
 /// from the ID string: a <c>GetHierarchyParent</c> chain to the first <c>one:Notebook</c>, whose <c>path</c> comes live
 /// from <c>GetHierarchy</c> and becomes the key through <see cref="GrantKeys.NotebookKey"/>. Settings are re-read at
 /// every check (AD-10). It never asks the user and never involves a read grant: a write in a password-protected section
-/// needs the write grant alone (AD-6, AD-21). Messages carry IDs only (AD-9).
+/// needs the write grant alone (AD-6, AD-21). A missing grant on a notebook with a path is <see cref="WriteGrantMissing"/>,
+/// which <see cref="Writes.WritePipeline"/> may answer with the grant dialog (<see cref="WriteGrantDialog"/>) outside the
+/// deadline. Messages carry IDs only (AD-9).
 /// </summary>
 public sealed class WriteAccess
 {
@@ -61,12 +63,37 @@ public sealed class WriteAccess
         var key = GrantKeys.NotebookKey(notebook.Path);
         if (!snapshot.Notebooks.TryGetValue(key, out var grant) || !grant.Write)
         {
-            throw new OneNoteException(
-                ErrorCode.WriteNotGranted,
-                $"Notebook {notebook.Id} has no write grant from the user.",
-                userAction: NotGrantedUserAction);
+            throw new WriteGrantMissing(notebook.Id, notebook.DisplayName, notebook.Path, key);
         }
 
         return new WriteTarget(notebook.Id, key);
     }
+
+    /// <summary>
+    /// <see cref="ErrorCode.WriteNotGranted"/> for <paramref name="notebookId"/>, saying <paramref name="why"/>, with
+    /// <see cref="NotGrantedUserAction"/>. Messages carry IDs only (AD-9).
+    /// </summary>
+    internal static OneNoteException NotGranted(string notebookId, string why) =>
+        new(ErrorCode.WriteNotGranted, $"Notebook {notebookId} has no write grant from the user: {why}", userAction: NotGrantedUserAction);
+}
+
+/// <summary>
+/// AD-7 step 1's <see cref="ErrorCode.WriteNotGranted"/> for a notebook that has a path but no write grant: the one case
+/// the write pipeline may answer with the grant dialog (AD-6). It carries the notebook as step 1 resolved it, so the
+/// dialog names it without another walk; its message and <c>userAction</c> are the plain refusal's, and carry the ID only
+/// (AD-9). Uncaught, it reaches the tool runner as an ordinary <see cref="OneNoteException"/>.
+/// </summary>
+internal sealed class WriteGrantMissing(string notebookId, string displayName, string path, string key)
+    : OneNoteException(ErrorCode.WriteNotGranted, $"Notebook {notebookId} has no write grant from the user.", userAction: WriteAccess.NotGrantedUserAction)
+{
+    public string NotebookId { get; } = notebookId;
+
+    /// <summary>The notebook's <c>nickname</c>, else its <c>name</c>; shown in the dialog only.</summary>
+    public string DisplayName { get; } = displayName;
+
+    /// <summary>The live <c>one:Notebook@path</c>; never empty.</summary>
+    public string Path { get; } = path;
+
+    /// <summary><see cref="GrantKeys.NotebookKey"/> of <see cref="Path"/>.</summary>
+    public string Key { get; } = key;
 }
