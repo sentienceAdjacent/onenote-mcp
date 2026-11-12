@@ -117,6 +117,47 @@ public sealed class PageWriteSecurityTests : IDisposable
         Assert.Single(PageWriteScan.NewFilePaths(Under(X, @"C:\p.bin"), null)); // no read grant: always new
     }
 
+    // --- The HTML stopgap -----------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("<img src=\"file:///C:/a.png\">")]
+    [InlineData("FILE://server/share/a.png")]
+    [InlineData("<a href=\"C:\\x\\a.txt\">a</a>")]
+    [InlineData("<a href=\"c:/x/a.txt\">a</a>")]
+    [InlineData("<a href='\\\\server\\share'>s</a>")]
+    [InlineData("<img src=//host/a.png>")]
+    [InlineData("<img SRC = \"\\\\?\\C:\\a.png\">")]
+    [InlineData("&#102;ile:///C:/a")]
+    [InlineData("&lt;img src=&quot;C:\\a.png&quot;&gt;")]
+    [InlineData("&amp;#102;ile:///C:/a")]
+    public void HasLocalReference_FindsFileUrlsAndLocalOrNetworkSrcHref(string text) => Assert.True(PageWriteScan.HasLocalReference(text));
+
+    [Theory]
+    [InlineData("<a href=\"https://example.invalid/a\">web</a>")]
+    [InlineData("<img src=\"https://example.invalid/a.png\">")]
+    [InlineData("my profile: settings")]
+    [InlineData("the share is \\\\server\\share")]
+    [InlineData("C:\\temp is a folder")]
+    [InlineData("<a href=\"onenote:#page\">p</a>")]
+    [InlineData("data-src=\"x\" srcset")]
+    public void HasLocalReference_LeavesOrdinaryTextAndWebLinksAlone(string text) => Assert.False(PageWriteScan.HasLocalReference(text));
+
+    [Fact]
+    public void HtmlProblems_CountsNewBlocksAndReferences_ButNotUnchangedOnesOnTheSameElement()
+    {
+        string Oe(string? id, string inner) => $"<one:OE{(id is null ? string.Empty : $" objectID=\"{id}\"")}>{inner}</one:OE>";
+        string Outline(string body) => Page($"<one:Outline objectID=\"{Y}\"><one:OEChildren>{body}</one:OEChildren></one:Outline>");
+        const string Link = "<one:T><![CDATA[<a href=\"file:///C:/a.txt\">a</a>]]></one:T>";
+        const string Block = "<one:HTMLBlock><one:Data><![CDATA[<p>x</p>]]></one:Data></one:HTMLBlock>";
+        var read = Outline(Oe(X, Link) + Block);
+
+        Assert.Equal((0, 0), PageWriteScan.HtmlProblems(read, read));
+        Assert.Equal((1, 1), PageWriteScan.HtmlProblems(read, null)); // no read grant: everything counts
+        Assert.Equal((0, 1), PageWriteScan.HtmlProblems(Outline(Oe(null, Link)), read)); // the same link on a new OE
+        Assert.Equal((1, 0), PageWriteScan.HtmlProblems(Outline(Block.Replace("x", "y", StringComparison.Ordinal)), read)); // a changed block
+        Assert.Equal((1, 0), PageWriteScan.HtmlProblems(Page($"<one:Outline><one:OEChildren>{Block}</one:OEChildren></one:Outline>"), read)); // no owner
+    }
+
     [Fact]
     public void SendsObjectId_FindsAnyObjectId()
     {
@@ -156,6 +197,112 @@ public sealed class PageWriteSecurityTests : IDisposable
 
         Assert.Equal(FilePathGate.Canonical(temp.Combine("a.txt"), out _), FilePathGate.Canonical(path, out _));
         Assert.EndsWith("a.txt", FilePathGate.Canonical(path, out _), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A scripted file system: <c>links</c> maps a path to its immediate target; every path asked about is recorded.</summary>
+    private sealed class FakeLinks(Dictionary<string, string> links) : FilePathGate.ILinkReader
+    {
+        public List<string> Asked { get; } = [];
+
+        public string? ImmediateTarget(string path)
+        {
+            Asked.Add(path);
+            return links.GetValueOrDefault(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(@"\\evil\share\loot")]
+    [InlineData(@"\??\UNC\evil\share\loot")]
+    [InlineData("//evil/share/loot")]
+    public void Canonical_AChainLocalLocalUnc_IsRefusedAtTheUncHop_WhichIsNeverTouched(string uncTarget)
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\a"] = @"C:\b",
+            [@"C:\b"] = uncTarget,
+        });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+
+        Assert.Equal(FilePathRefusal.Network, refusal);
+        Assert.Equal([@"C:\a", @"C:\b"], links.Asked);
+        Assert.DoesNotContain(links.Asked, p => p.Contains("evil", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Canonical_ADeviceHop_IsRefusedWithoutTouchingIt()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\a"] = @"\\?\GLOBALROOT\Device\Mup\evil" });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+
+        Assert.Equal(FilePathRefusal.Device, refusal);
+        Assert.Equal([@"C:\a"], links.Asked);
+    }
+
+    [Theory]
+    [InlineData(@"\foo")]
+    [InlineData("/foo")]
+    [InlineData(@"X:foo")]
+    [InlineData(@"\Device\Mup\evil\share")]
+    public void Canonical_ARootedButNotFullyQualifiedHop_IsRefused_NeverResolvedAgainstTheProcessDrive(string target)
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\a"] = target });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+
+        Assert.Equal(FilePathRefusal.NotFullyQualified, refusal);
+        Assert.Equal([@"C:\a"], links.Asked);
+    }
+
+    [Fact]
+    public void Canonical_ARelativeHop_IsStillFollowed_AgainstTheLinksFolder()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\dir\a"] = @"..\x" });
+
+        Assert.Equal(@"C:\x\y.png", FilePathGate.Canonical(@"C:\dir\a\y.png", links, out _));
+        Assert.Equal([@"C:\dir", @"C:\dir\a", @"C:\x", @"C:\x\y.png"], links.Asked);
+    }
+
+    [Fact]
+    public void Canonical_FollowsLocalHopsOneAtATime_RelativeTargetsIncluded()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\a"] = @"C:\b\c",
+            [@"C:\b"] = @"..\d", // relative to the link's folder, C:\
+            [@"C:\d\c"] = @"\??\C:\e",
+        });
+
+        Assert.Equal(@"C:\e\x.png", FilePathGate.Canonical(@"C:\a\x.png", links, out _));
+        Assert.Equal([@"C:\a", @"C:\b", @"C:\d", @"C:\d\c", @"C:\e", @"C:\e\x.png"], links.Asked);
+    }
+
+    [Fact]
+    public void Canonical_MoreThanTheHopCap_IsRefused()
+    {
+        var chain = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i <= FilePathGate.MaxLinkHops; i++)
+        {
+            chain[$@"C:\l{i}"] = $@"C:\l{i + 1}";
+        }
+
+        Assert.Null(FilePathGate.Canonical(@"C:\l0\x.png", new FakeLinks(chain), out var refusal));
+        Assert.Equal(FilePathRefusal.TooManyLinks, refusal);
+
+        chain.Remove($@"C:\l{FilePathGate.MaxLinkHops}"); // exactly the cap: allowed
+        Assert.Equal($@"C:\l{FilePathGate.MaxLinkHops}\x.png", FilePathGate.Canonical(@"C:\l0\x.png", new FakeLinks(chain), out _));
+    }
+
+    [Fact]
+    public void Canonical_ALinkCycle_IsRefused()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\a"] = @"C:\b", [@"C:\b"] = @"C:\a" });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+        Assert.Equal(FilePathRefusal.TooManyLinks, refusal);
+        Assert.True(links.Asked.Count <= FilePathGate.MaxLinkHops + 1);
     }
 
     [Fact]

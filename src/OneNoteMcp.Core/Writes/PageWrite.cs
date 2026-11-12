@@ -364,6 +364,13 @@ public sealed class UpdatePageContentWrite : PageWrite
     public const string PathUserAction =
         "Name a file by its full local path (such as C:\\folder\\file.png), never a network, device or relative path; or send the image as inline one:Data (base64).";
 
+    public const string HtmlBlockUserAction =
+        "HTML blocks can't be written yet; send the content as text (one:T) or an inline image (one:Data).";
+
+    public const string LocalReferenceUserAction =
+        "Text can't refer to a file on this PC or the network (file: URLs, or src/href with a drive, UNC or // path). "
+        + "To insert a file, use one:InsertedFile with its full local path (the user confirms it in a dialog); for an image, send it as inline one:Data (base64).";
+
     public const string ReadBackWithheldUserAction =
         "To see what OneNote kept, read the page with get_page_content, which asks the user for the section's read grant.";
 
@@ -420,12 +427,22 @@ public sealed class UpdatePageContentWrite : PageWrite
 
         await base.AuthorizeAsync(ct).ConfigureAwait(false);
 
-        if (PageWriteScan.FilePaths(xml).Count == 0)
+        var hasPaths = PageWriteScan.FilePaths(xml).Count > 0;
+        var hasHtml = PageWriteScan.HtmlProblems(xml, null) is not (0, 0);
+        if (!hasPaths && !hasHtml)
         {
             return;
         }
 
         var read = granted ? await Services.Gateway.GetPageContentAsync(PageId, PageInfo.Basic, ct).ConfigureAwait(false) : null;
+
+        // The HTML stopgap before the path dialog, so the user is never asked about a call that is refused anyway.
+        CheckHtml(read);
+        if (!hasPaths)
+        {
+            return;
+        }
+
         var unconfirmed = Unconfirmed(read);
         if (unconfirmed.Count > 0)
         {
@@ -445,6 +462,8 @@ public sealed class UpdatePageContentWrite : PageWrite
         {
             throw Refusal(problem);
         }
+
+        CheckHtml(NamesIds ? BasicXml : null);
 
         // AD-7: a path that is new against step 3's read and wasn't confirmed in step 1 (the page changed in between).
         var unconfirmed = Unconfirmed(NamesIds ? BasicXml : null);
@@ -478,6 +497,31 @@ public sealed class UpdatePageContentWrite : PageWrite
         }
     }
 
+    /// <summary>
+    /// The HTML stopgap (Phill, 2026-11-12, until the <c>html-local-ref</c> probe runs): a new or changed
+    /// <c>one:HTMLBlock</c>, or a new or changed <c>one:T</c> whose HTML holds a local or network reference
+    /// (<see cref="PageWriteScan.HasLocalReference"/>), is <see cref="ErrorCode.InvalidArgument"/>. An unchanged one on the
+    /// same existing element (against <paramref name="readXml"/>; none without a read grant) is allowed, so other edits to
+    /// such a page still work. Messages give counts only.
+    /// </summary>
+    private void CheckHtml(string? readXml)
+    {
+        var (blocks, references) = PageWriteScan.HtmlProblems(xml, readXml);
+        if (blocks > 0)
+        {
+            throw Invalid(
+                string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} sends {blocks} new or changed one:HTMLBlock element(s), which page writes don't accept yet, so nothing was written."),
+                HtmlBlockUserAction);
+        }
+
+        if (references > 0)
+        {
+            throw Invalid(
+                string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} has {references} new or changed text(s) whose HTML refers to a local or network file (a file: URL, or a src or href naming a drive, UNC or // path), so nothing was written."),
+                LocalReferenceUserAction);
+        }
+    }
+
     /// <summary>The canonical forms of the new paths not yet confirmed in this call; a network, device or relative path is refused.</summary>
     private List<string> Unconfirmed(string? readXml)
     {
@@ -501,6 +545,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         FilePathRefusal.Network => "on the network (a UNC path, a mapped network drive, or a link to one)",
         FilePathRefusal.Device => "a device path",
         FilePathRefusal.InvalidCharacters => "written with control, invisible or wildcard characters",
+        FilePathRefusal.TooManyLinks => "reached through too many links or junctions (or a loop of them)",
         _ => "not a full local path such as C:\\folder\\file.png",
     };
 

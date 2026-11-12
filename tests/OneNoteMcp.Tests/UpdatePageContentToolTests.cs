@@ -505,23 +505,76 @@ public sealed class UpdatePageContentToolTests : IDisposable
         Assert.Single(gateway.UpdateCalls);
     }
 
-    [Fact]
-    public async Task AnHtmlBlockFilePath_InAProtectedSectionWithoutAReadGrant_NeedsTheDialog()
+    // --- The HTML stopgap (Phill, 2026-11-12, until the html-local-ref probe runs) ---------------------------------------
+
+    public static TheoryData<string> HtmlBlocks =>
+    [
+        "<one:HTMLBlock><one:File path=\"C:\\x\\block.html\" /></one:HTMLBlock>",
+        "<one:HTMLBlock><one:Data><![CDATA[<p>hello</p>]]></one:Data></one:HTMLBlock>",
+    ];
+
+    [Theory]
+    [MemberData(nameof(HtmlBlocks))]
+    public async Task AnHtmlBlock_IsInvalidArgument_BeforeAnyPathDialog_InAProtectedSectionToo(string block)
     {
-        var path = temp.Combine("block.html");
-        var sent = Sent($"<one:Outline><one:OEChildren><one:HTMLBlock><one:File path=\"{path}\" /></one:HTMLBlock></one:OEChildren></one:Outline>", VaultPageId);
+        foreach (var page in new[] { PageId, VaultPageId })
+        {
+            var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
+            var sent = Sent($"<one:Outline><one:OEChildren>{block}</one:OEChildren></one:Outline>", page);
 
-        var refused = await Assert.ThrowsAsync<FilePathsUnconfirmed>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, null, Ct));
+            var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), page, sent, null, null, Ct));
 
-        Assert.False(refused.Retryable);
-        Assert.Equal(FilePathsUnconfirmed.NoDialogUserAction, refused.UserAction);
+            Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+            Assert.Equal(UpdatePageContentWrite.HtmlBlockUserAction, ex.UserAction);
+            Assert.DoesNotContain("hello", ex.Message, StringComparison.Ordinal);
+            Assert.Empty(prompt.Order);
+            await AssertRefusedAsync();
+        }
+    }
+
+    public static TheoryData<string> LocalReferences =>
+    [
+        "<img src=\"file:///C:/x/a.png\">",
+        "<a href=\"C:\\x\\notes.txt\">notes</a>",
+        "<a href='\\\\server\\share\\a.txt'>s</a>",
+        "<img src=//host/a.png>",
+        "<span>see &#102;ile:///C:/x</span>",
+    ];
+
+    [Theory]
+    [MemberData(nameof(LocalReferences))]
+    public async Task ATextWithALocalReference_IsInvalidArgument_WithThePathDialogRouteOrInlineData(string html)
+    {
+        var sent = Sent($"<one:Outline><one:OEChildren><one:OE><one:T><![CDATA[{html}]]></one:T></one:OE></one:OEChildren></one:Outline>");
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), PageId, sent, null, null, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Equal(UpdatePageContentWrite.LocalReferenceUserAction, ex.UserAction);
+        Assert.DoesNotContain("C:", ex.Message.Replace(PageId, string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
         await AssertRefusedAsync();
+    }
 
-        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
-        await UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), VaultPageId, sent, null, null, Ct);
+    [Fact]
+    public async Task AnExistingTextWithALocalLink_SentBackUnchanged_IsAllowed_SoOtherEditsStillWork()
+    {
+        // OE 41 already links to a local file; the caller edits OE 42 in the same Outline and resends 41 unchanged.
+        var withLink = After(p => p.Descendants().Single(e => (string?)e.Attribute("objectID") == G(41)).Element(One + "T")!
+            .ReplaceNodes(new XCData("<a href=\"file:///C:/x/notes.txt\">notes</a>")));
+        gateway.Pages[PageId] = withLink;
+        var sent = Sent(OutlineOf(withLink, 40));
+        var edited = XElement.Parse(sent);
+        edited.Descendants().Single(e => (string?)e.Attribute("objectID") == G(42)).Element(One + "T")!.Value = "edited";
 
-        Assert.Equal([FilePathGate.Canonical(path, out _)!], Assert.Single(prompt.FileQuestions).Paths);
+        await UseCase().ExecuteAsync(new ToolCallContext("c"), PageId, edited.ToString(), null, null, Ct);
+
         Assert.Single(gateway.UpdateCalls);
+
+        // The same link, newly added on another OE, is refused.
+        var added = XElement.Parse(sent);
+        added.Descendants().Single(e => (string?)e.Attribute("objectID") == G(42)).Element(One + "T")!.ReplaceNodes(new XCData("<a href=\"file:///C:/x/notes.txt\">n</a>"));
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), PageId, added.ToString(), null, null, Ct));
+        Assert.Equal(UpdatePageContentWrite.LocalReferenceUserAction, ex.UserAction);
     }
 
     [Fact]
