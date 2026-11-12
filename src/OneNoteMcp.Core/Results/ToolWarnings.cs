@@ -41,6 +41,13 @@ public static class ToolWarnings
     /// </summary>
     public const string SettingsInvalid = "settingsInvalid";
 
+    /// <summary>
+    /// A page write in a password-protected section with no read grant: the read-back ran, but what OneNote kept, and a
+    /// basis for the next write, are withheld from the result (AD-7, AD-21). Count-free; the counts-only
+    /// <c>readBackDiffers</c> and <c>imageLost</c> warnings may come with it.
+    /// </summary>
+    public const string ReadBackWithheld = "readBackWithheld";
+
     /// <summary>A write ran without a basis, so it was checked against the page as it was just read, not as the caller last read it (AD-17).</summary>
     public const string NoBasis = "noBasis";
 

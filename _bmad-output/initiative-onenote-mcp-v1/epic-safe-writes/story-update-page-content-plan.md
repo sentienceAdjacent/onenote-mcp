@@ -137,6 +137,16 @@ context:
   - `[low]` `[patch]` `SchemaValidation.Problems`/`SchemaPlaces`: the `InvalidXml` message prefixed every element with `one:`, even one in another namespace — `one:` only for the 2013 namespace, otherwise the local name and "(not in the OneNote 2013 namespace)".
   - `[low]` `[defer]` `ComGatewayLifecycleTests.AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked` failed once in a full run (expected 0, actual 1) and passed on reruns — pre-existing timing test, `ComGateway` not in this diff; logged in deferred-work.
 
+### 2026-11-12 — Review pass 2 (quick lens, the security-review delta since `7d172f4`)
+- verdicts: 6 findings — high 0, medium 2, low 2, false 0, maybe-false 2
+- findings:
+  - `[low]` `[patch]` `WritePipeline` step-1 loop: a path that became new on step 1's rerun after the dialog (the page changed while the user decided) escaped as the no-dialog refusal (`retryable: false`, `NoDialogUserAction`) — after a confirmation, a newly new path is now `WriteNotGranted`, retryable, with `ChangedUserAction`; test added.
+  - `[medium]` `[patch]` `FilePathGate`: a path with control characters, line or paragraph separators, bidi or zero-width formatting characters, or `< > " | ? *` reached the dialog verbatim, so the model could add lines to it or disguise a path — refused as `InvalidArgument` (`FilePathRefusal.InvalidCharacters`) before canonicalisation; tests added.
+  - `[maybe-false]` `[defer]` `pathCache` gated by exact value: if it churns between reads (story 1.17 saw it; spike 2.2 didn't in 20 reads), resending an Outline with an attachment unchanged raises the dialog on a cache path, and fails on a client without elicitation. Would be medium; the follow-up live check ("resending … raises no dialog") settles it. Logged in deferred-work.
+  - `[maybe-false]` `[defer]` `one:HTMLBlock` `one:Data` (an HTML string) is never scanned: if OneNote's HTML import fetches a local `src`, that copies a file into the notebook without the dialog. Would be high; needs a live probe (an `HTMLBlock` with `<img src="file:///…">` on MCP Test) or a refusal of `HTMLBlock` data. Logged in deferred-work and raised with the team lead.
+  - `[low]` `[patch]` `FilePathGate.ResolveLinks` kept resolving segments under a link that led to a UNC or device path before refusing it, touching the network host — it now stops at that link and the result is refused.
+  - `[low]` `[patch]` cosmetic: `var self =await` spacing in `PageWrite.ReadAsync`; an invisible U+FEFF literal in `OneNoteXml.HasDoctype` (now a named constant).
+
 ## Design Notes
 
 - Positional read-back: inside a matched sent Outline, OE lists are walked in order at each level. A sent OE without an `objectID` is new, so only its sent attributes are compared; a sent ID that comes back different is `readBackDiffers` with both IDs. A count mismatch is one `readBackDiffers` on the Outline.
@@ -157,3 +167,24 @@ context:
 - A `quickStyleIndex` change on an existing OE returns `readBackDiffers`.
 - An edit in MCP Test's protected section with only the write grant: no dialog, `ok`, and a refusal names no `objectID`.
 - Stress harness on MCP Test: 0 mismatches (the hash change touches read bases).
+
+**Live sitting (2026-11-12, team lead with Phill, the build at `7d172f4`): all passed.**
+- `UpdatePageContentIntegrationTests` on MCP Test, 3/3: a fresh edit plus a chained `meta.basis` edit; a stale basis gives `StaleWrite`; one journal entry per write. Merged-table probe: "RESULT merge kept: AD-4 needs no amendment" (Q6).
+- From Phill's dev session: an edit, then a second edit from the returned `meta.basis`, both ok. A `quickStyleIndex` change was ok with `readBackDiffers`.
+- In Ballast Vault (unlocked, no read grant): `create_page`, then `update_page_content` adding a new Outline, was ok with `noBasis` and no dialog.
+- Stress harness on MCP Test (2.9 build): 675 comparisons, 0 mismatches.
+- Observations: the page-level `lastModifiedTime` didn't advance on a page that wasn't displayed (the known quirk), but hash chaining worked. In the protected no-read-grant case the result had no `meta.basis` and no read-back warning at all; follow-up item 4 below adds `readBackWithheld`.
+
+**Follow-up checks for the security-review build (live, with Phill, not run here):**
+- File-path dialog from Claude Code on an MCP Test page: an `InsertedFile` with a new local `pathSource` raises one accept/decline dialog naming the canonical path; accept writes it, decline gives `WriteNotGranted` (retryable) with nothing written. A UNC path is `InvalidArgument` with no dialog. Resending the page with that file unchanged raises no dialog.
+- In Ballast Vault without a read grant: a write carrying an `elementHashes` entry, or an existing `objectID`, gives `ReadNotGranted` with no dialog; a new Outline with a date-only basis is ok with `readBackWithheld` and no `meta.basis`.
+
+## Follow-up: story 2.9 security review (Phill, 2026-11-12; spine wording by story 5.2, commit `9a33dfa`, refined by the 5.2 Fable re-check)
+
+Implemented after the live sitting, as decided by Phill and relayed by the team lead; this section records the scope, not a change to the frozen intent.
+1. **DOCTYPE (AD-16):** sent XML with a DOCTYPE is `InvalidXml`, first thing in step 1 and again in the step-4 gate; every parse of OneNote XML (`OneNoteXml.Load`, `SchemaValidation.Problems`, the scans) prohibits DTD processing with no resolver. Broken XML is also refused in step 1 (position only).
+2. **Date-only basis without a read grant (AD-17):** in a protected section with no read grant at the call's start (never prompting), any element hash (`pageHash` included), any `objectID` attribute in the XML, or any `removeObjectIds` entry is `ReadNotGranted` before the page is read, with `ReadFirstUserAction`. Checked in step 1 and again in step 3 before the page read.
+3. **User-gated file paths (AD-7):** a path is any `path` or `pathSource` attribute on any element, which covers `one:File@path` under each of its five XSD parents (`one:Image`, `one:InkDrawing`, `one:InkWord`, `one:XPSFile`, `one:HTMLBlock`), and `pathCache` on `one:InsertedFile`/`one:MediaFile` (gated, not stripped). It is exempt only when sent unchanged, with the same attribute, on the same existing element (same owner `objectID`; a `one:File`'s owner is its parent); every path on an element without an `objectID` is new, and without a read grant every path is new. New paths are made canonical (`GetFullPath`, links and junctions resolved); network (UNC, mapped network drive, or a link to one), device and anything not fully qualified (relative, drive-relative, URLs) are `InvalidArgument` with no dialog. The rest go to one accept/decline elicitation dialog naming each canonical path (nothing to type; AD-6's Limits apply, so a client-side hook could answer it). A client without elicitation, or no prompt, is `WriteNotGranted` with `retryable: false` and `NoDialogUserAction`; a decline or cancel is `WriteNotGranted`, retryable. Step 4 refuses any new path not confirmed in step 1 (`WriteNotGranted`, retryable).
+4. **`readBackWithheld`:** in the protected no-read-grant case the read-back adds one count-free `readBackWithheld` warning (with any counts-only `readBackDiffers`/`imageLost`), and no `meta.basis`.
+- **Step-1 order:** parse with DTDs prohibited → the no-prompt read-grant check → the write grant (and its dialog) → the file paths (and their dialog), so the user is never asked anything for a call that would fail anyway.
+- Files: `src/OneNoteMcp.Xml/OneNoteXml.cs` (`Load`, `HasDoctype`), `SchemaValidation.cs` (`SchemaProblem.IsDoctype`), new `PageWriteScan.cs`; `src/OneNoteMcp.Core/Writes/FilePathGate.cs`, `PageWrite.cs`, `WritePipeline.cs` (step-1 dialog loop); `src/OneNoteMcp.Core/Access/FilePathDialog.cs` (`FilePathsUnconfirmed`, `FilePathDialog`), `GrantPrompt.cs` (`AskFilePathsAsync`, `FilePathQuestion`); `src/OneNoteMcp.Core/Results/ToolWarnings.cs`; `src/OneNoteMcp.Server/Grants/ElicitationGrantPrompt.cs`; `UpdatePageContentTool.cs` (description). Tests: `PageWriteSecurityTests.cs` (new), `UpdatePageContentToolTests.cs`, `ProtectedSectionKit.cs` (`FakePrompt` path dialog).

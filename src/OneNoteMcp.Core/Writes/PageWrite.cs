@@ -101,6 +101,11 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
         }
 
         NamesIds = Services.ReadAccess.HoldsReadGrant(section, callStart);
+        if (!NamesIds)
+        {
+            // Before the page is read (AD-17 as amended by 5.2): checked again here, under the lock.
+            CheckWithoutReadGrant(section.Id);
+        }
 
         var self = await Services.Gateway.GetHierarchyAsync(PageId, HierarchyScope.Self, ct).ConfigureAwait(false);
         page = XmlReads.Readable(() => HierarchyNode.Root(self), "GetHierarchy");
@@ -115,6 +120,26 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
         }
 
         basicXml = await Services.Gateway.GetPageContentAsync(PageId, PageInfo.Basic, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The no-prompt read-grant check before the page is read (Phill, 2026-11-12, story 2.9 security review; AD-17 as
+    /// amended by 5.2): in a protected section with no read grant at the call's start, it throws
+    /// <see cref="ErrorCode.ReadNotGranted"/> for anything a write-grant-only caller could use as an oracle. Nothing to
+    /// check by default.
+    /// </summary>
+    protected virtual void CheckWithoutReadGrant(string sectionId)
+    {
+    }
+
+    /// <summary>
+    /// Step 1's view of the read grant, before the page is read: true when the page's section isn't protected or a grant
+    /// covered it at the call's start; also true when the walk finds no section (step 3 refuses that). Never asks.
+    /// </summary>
+    protected async Task<(bool Granted, string? SectionId)> ReadGrantAtStartAsync(CancellationToken ct)
+    {
+        var owner = await new HierarchyWalk(Services.Gateway).OwningSectionAsync(PageId, ct).ConfigureAwait(false);
+        return (owner is null || Services.ReadAccess.HoldsReadGrant(owner, callStart), owner?.Id);
     }
 
     public override Task SnapshotAsync(CancellationToken ct) =>
@@ -215,6 +240,19 @@ public sealed class UpdatePageContentWrite : PageWrite
     public const string NoBasisUserAction =
         "Pass meta.basis from get_page_content (or from the previous update_page_content) unchanged as basis, so a change made since your read is caught.";
 
+    public const string ReadFirstUserAction =
+        "Read the page with get_page_content first: that asks the user for the section's read grant. Then write with its meta.basis. "
+        + "Without that grant, a write here may carry only basis.lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds.";
+
+    public const string PathUserAction =
+        "Name a file by its full local path (such as C:\\folder\\file.png), never a network, device or relative path; or send the image as inline one:Data (base64).";
+
+    public const string ReadBackWithheldUserAction =
+        "To see what OneNote kept, read the page with get_page_content, which asks the user for the section's read grant.";
+
+    public const string DoctypeUserAction =
+        "Send the page XML without a <!DOCTYPE ...> declaration, starting at the one:Page root as get_page_content returns it.";
+
     public const string ReadBackUserAction =
         "Re-read the page (get_page_content) to see what OneNote kept. OneNote ignores some edits, such as a changed quickStyleIndex on an existing OE.";
 
@@ -222,6 +260,7 @@ public sealed class UpdatePageContentWrite : PageWrite
     private readonly PageWriteBasis? basis;
     private readonly IReadOnlyList<string> removeObjectIds;
     private readonly List<ToolWarning> warnings = [];
+    private readonly HashSet<string> confirmedPaths = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<string> hashTargets = [];
     private string? expectedLastModified;
 
@@ -241,6 +280,48 @@ public sealed class UpdatePageContentWrite : PageWrite
         this.removeObjectIds = [.. (removeObjectIds ?? []).Select(id => id ?? string.Empty)];
     }
 
+    /// <summary>
+    /// Step 1, in the order the 5.2 re-check sets (Phill, 2026-11-12), so the user is never asked to confirm anything for
+    /// a call that will fail anyway: the sent XML parsed with DTDs prohibited (a DOCTYPE or broken XML is
+    /// <see cref="ErrorCode.InvalidXml"/>); the no-prompt read-grant check (<see cref="CheckWithoutReadGrant"/>); the
+    /// notebook's write grant (which may raise the grant dialog); then the file paths: each new one canonical and local
+    /// (else <see cref="ErrorCode.InvalidArgument"/>), and any the user hasn't confirmed in this call is
+    /// <see cref="FilePathsUnconfirmed"/>, which raises the file-path dialog. The page is read here only when the XML
+    /// names a path and a read grant holds; without one every path is new.
+    /// </summary>
+    public override async Task AuthorizeAsync(CancellationToken ct)
+    {
+        if (PageWriteScan.ParseProblem(xml) is { } parse)
+        {
+            throw Refusal(new PageWriteProblem(PageWriteProblemKind.InvalidXml, [], [parse]));
+        }
+
+        var (granted, sectionId) = await ReadGrantAtStartAsync(ct).ConfigureAwait(false);
+        if (!granted)
+        {
+            CheckWithoutReadGrant(sectionId ?? string.Empty);
+        }
+
+        await base.AuthorizeAsync(ct).ConfigureAwait(false);
+
+        if (PageWriteScan.FilePaths(xml).Count == 0)
+        {
+            return;
+        }
+
+        var read = granted ? await Services.Gateway.GetPageContentAsync(PageId, PageInfo.Basic, ct).ConfigureAwait(false) : null;
+        var unconfirmed = Unconfirmed(read);
+        if (unconfirmed.Count > 0)
+        {
+            var refusal = new FilePathsUnconfirmed(PageId, unconfirmed, () => confirmedPaths.UnionWith(unconfirmed));
+
+            // After a confirmation, a path that is new now means the page changed meanwhile: retryable, not "no dialog".
+            throw confirmedPaths.Count > 0
+                ? refusal.Because("the page changed while the user was deciding", unsupported: false, FilePathsUnconfirmed.ChangedUserAction)
+                : refusal;
+        }
+    }
+
     public override void Validate()
     {
         var validation = XmlReads.Readable(() => PageWriteCheck.Validate(xml, PageId, BasicXml, removeObjectIds), $"GetPageContent({PageId})");
@@ -249,8 +330,63 @@ public sealed class UpdatePageContentWrite : PageWrite
             throw Refusal(problem);
         }
 
+        // AD-7: a path that is new against step 3's read and wasn't confirmed in step 1 (the page changed in between).
+        var unconfirmed = Unconfirmed(NamesIds ? BasicXml : null);
+        if (unconfirmed.Count > 0)
+        {
+            throw new OneNoteException(
+                ErrorCode.WriteNotGranted,
+                string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} names {unconfirmed.Count} new file path(s) the user didn't confirm in this call, so nothing was written."),
+                userAction: "Re-read the page and retry: the user is asked to confirm each new file path. Or send the image as inline one:Data (base64) instead.",
+                retryable: true);
+        }
+
         hashTargets = validation.HashTargets;
     }
+
+    /// <summary>
+    /// AD-17 as amended by 5.2 (Phill, 2026-11-12, story 2.9 security review): without a read grant, a write may carry only
+    /// a basis date and new content. Any element hash (<c>pageHash</c> included), any <c>objectID</c> in the XML, or any
+    /// <c>removeObjectIds</c> entry is <see cref="ErrorCode.ReadNotGranted"/>, before the page is read: "existing" can't be
+    /// tested then, and each would be an oracle. The message names the section's ID only (AD-21).
+    /// </summary>
+    protected override void CheckWithoutReadGrant(string sectionId)
+    {
+        var hashes = basis is { PageHash: not null } || basis?.ElementHashes is { Count: > 0 };
+        if (hashes || removeObjectIds.Count > 0 || PageWriteScan.SendsObjectId(xml))
+        {
+            throw new OneNoteException(
+                ErrorCode.ReadNotGranted,
+                $"Section {sectionId} is password-protected and has no read grant, so a write to it may carry only a basis lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds. Nothing was written.",
+                userAction: ReadFirstUserAction);
+        }
+    }
+
+    /// <summary>The canonical forms of the new paths not yet confirmed in this call; a network, device or relative path is refused.</summary>
+    private List<string> Unconfirmed(string? readXml)
+    {
+        var unconfirmed = new List<string>();
+        foreach (var path in PageWriteScan.NewFilePaths(xml, readXml))
+        {
+            var canonical = FilePathGate.Canonical(path.Value, out var refusal) ?? throw Invalid(
+                $"The XML for page {PageId} names a file path that is {Describe(refusal)}, which page writes never read, so nothing was written.",
+                PathUserAction);
+            if (!confirmedPaths.Contains(canonical) && !unconfirmed.Contains(canonical, StringComparer.OrdinalIgnoreCase))
+            {
+                unconfirmed.Add(canonical);
+            }
+        }
+
+        return unconfirmed;
+    }
+
+    private static string Describe(FilePathRefusal refusal) => refusal switch
+    {
+        FilePathRefusal.Network => "on the network (a UNC path, a mapped network drive, or a link to one)",
+        FilePathRefusal.Device => "a device path",
+        FilePathRefusal.InvalidCharacters => "written with control, invisible or wildcard characters",
+        _ => "not a full local path such as C:\\folder\\file.png",
+    };
 
     public override Task CheckBasisAsync(CancellationToken ct)
     {
@@ -342,7 +478,16 @@ public sealed class UpdatePageContentWrite : PageWrite
         ArgumentNullException.ThrowIfNull(result);
         var after = await Services.Gateway.GetPageContentAsync(PageId, PageInfo.Basic, ct).ConfigureAwait(false);
         var diffs = XmlReads.Readable(() => PageWriteCheck.CompareReadBack(xml, after, BasicXml), $"GetPageContent({PageId})");
-        var afterBasis = NamesIds ? PageBasisResult.From(XmlReads.Readable(() => PageBasis.From(after), $"GetPageContent({PageId})")) : null;
+        if (!NamesIds)
+        {
+            // No read grant: no basis, and the read-back's details stay inside the server; one count-free warning says so.
+            return new PageWriteResult(null, [.. result.Warnings, .. ReadBackWarnings(diffs), new ToolWarning(
+                ToolWarnings.ReadBackWithheld,
+                $"The write to page {PageId} was checked after it was made, but the section has no read grant, so what OneNote kept and a basis for the next write are withheld.",
+                ReadBackWithheldUserAction)]);
+        }
+
+        var afterBasis = PageBasisResult.From(XmlReads.Readable(() => PageBasis.From(after), $"GetPageContent({PageId})"));
         return new PageWriteResult(afterBasis, [.. result.Warnings, .. ReadBackWarnings(diffs)]);
     }
 
@@ -446,6 +591,10 @@ public sealed class UpdatePageContentWrite : PageWrite
         string N(int n) => n.ToString(CultureInfo.InvariantCulture);
         return problem.Kind switch
         {
+            PageWriteProblemKind.InvalidXml when problem.Schema is [{ IsDoctype: true }, ..] => new OneNoteException(
+                ErrorCode.InvalidXml,
+                $"The XML for page {PageId} has a DOCTYPE, which page writes never accept, so nothing was written.",
+                userAction: DoctypeUserAction),
             PageWriteProblemKind.InvalidXml => new OneNoteException(
                 ErrorCode.InvalidXml,
                 $"The XML for page {PageId} doesn't match the OneNote 2013 schema at {SchemaPlaces(problem.Schema ?? [])}, so nothing was written."),

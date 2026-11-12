@@ -301,34 +301,313 @@ public sealed class UpdatePageContentToolTests : IDisposable
     }
 
     [Fact]
-    public async Task ProtectedWithoutAReadGrant_IsOk_NeverAsks_AndNamesNothingInsideThePage()
+    public async Task ProtectedWithoutAReadGrant_IsOk_NeverAsks_NamesNothingInsideThePage_AndSaysTheReadBackIsWithheld()
     {
         var prompt = new FakePrompt();
-        var sent = Sent(OutlineAsRead(40, o => o.Descendants(One + "OE").First().SetAttributeValue("quickStyleIndex", "0")), VaultPageId);
+        var sent = Sent(NewOutline("alignment=\"right\""), VaultPageId);
+        VaultAfterWrite(p => p.Add(new XElement(One + "Outline", new XAttribute("objectID", G(60)), new XElement(One + "OEChildren",
+            new XElement(One + "OE", new XAttribute("objectID", G(61)), new XElement(One + "T", "new"))))));
 
         var success = await UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), VaultPageId, sent, null, null, Ct);
 
-        Assert.Empty(prompt.Questions);
+        Assert.Empty(prompt.Order);
         Assert.Null(success.Meta.Basis);
-        Assert.Equal(["noBasis", "readBackDiffers"], success.Warnings.Select(w => w.Code));
+        Assert.Equal(["noBasis", "readBackDiffers", "readBackWithheld"], success.Warnings.Select(w => w.Code));
         Assert.All(success.Warnings, w => Assert.DoesNotContain("{B0}", w.Message, StringComparison.Ordinal));
         Assert.Contains("1 attribute(s)", success.Warnings[1].Message, StringComparison.Ordinal);
+        Assert.DoesNotMatch("[0-9]", success.Warnings[2].Message.Replace(VaultPageId, string.Empty, StringComparison.Ordinal));
         Assert.Single(gateway.UpdateCalls);
         await AssertLockFreeAsync();
     }
 
     [Fact]
-    public async Task ProtectedWithoutAReadGrant_ARefusal_CarriesCountsOnly()
+    public async Task ProtectedWithoutAReadGrant_AReadBackWithNoDifference_StillSaysItIsWithheld()
     {
-        var sent = Sent(OutlineAsRead(40, o => Drop(o, 42)), VaultPageId);
+        var sent = Sent(NewOutline(string.Empty), VaultPageId);
+        VaultAfterWrite(p => p.Add(new XElement(One + "Outline", new XAttribute("objectID", G(60)), new XElement(One + "OEChildren",
+            new XElement(One + "OE", new XAttribute("objectID", G(61)), new XElement(One + "T", "new"))))));
 
-        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, null, Ct));
+        var success = await UseCase().ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, new PageWriteBasis(ReadDate), null, Ct);
+
+        Assert.Equal(["readBackWithheld"], success.Warnings.Select(w => w.Code));
+        Assert.Null(success.Meta.Basis);
+    }
+
+    // --- Date-only basis without a read grant (AD-17 as amended by 5.2; Phill, 2026-11-12, story 2.9 security review) --
+
+    public static TheoryData<string> OraclesWithoutAReadGrant => ["existing objectID", "element hash", "pageHash", "removeObjectIds", "objectID on a new element"];
+
+    [Theory]
+    [MemberData(nameof(OraclesWithoutAReadGrant))]
+    public async Task ProtectedWithoutAReadGrant_AnyHashObjectIdOrRemoval_IsReadNotGranted_BeforeThePageIsRead(string oracle)
+    {
+        var prompt = new FakePrompt();
+        var (xml, basis, remove) = oracle switch
+        {
+            "existing objectID" => (Sent(OutlineAsRead(40), VaultPageId), (PageWriteBasis?)null, (IReadOnlyList<string>?)null),
+            "element hash" => (Sent(NewOutline(string.Empty), VaultPageId), new PageWriteBasis(ReadDate, ElementHashes: new Dictionary<string, string> { [G(40)] = "00" }), null),
+            "pageHash" => (Sent(NewOutline(string.Empty), VaultPageId), new PageWriteBasis(ReadDate, PageHash: "00"), null),
+            "removeObjectIds" => (Sent(NewOutline(string.Empty), VaultPageId), null, [G(42)]),
+            _ => (Sent($"<one:Outline objectID=\"{G(99)}\"><one:OEChildren><one:OE><one:T>new</one:T></one:OE></one:OEChildren></one:Outline>", VaultPageId), null, null),
+        };
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), VaultPageId, xml, basis, remove, Ct));
+
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.Equal(UpdatePageContentWrite.ReadFirstUserAction, ex.UserAction);
+        Assert.Contains(ProtectedId, ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("{5E9", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(gateway.PageCalls);
+        Assert.Empty(prompt.Order);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ProtectedWithAStoredReadGrant_MayCarryHashesAndObjectIds()
+    {
+        GrantVaultRead();
+        var sent = Sent(OutlineAsRead(40), VaultPageId);
+
+        var success = await UseCase().ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, [], Ct);
+
+        Assert.Single(gateway.UpdateCalls);
+        Assert.DoesNotContain("readBackWithheld", success.Warnings.Select(w => w.Code));
+    }
+
+    // --- DOCTYPE (AD-16 as amended by 5.2) -------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ADoctype_IsInvalidXml_BeforeAnyOtherCheck_AndNoEntityIsExpanded()
+    {
+        File.Delete(Store.Path); // no write grant either: the DOCTYPE is refused first
+        gateway.Calls.Clear();
+        var prompt = new FakePrompt();
+        var xml = "<?xml version=\"1.0\"?>\n<!DOCTYPE one:Page [<!ENTITY x \"expanded\">]>\n"
+            + $"<one:Page {Ns} ID=\"{PageId}\"><one:Outline><one:OEChildren><one:OE><one:T>&x;</one:T></one:OE></one:OEChildren></one:Outline></one:Page>";
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, xml, null, null, Ct));
+
+        Assert.Equal(ErrorCode.InvalidXml, ex.Code);
+        Assert.Contains("DOCTYPE", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("expanded", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(gateway.Calls);
+        Assert.Empty(gateway.PageCalls);
+        Assert.Empty(prompt.Order);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task BrokenXml_IsInvalidXml_InStep1_WithItsPositionOnly()
+    {
+        gateway.Calls.Clear();
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), PageId, $"<one:Page {Ns} ID=\"{PageId}\"><one:Outline>secret", null, null, Ct));
+
+        Assert.Equal(ErrorCode.InvalidXml, ex.Code);
+        Assert.DoesNotContain("secret", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(gateway.Calls);
+        await AssertRefusedAsync();
+    }
+
+    // --- User-gated file paths (AD-7 as amended by 5.2) -------------------------------------------------------------------
+
+    [Fact]
+    public async Task ANewFilePath_ConfirmedInTheDialog_IsWritten_AndTheDialogNamesItCanonical()
+    {
+        var path = temp.Combine("a.txt");
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
+
+        var success = await UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, Sent(FileOutline(path)), null, null, Ct);
+
+        var question = Assert.Single(prompt.FileQuestions);
+        Assert.Equal(PageId, question.PageId);
+        Assert.Equal([FilePathGate.Canonical(path, out _)!], question.Paths);
+        Assert.Single(gateway.UpdateCalls);
+        Assert.All(success.Warnings, w => Assert.DoesNotContain(path, w.Message, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static TheoryData<string, bool, string> UnconfirmedPaths => new()
+    {
+        { "declined", true, FilePathsUnconfirmed.DeclinedUserAction },
+        { "cancelled", true, FilePathsUnconfirmed.DeclinedUserAction },
+        { "unsupported", false, FilePathsUnconfirmed.NoDialogUserAction },
+        { "no prompt", false, FilePathsUnconfirmed.NoDialogUserAction },
+    };
+
+    [Theory]
+    [MemberData(nameof(UnconfirmedPaths))]
+    public async Task ANewFilePath_NotConfirmed_IsWriteNotGranted_AndNothingIsWritten(string answer, bool retryable, string userAction)
+    {
+        var path = temp.Combine("secret.txt");
+        FakePrompt? prompt = answer switch
+        {
+            "declined" => new FakePrompt(new GrantPromptResult(GrantPromptStatus.Declined)),
+            "cancelled" => new FakePrompt(new GrantPromptResult(GrantPromptStatus.Cancelled)),
+            "unsupported" => new FakePrompt(GrantPromptResult.Unsupported),
+            _ => null,
+        };
+
+        var ex = await Assert.ThrowsAsync<FilePathsUnconfirmed>(() => UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, Sent(FileOutline(path)), null, null, Ct));
+
+        var error = ToolErrors.From(ex, OperationClass.PageWrite);
+        Assert.Equal(ErrorCode.WriteNotGranted, ex.Code);
+        Assert.Equal(retryable, error.Retryable);
+        Assert.Equal(userAction, error.UserAction);
+        Assert.DoesNotContain("secret", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(prompt is null ? 0 : 1, prompt?.FileQuestions.Count ?? 0);
+        await AssertRefusedAsync();
+    }
+
+    [Theory]
+    [InlineData(@"\\server\share\a.txt")]
+    [InlineData(@"\\?\C:\a.txt")]
+    [InlineData(@"\\.\PhysicalDrive0")]
+    [InlineData(@"folder\a.txt")]
+    [InlineData(@"C:a.txt")]
+    [InlineData("https://example.invalid/a.txt")]
+    public async Task ANetworkDeviceOrRelativePath_IsInvalidArgument_WithNoDialog(string path)
+    {
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, Sent(FileOutline(path)), null, null, Ct));
 
         Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
-        Assert.DoesNotContain(G(42), ex.Message, StringComparison.Ordinal);
-        Assert.Contains("1 OE(s)", ex.Message, StringComparison.Ordinal);
-        Assert.Empty(gateway.UpdateCalls);
-        await AssertLockFreeAsync();
+        Assert.Equal(UpdatePageContentWrite.PathUserAction, ex.UserAction);
+        Assert.DoesNotContain(path, ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(prompt.Order);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task APathUnchangedOnTheSameExistingElement_NeedsNoDialog()
+    {
+        var path = temp.Combine("kept.txt");
+        gateway.Pages[PageId] = WithFile(Read, path);
+        var prompt = new FakePrompt();
+
+        await UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, Sent(OutlineOf(WithFile(Read, path), 40)), null, null, Ct);
+
+        Assert.Empty(prompt.Order);
+        Assert.Single(gateway.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task AFilePathInAProtectedSectionWithoutAReadGrant_IsAlwaysNew()
+    {
+        var path = temp.Combine("vault.txt");
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
+
+        await UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), VaultPageId, Sent(FileOutline(path), VaultPageId), null, null, Ct);
+
+        Assert.Single(prompt.FileQuestions);
+        // Step 1 never reads the page without a grant: the only reads are step 3's piBasic, the snapshot and the read-back.
+        Assert.Equal([(VaultPageId, PageInfo.Basic), (VaultPageId, PageInfo.BinaryData), (VaultPageId, PageInfo.Basic)], gateway.PageCalls);
+        Assert.Single(gateway.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task AnHtmlBlockFilePath_InAProtectedSectionWithoutAReadGrant_NeedsTheDialog()
+    {
+        var path = temp.Combine("block.html");
+        var sent = Sent($"<one:Outline><one:OEChildren><one:HTMLBlock><one:File path=\"{path}\" /></one:HTMLBlock></one:OEChildren></one:Outline>", VaultPageId);
+
+        var refused = await Assert.ThrowsAsync<FilePathsUnconfirmed>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, null, Ct));
+
+        Assert.False(refused.Retryable);
+        Assert.Equal(FilePathsUnconfirmed.NoDialogUserAction, refused.UserAction);
+        await AssertRefusedAsync();
+
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
+        await UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), VaultPageId, sent, null, null, Ct);
+
+        Assert.Equal([FilePathGate.Canonical(path, out _)!], Assert.Single(prompt.FileQuestions).Paths);
+        Assert.Single(gateway.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task APathThatBecameNewWhileTheUserDecided_IsRetryable_NotNoDialog()
+    {
+        var kept = temp.Combine("kept.txt");
+        var reads = 0;
+        gateway.Pages[PageId] = WithFile(Read, kept);
+        var probe = new ProbingGateway(gateway, () =>
+        {
+            // The second read is step 1's rerun after the dialog: by then OneNote holds another path on that element.
+            if (++reads == 2)
+            {
+                gateway.Pages[PageId] = WithFile(Read, temp.Combine("other.txt"));
+            }
+
+            return Task.CompletedTask;
+        });
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
+        var sent = Sent(OutlineOf(WithFile(Read, kept), 40) + FileOutline(temp.Combine("a.txt")));
+
+        var ex = await Assert.ThrowsAsync<FilePathsUnconfirmed>(() => UseCase(probe).ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, sent, null, null, Ct));
+
+        Assert.True(ex.Retryable);
+        Assert.Equal(FilePathsUnconfirmed.ChangedUserAction, ex.UserAction);
+        Assert.Single(prompt.FileQuestions);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task APathThatChangedBetweenStep1AndStep3_IsWriteNotGranted_InStep4()
+    {
+        var path = temp.Combine("kept.txt");
+        var reads = 0;
+        gateway.Pages[PageId] = WithFile(Read, path);
+        var probe = new ProbingGateway(gateway, () =>
+        {
+            // The second read is step 3's: by then OneNote holds another path on that element.
+            if (++reads == 2)
+            {
+                gateway.Pages[PageId] = WithFile(Read, temp.Combine("other.txt"));
+            }
+
+            return Task.CompletedTask;
+        });
+        var prompt = new FakePrompt();
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase(probe).ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, Sent(OutlineOf(WithFile(Read, path), 40)), null, null, Ct));
+
+        Assert.Equal(ErrorCode.WriteNotGranted, ex.Code);
+        Assert.True(ex.Retryable);
+        Assert.Empty(prompt.Order);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task Step1Order_AReadNotGrantedOrMissingWriteGrant_FailsBeforeAnyPathDialog()
+    {
+        File.Delete(Store.Path);
+        var protectedPrompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted));
+        var vault = Sent(OutlineAsRead(40) + FileOutline(temp.Combine("a.txt")), VaultPageId);
+
+        var readNotGranted = await Assert.ThrowsAsync<OneNoteException>(() => UseCase(withDialog: true).ExecuteAsync(new ToolCallContext("c", Prompt: protectedPrompt), VaultPageId, vault, null, null, Ct));
+
+        Assert.Equal(ErrorCode.ReadNotGranted, readNotGranted.Code);
+        Assert.Empty(protectedPrompt.Order);
+
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Declined), new GrantPromptResult(GrantPromptStatus.Accepted));
+        var notGranted = await Assert.ThrowsAsync<OneNoteException>(() => UseCase(withDialog: true).ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, Sent(FileOutline(temp.Combine("a.txt"))), null, null, Ct));
+
+        Assert.Equal(ErrorCode.WriteNotGranted, notGranted.Code);
+        Assert.Equal(["write"], prompt.Order);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public void TheFilePathDialog_NamesEachPath_AndIsAcceptOrDecline()
+    {
+        var request = OneNoteMcp.Server.Grants.ElicitationGrantPrompt.FilePathRequest(new FilePathQuestion(PageId, [@"C:\a\one.txt", @"C:\b\two.png"]));
+
+        Assert.Contains(@"C:\a\one.txt", request.Message, StringComparison.Ordinal);
+        Assert.Contains(@"C:\b\two.png", request.Message, StringComparison.Ordinal);
+        Assert.Empty(request.RequestedSchema!.Properties);
+        Assert.Equal(GrantPromptStatus.Accepted, OneNoteMcp.Server.Grants.ElicitationGrantPrompt.ReadFilePaths(new ElicitResult { Action = "accept" }).Status);
+        Assert.Equal(GrantPromptStatus.Declined, OneNoteMcp.Server.Grants.ElicitationGrantPrompt.ReadFilePaths(new ElicitResult { Action = "decline" }).Status);
+        Assert.Equal(GrantPromptStatus.Cancelled, OneNoteMcp.Server.Grants.ElicitationGrantPrompt.ReadFilePaths(new ElicitResult { Action = "cancel" }).Status);
     }
 
     [Fact]
@@ -438,7 +717,8 @@ public sealed class UpdatePageContentToolTests : IDisposable
     [Fact]
     public async Task APageInALockedSection_IsSectionLocked_BeforeThePageIsRead()
     {
-        Error(await Tool().UpdatePageContent(LockedPageId, Sent(EditedOutlineB(), LockedPageId), cancellationToken: Ct), "SectionLocked");
+        // New content only: the locked section is protected with no read grant, so an objectID would be ReadNotGranted first.
+        Error(await Tool().UpdatePageContent(LockedPageId, Sent(NewOutline(string.Empty), LockedPageId), cancellationToken: Ct), "SectionLocked");
 
         Assert.Empty(gateway.PageCalls);
         await AssertRefusedAsync();
@@ -524,11 +804,46 @@ public sealed class UpdatePageContentToolTests : IDisposable
         new ReadAccess(g, Store.Read, new SettingsWriter(Store, clock), clock),
         new PageSnapshot(g, new JournalStore(Store.Read), clock));
 
-    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null)
+    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null, bool withDialog = false)
     {
         var g = over ?? gateway;
-        return new UpdatePageContentUseCase(Services(g), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System));
+        var dialog = withDialog ? new WriteGrantDialog(g, new SettingsWriter(Store, clock), clock) : null;
+        return new UpdatePageContentUseCase(Services(g), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, dialog: dialog));
     }
+
+    /// <summary>A new Outline (no objectIDs) holding one OE with <paramref name="oeAttributes"/>.</summary>
+    private static string NewOutline(string oeAttributes) =>
+        $"<one:Outline><one:OEChildren><one:OE {oeAttributes}><one:T>new</one:T></one:OE></one:OEChildren></one:Outline>";
+
+    /// <summary>A new Outline whose OE inserts the file at <paramref name="path"/>.</summary>
+    private static string FileOutline(string path) =>
+        $"<one:Outline><one:OEChildren><one:OE><one:InsertedFile pathSource=\"{System.Security.SecurityElement.Escape(path)}\" preferredName=\"a.txt\" /></one:OE></one:OEChildren></one:Outline>";
+
+    /// <summary><paramref name="page"/> with a new OE <c>96</c> in Outline <c>40</c> holding InsertedFile <c>95</c> at <paramref name="path"/>.</summary>
+    private static string WithFile(string page, string path)
+    {
+        var root = XDocument.Parse(page);
+        var outline = root.Descendants(One + "Outline").Single(o => (string?)o.Attribute("objectID") == G(40));
+        outline.Element(One + "OEChildren")!.Add(new XElement(One + "OE", new XAttribute("objectID", G(96)),
+            new XElement(One + "InsertedFile", new XAttribute("objectID", G(95)), new XAttribute("pathSource", path), new XAttribute("preferredName", "a.txt"))));
+        return root.ToString();
+    }
+
+    /// <summary>Outline <paramref name="n"/> of <paramref name="page"/>, as sent text.</summary>
+    private static string OutlineOf(string page, int n) =>
+        Text(new XElement(XDocument.Parse(page).Descendants().Single(e => (string?)e.Attribute("objectID") == G(n))));
+
+    /// <summary>After a successful write to the vault page, it reads back as the read page changed by <paramref name="edit"/>.</summary>
+    private void VaultAfterWrite(Action<XElement> edit)
+    {
+        var root = XDocument.Parse(gateway.Pages[VaultPageId]);
+        edit(root.Root!);
+        gateway.OnUpdate = _ => gateway.Pages[VaultPageId] = root.ToString();
+    }
+
+    private void GrantVaultRead() =>
+        new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(
+            GrantKeys.SectionKey(@"C:\notebooks\W\Vault.one"), "Vault", GrantKeys.NotebookKey(NotebookPath), ProtectedId, clock.GetUtcNow(), GrantedVia.Cli));
 
     private UpdatePageContentTool Tool(IOneNoteGateway? over = null) => new(new ToolRunner(NullLogger<ToolRunner>.Instance), UseCase(over));
 
