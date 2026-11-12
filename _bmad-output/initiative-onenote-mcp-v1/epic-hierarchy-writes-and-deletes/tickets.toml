@@ -40,8 +40,8 @@ risk = "high"
 id = 4
 type = "story"
 title = "Rename and reorder: update_hierarchy"
-description = "UpdateHierarchy add, rename and reorder (not move) through HierarchyWrite: the XSD check, the IDs exist, the lastModifiedTime basis check, and a hierarchy snapshot; it shares tool registration and the contract with entry 3."
-verify = "On MCP Test a rename lands, a stale one returns StaleWrite, and the journal holds the hierarchy snapshot."
+description = "UpdateHierarchy add, rename and reorder (not move) through HierarchyWrite: the XSD check, the IDs exist, the lastModifiedTime basis check, and a hierarchy snapshot; it shares tool registration and the contract with entry 3. It also changes the three HResultMap rows AD-9 remaps (0x80042017, 0x80042024, 0x8004202E; Phill, 2.7 plan Q2)."
+verify = "On MCP Test a rename lands, a rename whose basis date has moved returns StaleWrite, and the journal holds the hierarchy snapshot."
 covers = ["R4", "R5", "R6"]
 after = [3]
 hitl = false
@@ -51,7 +51,7 @@ risk = "high"
 id = 5
 type = "story"
 title = "Soft delete"
-description = "DeleteHierarchy permanent=false for a page, section or section group with a page or hierarchy snapshot, following entry 2's rule and epic 2's both-grants rule for protected sections; after a page delete it reads back the page's new recycle-bin ID and stores it in the journal entry, for epic 3's restore_from_recycle_bin (Phill, 2026-11-12)."
+description = "DeleteHierarchy permanent=false for a page, section or section group with a page or hierarchy snapshot, following entry 2's rules (AD-7 SoftDelete, AD-21): a notebook is refused with NotSupported, and in a protected section the write grant alone is enough, but a page soft delete there stays refused until this story probes it with the hierarchy date; after a page delete it reads back the page's new recycle-bin ID and stores it in the journal entry, for epic 3's restore_from_recycle_bin (Phill, 2026-11-12)."
 verify = "On MCP Test a deleted page is in the recycle bin with a journal entry holding its recycle-bin ID, restore_from_journal brings it back, and a stale basis returns StaleWrite on a page that isn't displayed."
 covers = ["R4", "R5", "R6"]
 after = [4]
@@ -63,7 +63,7 @@ unknown = "How to pick out the deleted page's new ID in Deleted Pages when two p
 id = 6
 type = "story"
 title = "Permanent delete"
-description = "The permanent-delete grant (CLI, dialog, listing) and DeleteHierarchy permanent=true: a page gets a full page snapshot, and a section, section group or notebook gets a Publish backup first under Publish's 300 s timeout and the 600 s pipeline deadline, with BackupFailed refusing the delete."
+description = "The permanent-delete grant (CLI, dialog, listing) and DeleteHierarchy permanent=true: a page gets a full page snapshot, and a section gets a Publish backup in the journal's backups folder first, under Publish's 300 s timeout and the 600 s pipeline deadline, with BackupFailed refusing the delete. A non-empty section group, a notebook, a password-protected section and a page already in the recycle bin are refused with NotSupported (entry 2, AD-7 PermanentDelete). It probes a stale date on a permanent delete before relying on it."
 verify = "On MCP Test, without the second grant the delete returns PermanentDeleteNotGranted, with it a backup file exists before a section is gone, a forced backup failure refuses the delete, and a security review of the diff runs before merge."
 covers = ["R4", "R5", "R6"]
 after = [5]

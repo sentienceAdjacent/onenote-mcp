@@ -291,3 +291,21 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: same
   summary: Live, pending (Phill): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter PageWriteGatewayIntegrationTests` (update then delete an Outline on a fresh Seed page; a stale date → `StaleWrite`). Not run in the build lane.
   evidence: `tests/OneNoteMcp.Integration/PageWriteGatewayIntegrationTests.cs`; `TestNotebook.EnsureTestTargetAsync`.
+
+## Spine amendments, story 5.2 (2026-11-12)
+
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-hierarchy-writes-and-deletes/story-spine-amendments-from-the-hierarchy-probes-plan.md`
+  summary: Resolved (rule) the AD-14 `create_page` entry (story 2.4 review, above): AD-14 records `create_page` as the one exception to the COM-method naming rule (Phill, 2.4 plan Q1). Nothing to build.
+  evidence: spine AD-14.
+- source_plan: same
+  summary: Resolved (rule) the AD-6 clarification (story 2.6, above): a name typed in the write-grant dialog that matches exactly one open notebook other than the target makes no grant and returns `WriteNotGranted`. Story 2.6 already built it.
+  evidence: spine AD-6, "How a grant is created".
+- source_plan: same
+  summary: Resolved (rule) the AD-9/AD-3 sync entry (story 2.7, above): AD-9's Triage bullet replaces the "untriaged" sentence; AD-3 records the WER crash-detection rule (2.7 plan Q3); AD-18 records the lock kept after a step-7 failure, and the forward note for basis-checked pipelines (check for an abandoned write right after step 2, `ComBusy`), which stories 2.9 and 2.10 build.
+  evidence: spine AD-3 Activation, AD-9 Codes, AD-18.
+- source_plan: same
+  summary: Resolved (rule) the three remaps (story 2.7 plan Q2, above): AD-9 now maps `0x80042017` → `InvalidArgument`, `0x80042024` → `ComBusy`, `0x8004202E` → `ObjectNotFound`. Story 5.4 changes the three `HResultMap.Triaged` rows and adds them to `HResultMapTests.ExpectedNonInternal` (epic 5 `tickets.toml`, entry 4).
+  evidence: spine AD-9 Remapped bullet and table rows.
+- source_plan: same
+  summary: Recorded (rule) the 30 s call timeout for cloud creates (story 2.7 plan Q1, above): AD-3 keeps it with spike 5.1's create times; a Deferred row tracks whether it covers every cloud create.
+  evidence: spine AD-3 Timeouts; Deferred "Whether AD-3's 30 s covers every cloud create".
