@@ -3,13 +3,13 @@ title: 'update_page_content'
 type: 'feature'
 ticket: '9'
 created: '2026-11-12'
-status: 'ready-for-dev'
-baseline_revision: ''
+status: 'built'
+baseline_revision: '7204aa67603a9e0689a585df0b56caf1fe26ea7d'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 warnings: ['oversized']
 context:
@@ -95,16 +95,16 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Xml/ElementHash.cs` + `XmlModelTests` -- the two AD-17 exclusions; a locked width stays in the hash.
-- [ ] `src/OneNoteMcp.Xml/PageWriteCheck.cs`, `SchemaValidation.cs` + tests -- step 4, step-5 targets, read-back comparison, schema gate per Q3; fixtures under `Fixtures/synthetic/`.
-- [ ] `WriteOperation.cs`, `WritePipeline.cs` + `CreatePageToolTests` -- abandoned-write check after step 2; read-back hook; read-back failure and deadline never fail the write.
-- [ ] `ReadAccess.cs` -- non-prompting grant check.
-- [ ] `src/OneNoteMcp.Core/Writes/PageWrite.cs`, `UseCases/UpdatePageContentUseCase.cs`, `ToolWarnings.cs` -- the operation and use case.
-- [ ] `ArgumentCheck.cs`, `UpdatePageContentTool.cs`, `ServerSetup.cs` -- the tool; nested-object argument check.
-- [ ] `tests/OneNoteMcp.Tests/UpdatePageContentToolTests.cs` -- every matrix row against `FakeGateway`, plus lock released on every outcome, cache entry dropped, journal entry written (temp journal), protected-without-grant messages carry no `objectID`.
-- [ ] Contract snapshot, binding count, harness and `NavigateToToolTests` write lists, `plugin/skills/guide/SKILL.md` and `README.md` tool rows (call only when the user asks to change a page).
-- [ ] `tests/OneNoteMcp.Integration/UpdatePageContentIntegrationTests.cs` -- opt-in: fresh edit lands, stale basis on an undisplayed page → `StaleWrite`, journal entry per write, merged-table probe (Q6). Not run here.
-- [ ] `deferred-work.md` -- resolve l.208, l.211, l.244, l.253 (2.9 half), the 2.7 forward note; add the spine sync (AD-16 settled, AD-7 move rule, AD-17 title OE, per answers).
+- [x] `src/OneNoteMcp.Xml/ElementHash.cs` + `XmlModelTests` -- the two AD-17 exclusions; a locked width stays in the hash.
+- [x] `src/OneNoteMcp.Xml/PageWriteCheck.cs`, `SchemaValidation.cs` + tests -- step 4, step-5 targets, read-back comparison, schema gate per Q3; fixtures under `Fixtures/synthetic/`.
+- [x] `WriteOperation.cs`, `WritePipeline.cs` + `CreatePageToolTests` -- abandoned-write check after step 2; read-back hook; read-back failure and deadline never fail the write.
+- [x] `ReadAccess.cs` -- non-prompting grant check.
+- [x] `src/OneNoteMcp.Core/Writes/PageWrite.cs`, `UseCases/UpdatePageContentUseCase.cs`, `ToolWarnings.cs` -- the operation and use case.
+- [x] `ArgumentCheck.cs`, `UpdatePageContentTool.cs`, `ServerSetup.cs` -- the tool; nested-object argument check.
+- [x] `tests/OneNoteMcp.Tests/UpdatePageContentToolTests.cs` -- every matrix row against `FakeGateway`, plus lock released on every outcome, cache entry dropped, journal entry written (temp journal), protected-without-grant messages carry no `objectID`.
+- [x] Contract snapshot, binding count, harness and `NavigateToToolTests` write lists, `plugin/skills/guide/SKILL.md` and `README.md` tool rows (call only when the user asks to change a page).
+- [x] `tests/OneNoteMcp.Integration/UpdatePageContentIntegrationTests.cs` -- opt-in: fresh edit lands, stale basis on an undisplayed page → `StaleWrite`, journal entry per write, merged-table probe (Q6). Not run here.
+- [x] `deferred-work.md` -- resolve l.208, l.211, l.244, l.253 (2.9 half), the 2.7 forward note; add the spine sync (AD-16 settled, AD-7 move rule, AD-17 title OE, per answers).
 
 **Acceptance Criteria:**
 - Given any refusal in steps 3–5, when the pipeline ends, then `FakeGateway.UpdateCalls` is empty, no journal entry exists, and the lock is free.
@@ -113,9 +113,29 @@ context:
 
 ## Implementation Notes
 
+- Step 4's check order: schema gate, root `one:Page@ID`, unknown `objectID`s, an `objectID` on another kind of element (`InvalidArgument`, `WrongElementUserAction`), moved OEs, removals, whole Outlines. Moves come before removals so a moved OE that is also named for removal gets the move `userAction`.
+- Step 3 reads the page's own node (`GetHierarchy` at `self`) for "not a page" and its `isInRecycleBin`, then the section (recycle bin, locked) before the piBasic read; a locked section is refused without reading the page.
+- The read-grant check for messages is `ReadAccess.HoldsReadGrant(section, callStart)`, with `callStart` taken when the use case starts (`ReadAccess.Now()`).
+- The read-back compares numbers by value and `true`/`1`, `false`/`0` by meaning; a basis date that isn't a date is `InvalidArgument`; a null `elementHashes` value counts as missing. Recorded in `deferred-work.md` for 5.2.
+- `ServerSetup.Close` also closes the input schema of an object argument that declares its members (`basis`), and `ArgumentCheck.Mismatch` refuses an undeclared member there; dictionaries (`elementHashes`) stay open. Contract snapshot: only `update_page_content` added.
+- The three existing 2.7 abandoned-write tests in `CreatePageToolTests` now start the abandoned write during step 7 (the check after step 2 would otherwise refuse them first); `AFailureBeforeStep7_…` became `AnAbandonedWriteOutstanding_AfterStep2_IsComBusy_…`.
+- Integration tests compile and skip without `ONENOTE_MCP_INTEGRATION`; they weren't run (Never list).
+- After review pass 1's patches (lane, 2026-11-12): step 3 now walks to the section first (recycle bin, locked, read grant), then the page's own node, then piBasic, as Always says; the move refusal covers every sent element with an `objectID` except Outlines; the read-back pairs new Outlines with the after-page Outlines that step 3 didn't read and the call didn't send, in document order, comparing the first min(count) pairs; `InvalidXml` names `one:<element>` only in the 2013 namespace. Verification: build `-warnaserror` 0/0; unit 1840/1840; integration without the variable 154 passed, 44 skipped; stress harness builds.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-11-12 — Review pass 1 (quick lens)
+- verdicts: 7 findings — high 0, medium 2, low 4, false 0, maybe-false 1
+- findings:
+  - `[medium]` `[patch]` `plugin/skills/guide/SKILL.md:18` still told Claude to refuse any edit, contradicting the new tool row and intro — reworded: page edits go through `update_page_content` when the user asks; move, rename and delete stay unavailable.
+  - `[low]` `[patch]` `PageWriteCheck.Validate`: the move refusal (Q4) looked only at OEs, so an existing Table/Row/Cell sent into another Outline passed step 4 and step 5 — the same-container test now covers every sent element with an `objectID` except Outlines; test added. Rare in use, but the fix is a selector change.
+  - `[medium]` `[patch]` `PageWriteCheck.CompareReadBack`: new Outlines (sent without an `objectID`) were never read back, so `imageLost` and ignored attributes on added content went unreported (AD-7 "an image in a sent Outline") — step 3's XML is passed in; new sent Outlines pair in document order with the after-page Outlines that are neither read in step 3 nor sent, and are compared like matched ones; tests added. Routed patch rather than bad_plan: the plan's "each sent Outline" already covers it, and the fix is local to `PageWriteCheck` (an optional argument, no contract change).
+  - `[maybe-false]` `[patch]` `PageWrite.ReadAsync` read the page's node before the section, against the plan's "section first"; if OneNote doesn't list a locked section's pages, the caller would get `ObjectNotFound` instead of `SectionLocked`. Unverified live (step 1's `GetHierarchyParent` chain may fail first either way); reordered to match the plan; the live sitting can confirm.
+  - `[low]` `[reject]` a page with no `lastModifiedTime` and no basis date takes a snapshot and then fails at step 7 with the gateway's `InvalidArgument` — every page read so far carries the attribute (fixtures, spike 2.2); handling it would add a guard for a state not shown reachable, and the gateway already refuses loudly.
+  - `[low]` `[patch]` `SchemaValidation.Problems`/`SchemaPlaces`: the `InvalidXml` message prefixed every element with `one:`, even one in another namespace — `one:` only for the 2013 namespace, otherwise the local name and "(not in the OneNote 2013 namespace)".
+  - `[low]` `[defer]` `ComGatewayLifecycleTests.AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked` failed once in a full run (expected 0, actual 1) and passed on reruns — pre-existing timing test, `ComGateway` not in this diff; logged in deferred-work.
 
 ## Design Notes
 

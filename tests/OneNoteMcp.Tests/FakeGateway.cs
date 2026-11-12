@@ -90,8 +90,28 @@ internal sealed class FakeGateway : IOneNoteGateway
             ? Task.FromResult(parent)
             : Serve(nameof(IOneNoteGateway.GetHierarchyParentAsync), objectId);
 
-    public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) =>
-        Serve(nameof(IOneNoteGateway.GetPageContentAsync), pageId, pageInfo.ToString());
+    /// <summary>
+    /// <c>GetPageContent</c> answers that win over the manifest, by page ID, whatever the <c>PageInfo</c> (story 2.9). A
+    /// test changes an entry from <see cref="OnUpdate"/>, so a write's read-back sees the page as written.
+    /// </summary>
+    public Dictionary<string, string> Pages { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>When an entry is set, <c>GetPageContent</c> of that page throws it (story 2.9's read-back failure).</summary>
+    public Dictionary<string, Exception> PageFailures { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Runs with the sent XML after each <c>UpdatePageContent</c> call that succeeds (story 2.9).</summary>
+    public Action<string>? OnUpdate { get; set; }
+
+    /// <summary>Every <c>GetPageContent</c> call, in order (story 2.9).</summary>
+    public List<(string PageId, PageInfo PageInfo)> PageCalls { get; } = [];
+
+    public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct)
+    {
+        PageCalls.Add((pageId, pageInfo));
+        return Failure is null && PageFailures.TryGetValue(pageId, out var failure) ? Task.FromException<string>(failure)
+            : Failure is null && Pages.TryGetValue(pageId, out var xml) ? Task.FromResult(xml)
+            : Serve(nameof(IOneNoteGateway.GetPageContentAsync), pageId, pageInfo.ToString());
+    }
 
     public Task<string> GetBinaryPageContentAsync(string pageId, string callbackId, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.GetBinaryPageContentAsync), pageId, callbackId);
@@ -170,7 +190,13 @@ internal sealed class FakeGateway : IOneNoteGateway
     public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
     {
         UpdateCalls.Add((pageXml, expectedLastModified));
-        return (Failure ?? UpdateFailure) is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+        if ((Failure ?? UpdateFailure) is { } failure)
+        {
+            return Task.FromException(failure);
+        }
+
+        OnUpdate?.Invoke(pageXml);
+        return Task.CompletedTask;
     }
 
     public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct)

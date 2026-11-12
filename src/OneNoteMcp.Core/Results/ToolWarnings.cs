@@ -40,4 +40,22 @@ public static class ToolWarnings
     /// absent (AD-10, AD-21). The listed entries, if any, are shown so the user can see what to fix.
     /// </summary>
     public const string SettingsInvalid = "settingsInvalid";
+
+    /// <summary>A write ran without a basis, so it was checked against the page as it was just read, not as the caller last read it (AD-17).</summary>
+    public const string NoBasis = "noBasis";
+
+    /// <summary>The basis lacked a date or a hash the write compares; that check was skipped or filled from the server's own read (AD-17).</summary>
+    public const string PartialBasis = "partialBasis";
+
+    /// <summary>
+    /// After a page write, the re-read page differs from what was sent: an attribute OneNote didn't apply, an OE re-created
+    /// under a new objectID, or OE lists of another length (AD-7). Names objectIDs and attribute names only.
+    /// </summary>
+    public const string ReadBackDiffers = "readBackDiffers";
+
+    /// <summary>After a page write, an Outline that was sent has fewer images than were sent in it (AD-7).</summary>
+    public const string ImageLost = "imageLost";
+
+    /// <summary>The page couldn't be re-read after a write that succeeded, so what OneNote kept wasn't checked (AD-7).</summary>
+    public const string ReadBackFailed = "readBackFailed";
 }

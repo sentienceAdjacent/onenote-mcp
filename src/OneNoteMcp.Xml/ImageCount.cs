@@ -28,6 +28,13 @@ public static class ImageCount
     /// <summary>The number of <c>one:Image</c> elements anywhere in <paramref name="xml"/>.</summary>
     public static int Count(string xml) => OneNoteXml.Parse(xml).Descendants(OneNoteXml.One + "Image").Count();
 
+    /// <summary>The number of <c>one:Image</c> elements under <paramref name="element"/>, such as one Outline (AD-7's <c>imageLost</c>).</summary>
+    public static int Count(XElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        return element.Descendants(OneNoteXml.One + "Image").Count();
+    }
+
     /// <summary>Images in the piBasic read that the piBinaryData read of the same page lacks; never negative.</summary>
     public static int Missing(string basicXml, string binaryXml) => Math.Max(0, Count(basicXml) - Count(binaryXml));
 

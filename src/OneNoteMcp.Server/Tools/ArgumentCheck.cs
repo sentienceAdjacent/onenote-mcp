@@ -23,7 +23,8 @@ public sealed record ArgumentProblems(
 /// <see cref="Core.ErrorCode.InvalidArgument"/> message that names every bad argument and what it expects. The check is
 /// strict: <c>string</c> is a JSON string, <c>boolean</c> is true or false, <c>integer</c> is a JSON number that fits
 /// an <see cref="int"/>, <c>null</c> only where the type lists it, <c>array</c> checks each item against <c>items</c>,
-/// and <c>enum</c> compares ordinally. A name the schema doesn't declare is always refused (story 2.5), whatever
+/// <c>object</c> checks each member against <c>properties</c> or <c>additionalProperties</c> (story 2.9), and
+/// <c>enum</c> compares ordinally. A name the schema doesn't declare is always refused (story 2.5), whatever
 /// <c>additionalProperties</c> says. The message never holds a caller's value, only its JSON kind (AD-9, AD-13).
 /// </summary>
 public static class ArgumentCheck
@@ -138,11 +139,47 @@ public static class ArgumentCheck
                     }
                 }
             }
+
+            if (value.ValueKind == JsonValueKind.Object && MemberMismatch(schema, value) is { } memberGot)
+            {
+                return memberGot;
+            }
         }
 
         if (Enum(schema) is { } values && !values.Any(v => SameValue(v, value)))
         {
             return Kind(value) + " that isn't one of them";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// An object argument's members (story 2.9, <c>update_page_content</c>'s <c>basis</c>): each declared member against
+    /// its <c>properties</c> schema, each other member against <c>additionalProperties</c> (refused when that is
+    /// <c>false</c>). The result names neither the member nor its value, only the JSON kind (AD-9, AD-13).
+    /// </summary>
+    private static string? MemberMismatch(JsonElement schema, JsonElement value)
+    {
+        var properties = schema.TryGetProperty("properties", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
+        var additional = schema.TryGetProperty("additionalProperties", out var a) ? a : default;
+        foreach (var member in value.EnumerateObject())
+        {
+            if (properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty(member.Name, out var memberSchema))
+            {
+                if (Mismatch(memberSchema, member.Value) is { } got)
+                {
+                    return "an object with a member that is " + got;
+                }
+            }
+            else if (additional.ValueKind == JsonValueKind.False)
+            {
+                return "an object with a member it doesn't declare";
+            }
+            else if (additional.ValueKind == JsonValueKind.Object && Mismatch(additional, member.Value) is { } got)
+            {
+                return "an object with a member that is " + got;
+            }
         }
 
         return null;

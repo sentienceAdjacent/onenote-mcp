@@ -126,6 +126,15 @@ public static class ServerSetup
         services.AddSingleton(sp => new PageSnapshot(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<JournalStore>(), TimeProvider.System));
         services.AddSingleton(sp => new JournalPruner(sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
 
+        // PageWrite (AD-7): the write grant, the non-prompting read-grant check that decides what messages may name
+        // (AD-21), and step 6's snapshot.
+        services.AddSingleton(sp => new PageWriteServices(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<PageSnapshot>()));
+        services.AddSingleton<UpdatePageContentUseCase>();
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -140,7 +149,8 @@ public static class ServerSetup
             .WithTools<ReadResultTool>(EnvelopeJson.Options)
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
-            .WithTools<CreatePageTool>(EnvelopeJson.Options);
+            .WithTools<CreatePageTool>(EnvelopeJson.Options)
+            .WithTools<UpdatePageContentTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.
@@ -207,9 +217,31 @@ public static class ServerSetup
     private static McpServerTool CloseInputSchema(McpServerTool tool)
     {
         var schema = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())!.AsObject();
-        schema["additionalProperties"] = false;
+        Close(schema);
         tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(schema);
         return tool;
+    }
+
+    /// <summary>
+    /// Closes <paramref name="schema"/> and every object argument inside it that declares its members (story 2.9:
+    /// <c>update_page_content</c>'s <c>basis</c>), so a misnamed member is refused rather than ignored. A dictionary
+    /// (<c>additionalProperties</c> as a schema, no <c>properties</c>) stays open.
+    /// </summary>
+    private static void Close(JsonObject schema)
+    {
+        schema["additionalProperties"] = false;
+        if (schema["properties"] is not JsonObject properties)
+        {
+            return;
+        }
+
+        foreach (var (_, property) in properties)
+        {
+            if (property is JsonObject nested && nested["properties"] is JsonObject && nested["additionalProperties"] is null)
+            {
+                Close(nested);
+            }
+        }
     }
 
     private static string ReadVersion()

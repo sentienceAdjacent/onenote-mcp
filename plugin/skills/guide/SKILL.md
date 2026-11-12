@@ -5,7 +5,7 @@ description: This skill should be used when the user asks about their OneNote no
 
 # OneNote desktop: reading notebooks
 
-The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. It has eleven read tools (one of them, `list_grants`, only lists the user's read and write permissions), one user-visible tool that shows a page in OneNote (`navigate_to`), and one write tool, `create_page`, which adds an empty page to a section the user has allowed you to write to. It can't yet edit, move, rename or delete anything.
+The `onenote` plugin's `desktop` server reads the OneNote desktop app on this Windows PC through its COM API. It has eleven read tools (one of them, `list_grants`, only lists the user's read and write permissions), one user-visible tool that shows a page in OneNote (`navigate_to`), and two write tools for notebooks the user has allowed you to write to: `create_page`, which adds an empty page to a section, and `update_page_content`, which changes a page. It can't yet move, rename or delete anything but the OEs `update_page_content` removes.
 
 The tools are thin wrappers over COM. Their descriptions say what each parameter means; this guide says which tool to pick, in what order, and how to interpret what comes back.
 
@@ -15,7 +15,7 @@ Use this guide for any OneNote read: listing notebooks, section groups, sections
 
 Call `mcp__plugin_onenote_desktop__create_page` only when the user asks for a new page; never to try something out. Each call adds another page. It needs the user's write grant for the section's notebook. Without one, the call may raise a dialog asking the user to type the notebook's name; if they don't, or the client can't show it, it fails with `WriteNotGranted`, and only the user can grant it, with the terminal command in `userAction`. Never run that command yourself. The user revokes a write grant with `OneNoteMcp grant --revoke --write "<notebook name>"`.
 
-If the user asks for any other change (edit, move, rename or delete a page or section), say that this release can't do it yet, and that they can make the change in OneNote themselves. Don't work around it: never edit `.one` files or other notebook files, never script or automate the OneNote window, and never use any other route to change a notebook.
+Call `mcp__plugin_onenote_desktop__update_page_content` only when the user asks to change what's on a page: read the page first with `get_page_content`, pass its `meta.basis` unchanged as `basis`, and send each Outline you change whole (every OE it has, with its objectID), naming OEs to delete in `removeObjectIds`. It needs the same write grant as `create_page`. If the user asks to move, rename or delete a page or section, say that this release can't do it yet, and that they can make the change in OneNote themselves. Don't work around it: never edit `.one` files or other notebook files, never script or automate the OneNote window, and never use any other route to change a notebook.
 
 ## Tool map
 
@@ -36,6 +36,7 @@ Claude Code shows each tool as `mcp__plugin_onenote_desktop__` followed by its b
 | `mcp__plugin_onenote_desktop__list_grants` (`list_grants`) | Show which password-protected sections the user has allowed you to read, and until when (see Password-protected sections), and which notebooks they have allowed you to write to (kind `writeNotebook`) | `meta.grants` |
 | `mcp__plugin_onenote_desktop__navigate_to` (`navigate_to`) | **User-visible.** Show a notebook, section group, section or page in OneNote (and select one object on it). Only when the user explicitly asks; see Missing images | nothing |
 | `mcp__plugin_onenote_desktop__create_page` (`create_page`) | **Writes.** Add an empty page at the end of a section (`style`: `blankPageWithTitle` by default, `blankPageNoTitle`, or `default` for the section's template). Only when the user asks for a new page; see When to use | `meta.pageId` |
+| `mcp__plugin_onenote_desktop__update_page_content` (`update_page_content`) | **Writes.** Change a page with OneNote 2013 page XML (`pageId`, `xml` whose root `one:Page` has that ID, `basis` = the `meta.basis` of your `get_page_content` read, unchanged, `removeObjectIds` for OEs to delete). Only when the user asks to change a page. A sent Outline with an `objectID` replaces its whole OE list: send every OE it has, or name the ones to delete. Saves the page to the recovery journal first, then re-reads it (`readBackDiffers`, `imageLost`, `readBackFailed` warnings) | `meta.basis` for the next write |
 
 Every result is an envelope: `{ok: true, xml?, index?, meta, warnings[]}` or `{ok: false, error: {code, retryable, userAction, message, ...}, meta: {correlationId}}`. Check `ok` first, then read `warnings` even when `ok` is true.
 

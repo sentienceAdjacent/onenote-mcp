@@ -121,6 +121,28 @@ public sealed class ReadAccess
     }
 
     /// <summary>
+    /// For a write's own reads (AD-7, AD-21): true when a read of <paramref name="section"/> would pass without asking at
+    /// <paramref name="at"/> (the write call's start; now when null): the section isn't protected, or a stored grant or
+    /// a live <c>once</c> window covers it. Never asks and never stores. Without one, a <c>PageWrite</c>'s refusals and
+    /// warnings name nothing inside the page.
+    /// </summary>
+    public bool HoldsReadGrant(HierarchyNode section, DateTimeOffset? at = null)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        if (!section.Encrypted)
+        {
+            return true;
+        }
+
+        var key = GrantKeys.SectionKey(section.Path);
+        var now = at ?? clock.GetUtcNow();
+        return Stored(settings(), key, now) is not null || windows.IsOpen(key, now);
+    }
+
+    /// <summary>The current time on this check's clock: a write records it at its start, for <see cref="HoldsReadGrant"/>.</summary>
+    public DateTimeOffset Now() => clock.GetUtcNow();
+
+    /// <summary>
     /// A broad read (AD-21): <paramref name="sections"/> are the protected sections in its scope, found with
     /// <see cref="EncryptedSections"/>. Never asks. <paramref name="includesPages"/> is false for a read that returns no
     /// pages at all (a scope above pages), which then withholds nothing and needs no grant.
