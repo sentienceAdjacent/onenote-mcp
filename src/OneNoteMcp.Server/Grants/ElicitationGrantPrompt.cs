@@ -16,6 +16,10 @@ namespace OneNoteMcp.Server.Grants;
 /// name is read only from that field (Phill, 2026-11-07). Supported means the client declared elicitation; an
 /// <see cref="InvalidOperationException"/> from the SDK also counts as unsupported. Core matches the typed name, never
 /// this adapter.
+/// <para>It also asks for AD-6's write grant (story 2.6): the form names the notebook and its path, says the grant lasts
+/// until revoked with <c>grant --revoke --write</c>, and has one typed-name field (<c>notebookName_</c> plus 8 random hex
+/// digits, renamed on every request and the only field the answer is read from), with the notebook's name as its hint.
+/// There is no lifetime field: write grants have none (AD-10).</para>
 /// </summary>
 public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
 {
@@ -159,5 +163,102 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
         }
 
         return new GrantPromptResult(GrantPromptStatus.Accepted, typed, ReadGrantLifetime.Once);
+    }
+
+    // --- The write-grant dialog (AD-6) ------------------------------------------------------------------------------
+
+    /// <summary>The prefix of the write dialog's typed-name field's per-request name.</summary>
+    public const string NotebookNameField = "notebookName";
+
+    public async Task<GrantPromptResult> AskWriteAsync(WriteGrantQuestion question, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        if (server.ClientCapabilities?.Elicitation is null)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+
+        var field = NewNotebookNameField();
+        ElicitResult result;
+        try
+        {
+            result = await server.ElicitAsync(WriteRequest(question, field), ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+        catch (McpException)
+        {
+            // The client answered the request with an error: no grant.
+            return new GrantPromptResult(GrantPromptStatus.Cancelled);
+        }
+
+        return ReadWrite(result, field);
+    }
+
+    /// <summary>A fresh typed-name field name for the write dialog: <c>notebookName_</c> plus 8 random lowercase hex digits.</summary>
+    public static string NewNotebookNameField() =>
+        NotebookNameField + "_" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(8, lowercase: true);
+
+    /// <summary>
+    /// The write dialog's form (AD-6), with the typed-name field named <paramref name="notebookNameField"/>. It names the
+    /// notebook and its path, says the grant lasts until revoked and how to revoke it, and has that one field: write
+    /// grants have no lifetime (AD-10). Public for tests, which have no in-process MCP client.
+    /// </summary>
+    public static ElicitRequestParams WriteRequest(WriteGrantQuestion question, string notebookNameField)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        var where = string.IsNullOrEmpty(question.NotebookPath) ? string.Empty : $" at {question.NotebookPath}";
+        return new ElicitRequestParams
+        {
+            Message =
+                $"Claude wants to write to the OneNote notebook \"{question.NotebookName}\"{where}: to create and change pages in it. "
+                + "To allow it, type the notebook's name exactly as it appears in OneNote. "
+                + "The permission lasts until you revoke it with " + GrantCli.Run($"--revoke --write \"{question.NotebookName}\"") + ". "
+                + "Decline to keep Claude from writing to it. Only you can grant this: the model can't.",
+            RequestedSchema = new ElicitRequestParams.RequestSchema
+            {
+                Properties = new Dictionary<string, ElicitRequestParams.PrimitiveSchemaDefinition>
+                {
+                    [notebookNameField] = new ElicitRequestParams.StringSchema
+                    {
+                        Title = "Notebook name",
+                        Description = $"Type \"{question.NotebookName}\" to confirm.",
+                        MinLength = 1,
+                    },
+                },
+                Required = [notebookNameField],
+            },
+        };
+    }
+
+    /// <summary>
+    /// The write dialog's outcome from the client's answer. The typed name is read only from
+    /// <paramref name="notebookNameField"/>, the field named in that request; any other key gives no typed name, so a
+    /// mismatch. There is no lifetime to read. Public for tests.
+    /// </summary>
+    public static GrantPromptResult ReadWrite(ElicitResult result, string notebookNameField)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        switch (result.Action)
+        {
+            case "decline":
+                return new GrantPromptResult(GrantPromptStatus.Declined);
+            case "accept":
+                break;
+            default:
+                return new GrantPromptResult(GrantPromptStatus.Cancelled);
+        }
+
+        string? typed = null;
+        if (result.Content is { } content
+            && content.TryGetValue(notebookNameField, out var name)
+            && name.ValueKind == JsonValueKind.String)
+        {
+            typed = name.GetString();
+        }
+
+        return new GrantPromptResult(GrantPromptStatus.Accepted, typed);
     }
 }

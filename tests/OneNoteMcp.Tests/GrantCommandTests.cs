@@ -250,17 +250,151 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Single(Store.Read().Notebooks);
     }
 
-    [Theory]
-    [InlineData("--write", "--revoke")]
-    [InlineData("--write", "--read-section")]
-    public async Task Write_WithRevokeOrReadSection_IsBadUsage(string a, string b)
+    [Fact]
+    public async Task Write_WithReadSection_IsBadUsage()
     {
-        Assert.Equal(2, await WriteCommand("yes\n").RunAsync([a, b], Ct));
+        Assert.Equal(2, await WriteCommand("yes\n").RunAsync(["--write", "--read-section"], Ct));
         Assert.False(File.Exists(Store.Path));
     }
 
     [Fact]
-    public void Usage_NamesWrite() => Assert.Contains("grant --write", GrantCommand.Usage, StringComparison.Ordinal);
+    public void Usage_NamesWrite_AndItsRevoke()
+    {
+        Assert.Contains("grant --write", GrantCommand.Usage, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --write", GrantCommand.Usage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Write_Granted_SaysHowToRevoke()
+    {
+        Assert.Equal(0, await WriteCommand("yes\n").RunAsync(["--write", "Notebook A"], Ct));
+
+        Assert.Contains("grant --revoke --write \"Notebook A\"", output.ToString(), StringComparison.Ordinal);
+    }
+
+    // --- grant --revoke --write (story 2.6, AD-6) -------------------------------------------------------------------
+
+    private void SaveWriteGrant(string key, string name) =>
+        new SettingsWriter(Store, clock).SaveWriteGrant(new NotebookGrant(key, name, "{OLD}{1}{B0}", true, false, clock.GetUtcNow(), GrantedVia.Elicitation));
+
+    [Fact]
+    public async Task RevokeWrite_ByTheLiveDisplayedName_RemovesIt_WithNoYes()
+    {
+        // Stored under an old name; the open notebook with that key is displayed as Notebook A now.
+        SaveWriteGrant(@"C:\notebooks\A", "Old name");
+        SaveWriteGrant(@"C:\notebooks\B", "Notebook B");
+
+        var code = await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", " notebook a "], Ct);
+
+        Assert.Equal(0, code);
+        Assert.Contains("Revoked the write grant for \"Notebook A\"", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal([@"C:\notebooks\B"], Store.Read().Notebooks.Keys);
+        Assert.Equal(1, notebookReads);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_ANotebookThatIsntOpen_ByItsStoredName()
+    {
+        SaveWriteGrant(@"C:\gone\Old", "Old");
+
+        Assert.Equal(0, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Old"], Ct));
+
+        Assert.Empty(Store.Read().Notebooks);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_SeveralMatches_ListsEachWithItsPath_UserPicks()
+    {
+        SaveWriteGrant("https://d.docs.live.net/abc/Documents/folder-b", "Notebook B");
+        SaveWriteGrant(@"C:\notebooks\B", "Notebook B");
+
+        var code = await WriteCommand("2\n").RunAsync(["--revoke", "--write", "Notebook B"], Ct);
+
+        Assert.Equal(0, code);
+        var text = output.ToString();
+        Assert.Contains("Several notebooks match", text, StringComparison.Ordinal);
+        Assert.Contains("1) Notebook B (https://d.docs.live.net/abc/Documents/folder-b/)", text, StringComparison.Ordinal);
+        Assert.Contains(@"2) Notebook B (C:\notebooks\B)", text, StringComparison.Ordinal);
+        Assert.Equal(["https://d.docs.live.net/abc/Documents/folder-b"], Store.Read().Notebooks.Keys);
+    }
+
+    [Theory]
+    [InlineData("3\n")]
+    [InlineData("\n")]
+    public async Task RevokeWrite_SeveralMatches_ABadPick_ChangesNothing(string input)
+    {
+        SaveWriteGrant("https://d.docs.live.net/abc/Documents/folder-b", "Notebook B");
+        SaveWriteGrant(@"C:\notebooks\B", "Notebook B");
+
+        Assert.Equal(1, await WriteCommand(input).RunAsync(["--revoke", "--write", "Notebook B"], Ct));
+
+        Assert.Equal(2, Store.Read().Notebooks.Count);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_WithNoMatchingGrant_ChangesNothing()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.Equal(1, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Notebook C"], Ct));
+
+        Assert.Contains("No stored write grant matches", output.ToString(), StringComparison.Ordinal);
+        Assert.Single(Store.Read().Notebooks);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_AnEntryWithWriteFalse_IsNotACandidate()
+    {
+        File.WriteAllText(
+            Store.Path,
+            """{"schemaVersion": 1, "notebooks": {"C:\\notebooks\\A": {"name": "Notebook A", "idAtGrant": "i", "write": false, "permanentDelete": true, "grantedAt": "2026-11-07T12:00:00.000Z", "grantedVia": "cli"}}}""");
+        var before = File.ReadAllText(Store.Path);
+
+        Assert.Equal(1, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Notebook A"], Ct));
+
+        Assert.Contains("No stored write grant matches", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllText(Store.Path));
+    }
+
+    [Fact]
+    public async Task RevokeWrite_LeavesReadGrants()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+        new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(@"C:\notebooks\A\S.one", "S", @"C:\notebooks\A", "{S}", clock.GetUtcNow(), GrantedVia.Cli));
+
+        Assert.Equal(0, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Notebook A"], Ct));
+
+        var read = Store.Read();
+        Assert.Empty(read.Notebooks);
+        Assert.Single(read.ProtectedSections);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_RunsOnAFileInvalidOnlyForDuplicateKeys_RemovingEveryExactAndCaseOnlyCopy()
+    {
+        var entry = """{"name": "Notebook A", "idAtGrant": "i", "write": true, "permanentDelete": false, "grantedAt": "2026-11-07T12:00:00Z", "grantedVia": "cli"}""";
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1, "notebooks": {"C:\\notebooks\\A": @E@, "C:\\notebooks\\A": @E@, "c:\\NOTEBOOKS\\a": @E@, "C:\\notebooks\\B": @B@}}"""
+            .Replace("@E@", entry, StringComparison.Ordinal)
+            .Replace("@B@", entry.Replace("Notebook A", "Notebook B", StringComparison.Ordinal), StringComparison.Ordinal));
+        Assert.True(Store.Read().DuplicateNotebookKeys);
+
+        Assert.Equal(0, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Notebook A"], Ct));
+
+        var read = Store.Read();
+        Assert.Equal(SettingsStatus.Ok, read.Status);
+        Assert.Equal([@"C:\notebooks\B"], read.Notebooks.Keys);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_OnAnInvalidSettingsFile_FailsAndSaysWhy()
+    {
+        File.WriteAllText(Store.Path, "{ nope");
+
+        Assert.Equal(1, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Notebook A"], Ct));
+
+        Assert.Contains("Nothing changed", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal("{ nope", File.ReadAllText(Store.Path));
+    }
 
     private GrantCommand WriteCommand(string input, bool interactive = true) =>
         new(new StringReader(input), output, interactive, _ =>
@@ -368,6 +502,66 @@ public sealed class GrantCommandTests : IDisposable
 
     [Fact]
     public void Elicitation_NoServer_NoPrompt() => Assert.Null(ElicitationGrantPrompt.For(null));
+
+    // --- The write-grant dialog's form and answers (story 2.6, AD-6) --------------------------------------------------
+
+    [Fact]
+    public void WriteForm_NamesTheNotebookAndPath_SaysUntilRevoked_OneTypedNameField_WithTheNameAsHint_NoLifetime()
+    {
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "Notebook A", @"C:\notebooks\A"), "notebookName_0a1b2c3d");
+
+        Assert.Contains("\"Notebook A\"", request.Message, StringComparison.Ordinal);
+        Assert.Contains(@"C:\notebooks\A", request.Message, StringComparison.Ordinal);
+        Assert.Contains("until you revoke it", request.Message, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --write \"Notebook A\"", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("{NA}", request.Message, StringComparison.Ordinal);
+        var schema = request.RequestedSchema!;
+        Assert.Equal(["notebookName_0a1b2c3d"], schema.Properties.Keys);
+        Assert.Equal(["notebookName_0a1b2c3d"], schema.Required);
+        Assert.False(schema.Properties.ContainsKey(ElicitationGrantPrompt.LifetimeField));
+        var name = Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties["notebookName_0a1b2c3d"]);
+        Assert.Contains("\"Notebook A\"", name.Description, StringComparison.Ordinal);
+        Assert.Equal(1, name.MinLength);
+    }
+
+    [Fact]
+    public void WriteForm_Answers_MapToTheOutcome_WithNoLifetime()
+    {
+        Assert.Equal(new GrantPromptResult(GrantPromptStatus.Declined), ElicitationGrantPrompt.ReadWrite(new ElicitResult { Action = "decline" }, "f"));
+        Assert.Equal(new GrantPromptResult(GrantPromptStatus.Cancelled), ElicitationGrantPrompt.ReadWrite(new ElicitResult { Action = "cancel" }, "f"));
+        Assert.Equal(new GrantPromptResult(GrantPromptStatus.Accepted), ElicitationGrantPrompt.ReadWrite(new ElicitResult { Action = "accept" }, "f"));
+
+        var answer = ElicitationGrantPrompt.ReadWrite(new ElicitResult
+        {
+            Action = "accept",
+            Content = new Dictionary<string, JsonElement>
+            {
+                ["notebookName_0a1b2c3d"] = JsonSerializer.SerializeToElement(" Notebook A "),
+                ["lifetime"] = JsonSerializer.SerializeToElement("untilRevoked"),
+            },
+        }, "notebookName_0a1b2c3d");
+        Assert.Equal(new GrantPromptResult(GrantPromptStatus.Accepted, " Notebook A "), answer);
+    }
+
+    [Fact]
+    public void WriteForm_TypedNameField_IsNewEveryRequest_AndAnyOtherKey_IsAMismatch()
+    {
+        var a = ElicitationGrantPrompt.NewNotebookNameField();
+        var b = ElicitationGrantPrompt.NewNotebookNameField();
+        Assert.Matches("^notebookName_[0-9a-f]{8}$", a);
+        Assert.NotEqual(a, b);
+
+        foreach (var key in new[] { ElicitationGrantPrompt.NotebookNameField, b, "sectionName_00000000" })
+        {
+            var answer = ElicitationGrantPrompt.ReadWrite(new ElicitResult
+            {
+                Action = "accept",
+                Content = new Dictionary<string, JsonElement> { [key] = JsonSerializer.SerializeToElement("Notebook A") },
+            }, a);
+            Assert.Equal(GrantPromptStatus.Accepted, answer.Status);
+            Assert.Null(answer.TypedName);
+        }
+    }
 
     private GrantCommand Command(string input, bool interactive = true) =>
         new(new StringReader(input), output, interactive, ct => gateway.GetHierarchyAsync(string.Empty, Core.HierarchyScope.Sections, ct), new SettingsWriter(Store, clock), clock);

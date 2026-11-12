@@ -3,6 +3,13 @@
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <!-- DPAPI for journal entries from password-protected sections (AD-8; story 2.8 decision Q2). -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\OneNoteMcp.Xml\OneNoteMcp.Xml.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="OneNoteMcp.Tests" />
   </ItemGroup>
 </Project>

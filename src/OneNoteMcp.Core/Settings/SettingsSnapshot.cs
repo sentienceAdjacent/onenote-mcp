@@ -26,13 +26,14 @@ public sealed record Timeouts(TimeSpan Call, TimeSpan Publish, TimeSpan Activati
         TimeSpan.FromSeconds(300));
 }
 
-/// <summary>Recovery journal location and retention (AD-8).</summary>
+/// <summary>Recovery journal location and retention (AD-8). JSON shape: <c>"journal": {"path", "retentionDays", "maxSizeMB"}</c>.</summary>
 public sealed record JournalSettings(string Path, int RetentionDays, int MaxSizeMB)
 {
-    public static JournalSettings Default() => new(
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OneNoteMcp", "journal"),
-        RetentionDays: 30,
-        MaxSizeMB: 2048);
+    /// <summary>The defaults, with the folder from this process's environment (<see cref="OneNoteMcp.Core.Journal.JournalFiles.DefaultFolder"/>).</summary>
+    public static JournalSettings Default() => Default(OneNoteMcp.Core.Journal.JournalFiles.DefaultFolder(Environment.GetEnvironmentVariable));
+
+    /// <summary>The defaults, with <paramref name="defaultPath"/> as the folder: 30 days, 2 GB (AD-8).</summary>
+    public static JournalSettings Default(string defaultPath) => new(defaultPath, RetentionDays: 30, MaxSizeMB: 2048);
 }
 
 /// <summary>
@@ -279,8 +280,8 @@ public sealed class SettingsSnapshot
     public IReadOnlyList<NotebookGrant> NotebookEntries { get; }
 
     /// <summary>Every default, with the given status. Used for an absent, invalid or newer file.</summary>
-    internal static SettingsSnapshot Defaults(string path, SettingsStatus status, string? reason = null) =>
-        new(path, status, reason, allowSilentActivation: false, Timeouts.Default, JournalSettings.Default(), ResultSettings.Default, SearchSettings.Default, ExportRoots.Default());
+    internal static SettingsSnapshot Defaults(string path, SettingsStatus status, string? reason = null, JournalSettings? journal = null) =>
+        new(path, status, reason, allowSilentActivation: false, Timeouts.Default, journal ?? JournalSettings.Default(), ResultSettings.Default, SearchSettings.Default, ExportRoots.Default());
 
     /// <summary>
     /// What to do when a newer OneNoteMcp wrote <c>settings.json</c> (Phill, 2026-11-10, 2.4 plan Q7): a retry in this

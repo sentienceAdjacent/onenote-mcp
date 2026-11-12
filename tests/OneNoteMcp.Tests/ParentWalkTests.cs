@@ -139,6 +139,9 @@ public sealed class ParentWalkTests
             CallsWhenAsked = gateway.Calls.Count;
             return Task.FromResult(new GrantPromptResult(GrantPromptStatus.Declined));
         }
+
+        public Task<GrantPromptResult> AskWriteAsync(WriteGrantQuestion question, CancellationToken ct) =>
+            throw new InvalidOperationException("A read never asks for a write grant.");
     }
 
     /// <summary>A hierarchy given as parent links and each object's <c>self</c> XML; records every call in order.</summary>

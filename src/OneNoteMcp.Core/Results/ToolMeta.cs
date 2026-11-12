@@ -28,11 +28,13 @@ public sealed record ToolMeta(
     string? PageId = null);
 
 /// <summary>
-/// One stored grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21
-/// read grant. <see cref="Key"/> is its <c>SectionKey</c>; <see cref="Name"/>, <see cref="NotebookKey"/> and
-/// <see cref="IdAtGrant"/> are stored for information only. <see cref="Status"/> is <c>active</c>,
-/// <c>sectionNotOpen</c> or <c>expired</c>. <see cref="Lifetime"/> is <c>hours</c> or <c>untilRevoked</c>; <c>once</c>
-/// grants are never stored, so never listed. Dates are UTC ISO-8601.
+/// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read
+/// grant, whose <see cref="Key"/> is its <c>SectionKey</c>, <see cref="Status"/> <c>active</c>, <c>sectionNotOpen</c>
+/// or <c>expired</c>, and <see cref="Lifetime"/> <c>once</c> (this process's live window, never stored), <c>hours</c> or
+/// <c>untilRevoked</c>. It is <c>writeNotebook</c> for an AD-6 write grant, whose <see cref="Key"/> and
+/// <see cref="NotebookKey"/> are its <c>NotebookKey</c>, <see cref="Status"/> <c>active</c> or <c>notebookNotOpen</c>,
+/// and <see cref="Lifetime"/> always <c>untilRevoked</c>. <see cref="Name"/> and <see cref="IdAtGrant"/> are stored for
+/// information only. Dates are UTC ISO-8601.
 /// </summary>
 public sealed record GrantListing(
     string Kind,

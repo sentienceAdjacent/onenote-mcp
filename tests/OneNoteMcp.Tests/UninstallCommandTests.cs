@@ -1,6 +1,9 @@
 using System.Text.Json;
+using OneNoteMcp.Core;
+using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Server.Cli;
+using OneNoteMcp.Server.Logging;
 using Xunit;
 
 namespace OneNoteMcp.Tests;
@@ -38,8 +41,37 @@ public sealed class UninstallCommandTests : IDisposable
         temp.Dispose();
     }
 
-    private UninstallCommand Command(string input = "", bool interactive = false, IReadOnlyList<string>? systemFolders = null) =>
-        new(new StringReader(input), output, interactive, new UninstallPaths(SettingsPath, LogFolder, JournalFolder, systemFolders ?? []));
+    /// <summary>The files that existed when the fake settings lock ran its action, and how often it ran.</summary>
+    private readonly List<string> seenUnderLock = [];
+    private int lockRuns;
+
+    private UninstallCommand Command(
+        string input = "",
+        bool interactive = false,
+        IReadOnlyList<string>? systemFolders = null,
+        IReadOnlyList<int>? running = null,
+        Action<Action>? settingsLock = null) =>
+        new(
+            new StringReader(input),
+            output,
+            interactive,
+            new UninstallPaths(SettingsPath, LogFolder, JournalFolder, systemFolders ?? []),
+            () => running ?? [],
+            settingsLock ?? RecordingLock);
+
+    /// <summary>A stand-in for the settings mutex: records which seeded files still existed before and after its action.</summary>
+    private void RecordingLock(Action action)
+    {
+        lockRuns++;
+        seenUnderLock.Clear();
+        seenUnderLock.AddRange(ExistingFiles());
+        action();
+    }
+
+    private List<string> ExistingFiles() =>
+        [.. new[] { SettingsFolder, LogFolder, JournalFolder }
+            .Where(Directory.Exists)
+            .SelectMany(Directory.EnumerateFiles)];
 
     private static string Touch(string folder, string name)
     {
@@ -300,5 +332,227 @@ public sealed class UninstallCommandTests : IDisposable
         Assert.False(File.Exists(SettingsPath));
         Assert.False(Directory.Exists(JournalFolder));
         Assert.True(Directory.Exists(LogFolder));
+    }
+
+    // --- Retro R4 (story 2.6): running servers and the settings mutex -----------------------------------------------
+
+    [Fact]
+    public void Purge_WithAnotherServerRunning_WarnsWithItsProcessIds_BeforeTheQuestion()
+    {
+        SeedEverything();
+
+        var code = Command("purge\n", interactive: true, running: [4242, 77]).Run(["--purge"]);
+
+        Assert.Equal(0, code);
+        var text = output.ToString();
+        var warning = text.IndexOf("process ID 4242, 77", StringComparison.Ordinal);
+        Assert.True(warning >= 0, text);
+        Assert.True(warning < text.IndexOf("Type purge", StringComparison.Ordinal), "the warning comes before the question");
+    }
+
+    [Fact]
+    public void Purge_WithAnotherServerRunning_AndYes_StillWarns()
+    {
+        SeedEverything();
+
+        Command(running: [4242]).Run(["--purge", "--yes"]);
+
+        Assert.Contains("process ID 4242", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Purge_WithNoOtherServer_HasNoWarning()
+    {
+        SeedEverything();
+
+        Command().Run(["--purge", "--yes"]);
+
+        Assert.DoesNotContain("still running", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Purge_RemovesSettingsAndItsTempFiles_UnderTheSettingsLock_AndTheRestAfterIt()
+    {
+        SeedEverything();
+        var leftover = Path.Combine(SettingsFolder, ".settings.1234.0123456789abcdef0123456789abcdef.tmp");
+        var log = Path.Combine(LogFolder, "onenote-mcp-20261107T101112-4242.log");
+        var held = false;
+        var settingsGoneWhileHeld = false;
+        var logStillThereWhileHeld = false;
+
+        var code = Command(settingsLock: action =>
+        {
+            held = true;
+            action();
+            settingsGoneWhileHeld = !File.Exists(SettingsPath) && !File.Exists(leftover);
+            logStillThereWhileHeld = File.Exists(log);
+            held = false;
+        }).Run(["--purge", "--yes"]);
+
+        Assert.Equal(0, code);
+        Assert.False(held);
+        Assert.True(settingsGoneWhileHeld, "settings.json and its temp files go while the lock is held");
+        Assert.True(logStillThereWhileHeld, "the other files are removed outside the lock");
+        Assert.False(File.Exists(log));
+    }
+
+    [Fact]
+    public void Purge_TheLockIsTakenOnlyAfterTheQuestion_NeverWhenDeclined()
+    {
+        SeedEverything();
+
+        Assert.Equal(1, Command("no\n", interactive: true).Run(["--purge"]));
+
+        Assert.Equal(0, lockRuns);
+        Assert.True(File.Exists(SettingsPath));
+    }
+
+    [Fact]
+    public void Purge_WithNoSettingsFolder_DoesNotTakeTheLock()
+    {
+        Directory.Delete(SettingsFolder);
+        Touch(LogFolder, "onenote-mcp-20261107T101112-4242.log");
+
+        Assert.Equal(0, Command().Run(["--purge", "--yes"]));
+
+        Assert.Equal(0, lockRuns);
+    }
+
+    [Fact]
+    public void Purge_WithASettingsFolderButNoSettingsFiles_StillTakesTheLock()
+    {
+        Touch(LogFolder, "onenote-mcp-20261107T101112-4242.log");
+
+        Assert.Equal(0, Command().Run(["--purge", "--yes"]));
+
+        Assert.Equal(1, lockRuns);
+    }
+
+    [Fact]
+    public void Purge_ASettingsFileCreatedAfterTheList_IsRemovedUnderTheLock()
+    {
+        // A server still running saves a grant while the user sits at the question: settings.json (and a temp file)
+        // appear after the plan was listed, and are listed again under the lock.
+        Touch(LogFolder, "onenote-mcp-20261107T101112-4242.log");
+        var leftover = Path.Combine(SettingsFolder, ".settings.99.0123456789abcdef0123456789abcdef.tmp");
+
+        var code = Command("purge\n", interactive: true, settingsLock: action =>
+        {
+            lockRuns++;
+            WriteSettings();
+            File.WriteAllText(leftover, "x");
+            action();
+        }).Run(["--purge"]);
+
+        Assert.Equal(0, code);
+        Assert.Equal(1, lockRuns);
+        Assert.False(File.Exists(SettingsPath));
+        Assert.False(File.Exists(leftover));
+        Assert.False(Directory.Exists(SettingsFolder));
+        Assert.Contains("Done.", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Purge_SettingsLockTimesOut_KeepsTheSettingsFiles_SaysSo_RemovesTheRest_Exit1()
+    {
+        SeedEverything();
+
+        var code = Command(settingsLock: _ => throw new OneNoteException(ErrorCode.ComBusy, "Another OneNoteMcp process is writing settings.json.")).Run(["--purge", "--yes"]);
+
+        Assert.Equal(1, code);
+        var text = output.ToString();
+        Assert.Contains("Kept settings.json and its temporary files", text, StringComparison.Ordinal);
+        Assert.True(File.Exists(SettingsPath));
+        Assert.True(File.Exists(Path.Combine(SettingsFolder, ".settings.1234.0123456789abcdef0123456789abcdef.tmp")));
+        Assert.False(Directory.Exists(LogFolder));
+        Assert.False(Directory.Exists(JournalFolder));
+        Assert.True(Directory.Exists(SettingsFolder));
+        Assert.Contains("Done, but", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SettingsLock_HoldsTheSettingsMutex_WhileItsActionRuns()
+    {
+        bool? takenElsewhere = null;
+
+        UninstallCommand.SettingsLock(SettingsPath)(() =>
+        {
+            // Another thread can't take the mutex while the action runs.
+            var probe = new Thread(() =>
+            {
+                using var mutex = new Mutex(initiallyOwned: false, SettingsWriter.MutexName);
+                try
+                {
+                    takenElsewhere = mutex.WaitOne(0);
+                    if (takenElsewhere == true)
+                    {
+                        mutex.ReleaseMutex();
+                    }
+                }
+                catch (AbandonedMutexException)
+                {
+                    takenElsewhere = true;
+                }
+            });
+            probe.Start();
+            probe.Join();
+        });
+
+        Assert.False(takenElsewhere);
+    }
+
+    [Fact]
+    public void OtherServerProcesses_NeverListsThisProcess() =>
+        Assert.DoesNotContain(Environment.ProcessId, UninstallCommand.OtherServerProcesses());
+
+    // --- Story 2.8: the journal's temp leftovers and the decision-Q1 folder ------------------------------------------
+
+    [Fact]
+    public void Purge_RemovesJournalTempLeftovers_ButNotLookAlikes()
+    {
+        SeedEverything();
+        var leftover = Touch(JournalFolder, "." + JournalName + ".tmp");
+        var foreign = Touch(JournalFolder, JournalName + ".tmp");
+
+        Command().Run(["--purge", "--yes"]);
+
+        Assert.False(File.Exists(leftover));
+        Assert.True(File.Exists(foreign), "only the writer's .{name}.tmp form is ours");
+    }
+
+    [Fact]
+    public void Resolve_JournalFollowsTheTestOverrides_DecisionQ1()
+    {
+        var journalDir = temp.Combine("j");
+        string? SettingsOnly(string name) => name == SettingsStore.PathOverrideVariable ? SettingsPath : null;
+        string? Both(string name) => name == JournalFiles.DirectoryOverrideVariable ? journalDir : SettingsOnly(name);
+
+        Assert.Equal(Path.Combine(SettingsFolder, "journal"), UninstallPaths.Resolve(SettingsOnly).DefaultJournalPath);
+        Assert.Equal(journalDir, UninstallPaths.Resolve(Both).DefaultJournalPath);
+    }
+
+    [Fact]
+    public void Purge_WithOnlyTheSettingsAndLogOverrides_PurgesTheJournalBesideTheSettings()
+    {
+        WriteSettings();
+        var besideSettings = Path.Combine(SettingsFolder, "journal");
+        var entry = Touch(besideSettings, JournalName);
+        var leftover = Touch(besideSettings, "." + JournalNameD + ".tmp");
+        var resolved = UninstallPaths.Resolve(name =>
+            name == SettingsStore.PathOverrideVariable ? SettingsPath
+            : name == FileLog.DirectoryOverrideVariable ? LogFolder
+            : null);
+        var command = new UninstallCommand(new StringReader(string.Empty), output, interactive: false, resolved with { SystemFolders = [] }, () => [], RecordingLock);
+
+        var code = command.Run(["--purge", "--yes"]);
+
+        Assert.Equal(0, code);
+        Assert.False(File.Exists(entry));
+        Assert.False(File.Exists(leftover));
+        Assert.False(Directory.Exists(SettingsFolder), "the emptied journal folder and the settings folder holding it go too");
+        Assert.DoesNotContain(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OneNoteMcp"),
+            output.ToString(),
+            StringComparison.OrdinalIgnoreCase);
     }
 }
