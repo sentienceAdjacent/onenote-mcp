@@ -3,7 +3,8 @@ title: 'update_page_content'
 type: 'feature'
 ticket: '9'
 created: '2026-11-12'
-status: 'draft'
+status: 'ready-for-dev'
+baseline_revision: ''
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -60,17 +61,20 @@ context:
 | Abandoned write outstanding | after step 2 | no read, no write | `ComBusy`, retryable |
 | Step-7 ambiguous failure | `Timeout` etc. | — | `outcomeUnknown`, no read-back |
 | Snapshot fails | journal unwritable | no COM write | `JournalFailed` |
+| OE moved | OE sent under an Outline other than the one step 3 read it in | no COM write | `InvalidArgument`, re-create/remove `userAction` |
+| Stale title | sent title OE's hash ≠ basis | no COM write | `StaleWrite` |
+
+## Decisions (Phill, 2026-11-12, plan approved whole; all six recommendations)
+
+- **Q1 (a):** `update_page_content(pageId, xml, basis?, removeObjectIds?)`; the root `one:Page@ID` must equal `pageId` (else `InvalidArgument`); naming an OE for removal removes its nested OEs too.
+- **Q2 (a):** the result carries `meta.basis` from the read-back's piBasic read; omitted when the read-back fails, and in a protected section without a read grant.
+- **Q3 (a):** hard XSD gate against the vendored 2013 XSD in step 4; `InvalidXml` names line, position and the element's name only, never the validator's text. AD-16's settlement is recorded by story 5.2.
+- **Q4 (a):** an OE sent under an Outline other than the one step 3 read it in is refused with `InvalidArgument`; the `userAction` says to send it without its `objectID` in the new Outline and name it for removal from the old one. AD-7 as amended by 5.2 (Phill 2026-11-12, 2.9 Q4).
+- **Q5 (a):** step 5 also compares the basis hash of each sent OE with an `objectID` outside any sent Outline (in practice the title's OE), with the same partial-basis rule. AD-17 as amended by 5.2 (Phill 2026-11-12, 2.9 Q5).
+- **Q6 (a):** no merged-table code; an opt-in integration probe (merged table written through the raw seam in `xs2026`, a cell edited through the pipeline, re-read in `xs2026`) runs in the live sitting; if the merge is lost, a follow-up amends AD-4.
+- Lane decisions stand: the abandoned-write check after step 2 applies to every pipeline (AD-3); a recycle-bin page is `ObjectNotFound` (as 2.4 Q8); no `<Version>` bump.
 
 </frozen-after-approval>
-
-## Open Questions
-
-1. **Tool arguments.** (a) `update_page_content(pageId, xml, basis?, removeObjectIds?)`: the root `ID` must equal `pageId`; naming an OE for removal covers its nested OEs. (b) No `pageId`: the page is the XML root's `ID`. (c) As (a), but every nested OE of a removed OE must be named too. **Recommended: a** (every other tool takes the ID; step 1, logs and the cache key on it; (c) adds a refusal with no safety gain, since nested OEs can't outlive their parent).
-2. **A fresh basis in the result.** (a) `meta.basis` from the read-back's piBasic read, so the model can make a second edit without a re-read; omitted when the read-back fails and in a protected section without a read grant (AD-21 gives such a write no basis). (b) No basis; the model re-reads before the next edit. **Recommended: a** (taken under the lock right after the write, so it's exact; the date stays OneNote's own string).
-3. **The XSD gate (AD-16: "Story 2.9 settles it").** (a) Hard gate: validate against the vendored 2013 XSD in step 4; `InvalidXml` names line, position and the element's name, never the validator's text (it can quote content). Evidence: every captured fixture validates (`XmlModelTests.EveryXmlFixture_ValidatesAgainstTheXsd`); story 1.6's partial shapes validate and OneNote accepted five of them (research row 9); the live sitting confirms with real edits. (b) Stand-in: well-formed, 2013 namespace, `objectID` pattern only; OneNote's `0x80042001` catches the rest. **Recommended: a**; the next spine story records AD-16 as settled. Risk: XSD stricter than OneNote on some real page; the live check on MCP Test is the guard.
-4. **An OE sent under a different Outline than step 3 read it in (a move).** (a) Refuse with `InvalidArgument`; the `userAction` says to send it without its `objectID` in the new Outline and name it for removal from the old one. (b) Allow it; the read-back reports the re-created OE (`readBackDiffers`, old and new IDs), as AD-7 anticipates. **Recommended: a**: spike 2.2 only probed both Outlines being sent, so what OneNote does when the source Outline isn't sent is unknown; refusing is deterministic and loses nothing, since the ID changes either way. Adds one AD-7 validation rule (spine sync later).
-5. **The title's OE.** AD-17 compares only the hashes of sent Outlines, so an edit to the title (`one:Title/one:OE`, no Outline) has only the date check, which can't catch a second writer on a page that isn't displayed. (a) Also compare the basis hash of each sent OE with an `objectID` outside any sent Outline, with the same partial-basis rule; stricter than AD-17's text, recorded by the next spine story. (b) As AD-17 says. **Recommended: a.**
-6. **Editing inside a merged table (spine Deferred: "Story 2.9 probes an edit inside one on MCP Test before relying on it; if the merge is lost, amend AD-4").** (a) No special handling in code; an opt-in integration probe (merged table written through the raw seam in `xs2026` as spike 2.2 did, a cell edited through `update_page_content`, re-read in `xs2026`) runs in the live sitting; if the merge is lost, a follow-up story amends AD-4 and adds a refusal or warning. (b) Refuse every sent Outline holding a table until the probe runs. **Recommended: a** ((b) blocks all table edits for a case 2013 XML can't even show).
 
 ## Code Map
 
