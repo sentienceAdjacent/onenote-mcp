@@ -133,6 +133,21 @@ Fable final review of `1655b7b` (run by the orchestrating session, 2026-11-12): 
 
 Also added (Phill, 2026-11-12): from story 2.9's security review, basis limits without a read grant (AD-17, AD-21), user-gated file paths (AD-7, AD-6; refusal `WriteNotGranted`), DOCTYPE refused (AD-16); story 2.10 Q1, `delete_page_content` in a protected section needs the read grant (AD-21, AD-6, AD-7, AD-9); and write and read grants stay separate (memlog only).
 
+Fable re-check of `9a33dfa` (orchestrating session, 2026-11-12): N1–N10. Phill decided N1, N4 and N6; the rest were fixed as suggested.
+
+| # | Finding | Route | Action |
+|---|---|---|---|
+| N1 | A page permanent delete in a protected section could carry a `pageHash` without a read grant | Phill | Date-only rule covers it: a hash is `ReadNotGranted`. AD-6, AD-9, AD-17, AD-21 |
+| N2 | The path exemption was loose | patch | Exempt only when unchanged on the same element (same `objectID`); no `objectID`, or a protected section without a read grant, means new; `pathCache` gated; schema terms |
+| N3 | Step 1's order unstated | patch | Parse (DOCTYPE), read-grant check, write-grant dialog, path dialog; step 4 `WriteNotGranted`; AD-16 reconciled |
+| N4 | The protected page soft-delete `userAction` | Phill | Points to a permanent delete. AD-7, AD-9, AD-21 |
+| N5 | "existing `objectID`" undefined | patch | "any `objectID` attribute in the sent XML, or any `removeObjectIds` entry" |
+| N6 | Page-reorder ID oracle | Phill | Accepted (GUIDs); `update_hierarchy` warnings counts-only in a protected section |
+| N7 | No-elicitation path refusal retryable | patch | `retryable: false`, `userAction` "send the image as inline one:Data, or insert the file in OneNote yourself" |
+| N8 | The path dialog's shape | patch | Accept or decline, naming each canonical path; AD-6's Limits apply |
+| N9 | Entry 5 missing its probes and new outcomes | patch | Two probes, `SectionLocked`, `recycleBinIdMissing` added to `tickets.toml` |
+| N10 | Leftover wording; DOCTYPE in the class table | patch | AD-6 and AD-21 wording fixed; "no DOCTYPE" in the `PageWrite`, `Create` and `HierarchyWrite` rows (the delete rows send no XML); `once` grant per process; `recycleBinIdMissing` needs no `userAction` |
+
 ## Design Notes
 
 Draft epic 5 wording (Q7), assuming the recommended answers:

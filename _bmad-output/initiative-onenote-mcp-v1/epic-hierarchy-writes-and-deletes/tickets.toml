@@ -51,7 +51,7 @@ risk = "high"
 id = 5
 type = "story"
 title = "Soft delete"
-description = "DeleteHierarchy permanent=false for a page, section or section group with a page or hierarchy snapshot, following entry 2's rules (AD-7 SoftDelete, AD-21): a notebook is refused with NotSupported, and in a protected section the write grant alone is enough, but a page soft delete there stays refused until this story probes it with the hierarchy date; after a page delete it reads back the page's new recycle-bin ID and stores it in the journal entry, for epic 3's restore_from_recycle_bin (Phill, 2026-11-12)."
+description = "DeleteHierarchy permanent=false for a page, section or section group with a page or hierarchy snapshot, following entry 2's rules (AD-7 SoftDelete, AD-21): a notebook is refused with NotSupported, and in a protected section the write grant alone is enough, but a page soft delete there stays refused until this story probes it with the hierarchy date, and a locked section's soft delete returns SectionLocked; after a page delete it reads back the page's new recycle-bin ID and adds it to the journal entry by rewriting it once, leaving it out with the warning recycleBinIdMissing if that fails, for epic 3's restore_from_recycle_bin (Phill, 2026-11-12). It also probes a displayed page deleted with its hierarchy date, and an empty and a nested section group's soft delete, before relying on them (spine Deferred)."
 verify = "On MCP Test a deleted page is in the recycle bin with a journal entry holding its recycle-bin ID, restore_from_journal brings it back, and a stale basis returns StaleWrite on a page that isn't displayed."
 covers = ["R4", "R5", "R6"]
 after = [4]
