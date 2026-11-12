@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.Results;
 using Xunit;
 
 namespace OneNoteMcp.Tests;
@@ -93,6 +95,108 @@ public sealed partial class HResultMapTests
         Assert.Equal(
             "GetHierarchy failed: hrObjectDoesNotExist (0x80042014).",
             HResultMap.FailureMessage("GetHierarchy", unchecked((int)0x80042014)));
+
+    // --- Triage (story 2.7) --------------------------------------------------------------------------------------
+
+    [Fact]
+    public void EveryNamedHResult_HasAnExplicitTriageRow()
+    {
+        Assert.All(HResultMap.Names.Keys, hr => Assert.True(HResultMap.Triaged.ContainsKey(hr), $"0x{hr:X8} {HResultMap.Name(hr)}"));
+        Assert.Equal(HResultMap.Names.Count, HResultMap.Triaged.Count);
+    }
+
+    [Fact]
+    public void EveryOneNoteHResult_IsTriaged_NotLeftToTheDefault() =>
+        Assert.All(
+            PsmTable.Value.Keys.Where(k => (unchecked((uint)k) & 0xFFFFF000) == 0x80042000),
+            hr => Assert.True(HResultMap.Triaged.ContainsKey(hr), $"0x{hr:X8}"));
+
+    // The Design Notes rows of story 2.7: code, whether a specific userAction is set, and the retryable override.
+    public static TheoryData<uint, bool?> TriagedInternal => new()
+    {
+        { 0x8004200Bu, true },
+        { 0x8004200Cu, true },
+        { 0x80042022u, null },
+        { 0x80042024u, true },
+        { 0x8004202Eu, null },
+        { 0x8004201Cu, null },
+        { 0x80042017u, null },
+        { 0x80042002u, null },
+        { 0x80042003u, true },
+        { 0x8004201Eu, true },
+        { 0x80042007u, null },
+        { 0x80042008u, null },
+        { 0x80042009u, null },
+        { 0x8004200Du, null },
+        { 0x80042016u, null },
+        { 0x8004200Au, null },
+        { 0x8004201Fu, null },
+        { 0x8004202Du, null },
+        { 0x80042031u, null },
+    };
+
+    [Theory]
+    [MemberData(nameof(TriagedInternal))]
+    public void DesignNotesRow_IsInternal_WithItsOwnUserAction_AndRetryFlag(uint hresult, bool? retryable)
+    {
+        var hr = unchecked((int)hresult);
+
+        Assert.Equal(ErrorCode.Internal, HResultMap.ToErrorCode(hr));
+        Assert.False(string.IsNullOrWhiteSpace(HResultMap.UserAction(hr)));
+        Assert.Equal(retryable, HResultMap.Retryable(hr));
+    }
+
+    [Theory]
+    [InlineData(0x80042013u)]
+    [InlineData(0x80042025u)]
+    [InlineData(0x8004202Fu)]
+    [InlineData(0x80042006u)]
+    [InlineData(0x8004200Fu)]
+    [InlineData(0x800706BEu)]
+    public void UnreachedOrDeliberateInternalRows_KeepTheDefaults(uint hresult)
+    {
+        var hr = unchecked((int)hresult);
+
+        Assert.Equal(ErrorCode.Internal, HResultMap.ToErrorCode(hr));
+        Assert.Null(HResultMap.UserAction(hr));
+        Assert.Null(HResultMap.Retryable(hr));
+    }
+
+    [Fact]
+    public void ServerExecFailure_KeepsItsRestartUserAction() =>
+        Assert.Equal(HResultMap.ServerExecFailureUserAction, HResultMap.UserAction(unchecked((int)0x80080005)));
+
+    [Fact]
+    public void ToException_CarriesTheRowsUserActionAndRetryFlag()
+    {
+        var ex = HResultMap.ToException("UpdatePageContent", new COMException("read-only", unchecked((int)0x8004200C)));
+
+        Assert.Equal(ErrorCode.Internal, ex.Code);
+        Assert.Equal(HResultMap.UserAction(unchecked((int)0x8004200C)), ex.UserAction);
+        Assert.True(ex.Retryable);
+        Assert.Equal("UpdatePageContent failed: hrPageReadOnly (0x8004200C).", ex.Message);
+
+        var plain = HResultMap.ToException("GetHierarchy", new COMException("gone", unchecked((int)0x80042014)));
+        Assert.Null(plain.UserAction);
+        Assert.Null(plain.Retryable);
+    }
+
+    [Theory]
+    [InlineData(OperationClass.Read)]
+    [InlineData(OperationClass.PageWrite)]
+    public void ARetryableRow_ReadsRetryableOnAReadAndAWrite_ButNotWhenTheOutcomeIsUnknown(OperationClass operationClass)
+    {
+        var ex = HResultMap.ToException("UpdatePageContent", new COMException("recording", unchecked((int)0x80042024)));
+
+        var error = ToolErrors.From(ex, operationClass);
+        Assert.True(error.Retryable);
+        Assert.Equal(ex.UserAction, error.UserAction);
+
+        var unknown = new OneNoteException(ex.Code, ex.Message, ex.ComHResult, ex, outcomeUnknown: true, userAction: ex.UserAction, retryable: ex.Retryable);
+        var unknownError = ToolErrors.From(unknown, operationClass);
+        Assert.False(unknownError.Retryable);
+        Assert.Equal(ToolErrors.OutcomeUnknownUserAction, unknownError.UserAction);
+    }
 
     private static Dictionary<int, string> ReadPsmTable()
     {

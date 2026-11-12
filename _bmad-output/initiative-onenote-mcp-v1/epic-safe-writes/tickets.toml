@@ -97,6 +97,16 @@ risk = "medium"
 unknown = "Whether SDK 2.3.1 lets a filter see the raw arguments before binding; if not, a schema-driven pre-check in ToolRunner."
 
 [[entry]]
+id = 15
+type = "bug"
+title = "Settings write fails while Windows briefly holds the file"
+description = "SettingsWriter's File.Replace intermittently throws IOException \"Unable to remove the file to be replaced\", surfaced as a settings.json write failure. Seen on main on 2026-11-12: 2 of 11 unit-test runs, each time in a different test (GrantCommandTests revoke, ProtectedSectionToolTests until-revoked), each with its own temp folder, so likely another process (antivirus or the indexer) briefly holding the just-written file. A real grant or revoke can hit it too. Likely fix: retry the replace a few times over about half a second on a sharing or access IOException, then fail as today. Phill chose a bug ticket (2026-11-12, 2.7 thread)."
+verify = "A test that holds the target file open without delete sharing for less than the retry window sees the write succeed, and one that holds it longer sees today's error; 20 consecutive unit-test runs on main show no settings IOException."
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
 id = 8
 type = "story"
 title = "Journal"
