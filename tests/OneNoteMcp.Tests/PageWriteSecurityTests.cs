@@ -264,6 +264,23 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("&lt;img src=x&GT;")]
     [InlineData("&lt;div&gt; &AMP;lt;img&AMP;gt;")]
     [InlineData("a &lpar;b&rpar; c")] // any entity left undecoded after the last stage, in text too
+    // the bypass review of 36fd882: code-level gaps
+    [InlineData("<a href=\"mailto:x@example.invalid?attach=C:/Users/me/.ssh/id_rsa\">m</a>")]
+    [InlineData("<a href=\"mailto:x@example.invalid?subject=hi&amp;attachment=/etc/passwd\">m</a>")]
+    [InlineData("<a href=\"mailto:x@example.invalid?Attach=%5C%5Cevil%5Cs%5Cx\">m</a>")]
+    [InlineData("<a href=\"mailto:x@example.invalid?subject=a&amp;&amp;attach=x\">m</a>")]
+    [InlineData("<a href=\"http://\\\\evil\\s\\x\">h</a>")]
+    [InlineData("<a href=\"https://example.invalid/a%5Cb\">h</a>")]
+    [InlineData("<\u0131mg src=\\\\evil\\x.png>")] // dotless i: IMG to a parser that upper-cases with Unicode rules
+    [InlineData("<\u017Ftyle>")] // long s: STYLE
+    [InlineData("</\u0131mg>")]
+    [InlineData("</img src=\"\\\\evil\\x.png\">")]
+    [InlineData("</br style=\"x\" src=\"\\\\evil\\x.png\">")]
+    [InlineData("</ img src=\"\\\\evil\\x.png\">")]
+    [InlineData("<b>x</b src=\"\\\\evil\\x.png\">")]
+    [InlineData("<b>x</textarea>")]
+    [InlineData("&ltimg src=\"https://example.invalid/a.png\"&gt")] // in text HTML5 decodes &lt before a letter too
+    [InlineData("&LTiframe&GT")]
     // onenote: web-notebook links only to OneDrive and SharePoint (Phill, 2026-11-12)
     [InlineData("<a href=\"onenote:https://example.invalid/n.one#p\">p</a>")]
     [InlineData("<a href=\"onenote:https://sharepoint.com/n.one#p\">p</a>")]
@@ -309,6 +326,9 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("&copy; 2026 &amp; more")]
     [InlineData("x&nbsp;y &eacute; &LT;b&GT;bold&LT;/b&GT;")]
     [InlineData("R&D notes, AT&T and Q&A")]
+    [InlineData("<a href=\"mailto:someone@example.invalid?subject=Hi%20there&amp;body=See%20you&amp;cc=a@example.invalid&amp;bcc=b@example.invalid\">m</a>")]
+    [InlineData("<B>x</B ><span>y</span><br></br>")]
+    [InlineData("café &lt; naïve, x < été")]
     public void HasRefusedHtml_AllowsOrdinaryTextFormattingAndWebMailOrOneNoteLinks(string text) =>
         Assert.False(PageWriteScan.HasRefusedHtml(text));
 

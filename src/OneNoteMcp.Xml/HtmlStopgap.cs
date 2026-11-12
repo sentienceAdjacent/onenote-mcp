@@ -41,6 +41,22 @@ internal static class HtmlStopgap
     /// <summary>A comment, conditional comment, declaration, CDATA section or processing instruction.</summary>
     private static readonly Regex MarkupDeclaration = new("<[!?]", Options);
 
+    /// <summary>
+    /// A <c>&lt;</c> or <c>&lt;/</c> before a non-ASCII letter: neither scan sees a tag there, but a parser that upper-cases
+    /// with Unicode rules may (dotless i makes <c>IMG</c>, long s makes <c>STYLE</c>).
+    /// </summary>
+    private static readonly Regex NonAsciiTagStart = new(@"</?(?![a-zA-Z])\p{L}", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// An end tag that isn't exactly an allowed name and then <c>&gt;</c>: HTML5 drops end-tag attributes, a legacy parser
+    /// may not, and <c>&lt;/br …&gt;</c> becomes a start tag.
+    /// </summary>
+    private static readonly Regex DisallowedEndTag = new(
+        @"</(?!(?:a|b|br|cite|code|del|em|font|i|ins|p|s|small|span|strike|strong|sub|sup|u)\s*>)", Options);
+
+    /// <summary>The only <c>mailto:</c> query keys allowed: no <c>attach</c>, which some mail clients honour with local paths.</summary>
+    private static readonly HashSet<string> MailtoKeys = new(StringComparer.OrdinalIgnoreCase) { "subject", "body", "cc", "bcc", "to" };
+
     /// <summary>A named reference left after the last decoding stage: one .NET doesn't know, which an HTML5 parser may.</summary>
     private static readonly Regex UnknownReference = new("&[a-z][a-z0-9]*;", Options);
 
@@ -73,9 +89,10 @@ internal static class HtmlStopgap
     /// <summary>
     /// The named references that change the markup, in any case (HTML5 has <c>&amp;LT;</c>, <c>&amp;GT;</c>,
     /// <c>&amp;AMP;</c>, <c>&amp;QUOT;</c>, which .NET doesn't decode), with a semicolon or, as legacy references,
-    /// without one.
+    /// without one whatever follows (in text HTML5 decodes <c>&amp;ltimg</c> to <c>&lt;img</c>; in an attribute it
+    /// wouldn't, but decoding more only shows the scan more).
     /// </summary>
-    private static readonly Regex LegacyReference = new("&(lt|gt|quot|amp)(?:;|(?![a-zA-Z0-9=]))", Options);
+    private static readonly Regex LegacyReference = new("&(lt|gt|quot|amp);?", Options);
 
     private sealed record Tag(string Name, IReadOnlyList<(string Name, string? Value)> Attributes);
 
@@ -90,7 +107,8 @@ internal static class HtmlStopgap
 
         foreach (var stage in stages)
         {
-            if (FileUrl.IsMatch(stage) || MarkupDeclaration.IsMatch(stage))
+            if (FileUrl.IsMatch(stage) || MarkupDeclaration.IsMatch(stage) || NonAsciiTagStart.IsMatch(stage)
+                || DisallowedEndTag.IsMatch(stage))
             {
                 return true;
             }
@@ -134,8 +152,9 @@ internal static class HtmlStopgap
     }
 
     /// <summary>
-    /// True for an absolute http, https or mailto URL, or an allowed onenote link. As a browser does, tabs and newlines anywhere, and
-    /// controls and spaces at either end, are removed first; any other control character refuses the URL.
+    /// True for an absolute http, https or mailto URL, or an allowed onenote link. As a browser does, tabs and newlines
+    /// anywhere, and controls and spaces at either end, are removed first; any other control character refuses the URL, and
+    /// so does a backslash, as sent or percent-decoded. A <c>mailto:</c> query may hold only subject, body, cc, bcc and to.
     /// </summary>
     private static bool IsAllowedUrl(string value)
     {
@@ -143,8 +162,20 @@ internal static class HtmlStopgap
             .Replace("\n", string.Empty, StringComparison.Ordinal)
             .Replace("\r", string.Empty, StringComparison.Ordinal)
             .Trim(Enumerable.Range(0, 0x21).Select(c => (char)c).ToArray());
-        return url.Length > 0 && !url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f')
-            && (AllowedUrl.IsMatch(url) || IsAllowedOneNoteLink(url));
+        if (url.Length == 0 || url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f')
+            || FullyDecoded(url) is not { } decoded || decoded.Contains('\\', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
+        {
+            var query = url.IndexOf('?', StringComparison.Ordinal);
+            return query < 0 || ParameterSeparator.Split(url[(query + 1)..]).Where(p => p.Length > 0)
+                .All(p => FullyDecoded(p.Split('=')[0]) is { } key && MailtoKeys.Contains(key));
+        }
+
+        return AllowedUrl.IsMatch(url) || IsAllowedOneNoteLink(url);
     }
 
     /// <summary>
