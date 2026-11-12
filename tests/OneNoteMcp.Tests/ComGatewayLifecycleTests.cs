@@ -636,7 +636,9 @@ public sealed class ComGatewayLifecycleTests
     [InlineData("")]
     [InlineData("x")]
     [InlineData("0001-01-01T00:00:00Z")]
+    [InlineData("0001-01-01T00:00:00")] // MinValue with no offset: also skips the check (live, DeleteHierarchy, 2026-11-12)
     [InlineData("1899-12-30T00:00:00Z")] // OADate 0 would skip OneNote's date check
+    [InlineData("1899-12-30T02:00:00+02:00")] // the same instant, written with an offset
     [InlineData("0050-06-01T00:00:00Z")] // would overflow ToOADate (Internal 0x80131516 before)
     [InlineData(null)]
     public async Task PageWrites_WithABadDate_AreInvalidArgument_BeforeCom(string? date)
