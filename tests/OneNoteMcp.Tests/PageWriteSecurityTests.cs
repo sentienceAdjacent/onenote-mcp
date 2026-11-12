@@ -237,6 +237,34 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<span style=\"behavior:expression(x)\">x</span>")]
     [InlineData("<span style=\"@import 'a.css'\">x</span>")]
     [InlineData("<span style=\"background:url&#40;C:\\a.png)\">x</span>")]
+    // the bypass review of e0ba25b: tags and attributes are an allowlist (Phill, 2026-11-12)
+    [InlineData("<textarea><!--</textarea><table title=\">\" background=\"//evil/s/x.png\">-->")]
+    [InlineData("<xmp><!--</xmp><a title=\">\" href=\"\\\\evil\\s\\x\">x</a>-->")]
+    [InlineData("<div style=\"background:url&lpar;//evil/s/x.png)\">x</div>")]
+    [InlineData("<span style=\"background-image&colon;url&lpar;&quot;//evil/s/x.png&quot;&rpar;\">x</span>")]
+    [InlineData("<span style=\"background:url&#0000000040;//evil/s/x.png)\">x</span>")]
+    [InlineData("<span style=\"background:url&#x0000000028;//evil/s/x.png)\">x</span>")]
+    [InlineData("<table title=`x`/background=\\\\evil\\s\\x.png>")]
+    [InlineData("<span lang=`x`/style=background:url(//evil/s/x.png)>x</span>")]
+    [InlineData("<?import namespace=\"t\" implementation=\"\\\\evil\\s\\x.htc\">")]
+    [InlineData("<!--[if IE]><a title=\">\" href=\"\\\\evil\\s\\x\">x</a><![endif]-->")]
+    [InlineData("<!-- x -- ><span>x</span><!-- -->")]
+    [InlineData("<b>x</b><!---->")]
+    [InlineData("<a href=\"https://example.invalid/\" onmouseover=\"x\">a</a>")]
+    [InlineData("<span title=\"x\">x</span>")]
+    [InlineData("<span content=\"\\\\evil\">x</span>")]
+    [InlineData("<div>x</div>")]
+    [InlineData("<span href=\"https://example.invalid/\">x</span>")] // href only on a
+    [InlineData("<font face=\"Calibri\" src=\"https://example.invalid/\">x</font>")]
+    [InlineData("<a href=\"https://example.invalid/&lpar;\">a</a>")] // an entity .NET doesn't know, left in a value
+    [InlineData("<span lang=\"en&NewLine;\">x</span>")]
+    [InlineData("&amp;amp;amp;amp;amp;amp;amp;lt;b&gt;")] // still changing after five rounds of decoding
+    // onenote: web-notebook links only to OneDrive and SharePoint (Phill, 2026-11-12)
+    [InlineData("<a href=\"onenote:https://example.invalid/n.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://sharepoint.com/n.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://contoso.sharepoint.com.example.invalid/n.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://evilsharepoint.com/n.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://x.docs.live.net/n.one#p\">p</a>")]
     public void HasRefusedHtml_RefusesLocalReferencesResourceTagsAndAnyUrlNotAbsoluteWebMailOrOneNote(string text) =>
         Assert.True(PageWriteScan.HasRefusedHtml(text));
 
@@ -247,13 +275,13 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=https://example.invalid/?a=1&amp;b=2>web</a>")]
     [InlineData("<a href=\"mailto:someone@example.invalid\">mail</a>")]
     [InlineData("<a href=\"onenote:#page\">p</a>")]
-    [InlineData("<a href=\"onenote:https://example.invalid/n.one#p\">p</a>")]
-    [InlineData("<a href=\"ONENOTE:HTTP://example.invalid/n.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://d.docs.live.net/n.one#p\">p</a>")]
+    [InlineData("<a href=\"ONENOTE:HTTPS://D.DOCS.LIVE.NET/n.one#p\">p</a>")]
     [InlineData("<a href=\"onenote:#Page&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;end\">p</a>")]
     [InlineData("<a href=\"onenote:#My%20Page&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;object-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;end\">p</a>")]
-    [InlineData("<a href=\"onenote:https://example.invalid/Docs/My%20Notebook/S.one#P&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;end\">p</a>")]
-    [InlineData("<a href=\"onenote:https://example.invalid/Docs/My%20Notebook/S.one\">p</a>")] // a section, no page
-    [InlineData("<a href=\"onenote:https://example.invalid:8443/Docs/S.one#Q1/Q2%20plan...\">p</a>")]
+    [InlineData("<a href=\"onenote:https://contoso.sharepoint.com/Docs/My%20Notebook/S.one#P&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;end\">p</a>")]
+    [InlineData("<a href=\"onenote:https://d.docs.live.net/Docs/My%20Notebook/S.one\">p</a>")] // a section, no page
+    [InlineData("<a href=\"onenote:https://contoso-my.sharepoint.com:8443/Docs/S.one#Q1/Q2%20plan...\">p</a>")]
     [InlineData("my profile: settings")]
     [InlineData("the share is \\\\server\\share")]
     [InlineData("C:\\temp is a folder")]
@@ -266,6 +294,14 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<span style=\"font-weight:bold;text-decoration:underline\">x</span>")]
     [InlineData("see url(x) in the CSS docs")]
     [InlineData("an image of a cat")]
+    [InlineData("<font face=\"Calibri\" size=3 color=\"#ff0000\">x</font>")]
+    [InlineData("<p dir=rtl lang=he>x</p>")]
+    [InlineData("<a href=\"https://example.invalid/\" style=\"color:#0563C1\">a</a>")]
+    [InlineData("<span style=\"mso-highlight:yellow\">x</span>")]
+    [InlineData("<B>x</B><SPAN LANG=en-US>y</SPAN><Br>")]
+    [InlineData("<em>a</em><strong>b</strong><s>c</s><strike>d</strike><sup>1</sup><sub>2</sub><del>e</del><ins>f</ins><cite>g</cite><code>h</code><small>i</small>")]
+    [InlineData("`code` in backticks, as in markdown")]
+    [InlineData("&copy; 2026 &amp; more")]
     public void HasRefusedHtml_AllowsOrdinaryTextFormattingAndWebMailOrOneNoteLinks(string text) =>
         Assert.False(PageWriteScan.HasRefusedHtml(text));
 

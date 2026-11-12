@@ -251,9 +251,10 @@ public sealed class UpdatePageContentWrite : PageWrite
         "HTML blocks can't be written yet; send the content as text (one:T) or an inline image (one:Data).";
 
     public const string RefusedHtmlUserAction =
-        "For now text HTML may only link to absolute http, https, mailto or onenote URLs: no file:, relative, drive, UNC or // URLs, "
-        + "no images, frames, objects, scripts or style sheets in the HTML, and no CSS functions in style but rgb()/hsl() colours. "
-        + "To insert a file, use one:InsertedFile with its full local path (the user confirms it in a dialog); for an image, send it as inline one:Data (base64).";
+        "For now text HTML may use only a, b, br, cite, code, del, em, font, i, ins, p, s, small, span, strike, strong, sub, sup and u, "
+        + "with style, lang and dir (plus href on a, and face, size and color on font); no comments. "
+        + "A link must be an absolute http, https or mailto URL, an in-page onenote:# link, or an onenote: link to a OneDrive or SharePoint notebook. "
+        + "Style may use no CSS function but rgb()/hsl() colours. To insert a file, use one:InsertedFile with its full local path (the user confirms it in a dialog); for an image, send it as inline one:Data (base64).";
 
     public const string ReadBackWithheldUserAction =
         "To see what OneNote kept, read the page with get_page_content, which asks the user for the section's read grant.";
@@ -402,7 +403,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         if (refused > 0)
         {
             throw Invalid(
-                string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} has {refused} new or changed text(s) whose HTML page writes don't accept yet (a file:, relative or network URL, a URL that isn't http, https, mailto or onenote, an image or other resource tag, or CSS that could load something), so nothing was written."),
+                string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} has {refused} new or changed text(s) whose HTML page writes don't accept yet (a tag, attribute or comment outside the formatting OneNote uses, a link that isn't an absolute web or mail URL or an allowed onenote: link, or CSS that could load something), so nothing was written."),
                 RefusedHtmlUserAction);
         }
     }
