@@ -3,7 +3,7 @@ title: 'Journal'
 type: 'feature'
 ticket: '8'
 created: '2026-11-12'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -33,6 +33,10 @@ context:
 - Failures: a step-6 failure is never `outcomeUnknown`; the COM call doesn't run and the lock is released as for any pre-7 failure. Messages and logs carry IDs, counts and sizes only (AD-9, AD-13).
 - Prune (each process, at startup in the background, then every 24 h on `TimeProvider`): retention by the file name's timestamp, then the size cap oldest first, never the newest entry; also `.tmp` leftovers older than a day. Vanished files are ignored. Only journal-named files are touched.
 - Settings are re-read per write and per prune (`journal{path, retentionDays, maxSizeMB}`).
+- Decision Q1 (Phill, 2026-11-12, option c): `journal.path` in settings wins; otherwise the default is `ONENOTE_MCP_JOURNAL_DIR` when set, else a `journal` folder beside the file `ONENOTE_MCP_SETTINGS_PATH` names when that is set, else `%LOCALAPPDATA%\OneNoteMcp\journal`. One resolver, used by the server (snapshot and settings), the pruner and `UninstallPaths.Resolve`. Test overrides only (spine Conventions); no spine edit.
+- Decision Q2 (Phill, 2026-11-12, option a): DPAPI through Microsoft's `System.Security.Cryptography.ProtectedData` 10.0.14 package, with a row in `THIRD-PARTY-NOTICES.md`.
+- Decision Q3 (Phill, 2026-11-12, option a): the snapshot's own COM reads (the hierarchy walk, the piBinaryData read) keep their own error codes and retry rules. `JournalFailed` (not retryable) covers only building or storing the entry: I/O, DPAPI, unreadable XML.
+- Decision Q4 (Phill, 2026-11-12, option b): each `one:InsertedFile` is listed in `missingBinary` as `kind: "attachment"`, so a page with one has `binaryComplete: false`. Copying attachment bytes is not in this story.
 
 **Never:** a tool, `restore_from_journal`, or reading entries back into OneNote (2.11); the `PageWrite` operation or its abandoned-write check (2.9); hierarchy or backup entries (epic 5); README journal sections (2.12); spine edits; real OneNote in tests.
 
@@ -47,6 +51,9 @@ context:
 | Retention | entries 31 and 29 days old, 30-day setting | 31-day entry removed | — |
 | Size cap | total over `maxSizeMB` | oldest removed until under; newest kept | — |
 | Vanishing entry | another process deletes mid-prune | prune completes | none raised |
+| Attachment | page with a `one:InsertedFile` | `binaryComplete: false`, one `missingBinary` item `kind: "attachment"` | — |
+| Snapshot COM read fails | piBinaryData read throws `ComBusy` | COM write not made, lock released | `ComBusy`, retryable, not `JournalFailed` |
+| Journal override | `ONENOTE_MCP_JOURNAL_DIR` set, or only `ONENOTE_MCP_SETTINGS_PATH` set | server, pruner and purge use that folder | — |
 
 </frozen-after-approval>
 
@@ -56,8 +63,8 @@ context:
 - `src/OneNoteMcp.Core/Writes/WriteOperation.cs:29` -- the `SnapshotAsync` hook, unchanged; `CreatePageUseCase` keeps no snapshot (AD-7 `Create`).
 - `src/OneNoteMcp.Core/Access/HierarchyWalk.cs` -- `AncestorsAsync`, `LocationAsync`. Add `PageLocationAsync(pageId)`: one walk giving the section node (ID, name, path, `Encrypted`), the group names and the notebook node. `HierarchyNode` already carries all of these.
 - `src/OneNoteMcp.Core/Access/GrantKeys.cs:16,22` -- `NotebookKey`, `SectionKey`.
-- `src/OneNoteMcp.Xml/ImageCount.cs` -- count only. Add a `MissingImages(basic, binary)` beside it. Images in OE content carry no `objectID`, only a `one:CallbackID` (`Fixtures/cloud/page-Basic.xml:86-93`).
-- `src/OneNoteMcp.Core/Settings/SettingsSnapshot.cs:30-36`, `SettingsStore.cs:31-39,257-270` -- `JournalSettings.Default()` hardcodes `%LOCALAPPDATA%`. Route the default through one resolver that takes the env getter (Q1).
+- `src/OneNoteMcp.Xml/ImageCount.cs` -- count only. Add a `MissingBinaries(basic, binary)` beside it: missing images, plus every `one:InsertedFile` (decision Q4). Images in OE content carry no `objectID`, only a `one:CallbackID` (`Fixtures/cloud/page-Basic.xml:86-93`).
+- `src/OneNoteMcp.Core/Settings/SettingsSnapshot.cs:30-36`, `SettingsStore.cs:31-39,257-270` -- `JournalSettings.Default()` hardcodes `%LOCALAPPDATA%`. Route the default through one resolver that takes the env getter (decision Q1).
 - `src/OneNoteMcp.Server/Cli/UninstallCommand.cs:19-23,334-352,453-456` -- `UninstallPaths.Resolve` and `JournalFolder` use that resolver. Move the journal file-name regex to Core (shared with the pruner) and add the `.tmp` form. `scripts/clean-install-check.ps1:56` mirrors the pattern.
 - `src/OneNoteMcp.Server/ServerSetup.cs:97-114` -- register the journal store and page-snapshot service beside the pipeline. `Program.cs:62-81` uses Generic Host, so the pruner is a `BackgroundService`. Log it through the Server, as `WriteLockLog` does: Core takes a callback.
 - `src/OneNoteMcp.Core/Results/ToolErrors.cs:83` -- `JournalFailed` advice exists.
@@ -67,15 +74,15 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `Directory.Packages.props`, `src/OneNoteMcp.Core/OneNoteMcp.Core.csproj`, `THIRD-PARTY-NOTICES.md` -- DPAPI dependency (Q2).
+- [ ] `Directory.Packages.props`, `src/OneNoteMcp.Core/OneNoteMcp.Core.csproj`, `THIRD-PARTY-NOTICES.md` -- DPAPI dependency (decision Q2).
 - [ ] `src/OneNoteMcp.Core/Journal/JournalEntry.cs`, `JournalFiles.cs` -- model, JSON options, names and patterns.
 - [ ] `src/OneNoteMcp.Core/Journal/JournalStore.cs` -- `Write` (gzip, temp, rename, DPAPI, `JournalFailed`), `Read` (decompress, decrypt).
 - [ ] `src/OneNoteMcp.Core/Journal/JournalPruner.cs` -- retention, cap, temp leftovers, vanishing files.
 - [ ] `src/OneNoteMcp.Core/Journal/PageSnapshot.cs`, `HierarchyWalk.cs`, `src/OneNoteMcp.Xml/ImageCount.cs` -- the step-6 snapshot.
 - [ ] `WritePipeline.cs` -- step-6 failure → `JournalFailed`.
-- [ ] Settings resolver, `UninstallCommand.cs`, `clean-install-check.ps1` -- Q1 override, shared patterns.
+- [ ] Settings resolver, `UninstallCommand.cs`, `clean-install-check.ps1` -- decision Q1 override, shared patterns.
 - [ ] `src/OneNoteMcp.Server/Journal/JournalPruneService.cs`, `ServerSetup.cs` -- startup and daily prune, logging.
-- [ ] Tests -- every matrix row, the format round trip with unknown members ignored, and the Q1 resolution in the server and in purge.
+- [ ] Tests -- every matrix row, the format round trip with unknown members ignored, and the decision-Q1 resolution in the server, the pruner and purge.
 
 **Acceptance Criteria:**
 - Given a test `WriteOperation` whose snapshot fails, when the pipeline runs, then the gateway records no write call and a second write can take the lock at once.
@@ -86,13 +93,6 @@ context:
 - `missingBinary[]` items: `{kind: "image", objectId, callbackId}`. `objectId` is the image's own `objectID`, else its nearest ancestor's. Match piBasic against piBinaryData by that ID with counts; when several images share one OE and some are missing, the last ones are listed.
 - DPAPI entropy: `"OneNoteMcp.journal:" + entryId`, so a blob moved into another entry won't decrypt. The class carries `[SupportedOSPlatform("windows")]` for CA1416.
 - `notebookName` is the displayed name, as in the grants.
-
-## Open Questions
-
-1. **Journal path override for tests (team lead, from 2.6's live purge).** `journal.path` in settings always wins; this sets only the default. (a) a new `ONENOTE_MCP_JOURNAL_DIR` only; (b) no new variable: when `ONENOTE_MCP_SETTINGS_PATH` is set, the default is `journal` beside that settings file; (c) both: `ONENOTE_MCP_JOURNAL_DIR`, else (b), else `%LOCALAPPDATA%`. The spine's Conventions already allow path overrides for tests, so no spine edit. Recommended: (c), safe even when a tester sets only the settings override.
-2. **DPAPI.** (a) Microsoft's `System.Security.Cryptography.ProtectedData` 10.0.14 (MIT, same version line as `System.Security.Cryptography.Xml`, one notices row); (b) P/Invoke `CryptProtectData` ourselves (no dependency, about 60 lines of interop to test). Recommended: (a).
-3. **Error code when the snapshot's own COM reads fail** (the hierarchy walk, the piBinaryData read). (a) they keep their own code (`ComBusy`, `Timeout`, `ModalDialogOpen`, `ObjectNotFound`, retryable as the table says); `JournalFailed` covers building or storing the entry (I/O, DPAPI, unreadable XML); (b) everything in step 6 is `JournalFailed`, never retryable. Recommended: (a); (b) would hide a busy OneNote behind a "check the journal folder" error.
-4. **Attachments.** piBinaryData carries image and ink binaries, not `InsertedFile` contents, which only point to a local cache (`pathCache`). (a) images only; an attachment's loss on restore is unreported (deferred-work entry); (b) list each `InsertedFile` in `missingBinary` (`kind: "attachment"`), so a page with one is `binaryComplete: false`; (c) copy the cached file's bytes into the entry. Recommended: (b), honest and cheap; (c) is a later story if needed.
 
 ## Verification
 
