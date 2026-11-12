@@ -48,7 +48,7 @@ deferred: []
 | Missing required | `get_page_content {}` / no arguments | names `"pageId"` missing | |
 | Write tool, misnamed required | `create_page {section_id:"x"}` | names `sectionId` and `section_id`; no create | |
 | Enum value | `get_hierarchy {scope:"bogus"}` | `get_hierarchy's argument "scope" must be one of: self, children, notebooks, sections, pages (it got a string that isn't one of them).` + trailer | was SDK generic; value not echoed |
-| Enum case | `get_hierarchy {scope:"Sections"}` | `InvalidArgument` | strict; assumption |
+| Enum case | `get_hierarchy {scope:"Sections"}` | `InvalidArgument` | strict (Phill, 2026-11-12) |
 | Wrong kind | `pageId: 5`, `includeBinary:"true"`, `page: 1.5`, `page:"5"`, `run:[1]`, `pageId:null` | `InvalidArgument` naming the argument, expected type and the JSON kind it got | |
 | Several problems | `get_hierarchy {scope:"bogus", extra:1}` | one message: scope's sentence, then `doesn't declare the argument "extra"`, then trailer | replaces 2.5's "SDK error first" |
 | Every tool, every property | wrong-kind value per property | `InvalidArgument`, never the SDK's generic error | coverage proof |
@@ -91,6 +91,8 @@ deferred: []
 - Given `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`, when run, then both pass.
 
 ## Implementation Notes
+
+- Confirmed by Phill (2026-11-12, Inbox thread "2.14 argument errors"): strict schema conformance, and 2.5's after-binding check plus its `request` parameter removed. Phill also took all eight Fable review fixes and approved the AD-9 wording.
 
 - Assumption (unattended, 2026-11-11): strict schema conformance. Values the SDK used to coerce (`"5"` for an integer, a case-variant enum such as `"Sections"`) are now `InvalidArgument`. The ticket says to check against the input schema, and the project already rejects integer enum values (`StrictStringEnumConverter`). Open question for Phill.
 - Assumption (unattended, 2026-11-11): 2.5's after-binding check moves into the filter and the per-tool `request` plumbing is removed, since the filter sees every call first and nothing would read it.
