@@ -98,11 +98,40 @@ context:
 - Implemented directly in this lane, not through a subagent: docs only, edited with exact-match file edits (no shell escapes). An earlier Python edit to this plan turned `\b` in `\backups\` into a backspace byte; fixed, and the spine, memlog, epic 5 files and deferred-work were checked for control bytes (none).
 - Story 2.9 Q3, Q4 and Q5 (Phill, 2026-11-12) were folded in at the team lead's request: AD-16 (hard XSD gate for `UpdatePageContent`), AD-7 `PageWrite` (no OE moves between Outlines), AD-17 (hashes of sent OEs outside sent Outlines). 2.9 Q1/Q2: AD-7 now names `removeObjectIds` and says nested OEs go with their parent; AD-17 records the fresh `meta.basis` in an `update_page_content` result. AD-14 holds no argument lists, so nothing there contradicted them.
 - Beyond the plan's wording: AD-18 also records deferred-work's forward note (basis-checked pipelines check for an abandoned write right after step 2, `ComBusy`); AD-21's Writes bullet keeps "other hierarchy writes get no write-grant-alone exemption", so an `update_hierarchy` rename of a protected section itself is still unsettled (not asked in Q6).
+- Known stale (Fable F15): `tickets.toml` entry 3's description still says "the parent-exists-and-not-locked check" and doesn't name AD-7's `OpenHierarchy` create rules (relative names, `alreadyExisted`, live notebook or group parent, empty folder or `FileExists`). Story 5.3 refines it at its start; this story left it alone because Q7 covered only the wording Phill approved.
 - Lint: only the known `{pid}` false positive (the `.tmp` wording was rephrased to avoid a new `{name}` hit). The step-04 review lens wasn't run in this lane; the orchestrating session runs the Fable final review.
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+Fable final review of `1655b7b` (run by the orchestrating session, 2026-11-12): 21 findings. Phill decided F1, F2, F3 and F6 and chose to fix all the rest, as the reviewer suggested. Applied in this lane; each Phill decision is a memlog `decision by Phill` line.
+
+| # | Finding | Route | Action |
+|---|---|---|---|
+| F1 | How `recycleBinId` gets into an entry already written once | Phill | The entry is rewritten once after the delete (temp file, then replace, under the lock); a failed read-back or rewrite leaves the field out with a warning and never fails the delete. AD-7, AD-8, AD-10 |
+| F2 | `update_hierarchy` on a protected section had no grant rule | Phill | Rename or reorder of a protected section, or reordering its pages: write grant alone; a rename changes its path, so its read grant stops matching (fails closed). AD-6, AD-21 |
+| F3 | Codes for the protected page soft delete and the move/merge refusal | Phill | `NotSupported`, `userAction` to do it in OneNote. AD-7, AD-9, AD-21 |
+| F4 | `Create` rules written as if they covered `CreateNewPage` | patch | Scoped to `OpenHierarchy` create; `CreateNewPage`'s own rule restored (live section, not locked; 2.4 Q8) |
+| F5 | The locked check before `Publish` is unreachable (a locked section is protected) | patch | Dropped; the order is stated |
+| F6 | Soft delete of a locked protected section | Phill | `SectionLocked` until the user unlocks it |
+| F7 | AD-17's hierarchy-date acceptance rests on one hidden-page row | patch | Reworded; Deferred row: 5.5 probes a displayed page with its hierarchy date |
+| F8 | The recycle bin itself (`isRecycleBin`) as a target | patch | Refused as create parent, soft-delete and permanent-delete target |
+| F9 | An empty section group's permanent delete was never run | patch | Deferred row; entry 6 probes it; empty or nested group soft delete unprobed |
+| F10 | Existing-name create: class, grant, case | patch | Stays `Create`, grant checked; names compared ignoring case; the group case unprobed |
+| F11 | Non-empty notebook folder had no code | patch | `FileExists`, AD-7 and AD-9 |
+| F12 | AD-16 "either gate" unclear | patch | Reworded |
+| F13 | Stray tool-markup lines at the plan's end | patch | Deleted |
+| F14 | Modal-dialog claims overreach | patch | "of the methods tried", AD-3 and Deferred |
+| F15 | `tickets.toml` entry 3 stale against AD-7 | note | Story 5.3 refines its description at start; recorded in Implementation Notes |
+| F16 | `restore_from_recycle_bin` in the `HierarchyWrite` row reads as epic 5's | patch | Marked epic 3's |
+| F17 | Path-based protection (backup folder) not cross-referenced | patch | AD-21 "What's protected" and AD-8 |
+| F18 | Backup name and orphaned backups | patch | `.one` replaces `.json.gz`; the pruner removes a backup with no entry |
+| F19 | Does `0x80042024` → `ComBusy` back off? | patch | Conservative reading: `ComBusy` at once, no backoff, like `0x8004201D`. AD-3, AD-9 |
+| F20 | Three wrong citations | patch | `0x8004201B` cited to constraint 16; AD-17 no longer names a notebook delete; AD-7 stored-ID bullet rewritten |
+| F21 | Placement and clarity in AD-17; `HierarchyWrite` read-back failure | patch | Basis bullet moved, two sentences split, `readBackFailed` added; AD-18 reworded as given |
+
+Also added (Phill, 2026-11-12): from story 2.9's security review, basis limits without a read grant (AD-17, AD-21), user-gated file paths (AD-7, AD-6; refusal `WriteNotGranted`), DOCTYPE refused (AD-16); story 2.10 Q1, `delete_page_content` in a protected section needs the read grant (AD-21, AD-6, AD-7, AD-9); and write and read grants stay separate (memlog only).
 
 ## Design Notes
 
@@ -118,5 +147,3 @@ Draft epic 5 wording (Q7), assuming the recommended answers:
 **Commands:**
 - `uv run ~/.claude/skills/bmad-architecture/scripts/lint_spine.py --workspace _bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp` -- expected: only the known `{pid}`/`{guid}` hits.
 - `git diff --cached | grep -i -c -E "<standing privacy pattern list>"` -- expected: 0.
-</content>
-</invoke>

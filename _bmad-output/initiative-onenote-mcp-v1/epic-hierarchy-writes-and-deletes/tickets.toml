@@ -63,7 +63,7 @@ unknown = "How to pick out the deleted page's new ID in Deleted Pages when two p
 id = 6
 type = "story"
 title = "Permanent delete"
-description = "The permanent-delete grant (CLI, dialog, listing) and DeleteHierarchy permanent=true: a page gets a full page snapshot, and a section gets a Publish backup in the journal's backups folder first, under Publish's 300 s timeout and the 600 s pipeline deadline, with BackupFailed refusing the delete. A non-empty section group, a notebook, a password-protected section and a page already in the recycle bin are refused with NotSupported (entry 2, AD-7 PermanentDelete). It probes a stale date on a permanent delete before relying on it."
+description = "The permanent-delete grant (CLI, dialog, listing) and DeleteHierarchy permanent=true: a page gets a full page snapshot, and a section gets a Publish backup in the journal's backups folder first, under Publish's 300 s timeout and the 600 s pipeline deadline, with BackupFailed refusing the delete. A non-empty section group, a notebook, a password-protected section and a page already in the recycle bin are refused with NotSupported (entry 2, AD-7 PermanentDelete). It probes a stale date on a permanent delete, and an empty section group's permanent delete, before relying on them."
 verify = "On MCP Test, without the second grant the delete returns PermanentDeleteNotGranted, with it a backup file exists before a section is gone, a forced backup failure refuses the delete, and a security review of the diff runs before merge."
 covers = ["R4", "R5", "R6"]
 after = [5]
