@@ -1,7 +1,10 @@
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
@@ -102,7 +105,7 @@ public static class ServerSetup
         services.AddSingleton(sp => new WritePipeline(sp.GetRequiredService<WriteLock>(), sp.GetRequiredService<PageTextCache>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
         services.AddSingleton<CreatePageUseCase>();
 
-        return services
+        var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
             .WithTools<GetHierarchyParentTool>(EnvelopeJson.Options)
@@ -117,6 +120,62 @@ public static class ServerSetup
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
             .WithTools<CreatePageTool>(EnvelopeJson.Options);
+
+        // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
+        // arguments are checked against its tool's schema before the SDK binds them.
+        CloseInputSchemas(builder.Services);
+        return builder.WithRequestFilters(filters => filters.AddCallToolFilter(next => (request, cancellationToken) =>
+        {
+            // The SDK matches the tool before filters run. No match (an unknown tool) stays the SDK's JSON-RPC error.
+            if (request.MatchedPrimitive is McpServerTool tool
+                && ArgumentCheck.Check(tool.ProtocolTool.Name, tool.ProtocolTool.InputSchema, request.Params?.Arguments) is { } message)
+            {
+                var provider = request.Services ?? request.Server.Services
+                    ?? throw new InvalidOperationException("The MCP request has no service provider.");
+                var refused = provider.GetRequiredService<ToolRunner>().Refuse(
+                    tool.ProtocolTool.Name,
+                    new OneNoteException(ErrorCode.InvalidArgument, message, retryable: false));
+                return ValueTask.FromResult(refused);
+            }
+
+            return next(request, cancellationToken);
+        }));
+    }
+
+    /// <summary>
+    /// Adds <c>"additionalProperties": false</c> to the input schema of every registered tool, so <c>tools/list</c>, the
+    /// server's tool collection and <c>GetServices&lt;McpServerTool&gt;()</c> all show it (story 2.14, AD-9).
+    /// </summary>
+    private static void CloseInputSchemas(IServiceCollection services)
+    {
+        for (var i = 0; i < services.Count; i++)
+        {
+            var descriptor = services[i];
+            if (descriptor.ServiceType != typeof(McpServerTool) || descriptor.IsKeyedService)
+            {
+                continue;
+            }
+
+            if (descriptor.ImplementationInstance is McpServerTool instance)
+            {
+                CloseInputSchema(instance);
+                continue;
+            }
+
+            Func<IServiceProvider, object> create = descriptor.ImplementationFactory
+                ?? (descriptor.ImplementationType is { } type
+                    ? sp => ActivatorUtilities.CreateInstance(sp, type)
+                    : throw new InvalidOperationException("An McpServerTool registration has no instance, factory or type."));
+            services[i] = new ServiceDescriptor(typeof(McpServerTool), sp => CloseInputSchema((McpServerTool)create(sp)), descriptor.Lifetime);
+        }
+    }
+
+    private static McpServerTool CloseInputSchema(McpServerTool tool)
+    {
+        var schema = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())!.AsObject();
+        schema["additionalProperties"] = false;
+        tool.ProtocolTool.InputSchema = JsonSerializer.SerializeToElement(schema);
+        return tool;
     }
 
     private static string ReadVersion()

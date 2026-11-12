@@ -9,7 +9,7 @@ namespace OneNoteMcp.Server.Tools;
 /// Story 2.5 (AD-9): the argument names a call sent that its tool's input schema doesn't declare, and the
 /// <see cref="Core.ErrorCode.InvalidArgument"/> message that names them. Names compare ordinally (case-sensitive), as
 /// the SDK binds them. The message echoes the caller's names, cut and capped, and the tool's declared names; neither is
-/// ever logged (AD-13).
+/// ever logged (AD-13). Story 2.14's <see cref="ArgumentCheck"/> builds its message from these pieces.
 /// </summary>
 public static class ArgumentNames
 {
@@ -61,6 +61,12 @@ public static class ArgumentNames
             throw new ArgumentException("No unknown argument names to report.", nameof(unknown));
         }
 
+        return UnknownSentence(tool, unknown) + " " + Trailer(declared);
+    }
+
+    /// <summary><c>get_hierarchy doesn't declare the argument "scop".</c></summary>
+    internal static string UnknownSentence(string tool, IReadOnlyList<string> unknown)
+    {
         var text = new StringBuilder();
         text.Append(tool).Append(" doesn't declare the argument").Append(unknown.Count == 1 ? " " : "s ");
         text.AppendJoin(", ", unknown.Take(MaxNamed).Select(Quote));
@@ -69,12 +75,15 @@ public static class ArgumentNames
             text.Append(CultureInfo.InvariantCulture, $" and {unknown.Count - MaxNamed} more");
         }
 
-        text.Append(". ");
-        text.Append(declared.Count == 0 ? "It takes no arguments." : "Its arguments are: " + string.Join(", ", declared) + ".");
-        return text.ToString();
+        return text.Append('.').ToString();
     }
 
-    private static string Quote(string name)
+    /// <summary><c>Its arguments are: startNodeId, scope.</c>, or <c>It takes no arguments.</c></summary>
+    internal static string Trailer(IReadOnlyList<string> declared) =>
+        declared.Count == 0 ? "It takes no arguments." : "Its arguments are: " + string.Join(", ", declared) + ".";
+
+    /// <summary>The name JSON-quoted, cut to <see cref="MaxNameLength"/> characters.</summary>
+    internal static string Quote(string name)
     {
         if (name.Length > MaxNameLength)
         {
