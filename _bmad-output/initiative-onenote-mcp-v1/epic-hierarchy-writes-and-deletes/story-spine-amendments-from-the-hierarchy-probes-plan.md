@@ -138,7 +138,9 @@ Fable re-check of `9a33dfa` (orchestrating session, 2026-11-12): N1–N10. Phill
 | # | Finding | Route | Action |
 |---|---|---|---|
 | N1 | A page permanent delete in a protected section could carry a `pageHash` without a read grant | Phill | Date-only rule covers it: a hash is `ReadNotGranted`. AD-6, AD-9, AD-17, AD-21 |
-| N2 | The path exemption was loose | patch | Exempt only when unchanged on the same element (same `objectID`); no `objectID`, or a protected section without a read grant, means new; `pathCache` gated; schema terms |
+| N2 | The path exemption was loose | patch | Exempt only when unchanged on the same element, identified by its own `objectID` or, for a `one:File`, its parent's; no `objectID`, or a protected section without a read grant, means new; `pathCache` gated; `path` on every `one:File` (under `one:Image`, `one:InkDrawing`, `one:InkWord`, `one:XPSFile`, `one:HTMLBlock`), `pathSource` and `pathCache` on `one:InsertedFile` and `one:MediaFile` (widened by the final re-check) |
+
+Final Fable re-check of `105f792` (2026-11-12): one high gap (N2 named only `one:Image`'s `one:File`; the 2013 XSD has `one:File` under five parents) plus wording tidy-ups (acceptance, "any hash", "same userAction", unparseable XML), all applied. Also from story 2.10 (built): `delete_page_content`'s result carries `meta.basis` from the read-back (Phill, 2.10 Q3); the read-grant check runs before the locked-section check; an empty `objectId` is `InvalidArgument` before the lock.
 | N3 | Step 1's order unstated | patch | Parse (DOCTYPE), read-grant check, write-grant dialog, path dialog; step 4 `WriteNotGranted`; AD-16 reconciled |
 | N4 | The protected page soft-delete `userAction` | Phill | Points to a permanent delete. AD-7, AD-9, AD-21 |
 | N5 | "existing `objectID`" undefined | patch | "any `objectID` attribute in the sent XML, or any `removeObjectIds` entry" |
