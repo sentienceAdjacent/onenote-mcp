@@ -3,7 +3,7 @@ title: 'Write grants: dialog, revoke and listing'
 type: 'feature'
 ticket: '6'
 created: '2026-11-11'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -47,7 +47,7 @@ context:
 | Decline / cancel | dialog answered so | no grant, no lock | `WriteNotGranted` |
 | Mismatch | typed text matches no open notebook | no grant | `WriteNotGranted` |
 | Ambiguous | two open notebooks share the name | no grant | `WriteNotGranted` (CLI lists both) |
-| Other notebook | typed text matches one notebook, not the target | per Q2 | `WriteNotGranted` |
+| Other notebook | typed text matches one notebook, not the target | no grant (Phill, Q2) | `WriteNotGranted` |
 | No elicitation | client lacks the capability | no dialog | `WriteNotGranted` |
 | Settings invalid | invalid / newer | no dialog | `SettingsInvalid` |
 | Slow answer | user answers after more than the deadline | write still runs | — |
@@ -113,10 +113,12 @@ Why the pipeline raises the dialog, not `WriteAccess`: step 1 runs on the deadli
 
 ## Open Questions
 
-1. **Size and scope.** The plan is about 3,300 tokens (the target is under 1,600), and R4 (purge) could ship on its own. (a) Keep the whole plan, as the ticket agreed at inception. (b) Split R4 into a deferred-work entry or its own ticket.
-2. **The typed name matches a different open notebook than the write's target.** (a) No grant: `WriteNotGranted`, "the name typed didn't match this notebook", and record a one-line AD-6 clarification for the next spine story. (b) Grant the notebook it matched (a literal reading of AD-6's matcher); the write is still refused.
-3. **`kind` for write rows in `list_grants`** (a wire value the skill may quote). (a) `writeNotebook`, which mirrors `readSection`. (b) `notebook`. (c) `write`.
-4. **The typed-name hint in the write dialog.** (a) Show the notebook's name, as the read dialog does. Typing proves a person answered; AD-6 Limits already say it doesn't prove they knew the name. (b) Don't show it, so the user must know or look up the name. That is stronger against a reflexive Accept, but the message names the notebook anyway.
+None. Phill answered all four and approved the plan (2026-11-12, Inbox thread "2.6 write grants"):
+
+1. **Size and scope:** keep the whole plan, R4 (purge) included.
+2. **Typed name matches a different open notebook:** no grant. Refuse with `WriteNotGranted` ("the name typed didn't match this notebook"), and record a one-line AD-6 clarification for the next spine story (a deferred-work entry, not a spine edit in 2.6).
+3. **`kind` for write rows in `list_grants`:** `writeNotebook`.
+4. **Typed-name hint in the write dialog:** show the notebook's name, as the read dialog does.
 
 ## Implementation Notes
 
