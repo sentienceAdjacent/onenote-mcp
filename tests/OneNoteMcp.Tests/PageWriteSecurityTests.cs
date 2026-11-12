@@ -184,6 +184,17 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"onenote:#p&amp;x=..%5Cs.one\">p</a>")]
     [InlineData("<a href=\"onenote:#p&amp;x=%5C%5Cserver%5Cs.one\">p</a>")]
     [InlineData("<a href=\"onenote:#p&amp;x=file:///C:/s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;x=1\">p</a>")] // an unknown parameter
+    [InlineData("<a href=\"onenote:#p&amp;section-id=C:\\x\">p</a>")] // a known parameter without a GUID
+    [InlineData("<a href=\"onenote:#p&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;base-path=x\">p</a>")]
+    [InlineData("<a href=\"onenote:#p%26base-path%3DC:%5Cx\">p</a>")] // a parameter hidden in the title
+    [InlineData("<a href=\"onenote:#p%2526base-path%253Dx\">p</a>")]
+    [InlineData("<a href=\"onenote:#%2525252525252541\">p</a>")] // still changing after every decoding round
+    [InlineData("<a href=\"onenote:#p\\x\">p</a>")]
+    [InlineData("<a href=\"onenote:https://\\\\server\\s.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https:///s.one#p\">p</a>")] // no host
+    [InlineData("<a href=\"onenote:https://example.invalid/n.one%5C..%5Cx#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/n.one?base-path=x#p\">p</a>")]
     // tags a parser could read differently: both the tokenizer and the plain scan count
     [InlineData("<a title=\"a>b\" href=\"C:\\x\">p</a>")] // a > inside quotes: only the tokenizer sees the href
     [InlineData("<!-- <a title=\" --> <a href=\"C:\\x\">p</a>")] // a comment ends before the quote closes
@@ -227,7 +238,10 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"onenote:#page\">p</a>")]
     [InlineData("<a href=\"onenote:https://example.invalid/n.one#p\">p</a>")]
     [InlineData("<a href=\"ONENOTE:HTTP://example.invalid/n.one#p\">p</a>")]
-    [InlineData("<a href=\"onenote:#Page&amp;section-id={1}&amp;page-id={2}&amp;end\">p</a>")]
+    [InlineData("<a href=\"onenote:#Page&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;end\">p</a>")]
+    [InlineData("<a href=\"onenote:#My%20Page&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;object-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;end\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/Docs/My%20Notebook/S.one#P&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;end\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/Docs/My%20Notebook/S.one\">p</a>")] // a section, no page
     [InlineData("my profile: settings")]
     [InlineData("the share is \\\\server\\share")]
     [InlineData("C:\\temp is a folder")]

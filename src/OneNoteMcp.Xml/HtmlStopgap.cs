@@ -41,17 +41,19 @@ internal static class HtmlStopgap
 
     private static readonly Regex FileUrl = new("(?<![a-z0-9+.-])file:", Options);
 
-    /// <summary>
-    /// Absolute web and mail URLs, and <c>onenote:</c> only within the page (<c>onenote:#…</c>) or to a web notebook
-    /// (<c>onenote:http(s)://…</c>): an <c>onenote:</c> link to a local, relative or network notebook path is refused.
-    /// </summary>
-    private static readonly Regex AllowedUrl = new("^(?:https?://|mailto:|onenote:(?:#|https?://))", Options);
+    private static readonly Regex AllowedUrl = new("^(?:https?://|mailto:)", Options);
 
-    private static readonly Regex WebPrefix = new("^https?://", Options);
+    /// <summary>An <c>onenote:</c> link: an optional web-notebook address (with a host), then an optional <c>#</c> part.</summary>
+    private static readonly Regex OneNoteLink = new(
+        @"^onenote:(?<web>https?://[^/\\?#\s]+[^#]*)?(?:#(?<fragment>.*))?$", Options | RegexOptions.Singleline);
 
-    private static readonly Regex OneNotePath = new(@"base-path|\\|//|file:|(?:^|[/=&])\.\.(?:[/&]|$)|(?<![a-z0-9])[a-z]:[\\/]", Options);
+    /// <summary>The parameters OneNote's own page links carry after the title: GUID ids, a short hex index, and <c>end</c>.</summary>
+    private static readonly Regex OneNoteParameter = new(
+        @"^(?:(?:section-id|page-id|object-id)=\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}|[0-9a-f]{1,8}|end)$", Options);
 
-    private static readonly Regex Descriptor =new(@"^[0-9]+(?:\.[0-9]+)?[wxh]$", Options);
+    private static readonly Regex ParameterSeparator = new("&(?:amp;)?", Options);
+
+    private static readonly Regex Descriptor = new(@"^[0-9]+(?:\.[0-9]+)?[wxh]$", Options);
 
     /// <summary>A resource tag's name right after <c>&lt;</c> or <c>&lt;/</c>, with or without a namespace prefix.</summary>
     private static readonly Regex ResourceTagAnywhere = new(
@@ -126,7 +128,7 @@ internal static class HtmlStopgap
     }
 
     /// <summary>
-    /// True for an absolute http, https, mailto or onenote URL. As a browser does, tabs and newlines anywhere, and
+    /// True for an absolute http, https or mailto URL, or an allowed onenote link. As a browser does, tabs and newlines anywhere, and
     /// controls and spaces at either end, are removed first; any other control character refuses the URL.
     /// </summary>
     private static bool IsAllowedUrl(string value)
@@ -135,37 +137,62 @@ internal static class HtmlStopgap
             .Replace("\n", string.Empty, StringComparison.Ordinal)
             .Replace("\r", string.Empty, StringComparison.Ordinal)
             .Trim(Enumerable.Range(0, 0x21).Select(c => (char)c).ToArray());
-        return url.Length > 0 && !url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f') && AllowedUrl.IsMatch(url)
-            && !(url.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase) && OneNoteNamesAPath(url["onenote:".Length..]));
+        return url.Length > 0 && !url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f')
+            && (AllowedUrl.IsMatch(url) || IsAllowedOneNoteLink(url));
     }
 
     /// <summary>
-    /// True when the rest of an <c>onenote:</c> URL (after its web prefix, if any) can name a notebook file: a
-    /// <c>base-path</c> parameter (OneNote's own links to local notebooks carry one after the <c>#</c>), a backslash, a
-    /// <c>//</c>, a <c>..</c> segment, <c>file:</c> or a drive (<c>X:\</c>, <c>X:/</c>), checked as sent and after each of
-    /// up to three rounds of percent-decoding.
+    /// An allowlist for <c>onenote:</c> links: optionally an http(s) web-notebook address with a host, then optionally a
+    /// <c>#</c> part holding a page title and only the parameters OneNote's own links carry (<see cref="OneNoteParameter"/>).
+    /// Each part must stop changing within four rounds of percent-decoding, and its decoded form must hold no backslash and
+    /// no <c>base-path</c> (which OneNote's links to local notebooks carry); the decoded title must hold no <c>&amp;</c>,
+    /// <c>=</c> or <c>#</c>, so no parameter hides in it. Links to local, relative or network notebooks are refused.
     /// </summary>
-    private static bool OneNoteNamesAPath(string rest)
+    private static bool IsAllowedOneNoteLink(string url)
     {
-        var web = WebPrefix.Match(rest);
-        var text = web.Success ? rest[web.Length..] : rest;
+        var link = OneNoteLink.Match(url);
+        var web = link.Groups["web"];
+        var fragment = link.Groups["fragment"];
+        if (!link.Success || (!web.Success && !fragment.Success))
+        {
+            return false;
+        }
+
+        if (web.Success && (FullyDecoded(web.Value) is not { } address || HasPathMarker(address)
+            || !Uri.TryCreate(web.Value, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.IsUnc || uri.Host.Length == 0))
+        {
+            return false;
+        }
+
+        if (!fragment.Success)
+        {
+            return true;
+        }
+
+        // Split on & and on &amp;: the value is checked before entity decoding too, where the separators are still &amp;.
+        var parts = ParameterSeparator.Split(fragment.Value);
+        return FullyDecoded(parts[0]) is { } title && !HasPathMarker(title) && title.IndexOfAny(['&', '=', '#']) < 0
+            && parts.Skip(1).All(OneNoteParameter.IsMatch);
+    }
+
+    private static bool HasPathMarker(string text) =>
+        text.Contains('\\', StringComparison.Ordinal) || text.Contains("base-path", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The text percent-decoded until it stops changing, or null when it still changes after four rounds.</summary>
+    private static string? FullyDecoded(string text)
+    {
         for (var i = 0; i < 4; i++)
         {
-            if (OneNotePath.IsMatch(text))
-            {
-                return true;
-            }
-
             var next = Uri.UnescapeDataString(text);
             if (next == text)
             {
-                break;
+                return text;
             }
 
             text = next;
         }
 
-        return false;
+        return null;
     }
 
     /// <summary>True when a style value has a backslash escape, an at-rule, expression(), or any function but a colour.</summary>
