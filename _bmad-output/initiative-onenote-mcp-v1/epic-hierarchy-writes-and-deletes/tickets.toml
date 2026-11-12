@@ -17,7 +17,7 @@ unknown = "Everything it probes."
 id = 2
 type = "story"
 title = "Spine amendments from the hierarchy probes"
-description = "Amends AD-7, AD-8, AD-9 and AD-21 from entry 1's findings and updates the Deferred rows; it edits the spine after epic 2's entry 3."
+description = "Amends AD-7, AD-8, AD-9 and AD-21 from entry 1's findings and updates the Deferred rows; it edits the spine after epic 2's entry 3. It also records two of Phill's decisions for epic 3 (2026-11-12): a cautious rule that refuses moves and merges out of a protected section (the Deferred row from Fable H1; epic 3's 3.2 may relax it with 3.1's evidence), and a journal field in AD-8 and AD-10 holding a soft-deleted page's recycle-bin ID, which entry 5 writes."
 verify = "The Fable final review has run and Phill has approved the amended spine."
 covers = ["R4", "R5", "R6"]
 after = [1, "2.3"]
@@ -51,12 +51,13 @@ risk = "high"
 id = 5
 type = "story"
 title = "Soft delete"
-description = "DeleteHierarchy permanent=false for a page, section or section group with a page or hierarchy snapshot, following entry 2's rule and epic 2's both-grants rule for protected sections."
-verify = "On MCP Test a deleted page is in the recycle bin with a journal entry, restore_from_journal brings it back, and a stale basis returns StaleWrite on a page that isn't displayed."
+description = "DeleteHierarchy permanent=false for a page, section or section group with a page or hierarchy snapshot, following entry 2's rule and epic 2's both-grants rule for protected sections; after a page delete it reads back the page's new recycle-bin ID and stores it in the journal entry, for epic 3's restore_from_recycle_bin (Phill, 2026-11-12)."
+verify = "On MCP Test a deleted page is in the recycle bin with a journal entry holding its recycle-bin ID, restore_from_journal brings it back, and a stale basis returns StaleWrite on a page that isn't displayed."
 covers = ["R4", "R5", "R6"]
 after = [4]
 hitl = false
 risk = "high"
+unknown = "How to pick out the deleted page's new ID in Deleted Pages when two pages there share its name."
 
 [[entry]]
 id = 6

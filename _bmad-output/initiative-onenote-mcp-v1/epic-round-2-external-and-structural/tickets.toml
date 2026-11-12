@@ -1,14 +1,15 @@
 # tickets.toml — epic-round-2-external-and-structural ("Round 2: exports, move and merge"). Table order is the build order.
-# Drafted in an autonomous inception, 2026-11-12, for Phill's review. Not yet approved; the open questions are in the epic's Notes.
+# Drafted in an autonomous inception, 2026-11-12, revised after its Fable review the same day. Not yet approved; the open questions are in the epic's Notes ("Needs Phill").
+# Cross-epic waits: the epic file's `after` gates every entry on epics 2 and 5 being done, so entries name epic 5's stories only as what they build on.
 
 [[entry]]
 id = 1
 type = "spike"
 title = "Write probes, part 3: exports, move, merge and recycle-bin restore"
-description = "Probes on MCP Test and MCP Test Cloud, extending 5.1's probe code and asking only what spike 1 and 5.1 left open (epic Notes): Publish in each other format for a page, section and notebook, with timings, when the file lands and protected sections (unlocked, locked, inside a package); OpenPackage into an existing or non-empty folder, its focus, and protected sections inside the package; what MergeFiles does with three .one files; MergeSections within and across notebooks (does the source survive, page IDs, protected source or destination, and whether merging an opened backup of an unprotected section shows its pages, as OneMore's import does; never a protected section's backup, which opening writes in the clear); UpdateHierarchy moving a page to another section (does sending the source section without it delete or move it), a section to another notebook, a section group, local and cloud with a Sync Now check after each cloud step, with IDs, dates and paths of the item and both parents (a moved section's path is its SectionKey); restoring a recycled page and section through UpdateHierarchy and what triggers 0x8004202E; and the modal-dialog result and HRESULTs per method."
-verify = "A findings doc gives one probe result per question, says which earlier findings it relied on instead of re-probing, and logs its constraints in the spine memlog, with Phill present for the live writes."
+description = "Probes, on MCP Test and MCP Test Cloud with 5.1's probe code, each question in the epic's Notes under \"Unknown, settled by entry 1\", and only those, with a Sync Now check after each cloud step."
+verify = "A findings doc gives one probe result per question, names the earlier findings it relied on instead of re-probing, and logs its constraints in the spine memlog, with Phill present for the live writes."
 covers = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"]
-after = ["5.1"]
+after = []
 hitl = true
 risk = "high"
 unknown = "Everything it probes; no documented route exists for restoring from the recycle bin, and MergeFiles may do nothing useful here."
@@ -18,68 +19,92 @@ references = ["_bmad-output/initiative-onenote-mcp-v1/epic-hierarchy-writes-and-
 id = 2
 type = "story"
 title = "Spine amendments for round 2"
-description = "Amends the spine from entry 1's findings and the answers to the epic's open questions Q1–Q8: AD-7 (the ExternalWrite pipeline and its grant for protected content, the move, merge and restore validation and snapshots, the move tool's shape), AD-3 (timeouts for the new methods), AD-8 (restore_from_recycle_bin's choice and target, what a section move does to protected journal entries, and where a working backup-restore route from entry 1 goes), AD-9 (codes for the new HRESULTs, 0x80042031 hrPublishFormatUnsupportedForLabels included), AD-10 and AD-11 (export roots), AD-14 (the move tool's name, an exception to its snake_case rule since update_hierarchy is taken), AD-17 (the basis for a move and a merge), AD-21 (exports, and what a section move does to its read grant), the Deferred rows on move and merge, and a dated Decision for any round-2 method not exposed; it keeps 5.2's rule for moves and merges out of a protected section, revising it only where entry 1's evidence contradicts it, and edits the spine after epic 5's entry 2."
+description = "Amends the spine after 5.2, from entry 1's findings and Phill's answers to the questions under \"Needs Phill\" in the epic's Notes: the ExternalWrite pipeline and export roots, the move tool, the move, merge and restore checks and snapshots, the codes for the new HRESULTs and export edge cases, AD-21's rule for exports and unpacked packages beside 5.2's backup rule, what a section move does to its SectionKey, any relaxing of 5.2's move and merge refusal on entry 1's evidence, the Deferred rows on move and merge, and a dated Decision for any round-2 method not exposed."
 verify = "The Fable final review has run and Phill has approved the amended spine."
 covers = ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9"]
-after = [1, "5.2"]
+after = [1]
 hitl = true
 risk = "high"
-unknown = "What the spike finds, and Phill's answers to Q1–Q8."
+unknown = "What the spike finds, and Phill's answers."
 
 [[entry]]
 id = 3
 type = "story"
-title = "Tracer: publish a page or section under an export root"
-description = "The tracer bullet: the ExternalWrite pipeline (write lock, the 600 s publishing deadline, no grant except entry 2's rule for protected content), export-root handling in Core, building on the exportRoots parsing and default that settings already have (the default Documents\\OneNote Exports created on first use, the target made canonical with junctions resolved and then checked, ExportPathNotAllowed and FileExists before COM, the target folder created before the call, a locked section refused as SectionLocked before COM since Publish would return a misleading 0x80042014, success only once the file exists), the other Publish formats on the port and both gateways, building on the Publish method epic 5's entry 6 adds for backups, and a publish tool for a page or section in the formats entry 2 lists, returning meta.outputPath; later export stories reuse this export-root code."
-verify = "From Claude Code, Phill exports an MCP Test page to PDF and sees the file at the reported meta.outputPath; integration tests with an overridden export root show a path outside it returns ExportPathNotAllowed, an existing file FileExists, and a protected section handled as entry 2 says."
+title = "Tracer: publish a page to PDF under an export root"
+description = "The tracer bullet: the ExternalWrite pipeline, the export-root handling E1 sets (building on the exportRoots parsing and default settings already have; entries 13, 7, 8 and 9 reuse it), pfPDF on the port and both gateways beside the Publish method 5.6 added for backups, and a publish tool for a page to PDF only, with E8's rule for a page in a protected section."
+verify = "From Claude Code, Phill exports an MCP Test page to PDF and opens the file at the reported meta.outputPath; integration tests with an overridden export root show ExportPathNotAllowed for a path outside it, FileExists for an existing file, and a page in the locked protected section refused as SectionLocked, or ReadNotGranted if entry 2's rule asks for a read grant first; unit tests cover the unlocked path."
 covers = ["E1", "E2", "E8"]
-after = [2, "5.6"]
+after = [2]
 hitl = true
 risk = "high"
 
 [[entry]]
 id = 4
 type = "story"
-title = "Move a page, section or section group"
-description = "The explicit move entry 2 specifies (Q2), through HierarchyWrite on top of epic 5's update_hierarchy: the write grant of every notebook touched, resolved through the gateway (AD-6), the basis check entry 2 sets, a hierarchy snapshot of both parents, the rule 5.2 sets (as entry 2 may revise it) for content leaving a protected section, what entry 2 says a section move does to its read grant and protected journal entries, refusing a move into or out of the recycle bin (restore is entry 5), reporting the moved item's ID read back after the move, while update_hierarchy keeps refusing any ID that isn't already under its parent (5.1 constraint 4), and dropping moved pages from the search cache, in code entries 5 and 6 reuse; it also closes deferred-work's create-page race by re-resolving the target's notebook under the write lock, since this tool makes a move between notebooks possible."
-verify = "On MCP Test a page moves to another section and a section to another section group with a journal entry each, a move into a second test notebook that isn't granted returns WriteNotGranted, an integration test shows a move out of a protected section handled as 5.2 and entry 2 say, and Phill checks that one cloud move synced."
+title = "Move a page"
+description = "The move tool entry 2 specifies (Q2), for pages: to another section of the same notebook or of another notebook, with every rule E5 sets, building on 5.4's update_hierarchy and its HierarchyWrite pipeline; entries 12, 5 and 6 reuse its multi-notebook grant check, its use of E8's refusal, and the second test notebook it sets up (the epic's Notes, test fixtures)."
+verify = "On MCP Test a page moves to another section and to a section in a throwaway test notebook, each with a journal entry and its current ID in the result, a move into an ungranted notebook returns WriteNotGranted, and an integration test shows a page in the locked protected section refused as E8 says; unit tests cover the unlocked path."
 covers = ["E5", "E8"]
-after = [3, "5.4"]
+after = [3]
+hitl = false
+risk = "high"
+unknown = "Whether sending the source section without the page moves it or deletes it, and whether the page keeps its ID; entry 1 settles both."
+
+[[entry]]
+id = 12
+type = "story"
+title = "Move a section or section group"
+description = "Extends entry 4's move to sections and section groups, within a notebook and across notebooks, with E5's rules and what entry 2 says a section move does to the section's SectionKey (read grants, protected journal entries), and closes epic 2's create-page race by re-resolving a write's notebook under the write lock."
+verify = "On MCP Test a section and a section group move to another group and a section moves to a throwaway test notebook, each with a journal entry; a unit test shows create_page re-resolving its notebook under the lock after a section moves between notebooks; an integration test shows the locked protected section's move refused or handled as entry 2 says (Q14); and Phill checks that a section moved on MCP Test Cloud synced."
+covers = ["E5", "E8"]
+after = [4]
 hitl = true
 risk = "high"
-unknown = "Whether a move across notebooks works through UpdateHierarchy, and whether a moved page keeps its ID; entry 1 settles both."
+unknown = "Whether a section or section group moves across notebooks through UpdateHierarchy, and whether a group move syncs on OneDrive; entry 1 settles both."
 
 [[entry]]
 id = 5
 type = "story"
 title = "restore_from_recycle_bin"
-description = "Brings a soft-deleted page or section out of the recycle bin with the route entry 1 proves and entry 2 specifies: it takes the recycled item's ID, or a name with the choice among several matches that entry 2 sets (Q3), puts the item under its original parent found from its soft-delete journal entry, or under the caller's target (Q4), needs the write grant of the notebook it restores into, follows the rule 5.2 sets for a protected section, and reports the restored item's ID; it reuses entry 4's move code."
-verify = "On MCP Test, a page and a section soft-deleted with epic 5's tool come back where they were, two recycled pages with the same name lead to a choice rather than a guess, and each restore leaves a journal entry."
+description = "Brings a soft-deleted page or section out of the recycle bin by the route entry 1 proves, with E7's rules, Q3's choice and Q4's target, using the recycle-bin ID 5.5 stores in the journal entry (falling back to the name when that ID is missing or gone) and the move code from entries 4 and 12; a recycled protected section comes back still protected, into nothing but its own place."
+verify = "On MCP Test, a page and a section soft-deleted with epic 5's tool come back where they were with a journal entry each, two recycled pages with the same name lead to a choice rather than a guess, an integration test shows the locked recycled protected section handled as E8 says, after Phill unlocks a protected section once so the test can soft-delete it."
 covers = ["E7", "E8"]
-after = [4, "5.5"]
-hitl = false
+after = [12]
+hitl = true
 risk = "high"
-unknown = "Whether COM can restore from the recycle bin at all (if entry 1 finds no route, entry 2 records a dated Decision and this entry is dropped with Phill's agreement), and how a recycled page, which has a new ID, is matched to its soft-delete journal entry (open question Q10)."
+unknown = "Whether COM can restore from the recycle bin at all. If entry 1 finds no route, entry 2 records a dated Decision, this entry is dropped with Phill's agreement, and entry 6 goes after entry 12."
 
 [[entry]]
 id = 6
 type = "story"
 title = "merge_sections"
-description = "MergeSections through HierarchyWrite, reusing entry 4's multi-notebook grant check and its use of 5.2's protected-section rule: both sections' notebooks granted, the basis check and snapshot entry 2 sets, refusing a recycled or locked section before COM, and a result that says what became of the source section and lists the merged pages' IDs."
-verify = "On MCP Test a section merges into another with a journal entry and the result matches entry 1's findings on the source section, and an integration test shows a merge out of a protected section handled as 5.2 and entry 2 say."
+description = "MergeSections through HierarchyWrite with E6's rules, reusing entry 4's multi-notebook grant check and E8's refusal, refusing a recycled or locked section before COM, and taking the snapshot entry 2 sets (Q12)."
+verify = "On MCP Test a section merges into another in the same notebook and into one in a throwaway test notebook, each with a journal entry and the source section's fate in the result; a merge into an ungranted notebook returns WriteNotGranted; and an integration test shows a merge out of the locked protected section refused; unit tests cover the unlocked path."
 covers = ["E6", "E8"]
 after = [5]
 hitl = false
 risk = "high"
+unknown = "What MergeSections does to the source section and its pages' IDs (entry 1), and so which snapshot it needs (Q12)."
+
+[[entry]]
+id = 13
+type = "story"
+title = "publish: other formats and sections"
+description = "Extends entry 3's publish tool to sections and to every other format entry 1 proves for a page or a section, with the edge cases entry 2 maps (multi-file formats, a partial file after a timeout), E2's refusals, and E8's rule for a protected section."
+verify = "On MCP Test a page and a section export in each listed format under the export root with meta.outputPath, an unlisted format is refused before COM, and an integration test shows the locked protected section refused as SectionLocked, or ReadNotGranted if entry 2's rule asks for a read grant first; unit tests cover the unlocked path."
+covers = ["E1", "E2", "E8"]
+after = [6]
+hitl = false
+risk = "medium"
 
 [[entry]]
 id = 7
 type = "story"
 title = "publish: notebooks and section groups"
-description = "Extends entry 3's publish tool to a notebook, as a .onepkg that counts as done only once the file is on disk (5.1 constraint 18), and a section group as entry 2 decides (Q7), with entry 2's rule for protected sections inside the exported scope and a locked one refused as SectionLocked; entry 8 verifies against a package this entry makes."
-verify = "On MCP Test a notebook exports to a .onepkg under the export root with meta.outputPath, a section group gets the result entry 2 sets, and an integration test shows a notebook holding a protected section handled as entry 2 says."
-covers = ["E2", "E8"]
-after = [6]
+description = "Extends publish to a notebook, as a .onepkg that counts as done only once the file is on disk, and to a section group as entry 2 decides (Q7), with E8's rule for protected sections inside the notebook; it also exports entry 4's second test notebook, which holds no protected section, and entry 8 opens that package."
+verify = "On MCP Test a notebook exports to a .onepkg under the export root with meta.outputPath, a section group gets the result entry 2 sets, the second test notebook exports with no refusal, and an integration test shows MCP Test, which holds the locked protected section, handled as entry 2 says; unit tests cover the unlocked path."
+covers = ["E1", "E2", "E8"]
+after = [13]
 hitl = false
 risk = "medium"
 
@@ -87,8 +112,8 @@ risk = "medium"
 id = 8
 type = "story"
 title = "open_package"
-description = "OpenPackage through ExternalWrite, using entry 3's export-root code: the source package path as entry 2 decides (Q6), a new destination folder under an export root that must not exist, the folder and the opened notebook reported in meta.outputPath and the result, no automatic write grant unless entry 2 says otherwise, and protected sections in the package as entry 2 says; closing the opened notebook is epic 4's CloseNotebook."
-verify = "On MCP Test a package made by entry 7 opens into a new folder under the export root and the result names the opened notebook, a destination outside every root returns ExportPathNotAllowed, and an integration test shows a package holding a protected section handled as entry 2 says."
+description = "OpenPackage through ExternalWrite with entry 3's export-root code: the source path and grant Q6 sets, a new destination folder under an export root, the folder and the opened notebook in the result, and Q11's rule for protected content in the opened notebook; the user closes the notebook (Q13), and this entry extends the integration guard, which never closes a notebook today, to close the -unpacked notebooks its tests open."
+verify = "The package entry 7 made of the second test notebook opens into a new folder under the export root and the result names the opened notebook, a destination outside every root returns ExportPathNotAllowed, an integration test shows Q11's rule on the opened notebook, and the test closes what it opened as Q13 says; unit tests cover the unlocked path."
 covers = ["E3", "E8"]
 after = [7]
 hitl = false
@@ -98,21 +123,21 @@ risk = "medium"
 id = 9
 type = "story"
 title = "merge_files"
-description = "MergeFiles through ExternalWrite, using entry 3's export-root code for its target, the inputs and errors (hrMergeFailed 0x8004201F) as entry 2 specifies, built only if entry 2 decides to expose it (Q5); otherwise the dated Decision in the spine closes E4 and this entry is dropped with Phill's agreement."
+description = "MergeFiles through ExternalWrite with entry 3's export-root code for its target, and the inputs and errors (hrMergeFailed 0x8004201F) entry 2 specifies, built only if entry 2 exposes it (Q5)."
 verify = "On MCP Test a merge of three .one files made the way entry 1's findings describe writes its target under the export root with meta.outputPath, and a target outside every root returns ExportPathNotAllowed."
 covers = ["E4"]
 after = [8]
 hitl = false
 risk = "medium"
-unknown = "Whether it ships at all; Microsoft documents it only for mobile scenarios with three versions of one file."
+unknown = "Whether it ships at all. If entry 2 records a Decision not to expose it, that Decision closes E4, this entry is dropped with Phill's agreement, and entry 10 goes after entry 8."
 
 [[entry]]
 id = 10
 type = "story"
 title = "Skill, README and harness for round 2"
-description = "The guide skill's recipes for exports (telling the user meta.outputPath), move, merge and recycle-bin restore, plus the section-group export recipe if entry 2 chose a refusal; the README sections on export roots (editing exportRoots, a Documents folder synced to OneDrive, unencrypted exports of protected content) and recycle-bin restore; and the stress harness's write-tool list and contract check for the new tools."
-verify = "Plugin validation and the harness pass, and an agent following the README exports an MCP Test page and restores a soft-deleted one."
-covers = ["E1", "E7", "E9"]
+description = "The guide skill's recipes for exports (telling the user meta.outputPath), move, merge and, if it shipped, recycle-bin restore; the README sections on export roots (editing exportRoots, a Documents folder synced to OneDrive, unencrypted exports of protected content, closing an opened package); the stress harness's write-tool list and contract check for the new tools; and one live run of the protected-section allowed paths with Phill unlocking the section."
+verify = "Plugin validation and the harness pass; an agent following the README exports an MCP Test page and, if entry 5 shipped, restores a soft-deleted one; and with Phill unlocking MCP Test's protected section, each round-2 tool gives the result E8's rule sets."
+covers = ["E1", "E7", "E8", "E9"]
 after = [9]
 hitl = true
 risk = "medium"

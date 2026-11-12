@@ -69,3 +69,5 @@ Out of scope: move, merge, exports and `restore_from_recycle_bin` (epic 3), and 
 
   If the backup route fails, permanent delete of sections, section groups and notebooks is blocked, and the spine is amended.
 - Decision (2026-11-09, Phill, epic 2 inception): the breakdown is entries 1–8 in `tickets.toml`, all one lane after the spike. The tracer bullet is entry 3, the first hierarchy write through the pipeline. Entry 1 waits on epic 2's probes (2.2), entry 2 on epic 2's spine amendments (2.3), and entry 3 on epic 2's restore (2.11), which adds section creation to the gateway.
+- Decision (2026-11-12, Phill, epic 3 inception Q9): entry 2 sets a cautious rule that refuses moves and merges out of a protected section; epic 3's spine amendments (3.2) may relax it with its probes' evidence. Epic 3 stays gated on this epic, so its spike doesn't feed entry 2.
+- Decision (2026-11-12, Phill, epic 3 inception Q10): entry 5 reads back a soft-deleted page's recycle-bin ID and stores it in the journal entry, and entry 2 adds that field to AD-8 and AD-10, for epic 3's `restore_from_recycle_bin`.
