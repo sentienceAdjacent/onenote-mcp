@@ -113,24 +113,14 @@ public static class PageWriteScan
     private static readonly XName T = OneNoteXml.One + "T";
     private static readonly XName OE = OneNoteXml.One + "OE";
 
-    /// <summary>A <c>file:</c> URL anywhere in the text.</summary>
-    private static readonly System.Text.RegularExpressions.Regex FileUrl = new(
-        "(?<![a-z0-9+.-])file:", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
-    /// <summary>An HTML <c>src</c> or <c>href</c> value, quoted or not.</summary>
-    private static readonly System.Text.RegularExpressions.Regex SrcOrHref = new(
-        """(?<![a-z0-9_-])(?:src|href)\s*=\s*(?:"(?<v>[^"]*)"|'(?<v>[^']*)'|(?<v>[^\s"'>]+))""",
-        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
     /// <summary>
     /// The HTML stopgap's findings in <paramref name="sentXml"/> (Phill, 2026-11-12): how many <c>one:HTMLBlock</c>
-    /// elements it sends, and how many <c>one:T</c> texts hold a local or network reference
-    /// (<see cref="HasLocalReference"/>). An HTMLBlock or a text sent back unchanged on the same existing element (the
-    /// same nearest owner <c>objectID</c>, the same content) as in <paramref name="readXml"/> doesn't count; with
-    /// <paramref name="readXml"/> null (no read grant) everything counts. Counts only: the texts never leave this method.
-    /// Well-formed XML only.
+    /// elements it sends, and how many <c>one:T</c> texts hold HTML it refuses (<see cref="HasRefusedHtml"/>). An
+    /// HTMLBlock or a text sent back unchanged on the same existing element (the same nearest owner <c>objectID</c>, the
+    /// same content) as in <paramref name="readXml"/> doesn't count; with <paramref name="readXml"/> null (no read grant)
+    /// everything counts. Counts only: the texts never leave this method. Well-formed XML only.
     /// </summary>
-    public static (int HtmlBlocks, int LocalReferences) HtmlProblems(string sentXml, string? readXml)
+    public static (int HtmlBlocks, int RefusedTexts) HtmlProblems(string sentXml, string? readXml)
     {
         var sent = OneNoteXml.Parse(sentXml);
         var read = readXml is null ? null : OneNoteXml.Parse(readXml);
@@ -139,50 +129,16 @@ public static class PageWriteScan
         var blocks = sent.Descendants(HtmlBlock).Count(b => BlockKey(b) is not { } key || !readBlocks.Contains(key));
 
         var readTexts = read?.Descendants(T).Select(TextKey).OfType<string>().ToHashSet(StringComparer.Ordinal) ?? [];
-        var references = sent.Descendants(T).Count(t => HasLocalReference(t.Value) && (TextKey(t) is not { } key || !readTexts.Contains(key)));
+        var references = sent.Descendants(T).Count(t => HasRefusedHtml(t.Value) && (TextKey(t) is not { } key || !readTexts.Contains(key)));
         return (blocks, references);
     }
 
     /// <summary>
-    /// True when <paramref name="text"/> (a <c>one:T</c>'s HTML), entity-decoded until stable, holds a <c>file:</c> URL,
-    /// or a <c>src</c>/<c>href</c> whose value is an absolute Windows path (<c>C:\</c>, <c>C:/</c>), a UNC or other
-    /// <c>\\</c> path, or a <c>//</c> network form. Case-insensitive.
+    /// True when <paramref name="text"/> (a <c>one:T</c>'s HTML) is refused by the deny-by-default stopgap: a
+    /// <c>file:</c> URL, a resource-loading tag, a URL that isn't an absolute http, https, mailto or onenote URL, or CSS
+    /// that could load something, at any stage of entity decoding. The rules are on <see cref="HtmlStopgap"/>.
     /// </summary>
-    public static bool HasLocalReference(string text)
-    {
-        ArgumentNullException.ThrowIfNull(text);
-        var decoded = text;
-        for (var i = 0; i < 4; i++)
-        {
-            var next = System.Net.WebUtility.HtmlDecode(decoded);
-            if (next == decoded)
-            {
-                break;
-            }
-
-            decoded = next;
-        }
-
-        if (FileUrl.IsMatch(decoded))
-        {
-            return true;
-        }
-
-        foreach (System.Text.RegularExpressions.Match match in SrcOrHref.Matches(decoded))
-        {
-            var value = match.Groups["v"].Value.Trim();
-            if ((value.Length >= 3 && char.IsAsciiLetter(value[0]) && value[1] == ':' && value[2] is '\\' or '/')
-                || value.StartsWith(@"\\", StringComparison.Ordinal)
-                || value.StartsWith("//", StringComparison.Ordinal)
-                || value.StartsWith(@"\/", StringComparison.Ordinal)
-                || value.StartsWith(@"/\", StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    public static bool HasRefusedHtml(string text) => HtmlStopgap.IsRefused(text);
 
     /// <summary>An HTMLBlock's identity for the exemption: its nearest owner's <c>objectID</c> and its content; null without an owner.</summary>
     private static string? BlockKey(XElement block) =>

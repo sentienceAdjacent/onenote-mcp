@@ -120,6 +120,7 @@ public sealed class PageWriteSecurityTests : IDisposable
     // --- The HTML stopgap -----------------------------------------------------------------------------------------------
 
     [Theory]
+    // file: URLs, and local or network paths in src/href
     [InlineData("<img src=\"file:///C:/a.png\">")]
     [InlineData("FILE://server/share/a.png")]
     [InlineData("<a href=\"C:\\x\\a.txt\">a</a>")]
@@ -130,17 +131,95 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("&#102;ile:///C:/a")]
     [InlineData("&lt;img src=&quot;C:\\a.png&quot;&gt;")]
     [InlineData("&amp;#102;ile:///C:/a")]
-    public void HasLocalReference_FindsFileUrlsAndLocalOrNetworkSrcHref(string text) => Assert.True(PageWriteScan.HasLocalReference(text));
+    // deny by default: a URL must be absolute http, https, mailto or onenote
+    [InlineData("<a href=\"page.html\">p</a>")]
+    [InlineData("<a href=\"#x\">p</a>")]
+    [InlineData("<a href=\"/x/a.txt\">p</a>")]
+    [InlineData("<a href=\"//host/a\">p</a>")]
+    [InlineData("<a href=\"ftp://host/a\">p</a>")]
+    [InlineData("<a href=\"\">p</a>")]
+    [InlineData("<a href>p</a>")]
+    [InlineData("<a/href=\"C:\\x\">p</a>")]
+    [InlineData("<a href=C:&#92;x>p</a>")]
+    [InlineData("<a href=\"C:\\x")] // never closed
+    [InlineData("<a\nhref=\"C:\\x\">p</a>")]
+    [InlineData("<a xlink:href=\"C:\\x\">p</a>")]
+    // other URL-bearing attributes
+    [InlineData("<table background=\"C:\\a.png\"><tr><td>x</td></tr></table>")]
+    [InlineData("<button formaction=\"C:\\x\">b</button>")]
+    [InlineData("<q cite=\"\\\\server\\a\">q</q>")]
+    [InlineData("<a href=\"https://example.invalid/\" ping=\"\\\\server\\a\">p</a>")]
+    [InlineData("<td data=\"C:\\a\">x</td>")]
+    [InlineData("<td lowsrc=\"C:\\a\">x</td>")]
+    [InlineData("<td dynsrc=\"C:\\a\">x</td>")]
+    [InlineData("<td poster=\"C:\\a\">x</td>")]
+    [InlineData("<td srcset=\"https://example.invalid/a 1x, C:\\b 2x\">x</td>")]
+    [InlineData("<td action=\"C:\\a\">x</td>")]
+    // normalisation: entities without semicolons, tabs, newlines and control characters
+    [InlineData("<a href=\"jav&#x09;ascript:x\">p</a>")]
+    [InlineData("<a href=\"&#102ile:///C:/a\">p</a>")]
+    [InlineData("<a href=\"&#x66ile:///C:/a\">p</a>")]
+    [InlineData("<a href=\"fi\tle:///C:/a\">p</a>")]
+    [InlineData("<a href=\"fi\nle:///C:/a\">p</a>")]
+    [InlineData("<a href=\"\u0001file:///C:/a\">p</a>")]
+    [InlineData("<a href=\"&#104;ttps://example.invalid/\">p</a>")] // a value is checked at every decoding, not only the last
+    [InlineData("<a href=\"https&colon;//example.invalid/\">p</a>")]
+    // tags a parser could read differently: both the tokenizer and the plain scan count
+    [InlineData("<a title=\"a>b\" href=\"C:\\x\">p</a>")] // a > inside quotes: only the tokenizer sees the href
+    [InlineData("<!-- <a title=\" --> <a href=\"C:\\x\">p</a>")] // a comment ends before the quote closes
+    [InlineData("<!--<a href=\"C:\\x\">-->")] // inert to an HTML5 parser, not necessarily to OneNote's: only the plain scan sees it
+    [InlineData("<a title='x\"' href=\"C:\\x\">p</a>")]
+    [InlineData("<a href=\"https://example.invalid/\" href=\"C:\\x\">p</a>")]
+    [InlineData("<svg:image href=\"https://example.invalid/a.png\"/>")]
+    // resource-loading tags, whatever their URL
+    [InlineData("<img src=\"https://example.invalid/a.png\">")]
+    [InlineData("<object data=\"https://example.invalid/a\"></object>")]
+    [InlineData("<embed src=\"https://example.invalid/a\">")]
+    [InlineData("<link rel=stylesheet href=\"https://example.invalid/a.css\">")]
+    [InlineData("<iframe src=\"https://example.invalid/\"></iframe>")]
+    [InlineData("<IFRAME>")]
+    [InlineData("<style>p{}</style>")]
+    [InlineData("<svg><image href=\"https://example.invalid/a.png\"/></svg>")]
+    [InlineData("<video poster=\"https://example.invalid/a.png\"></video>")]
+    [InlineData("<audio src=\"https://example.invalid/a.mp3\"></audio>")]
+    [InlineData("<script>x</script>")]
+    [InlineData("<base href=\"https://example.invalid/\">")]
+    [InlineData("<meta http-equiv=refresh>")]
+    [InlineData("<form action=\"https://example.invalid/\"></form>")]
+    // CSS in style attributes
+    [InlineData("<span style=\"background:url(C:\\a.png)\">x</span>")]
+    [InlineData("<span style=\"background:url('//host/a.png')\">x</span>")]
+    [InlineData("<span style=\"background:url(https://example.invalid/a.png)\">x</span>")] // url() fetches, whatever the URL
+    [InlineData("<span style=\"background:u\\72l(x)\">x</span>")]
+    [InlineData("<span style=\"background-image:image-set('a.png' 1x)\">x</span>")]
+    [InlineData("<span style=\"behavior:expression(x)\">x</span>")]
+    [InlineData("<span style=\"@import 'a.css'\">x</span>")]
+    [InlineData("<span style=\"background:url&#40;C:\\a.png)\">x</span>")]
+    public void HasRefusedHtml_RefusesLocalReferencesResourceTagsAndAnyUrlNotAbsoluteWebMailOrOneNote(string text) =>
+        Assert.True(PageWriteScan.HasRefusedHtml(text));
 
     [Theory]
     [InlineData("<a href=\"https://example.invalid/a\">web</a>")]
-    [InlineData("<img src=\"https://example.invalid/a.png\">")]
+    [InlineData("<a href=\"HTTP://example.invalid/a\">web</a>")]
+    [InlineData("<a href=\" https://example.invalid/a \">web</a>")]
+    [InlineData("<a href=https://example.invalid/?a=1&amp;b=2>web</a>")]
+    [InlineData("<a href=\"mailto:someone@example.invalid\">mail</a>")]
+    [InlineData("<a href=\"onenote:#page\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/n.one#p\">p</a>")]
     [InlineData("my profile: settings")]
     [InlineData("the share is \\\\server\\share")]
     [InlineData("C:\\temp is a folder")]
-    [InlineData("<a href=\"onenote:#page\">p</a>")]
     [InlineData("data-src=\"x\" srcset")]
-    public void HasLocalReference_LeavesOrdinaryTextAndWebLinksAlone(string text) => Assert.False(PageWriteScan.HasLocalReference(text));
+    [InlineData("x < y and y > z")]
+    [InlineData("a<b>bold</b><i>i</i><u>u</u><br><br/>")]
+    [InlineData("<span lang=en-US>x</span>")]
+    [InlineData("<span style='font-family:Calibri;font-size:11.0pt;color:#595959'>x</span>")]
+    [InlineData("<span style=\"color:rgb(1, 2, 3);background:rgba(0,0,0,0.5)\">x</span>")]
+    [InlineData("<span style=\"font-weight:bold;text-decoration:underline\">x</span>")]
+    [InlineData("see url(x) in the CSS docs")]
+    [InlineData("an image of a cat")]
+    public void HasRefusedHtml_AllowsOrdinaryTextFormattingAndWebMailOrOneNoteLinks(string text) =>
+        Assert.False(PageWriteScan.HasRefusedHtml(text));
 
     [Fact]
     public void HtmlProblems_CountsNewBlocksAndReferences_ButNotUnchangedOnesOnTheSameElement()

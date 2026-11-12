@@ -532,25 +532,29 @@ public sealed class UpdatePageContentToolTests : IDisposable
         }
     }
 
-    public static TheoryData<string> LocalReferences =>
+    public static TheoryData<string> RefusedHtml =>
     [
         "<img src=\"file:///C:/x/a.png\">",
         "<a href=\"C:\\x\\notes.txt\">notes</a>",
         "<a href='\\\\server\\share\\a.txt'>s</a>",
         "<img src=//host/a.png>",
         "<span>see &#102;ile:///C:/x</span>",
+        "<a href=\"notes.txt\">notes</a>",
+        "<a href=\"jav&#x09ascript:x\">x</a>",
+        "<img src=\"https://example.invalid/a.png\">",
+        "<span style=\"background:url(C:\\x\\a.png)\">x</span>",
     ];
 
     [Theory]
-    [MemberData(nameof(LocalReferences))]
-    public async Task ATextWithALocalReference_IsInvalidArgument_WithThePathDialogRouteOrInlineData(string html)
+    [MemberData(nameof(RefusedHtml))]
+    public async Task ATextWithRefusedHtml_IsInvalidArgument_WithThePathDialogRouteOrInlineData(string html)
     {
         var sent = Sent($"<one:Outline><one:OEChildren><one:OE><one:T><![CDATA[{html}]]></one:T></one:OE></one:OEChildren></one:Outline>");
 
         var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), PageId, sent, null, null, Ct));
 
         Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
-        Assert.Equal(UpdatePageContentWrite.LocalReferenceUserAction, ex.UserAction);
+        Assert.Equal(UpdatePageContentWrite.RefusedHtmlUserAction, ex.UserAction);
         Assert.DoesNotContain("C:", ex.Message.Replace(PageId, string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
         await AssertRefusedAsync();
     }
@@ -574,7 +578,7 @@ public sealed class UpdatePageContentToolTests : IDisposable
         var added = XElement.Parse(sent);
         added.Descendants().Single(e => (string?)e.Attribute("objectID") == G(42)).Element(One + "T")!.ReplaceNodes(new XCData("<a href=\"file:///C:/x/notes.txt\">n</a>"));
         var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase().ExecuteAsync(new ToolCallContext("c"), PageId, added.ToString(), null, null, Ct));
-        Assert.Equal(UpdatePageContentWrite.LocalReferenceUserAction, ex.UserAction);
+        Assert.Equal(UpdatePageContentWrite.RefusedHtmlUserAction, ex.UserAction);
     }
 
     [Fact]
