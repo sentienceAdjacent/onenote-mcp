@@ -385,7 +385,7 @@ internal sealed class TestNotebook
         IReadOnlyDictionary<string, IReadOnlySet<string>>? throwawayNotebookIds,
         IReadOnlySet<string>? created)
     {
-        await EnsureTestTargetAsync(gateway, targetId, method, ct);
+        await EnsureTargetsAsync(gateway, targetIds, method, ct, throwawayNotebookIds, created);
         return await gateway.InvokeAsync(write, ct, retryOnDisconnect: false, method: method);
     }
 
@@ -393,7 +393,16 @@ internal sealed class TestNotebook
     /// The guard alone: throws unless a live <c>GetHierarchy</c> shows <paramref name="targetId"/> is MCP Test, MCP Test
     /// Cloud or inside one of them. A test that writes through a port method (story 2.7) calls it first.
     /// </summary>
-    public static async Task EnsureTestTargetAsync(ComGateway gateway, string targetId, string method, CancellationToken ct)
+    public static Task EnsureTestTargetAsync(ComGateway gateway, string targetId, string method, CancellationToken ct) =>
+        EnsureTargetsAsync(gateway, [targetId], method, ct, throwawayNotebookIds: null, created: null);
+
+    private static async Task EnsureTargetsAsync(
+        ComGateway gateway,
+        IReadOnlyList<string> targetIds,
+        string method,
+        CancellationToken ct,
+        IReadOnlyDictionary<string, IReadOnlySet<string>>? throwawayNotebookIds,
+        IReadOnlySet<string>? created)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         var folder = ResolveFolder(Environment.GetEnvironmentVariable);

@@ -525,7 +525,7 @@ internal sealed class ProbeSession : IDisposable
             sectionId,
             app =>
             {
-                app.CreateNewPage(sectionId, out var id, NewPageStyle.npsBlankPageWithTitle);
+                app.CreateNewPage(sectionId, out var id, OneNoteMcp.Com.Interop.NewPageStyle.npsBlankPageWithTitle);
                 return id;
             },
             "CreateNewPage(probe)",
