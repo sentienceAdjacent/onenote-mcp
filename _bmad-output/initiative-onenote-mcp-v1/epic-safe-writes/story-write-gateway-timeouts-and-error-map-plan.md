@@ -167,6 +167,8 @@ Triage: every row below stays `Internal` (Q2); `userAction` gist from OneMore's 
 **Manual checks (if no CLI):**
 - Live, later (Phill): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter PageWriteGatewayIntegrationTests`; and a dry look that no hidden `ONENOTE.EXE -Embedding` appears after a forced reconnect.
 
+- Live check (2026-11-12, team lead, Phill present): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter PageWriteGatewayIntegrationTests` on MCP Test: 2 of 2 passed.
+
 ## Auto Run Result
 
 - **Status:** built (2026-11-11). Not marked done; not pushed.
