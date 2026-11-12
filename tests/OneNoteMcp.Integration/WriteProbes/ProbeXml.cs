@@ -68,6 +68,34 @@ internal static class ProbeXml
         return sb.Append("</one:Table>").ToString();
     }
 
+    // --- Hierarchy XML (story 5.1) ---------------------------------------------------------------------------------
+
+    /// <summary>An <c>UpdateHierarchy</c> document: a <paramref name="kind"/> root with its ID, extra attributes and children.</summary>
+    public static string Hierarchy(string kind, string id, string attributes = "", params string[] children) =>
+        $"""<?xml version="1.0"?><one:{kind} xmlns:one="{OneNoteXml.Namespace2013}" ID="{Attr(id)}"{attributes}{Close(kind, children)}""";
+
+    /// <summary>A hierarchy element (<c>Section</c>, <c>SectionGroup</c>, <c>Page</c>), with an ID when given.</summary>
+    public static string Node(string kind, string? id, string attributes = "", params string[] children) =>
+        $"<one:{kind}{(id is null ? string.Empty : $" ID=\"{Attr(id)}\"")}{attributes}{Close(kind, children)}";
+
+    /// <summary>One attribute, rendered with a leading space and escaped: <c> name="…"</c>.</summary>
+    public static string A(string name, string value) => $" {name}=\"{Attr(value)}\"";
+
+    private static string Close(string kind, string[] children) =>
+        children.Length == 0 ? " />" : $">{string.Concat(children)}</one:{kind}>";
+
+    /// <summary>The direct Section and SectionGroup children of <paramref name="node"/>, recycle bin left out, in order.</summary>
+    public static IReadOnlyList<NodeInfo> Children(XElement node) =>
+        node.Elements()
+            .Where(e => e.Name.LocalName is "Section" or "SectionGroup")
+            .Where(e => (string?)e.Attribute("isRecycleBin") != "true" && (string?)e.Attribute("isInRecycleBin") != "true")
+            .Select(NodeInfo.From)
+            .ToList();
+
+    /// <summary>The names of the pages directly in <paramref name="section"/>, in order.</summary>
+    public static IReadOnlyList<string?> PageNames(XElement section) =>
+        section.Elements(section.Name.Namespace + "Page").Select(p => (string?)p.Attribute("name")).ToList();
+
     public static string Meta(string name, string content) => $"""<one:Meta name="{Attr(name)}" content="{Attr(content)}" />""";
 
     /// <summary>CDATA around <paramref name="text"/> verbatim (so <c>&amp;nbsp;</c> stays an entity reference for OneNote to parse).</summary>
@@ -156,5 +184,45 @@ internal static class ProbeXml
         }
 
         return (letters.Count, sb.ToString());
+    }
+}
+
+/// <summary>
+/// Story 5.1's read-back of one hierarchy node: what a delete or hierarchy write probe logs. <see cref="InRecycleBin"/>
+/// is true when the node or any ancestor is the recycle bin, or the node is marked <c>isInRecycleBin</c>.
+/// </summary>
+internal sealed record NodeInfo(
+    string Kind,
+    string? Id,
+    string? Name,
+    string? Nickname,
+    string? ParentKind,
+    string? ParentName,
+    bool InRecycleBin,
+    string? Path,
+    string? Encrypted,
+    string? Locked,
+    string? LastModifiedTime,
+    int Pages)
+{
+    public static NodeInfo From(XElement e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        var parent = e.Parent;
+        var inBin = (string?)e.Attribute("isInRecycleBin") == "true"
+            || e.AncestorsAndSelf().Any(a => (string?)a.Attribute("isRecycleBin") == "true");
+        return new NodeInfo(
+            e.Name.LocalName,
+            (string?)e.Attribute("ID"),
+            (string?)e.Attribute("name"),
+            (string?)e.Attribute("nickname"),
+            parent?.Name.LocalName,
+            (string?)parent?.Attribute("name"),
+            inBin,
+            (string?)e.Attribute("path"),
+            (string?)e.Attribute("encrypted"),
+            (string?)e.Attribute("locked"),
+            (string?)e.Attribute("lastModifiedTime"),
+            e.Elements(e.Name.Namespace + "Page").Count());
     }
 }

@@ -183,6 +183,166 @@ public sealed class TestNotebookGuardTests
         Assert.False(TestNotebookGuard.Contains(cloudTree, "{P}"));
     }
 
+    // --- Story 5.1: deletes, hierarchy XML, throwaway notebooks, publish paths ------------------------------------
+
+    private const string Root = @"C:\Users\me\AppData\Local\OneNoteMcp-Test";
+    private static readonly string[] TestIds = ["{T}", "{C}"];
+    private static readonly HashSet<string> Made = ["{S1}", "{S2}", "{G}"];
+
+    [Fact]
+    public void Contains_AcceptsTheNotebookRoot_SoDeletesNeedCheckDelete() =>
+        Assert.True(TestNotebookGuard.Contains(Tree, "{T}"));
+
+    [Theory]
+    [InlineData("{T}")] // MCP Test itself, even if a bug put it in the created set
+    [InlineData("{C}")] // MCP Test Cloud itself
+    [InlineData("{S}")] // a fixture: inside MCP Test, not made by this run
+    [InlineData("")]
+    public void CheckDelete_RefusesTestNotebooksFixturesAndEmpty(string id) =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckDelete("DeleteHierarchy", id, TestIds, new HashSet<string>(Made) { "{T}", "{C}" }));
+
+    [Fact]
+    public void CheckDelete_AllowsAnObjectThisRunMade() =>
+        TestNotebookGuard.CheckDelete("DeleteHierarchy", "{S1}", TestIds, Made);
+
+    [Fact]
+    public void CheckHierarchyXml_AcceptsOnlyCreatedIds_RootFirst() =>
+        Assert.Equal(
+            ["{G}", "{S2}", "{S1}"],
+            TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", $$"""<one:SectionGroup xmlns:one="{{Ns}}" ID="{G}"><one:Section ID="{S2}" /><one:Section ID="{S1}" /><one:Section name="new" /></one:SectionGroup>""", TestIds, Made));
+
+    [Theory]
+    [InlineData("""<one:Notebook xmlns:one="NS" ID="{T}"><one:Section name="x" /></one:Notebook>""")] // MCP Test's root
+    [InlineData("""<one:Notebook xmlns:one="NS" ID="{C}" name="renamed" />""")] // MCP Test Cloud renamed
+    [InlineData("""<one:SectionGroup xmlns:one="NS" ID="{G}"><one:Section ID="{S}" /></one:SectionGroup>""")] // a fixture inside
+    [InlineData("""<one:Section xmlns:one="NS" name="no id" />""")] // no ID at all
+    [InlineData("""<one:SectionGroup xmlns:one="NS" name="x"><one:Section ID="{S1}" /></one:SectionGroup>""")] // root without an ID
+    [InlineData("""<one:Section xmlns:one="NS" id='{S}' />""")] // other case and quotes still count
+    [InlineData("""<one:Section xmlns:one="NS" ID="{S1}"><one:Section ID = "{S}" """)] // malformed, naming a fixture
+    public void CheckHierarchyXml_Refuses(string xml) =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", xml.Replace("NS", Ns, StringComparison.Ordinal), TestIds, Made));
+
+    [Fact]
+    public void CheckHierarchyXml_MalformedXml_IsCheckedByPattern() =>
+        Assert.Equal(["{S1}"], TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", $$"""<one:Section xmlns:one="{{Ns}}" ID="{S1}" name="x">""", TestIds, Made));
+
+    [Theory]
+    [InlineData("MCP Test Throwaway 1110-1200 a", Root + @"\MCP Test Throwaway 1110-1200 a")]
+    [InlineData("MCP Test Throwaway 1110-1200 a renamed", Root + @"\mcp test throwaway 1110-1200 a\")]
+    public void IsLocalThrowaway_PrefixedNameInTheThrowawayRoot(string name, string path) =>
+        Assert.True(TestNotebookGuard.IsLocalThrowaway(name, path, Root));
+
+    [Theory]
+    [InlineData("MCP Test", Root + @"\MCP Test")] // the fixture notebook
+    [InlineData("MCP Test Throwaway x", @"D:\Notebooks\MCP Test Throwaway x")] // another folder
+    [InlineData("MCP Test Throwaway x", Root + @"\Sub\MCP Test Throwaway x")] // nested deeper
+    [InlineData("MCP Test Throwaway x", Root + @"\Personal")] // folder without the prefix
+    [InlineData("Personal", Root + @"\MCP Test Throwaway x")] // name without the prefix
+    [InlineData("MCP Test Throwaway x", Root + @"\MCP Test\..\MCP Test Throwaway x")] // relative parts
+    [InlineData("MCP Test Throwaway x", "https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway x/")] // cloud
+    [InlineData("MCP Test Throwaway Cloud", Root + @"\MCP Test Throwaway Cloud")] // the cloud name, locally
+    public void IsLocalThrowaway_RefusesLookAlikes(string name, string path) =>
+        Assert.False(TestNotebookGuard.IsLocalThrowaway(name, path, Root));
+
+    [Fact]
+    public void IsCloudThrowaway_ExactNameAndOneDrivePath()
+    {
+        Assert.True(TestNotebookGuard.IsCloudThrowaway("MCP Test Throwaway Cloud", "https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud/"));
+        Assert.False(TestNotebookGuard.IsCloudThrowaway("MCP Test Cloud", CloudPath));
+        Assert.False(TestNotebookGuard.IsCloudThrowaway("MCP Test Throwaway Cloud", CloudPath));
+        Assert.False(TestNotebookGuard.IsCloudThrowaway("MCP Test Throwaway Cloud", "https://example.com/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud/"));
+    }
+
+    private static Dictionary<string, IReadOnlySet<string>> Names(params (string Id, string[] Names)[] entries) =>
+        entries.ToDictionary(e => e.Id, e => (IReadOnlySet<string>)new HashSet<string>(e.Names));
+
+    [Fact]
+    public void ThrowawayNotebookIds_OnlyOpenCandidates_AndRefusesACandidateThatIsNoThrowaway()
+    {
+        var notebooks = CloudNotebooks(
+            ("MCP Test Throwaway 1110 a", "{A}", Root + @"\MCP Test Throwaway 1110 a"),
+            ("MCP Test Throwaway Cloud", "{X}", "https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud/"),
+            ("MCP Test Throwaway 1110 b", "{B}", Root + @"\MCP Test Throwaway 1110 b"));
+
+        Assert.Equal(
+            ["{A}", "{X}"],
+            TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{A}", ["MCP Test Throwaway 1110 a"]), ("{X}", ["MCP Test Throwaway Cloud"]), ("{GONE}", ["MCP Test Throwaway 1110 g"]))));
+        Assert.Empty(TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names()));
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{T}", ["MCP Test"]))));
+    }
+
+    [Fact]
+    public void ThrowawayNotebookIds_AcceptsOnlyTheExactNamesThisRunGave()
+    {
+        var notebooks = CloudNotebooks(
+            ("MCP Test Throwaway 1110 a renamed", "{A}", Root + @"\MCP Test Throwaway 1110 a"),
+            ("MCP Test Throwaway 1110 b", "{B}", Root + @"\MCP Test Throwaway 1110 b"));
+
+        // A rename the run sent (and allowed) is accepted; the folder still carries the created name.
+        Assert.Equal(["{A}"], TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{A}", ["MCP Test Throwaway 1110 a", "MCP Test Throwaway 1110 a renamed"]))));
+
+        // A prefix match alone isn't enough: a name, or a folder, the run never gave it is refused.
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{A}", ["MCP Test Throwaway 1110 a"]))));
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{B}", ["MCP Test Throwaway 1110 a"]))));
+    }
+
+    [Fact]
+    public void ThrowawayRoot_IsFixedUnderLocalAppData_IgnoringTheFolderOverride() =>
+        Assert.Equal(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OneNoteMcp-Test"),
+            TestNotebook.ThrowawayRoot);
+
+    [Theory]
+    [InlineData("MCP Test Throwaway 1110 a")]
+    public void EnsureThrowawayLeaf_AcceptsAPrefixedName(string leaf) => TestNotebookGuard.EnsureThrowawayLeaf(leaf);
+
+    [Theory]
+    [InlineData("MCP Test")]
+    [InlineData("MCP Test Throwaway Cloud")]
+    [InlineData(@"MCP Test Throwaway x\..\MCP Test")]
+    [InlineData("MCP Test Throwaway x/y")]
+    [InlineData("MCP Test Throwaway ..")]
+    [InlineData("")]
+    public void EnsureThrowawayLeaf_Refuses(string leaf) =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureThrowawayLeaf(leaf));
+
+    [Fact]
+    public void EnsureUnder_AllowsOnlyPathsInsideTheRoot()
+    {
+        var root = Root + @"\probes\publish";
+        TestNotebookGuard.EnsureUnder("Publish", root + @"\x.one", root);
+        TestNotebookGuard.EnsureUnder("Publish", root + @"\sub\x.one", root);
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureUnder("Publish", root, root)); // the root itself
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureUnder("Publish", root + @"2\x.one", root)); // a sibling sharing the prefix
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureUnder("Publish", root + @"\..\..\MCP Test\Seed.one", root)); // climbs out
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureUnder("Publish", @"publish\x.one", root)); // relative
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureUnder("Publish", @"D:\Elsewhere\x.one", root));
+    }
+
+    [Fact]
+    public void EnsureOnlyProbeMarker_AcceptsTheMarkerAlone()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "onenote-mcp-guard", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureOnlyProbeMarker(folder)); // empty
+            File.WriteAllText(Path.Combine(folder, TestNotebook.ProbeMarkerFile), "x");
+            TestNotebookGuard.EnsureOnlyProbeMarker(folder);
+            File.WriteAllText(Path.Combine(folder, "Open Notebook.onetoc2"), "x");
+            Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureOnlyProbeMarker(folder));
+            Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureOnlyProbeMarker(Path.Combine(folder, "absent")));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AnyContains_FindsAnIdAnywhere() =>
+        Assert.True(TestNotebookGuard.AnyContains(Tree, "{NS}") && !TestNotebookGuard.AnyContains(Tree, "{GONE}") && !TestNotebookGuard.AnyContains(Tree, string.Empty));
+
     [Fact]
     public void ResolveFolder_DefaultsUnderLocalAppData_OutsideOneNoteMcp()
     {
