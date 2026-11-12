@@ -174,6 +174,16 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"onenote:file:///C:/x/s.one\">p</a>")]
     [InlineData("<a href=\"onenote:\">p</a>")]
     [InlineData("<a href=\"onenote:&#9;\\\\server\\s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;base-path=\\\\server\\s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;base-path=C:\\x\\s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;BASE-PATH=x.one\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/n.one#p&amp;base-path=C:\\x\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;x=C:\\s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;x=c:/s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;x=//server/s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;x=..%5Cs.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;x=%5C%5Cserver%5Cs.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#p&amp;x=file:///C:/s.one\">p</a>")]
     // tags a parser could read differently: both the tokenizer and the plain scan count
     [InlineData("<a title=\"a>b\" href=\"C:\\x\">p</a>")] // a > inside quotes: only the tokenizer sees the href
     [InlineData("<!-- <a title=\" --> <a href=\"C:\\x\">p</a>")] // a comment ends before the quote closes

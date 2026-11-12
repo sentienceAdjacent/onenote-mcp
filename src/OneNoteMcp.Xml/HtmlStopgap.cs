@@ -47,7 +47,11 @@ internal static class HtmlStopgap
     /// </summary>
     private static readonly Regex AllowedUrl = new("^(?:https?://|mailto:|onenote:(?:#|https?://))", Options);
 
-    private static readonly Regex Descriptor = new(@"^[0-9]+(?:\.[0-9]+)?[wxh]$", Options);
+    private static readonly Regex WebPrefix = new("^https?://", Options);
+
+    private static readonly Regex OneNotePath = new(@"base-path|\\|//|file:|(?:^|[/=&])\.\.(?:[/&]|$)|(?<![a-z0-9])[a-z]:[\\/]", Options);
+
+    private static readonly Regex Descriptor =new(@"^[0-9]+(?:\.[0-9]+)?[wxh]$", Options);
 
     /// <summary>A resource tag's name right after <c>&lt;</c> or <c>&lt;/</c>, with or without a namespace prefix.</summary>
     private static readonly Regex ResourceTagAnywhere = new(
@@ -131,7 +135,37 @@ internal static class HtmlStopgap
             .Replace("\n", string.Empty, StringComparison.Ordinal)
             .Replace("\r", string.Empty, StringComparison.Ordinal)
             .Trim(Enumerable.Range(0, 0x21).Select(c => (char)c).ToArray());
-        return url.Length > 0 && !url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f') && AllowedUrl.IsMatch(url);
+        return url.Length > 0 && !url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f') && AllowedUrl.IsMatch(url)
+            && !(url.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase) && OneNoteNamesAPath(url["onenote:".Length..]));
+    }
+
+    /// <summary>
+    /// True when the rest of an <c>onenote:</c> URL (after its web prefix, if any) can name a notebook file: a
+    /// <c>base-path</c> parameter (OneNote's own links to local notebooks carry one after the <c>#</c>), a backslash, a
+    /// <c>//</c>, a <c>..</c> segment, <c>file:</c> or a drive (<c>X:\</c>, <c>X:/</c>), checked as sent and after each of
+    /// up to three rounds of percent-decoding.
+    /// </summary>
+    private static bool OneNoteNamesAPath(string rest)
+    {
+        var web = WebPrefix.Match(rest);
+        var text = web.Success ? rest[web.Length..] : rest;
+        for (var i = 0; i < 4; i++)
+        {
+            if (OneNotePath.IsMatch(text))
+            {
+                return true;
+            }
+
+            var next = Uri.UnescapeDataString(text);
+            if (next == text)
+            {
+                break;
+            }
+
+            text = next;
+        }
+
+        return false;
     }
 
     /// <summary>True when a style value has a backslash escape, an at-rule, expression(), or any function but a colour.</summary>
