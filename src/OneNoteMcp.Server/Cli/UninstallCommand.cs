@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
+using OneNoteMcp.Core;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Server.Logging;
 
@@ -45,6 +47,11 @@ public sealed record UninstallPaths(string SettingsPath, string LogDirectory, st
 /// it, and refuses a journal folder that looks like a root or system folder. It never removes the exe, the plugin, or
 /// Claude Code's own <c>tool-results</c> files. It starts no COM.
 /// <para>Interactive, it asks the user to type <c>purge</c>; otherwise it needs <c>--yes</c>.</para>
+/// <para>Before that question it warns with the process ID of every other running <c>OneNoteMcp.exe</c>, since a running
+/// server may write a grant or a log meanwhile. It removes <c>settings.json</c> and its temporary files only while holding
+/// <c>Local\OneNoteMcp.Settings</c>, taken after the question, never across it (AD-10), and lists them again under it, so a
+/// file a running server created while the user decided goes too. If the lock can't be taken in
+/// time it leaves those files, says so and exits 1; the other files are still removed (retro R4).</para>
 /// </summary>
 public sealed partial class UninstallCommand
 {
@@ -61,17 +68,49 @@ public sealed partial class UninstallCommand
     private readonly TextWriter output;
     private readonly bool interactive;
     private readonly UninstallPaths paths;
+    private readonly Func<IReadOnlyList<int>> otherServers;
+    private readonly Action<Action> settingsLock;
 
-    public UninstallCommand(TextReader input, TextWriter output, bool interactive, UninstallPaths paths)
+    /// <param name="otherServers">The process IDs of the other running OneNoteMcp processes (<see cref="OtherServerProcesses"/>).</param>
+    /// <param name="settingsLock">
+    /// Runs its action while holding the settings mutex, or throws <see cref="ErrorCode.ComBusy"/> without running it
+    /// (<see cref="SettingsLock"/>).
+    /// </param>
+    public UninstallCommand(TextReader input, TextWriter output, bool interactive, UninstallPaths paths, Func<IReadOnlyList<int>> otherServers, Action<Action> settingsLock)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(otherServers);
+        ArgumentNullException.ThrowIfNull(settingsLock);
         this.input = input;
         this.output = output;
         this.interactive = interactive;
         this.paths = paths;
+        this.otherServers = otherServers;
+        this.settingsLock = settingsLock;
     }
+
+    /// <summary>The process IDs of every other process running <c>OneNoteMcp.exe</c>, this one left out.</summary>
+    public static IReadOnlyList<int> OtherServerProcesses()
+    {
+        var processes = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Core.Access.GrantCli.ExeName));
+        try
+        {
+            return [.. processes.Select(p => p.Id).Where(id => id != Environment.ProcessId).Order()];
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                process.Dispose();
+            }
+        }
+    }
+
+    /// <summary>The settings mutex, as <see cref="SettingsWriter.RunLocked"/> takes it for <paramref name="settingsPath"/>.</summary>
+    public static Action<Action> SettingsLock(string settingsPath) =>
+        action => new SettingsWriter(new SettingsStore(settingsPath), TimeProvider.System).RunLocked(action);
 
     /// <summary>Runs <c>uninstall</c> with the arguments after it. Returns the exit code: 0 done, 1 something refused or failed, 2 bad usage.</summary>
     public int Run(IReadOnlyList<string> args)
@@ -140,6 +179,15 @@ public sealed partial class UninstallCommand
             output.WriteLine($"  {folder}");
         }
 
+        // Before the question: a running server may write a grant or a log while this runs (retro R4).
+        var running = otherServers();
+        if (running.Count > 0)
+        {
+            output.WriteLine(
+                $"Warning: OneNoteMcp is still running (process ID {string.Join(", ", running)}). It may write settings or logs again. "
+                + "Close Claude Code (or any other client using OneNoteMcp) first, then run this again.");
+        }
+
         if (!yes)
         {
             output.Write($"Type {ConfirmWord} to remove them: ");
@@ -152,7 +200,38 @@ public sealed partial class UninstallCommand
         }
 
         var failed = plan.Refusals.Count > 0;
-        foreach (var file in plan.Files)
+
+        // settings.json and its temporary files only under the settings mutex, taken now, never across the question. They
+        // are listed again under it: a server still running may have created settings.json while the user decided.
+        var settingsPath = Path.GetFullPath(paths.SettingsPath);
+        if (Path.GetDirectoryName(settingsPath) is { } settingsFolder && Directory.Exists(settingsFolder))
+        {
+            try
+            {
+                settingsLock(() =>
+                {
+                    var listed = new PurgePlan([], [], [], [], []);
+                    AddSettingsFiles(listed, settingsPath);
+                    foreach (var refusal in listed.Refusals)
+                    {
+                        output.WriteLine($"Refused: {refusal}");
+                        failed = true;
+                    }
+
+                    foreach (var file in listed.Files)
+                    {
+                        failed |= !Delete(file);
+                    }
+                });
+            }
+            catch (OneNoteException ex) when (ex.Code == ErrorCode.ComBusy)
+            {
+                output.WriteLine("Kept settings.json and its temporary files: another OneNoteMcp process is writing settings.json. Run this again in a moment.");
+                failed = true;
+            }
+        }
+
+        foreach (var file in plan.Files.Except(plan.SettingsFiles, StringComparer.OrdinalIgnoreCase))
         {
             failed |= !Delete(file);
         }
@@ -169,25 +248,36 @@ public sealed partial class UninstallCommand
         return failed ? 1 : 0;
     }
 
-    private sealed record PurgePlan(List<string> Files, List<string> Folders, List<string> Refusals, List<string> Notes);
+    /// <param name="SettingsFiles">
+    /// The members of <paramref name="Files"/> that are settings files: shown before the question, but removed as listed
+    /// again under the settings mutex.
+    /// </param>
+    private sealed record PurgePlan(List<string> Files, List<string> Folders, List<string> Refusals, List<string> Notes, List<string> SettingsFiles);
 
-    private PurgePlan Plan()
+    /// <summary>The settings file, when it exists, and the writer's temp-file leftovers beside it.</summary>
+    private void AddSettingsFiles(PurgePlan plan, string settingsPath)
     {
-        var plan = new PurgePlan([], [], [], []);
-
-        // Settings: the file itself and the writer's temp-file leftovers beside it.
-        var settingsPath = Path.GetFullPath(paths.SettingsPath);
-        var snapshot = new SettingsStore(settingsPath).Read();
         if (File.Exists(settingsPath))
         {
             plan.Files.Add(settingsPath);
         }
 
-        var settingsFolder = Path.GetDirectoryName(settingsPath);
-        if (settingsFolder is not null)
+        if (Path.GetDirectoryName(settingsPath) is { } settingsFolder)
         {
             AddMatching(plan, settingsFolder, SettingsTempFile());
         }
+    }
+
+    private PurgePlan Plan()
+    {
+        var plan = new PurgePlan([], [], [], [], []);
+
+        // Settings: the file itself and the writer's temp-file leftovers beside it.
+        var settingsPath = Path.GetFullPath(paths.SettingsPath);
+        var snapshot = new SettingsStore(settingsPath).Read();
+        AddSettingsFiles(plan, settingsPath);
+        var settingsFolder = Path.GetDirectoryName(settingsPath);
+        plan.SettingsFiles.AddRange(plan.Files);
 
         // Logs.
         var logFolder = Path.GetFullPath(paths.LogDirectory);

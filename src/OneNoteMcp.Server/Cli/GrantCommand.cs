@@ -14,14 +14,18 @@ namespace OneNoteMcp.Server.Cli;
 /// displayed name (<c>nickname</c>, else <c>name</c>). Several matches are listed with their paths, and the user picks
 /// one. The match is shown with its path, and the grant is made only when the user types <c>yes</c>. It is keyed by the
 /// notebook's live <c>path</c> through <see cref="GrantKeys.NotebookKey"/> and keeps an existing permanent-delete
-/// grant. Revoking it is story 2.6's.</item>
+/// grant.</item>
+/// <item><c>grant --revoke --write [name]</c>: removes a stored write grant, matched against the stored grants by the
+/// notebook's live displayed name when it is open, else its stored name. Several matches are listed with their paths;
+/// no <c>yes</c> is asked.</item>
 /// <item><c>grant --read-section [name]</c>: the typed name is matched, trimmed and ignoring case, against the protected
 /// sections of the open notebooks. Several matches are listed with their notebook and section groups, and the user picks
 /// one. It offers <c>hours</c> (1 to 168, default 8) and <c>untilRevoked</c>; <c>once</c> exists only in the dialog.</item>
 /// <item><c>grant --revoke --read-section [name]</c>: removes a stored read grant, matched the same way against the
-/// stored grants (by the section's current name when it is open, else its stored name). It also runs on a
-/// <c>settings.json</c> that is invalid only because two keys differ in case, so the user can remove one.</item>
+/// stored grants (by the section's current name when it is open, else its stored name).</item>
 /// </list>
+/// Both revokes also run on a <c>settings.json</c> that is invalid only because two grant keys are equal, exactly or
+/// ignoring case, and remove every entry equal to the chosen key, so the user can fix the file (AD-6, 2.3 plan Q7).
 /// The grant is keyed by the section's live <c>path</c> through <see cref="GrantKeys.SectionKey"/>, and written by
 /// <see cref="SettingsWriter"/>, which never holds the settings lock while the user types.
 /// </summary>
@@ -30,6 +34,7 @@ public sealed class GrantCommand
     public const string Usage =
         "Usage:\n"
         + "  OneNoteMcp grant --write [\"<notebook name>\"]                  allow writing to a notebook\n"
+        + "  OneNoteMcp grant --revoke --write [\"<notebook name>\"]         remove that permission\n"
         + "  OneNoteMcp grant --read-section [\"<section name>\"]            allow reading a password-protected section\n"
         + "  OneNoteMcp grant --revoke --read-section [\"<section name>\"]   remove that permission\n"
         + "Run it yourself in a terminal: it asks you to confirm, and it refuses to run without an interactive terminal.";
@@ -101,13 +106,6 @@ public sealed class GrantCommand
             return 2;
         }
 
-        if (write && revoke)
-        {
-            output.WriteLine("Revoking a write grant isn't available in this release.");
-            output.WriteLine(Usage);
-            return 2;
-        }
-
         name ??= Ask(write ? "Notebook name: " : "Section name: ");
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -117,9 +115,13 @@ public sealed class GrantCommand
 
         try
         {
-            return write ? await GrantWriteAsync(name.Trim(), ct).ConfigureAwait(false)
-                : revoke ? await RevokeAsync(name.Trim(), ct).ConfigureAwait(false)
-                : await GrantAsync(name.Trim(), ct).ConfigureAwait(false);
+            return (write, revoke) switch
+            {
+                (true, true) => await RevokeWriteAsync(name.Trim(), ct).ConfigureAwait(false),
+                (true, false) => await GrantWriteAsync(name.Trim(), ct).ConfigureAwait(false),
+                (false, true) => await RevokeAsync(name.Trim(), ct).ConfigureAwait(false),
+                _ => await GrantAsync(name.Trim(), ct).ConfigureAwait(false),
+            };
         }
         catch (OneNoteException ex)
         {
@@ -229,17 +231,74 @@ public sealed class GrantCommand
         }
 
         writer.SaveWriteGrant(new NotebookGrant(notebook.Key, notebook.DisplayName, notebook.Id, Write: true, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
-        output.WriteLine($"Granted: OneNoteMcp can now write to \"{notebook.DisplayName}\".");
+        output.WriteLine($"Granted: OneNoteMcp can now write to \"{notebook.DisplayName}\", until you revoke it with: OneNoteMcp grant --revoke --write \"{notebook.DisplayName}\"");
         return 0;
     }
 
-    private async Task<int> RevokeAsync(string name, CancellationToken ct)
+    /// <summary>
+    /// <c>grant --revoke --write</c> (AD-6): the typed name is matched against the stored write grants, by the notebook's
+    /// live displayed name when an open notebook has the grant's key, else by the stored name. Several matches are listed
+    /// with their paths and the user picks one. No <c>yes</c> is asked: revoking only takes a permission away. It removes
+    /// every entry equal to the key, exact or case-only duplicates included, and runs on a file invalid only for them.
+    /// </summary>
+    private async Task<int> RevokeWriteAsync(string name, CancellationToken ct)
+    {
+        var snapshot = ReadForRevoke();
+
+        // The notebook's current displayed name when it is open; its stored name otherwise.
+        IReadOnlyList<OpenNotebook> open;
+        try
+        {
+            open = OpenNotebooks.Find(await readSections(ct).ConfigureAwait(false));
+        }
+        catch (OneNoteException ex)
+        {
+            output.WriteLine($"Couldn't read the open notebooks ({ex.Message}); matching stored names only.");
+            open = [];
+        }
+
+        // Only entries that grant writes: one kept for its permanent-delete grant alone (epic 5) isn't a write grant.
+        var candidates = snapshot.NotebookEntries
+            .Where(g => g.Write)
+            .GroupBy(g => g.Key, GrantKeys.Comparer)
+            .Select(g => (Grant: g.First(), Live: open.FirstOrDefault(n => n.Key.Length > 0 && GrantKeys.Comparer.Equals(n.Key, g.Key))))
+            .Where(c => GrantKeys.NameMatches(name, c.Live?.DisplayName) || GrantKeys.NameMatches(name, c.Grant.Name))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            output.WriteLine("No stored write grant matches that notebook name. Nothing changed.");
+            return 1;
+        }
+
+        var chosen = Pick(candidates, c => c.Live is { } live ? $"{live.DisplayName} ({live.Path})" : $"{c.Grant.Name} (not open; {c.Grant.Key})", "notebooks");
+        if (chosen.Grant is null)
+        {
+            output.WriteLine("Nothing changed.");
+            return 1;
+        }
+
+        var removed = writer.RevokeWriteGrant(chosen.Grant.Key);
+        output.WriteLine(removed > 0
+            ? $"Revoked the write grant for \"{chosen.Live?.DisplayName ?? chosen.Grant.Name}\". The next write to it asks again."
+            : "That grant was already gone.");
+        return 0;
+    }
+
+    /// <summary>The settings for a revoke: a valid file, or one invalid only for duplicate grant keys (AD-6).</summary>
+    private SettingsSnapshot ReadForRevoke()
     {
         var snapshot = writer.Store.Read();
         if (snapshot.Status is SettingsStatus.Invalid or SettingsStatus.NewerSchema && !snapshot.DuplicateGrantKeysOnly)
         {
             snapshot.EnsureWritable();
         }
+
+        return snapshot;
+    }
+
+    private async Task<int> RevokeAsync(string name, CancellationToken ct)
+    {
+        var snapshot = ReadForRevoke();
 
         // The section's current name when it is open; its stored name otherwise.
         IReadOnlyList<ProtectedSection> open;

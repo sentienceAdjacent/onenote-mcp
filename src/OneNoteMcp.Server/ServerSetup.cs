@@ -102,7 +102,15 @@ public static class ServerSetup
             return new WriteLock(WriteLock.DefaultName, held => WriteLockLog.Held(logger, held));
         });
         services.AddSingleton(sp => new WriteAccess(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read));
-        services.AddSingleton(sp => new WritePipeline(sp.GetRequiredService<WriteLock>(), sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<PageTextCache>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
+        // Step 1's write-grant dialog (AD-6): it re-reads the open notebooks through the gateway and stores the grant.
+        services.AddSingleton(sp => new WriteGrantDialog(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsWriter>(), TimeProvider.System));
+        services.AddSingleton(sp => new WritePipeline(
+            sp.GetRequiredService<WriteLock>(),
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<PageTextCache>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            TimeProvider.System,
+            dialog: sp.GetRequiredService<WriteGrantDialog>()));
         services.AddSingleton<CreatePageUseCase>();
 
         var builder = services

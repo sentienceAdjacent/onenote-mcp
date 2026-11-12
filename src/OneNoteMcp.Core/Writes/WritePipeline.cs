@@ -1,4 +1,5 @@
 using System.Globalization;
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
 
@@ -8,7 +9,10 @@ namespace OneNoteMcp.Core.Writes;
 /// AD-7's step runner: the one path every write takes. It owns the order, the lock, the deadline and the outcome; a
 /// <see cref="WriteOperation{TResult}"/> supplies the steps.
 /// <list type="number">
-/// <item>Access check (<see cref="WriteOperation{TResult}.AuthorizeAsync"/>).</item>
+/// <item>Access check (<see cref="WriteOperation{TResult}.AuthorizeAsync"/>). When it finds a notebook with a path but no
+/// write grant, and the call can ask (<see cref="ToolCallContext.Prompt"/>), it raises the write-grant dialog
+/// (<see cref="WriteGrantDialog"/>, AD-6) with the deadline paused and on the client's token only, then runs the check
+/// once more, with no second dialog.</item>
 /// <item>Take the write lock (AD-18), waiting up to <c>timeouts.callSeconds</c>, capped by what is left of the deadline.
 /// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable.</item>
 /// <item>Read the current state; 4. validate; 5. optimistic check; 6. snapshot.</item>
@@ -19,7 +23,8 @@ namespace OneNoteMcp.Core.Writes;
 /// step-7 failure, while the gateway reports an abandoned write still running in OneNote, the lock is kept (in the
 /// background; the result isn't delayed) until that call returns or the deadline runs out, whichever is first (AD-3).</item>
 /// </list>
-/// The whole pipeline has a deadline, 120 s by default (AD-7); its expiry is <see cref="ErrorCode.Timeout"/>. The
+/// The whole pipeline has a deadline, 120 s by default (AD-7), not counting time spent on the grant dialog; its expiry is
+/// <see cref="ErrorCode.Timeout"/>. The
 /// client's own cancellation stays an <see cref="OperationCanceledException"/> before step 7, which the tool runner
 /// reports as <see cref="ErrorCode.Cancelled"/>.
 /// </summary>
@@ -37,6 +42,7 @@ public sealed class WritePipeline
     private readonly Func<SettingsSnapshot> settings;
     private readonly TimeProvider clock;
     private readonly TimeSpan deadline;
+    private readonly WriteGrantDialog? dialog;
 
     /// <param name="writeLock">The write lock (AD-18).</param>
     /// <param name="gateway">The gateway the operations call, asked after a step-7 failure whether an abandoned write is still running.</param>
@@ -44,7 +50,8 @@ public sealed class WritePipeline
     /// <param name="settings">Reads <c>settings.json</c> for <c>timeouts.callSeconds</c>, once per write.</param>
     /// <param name="clock">The clock the deadline runs on.</param>
     /// <param name="deadline">The pipeline deadline; <see cref="DefaultDeadline"/> when null.</param>
-    public WritePipeline(WriteLock writeLock, IOneNoteGateway gateway, PageTextCache? cache, Func<SettingsSnapshot> settings, TimeProvider? clock = null, TimeSpan? deadline = null)
+    /// <param name="dialog">The write-grant dialog step 1 raises (AD-6), or null for none.</param>
+    public WritePipeline(WriteLock writeLock, IOneNoteGateway gateway, PageTextCache? cache, Func<SettingsSnapshot> settings, TimeProvider? clock = null, TimeSpan? deadline = null, WriteGrantDialog? dialog = null)
     {
         ArgumentNullException.ThrowIfNull(writeLock);
         ArgumentNullException.ThrowIfNull(gateway);
@@ -55,6 +62,7 @@ public sealed class WritePipeline
         this.settings = settings;
         this.clock = clock ?? TimeProvider.System;
         this.deadline = deadline ?? DefaultDeadline;
+        this.dialog = dialog;
     }
 
     public TimeSpan Deadline => deadline;
@@ -66,6 +74,7 @@ public sealed class WritePipeline
         ArgumentNullException.ThrowIfNull(operation);
 
         var start = clock.GetTimestamp();
+        var paused = TimeSpan.Zero;
         using var deadlineSource = new CancellationTokenSource(deadline, clock);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadlineSource.Token);
         var token = linked.Token;
@@ -73,12 +82,44 @@ public sealed class WritePipeline
         var callFailed = false;
         try
         {
-            // 1. Access check.
-            await operation.AuthorizeAsync(token).ConfigureAwait(false);
+            // 1. Access check. A missing grant may raise the grant dialog (AD-6), then step 1 runs once more.
+            try
+            {
+                await operation.AuthorizeAsync(token).ConfigureAwait(false);
+            }
+            catch (WriteGrantMissing missing) when (dialog is not null && context.Prompt is { } prompt)
+            {
+                token.ThrowIfCancellationRequested();
+
+                // The deadline is paused while the user decides: the dialog waits on the client's token only, and
+                // nothing is held meanwhile (no STA call, no write lock, no settings mutex).
+                deadlineSource.CancelAfter(Timeout.InfiniteTimeSpan);
+                var pausedAt = clock.GetTimestamp();
+                try
+                {
+                    await dialog.AskAsync(prompt, missing, ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    paused += clock.GetElapsedTime(pausedAt);
+                    var left = deadline - (clock.GetElapsedTime(start) - paused);
+                    if (left > TimeSpan.Zero)
+                    {
+                        deadlineSource.CancelAfter(left);
+                    }
+                    else
+                    {
+                        await deadlineSource.CancelAsync().ConfigureAwait(false);
+                    }
+                }
+
+                token.ThrowIfCancellationRequested();
+                await operation.AuthorizeAsync(token).ConfigureAwait(false);
+            }
 
             // 2. The write lock.
             var call = settings().Timeouts.Call;
-            var remaining = deadline - clock.GetElapsedTime(start);
+            var remaining = deadline - (clock.GetElapsedTime(start) - paused);
             var cappedByDeadline = remaining <= call;
             var wait = cappedByDeadline ? (remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero) : call;
             try
@@ -141,8 +182,9 @@ public sealed class WritePipeline
                 }
                 else
                 {
-                    // The result isn't held back: the lock goes in the background, when the call returns or at the deadline.
-                    _ = ReleaseWhenSettledAsync(hold, settling, deadline - clock.GetElapsedTime(start), [.. operation.WrittenPageIds]);
+                    // The result isn't held back: the lock goes in the background, when the call returns or at the deadline
+                    // (which doesn't count time spent on the grant dialog).
+                    _ = ReleaseWhenSettledAsync(hold, settling, deadline - (clock.GetElapsedTime(start) - paused), [.. operation.WrittenPageIds]);
                 }
             }
         }

@@ -5,4 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="..\OneNoteMcp.Xml\OneNoteMcp.Xml.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="OneNoteMcp.Tests" />
+  </ItemGroup>
 </Project>

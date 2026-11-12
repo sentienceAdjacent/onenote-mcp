@@ -45,14 +45,18 @@ if (args.Length > 0 && args[0] == "grant")
     return await command.RunAsync(args[1..], CancellationToken.None);
 }
 
-// uninstall --purge (AD-19) runs before any host is built and starts no COM: it only removes the server's own files.
+// uninstall --purge (AD-19) runs before any host is built and starts no COM: it only removes the server's own files. It
+// warns about other running OneNoteMcp processes, and removes settings.json under the settings mutex (retro R4).
 if (args.Length > 0 && args[0] == "uninstall")
 {
+    var uninstallPaths = UninstallPaths.Resolve(Environment.GetEnvironmentVariable);
     return new UninstallCommand(
         Console.In,
         Console.Out,
         interactive: !Console.IsInputRedirected && !Console.IsOutputRedirected,
-        UninstallPaths.Resolve(Environment.GetEnvironmentVariable)).Run(args[1..]);
+        uninstallPaths,
+        UninstallCommand.OtherServerProcesses,
+        UninstallCommand.SettingsLock(Path.GetFullPath(uninstallPaths.SettingsPath))).Run(args[1..]);
 }
 
 var builder = Host.CreateApplicationBuilder(args);

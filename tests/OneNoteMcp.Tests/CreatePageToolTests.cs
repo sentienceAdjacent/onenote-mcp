@@ -510,6 +510,259 @@ public sealed class CreatePageToolTests : IDisposable
         Assert.True(cache.TryGet(OtherId, DateTimeOffset.UnixEpoch, out _));
     }
 
+    // --- The write-grant dialog (story 2.6, AD-6, AD-7 step 1) ---------------------------------------------------------
+
+    [Fact]
+    public async Task Dialog_TypedName_GrantsViaElicitation_ThenCreatesThePage_AndListGrantsShowsIt()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre(others: ("Other", @"C:\notebooks\Other"));
+        var prompt = new FakePrompt(Typed(" w "));
+
+        var root = Ok(await CreateWithPrompt(prompt));
+
+        Assert.Equal(FakeGateway.CreatedPageId(1), root.GetProperty("meta").GetProperty("pageId").GetString());
+        var question = Assert.Single(prompt.WriteQuestions);
+        Assert.Equal(new WriteGrantQuestion(NotebookId, "W", NotebookPath), question);
+        Assert.Empty(prompt.Questions);
+        var grant = Assert.Single(Settings().Notebooks.Values);
+        Assert.Equal(new NotebookGrant(GrantKeys.NotebookKey(NotebookPath), "W", NotebookId, true, false, clock.GetUtcNow(), GrantedVia.Elicitation), grant);
+
+        var listed = Assert.Single((await new ListGrantsUseCase(gateway, Store.Read, clock).ExecuteAsync(new ToolCallContext("l"), Ct)).Meta.Grants!);
+        Assert.Equal(
+            new GrantListing(ListGrantsUseCase.WriteNotebookKind, grant.Key, "W", grant.Key, NotebookId, SettingsWriter.Format(clock.GetUtcNow()), GrantedVia.Elicitation, ReadGrantLifetimes.UntilRevoked, "active"),
+            listed);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task Dialog_GrantedOnce_IsNotAskedAgain_ButAfterARevokeItIs()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre();
+        var prompt = new FakePrompt(Typed("W"), Typed("W"));
+
+        Ok(await CreateWithPrompt(prompt));
+        Ok(await CreateWithPrompt(prompt));
+        Assert.Single(prompt.WriteQuestions);
+
+        Assert.Equal(1, new SettingsWriter(Store, clock).RevokeWriteGrant(GrantKeys.NotebookKey(NotebookPath)));
+        Ok(await CreateWithPrompt(prompt));
+        Assert.Equal(2, prompt.WriteQuestions.Count);
+        Assert.Equal(3, gateway.CreateCalls.Count);
+    }
+
+    [Fact]
+    public async Task Dialog_KeepsAnExistingPermanentDeleteFlag()
+    {
+        File.WriteAllText(
+            Store.Path,
+            """{"schemaVersion": 1, "notebooks": {"C:\\notebooks\\W": {"name": "W", "idAtGrant": "x", "write": false, "permanentDelete": true, "grantedAt": "2026-11-01T00:00:00.000Z", "grantedVia": "cli"}}}""");
+        OpenNotebooksAre();
+
+        Ok(await CreateWithPrompt(new FakePrompt(Typed("W"))));
+
+        var grant = Assert.Single(Settings().Notebooks.Values);
+        Assert.True(grant.Write && grant.PermanentDelete);
+        Assert.Equal(GrantedVia.Elicitation, grant.GrantedVia);
+    }
+
+    public static TheoryData<GrantPromptResult, string> Refusals => new()
+    {
+        { new GrantPromptResult(GrantPromptStatus.Declined), "declined" },
+        { new GrantPromptResult(GrantPromptStatus.Cancelled), "cancelled" },
+        { GrantPromptResult.Unsupported, "can't show the grant dialog" },
+        { Typed("Nope"), "matched no open notebook" },
+        { Typed(string.Empty), "matched no open notebook" },
+        { new GrantPromptResult(GrantPromptStatus.Accepted), "matched no open notebook" },
+        { Typed("Other"), "didn't match this notebook" },
+    };
+
+    [Theory]
+    [MemberData(nameof(Refusals))]
+    public async Task Dialog_NotAnsweredWithThisNotebooksName_IsWriteNotGranted_Retryable_NoGrant_NoLock_NoWrite(GrantPromptResult answer, string why)
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre(others: ("Other", @"C:\notebooks\Other"));
+
+        var error = Error(await CreateWithPrompt(new FakePrompt(answer)), "WriteNotGranted");
+
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotGrantedUserAction, error.GetProperty("userAction").GetString());
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(why, message, StringComparison.Ordinal);
+        Assert.Contains(NotebookId, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"W\"", error.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(@"notebooks\\W", error.GetRawText(), StringComparison.Ordinal);
+        Assert.Empty(Settings().Notebooks);
+        Assert.Empty(holds);
+        AssertNoWrite();
+    }
+
+    [Fact]
+    public async Task Dialog_AmbiguousName_IsWriteNotGranted_NoGrant()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre(others: ("W", @"C:\notebooks\W2"));
+
+        var error = Error(await CreateWithPrompt(new FakePrompt(Typed("W"))), "WriteNotGranted");
+
+        Assert.Contains("more than one open notebook", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(Settings().Notebooks);
+        AssertNoWrite();
+    }
+
+    [Fact]
+    public async Task Dialog_SettingsInvalid_IsSettingsInvalid_WithNoDialog()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1, "journal": {"retentionDays": 0}}""");
+        var prompt = new FakePrompt(Typed("W"));
+
+        Error(await CreateWithPrompt(prompt), "SettingsInvalid");
+
+        Assert.Empty(prompt.WriteQuestions);
+        AssertNoWrite();
+    }
+
+    [Fact]
+    public async Task Dialog_NotebookWithNoPath_IsWriteNotGranted_WithNoDialog()
+    {
+        Self(NotebookId, $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"\" />");
+        var prompt = new FakePrompt(Typed("W"));
+
+        Error(await CreateWithPrompt(prompt), "WriteNotGranted");
+
+        Assert.Empty(prompt.WriteQuestions);
+        AssertNoWrite();
+    }
+
+    [Fact]
+    public async Task Dialog_AlreadyGranted_IsNeverRaised()
+    {
+        Grant();
+        var prompt = new FakePrompt(Typed("W"));
+
+        Ok(await CreateWithPrompt(prompt));
+
+        Assert.Empty(prompt.WriteQuestions);
+    }
+
+    [Fact]
+    public async Task Dialog_ASlowAnswer_PastTheDeadline_StillWrites()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre();
+        var prompt = new ScriptedPrompt(async (_, ct) =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(700), ct);
+            return Typed("W");
+        });
+
+        Ok(await CreateWithPrompt(prompt, deadline: TimeSpan.FromMilliseconds(300)));
+
+        Assert.Single(gateway.CreateCalls);
+    }
+
+    [Fact]
+    public async Task Dialog_TheWriteLock_IsFreeWhileTheUserDecides()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre();
+        var prompt = new ScriptedPrompt(async (_, ct) =>
+        {
+            // Another writer (another process, as far as the named mutex knows) can take the lock meanwhile.
+            Assert.Empty(holds);
+            using (await writeLock.AcquireAsync("another process", TimeSpan.FromMilliseconds(500), ct))
+            {
+            }
+
+            return Typed("W");
+        });
+
+        Ok(await CreateWithPrompt(prompt));
+
+        Assert.Equal(1, prompt.Asked);
+        Assert.Equal(2, holds.Count); // the other writer's hold, then this write's
+    }
+
+    [Fact]
+    public async Task Dialog_ClientCancelWhileTheUserDecides_IsCancelled_NoOutcomeUnknown_NoGrant()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre();
+        using var cts = new CancellationTokenSource();
+        var prompt = new ScriptedPrompt(async (_, ct) =>
+        {
+            await cts.CancelAsync();
+            ct.ThrowIfCancellationRequested();
+            return Typed("W");
+        });
+
+        var error = Error(await CreateWithPrompt(prompt, ct: cts.Token), "Cancelled");
+
+        Assert.False(error.TryGetProperty("outcomeUnknown", out _));
+        Assert.Empty(Settings().Notebooks);
+        AssertNoWrite();
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task Dialog_AFailedSave_KeepsItsOwnError_NoOnceFallback()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre();
+        var prompt = new ScriptedPrompt((_, _) =>
+        {
+            // The file goes bad while the dialog is open: the save refuses it.
+            File.WriteAllText(Store.Path, """{"schemaVersion": 1, "journal": {"retentionDays": 0}}""");
+            return Task.FromResult(Typed("W"));
+        });
+
+        Error(await CreateWithPrompt(prompt), "SettingsInvalid");
+
+        AssertNoWrite();
+        Assert.Empty(holds);
+    }
+
+    [Fact]
+    public async Task Dialog_StepOneRunsOnceMore_WithNoSecondDialog()
+    {
+        // The check reads a settings file the dialog's save doesn't reach, so the re-check still finds no grant.
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        var elsewhere = new SettingsStore(temp.Combine("elsewhere.json"));
+        File.WriteAllText(elsewhere.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre();
+        var prompt = new FakePrompt(Typed("W"), Typed("W"));
+
+        Error(await CreateWithPrompt(prompt, accessSettings: elsewhere.Read), "WriteNotGranted");
+
+        Assert.Single(prompt.WriteQuestions);
+        Assert.Single(Settings().Notebooks);
+        AssertNoWrite();
+    }
+
+    [Fact]
+    public async Task Dialog_TheNotebooksIdChanged_SamePath_StillGranted()
+    {
+        // Granted under one ID; the notebook was closed and reopened, so it has another (spike 5.1). The key is its path.
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        OpenNotebooksAre();
+        Ok(await CreateWithPrompt(new FakePrompt(Typed("W"))));
+
+        const string NewId = "{NBW00000-0000-4000-8000-000000000002}{1}{B0}";
+        Parents[SectionId] = NewId;
+        Parents[NewId] = string.Empty;
+        Self(NewId, $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NewId}\" path=\"{NotebookPath}\" />");
+        OpenNotebooksAre(wId: NewId);
+        var prompt = new FakePrompt();
+
+        Ok(await CreateWithPrompt(prompt));
+
+        Assert.Empty(prompt.WriteQuestions);
+        var listed = Assert.Single((await new ListGrantsUseCase(gateway, Store.Read, clock).ExecuteAsync(new ToolCallContext("l"), Ct)).Meta.Grants!);
+        Assert.Equal(("active", NotebookId), (listed.Status, listed.IdAtGrant));
+    }
+
     // --- The tool ---------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -537,14 +790,62 @@ public sealed class CreatePageToolTests : IDisposable
             new NotebookGrant(key ?? GrantKeys.NotebookKey(NotebookPath), "W", NotebookId, write, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
     }
 
-    private CreatePageUseCase UseCase(IOneNoteGateway? over = null, TimeSpan? deadline = null)
+    private CreatePageUseCase UseCase(IOneNoteGateway? over = null, TimeSpan? deadline = null, Func<SettingsSnapshot>? accessSettings = null)
     {
         var g = over ?? gateway;
-        return new CreatePageUseCase(g, new WriteAccess(g, Store.Read), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, deadline));
+        return new CreatePageUseCase(
+            g,
+            new WriteAccess(g, accessSettings ?? Store.Read),
+            new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, deadline, new WriteGrantDialog(g, new SettingsWriter(Store, clock), clock)));
     }
 
     private CreatePageTool Tool(IOneNoteGateway? over = null, TimeSpan? deadline = null) =>
         new(new ToolRunner(NullLogger<ToolRunner>.Instance), UseCase(over, deadline));
+
+    /// <summary>A <c>create_page</c> call through the runner with <paramref name="prompt"/> as the call's grant dialog.</summary>
+    private Task<CallToolResult> CreateWithPrompt(IGrantPrompt prompt, string? sectionId = null, TimeSpan? deadline = null, Func<SettingsSnapshot>? accessSettings = null, CancellationToken? ct = null)
+    {
+        var useCase = UseCase(deadline: deadline, accessSettings: accessSettings);
+        return new ToolRunner(NullLogger<ToolRunner>.Instance).RunAsync(
+            CreatePageTool.Name,
+            useCase,
+            (context, token) => useCase.ExecuteAsync(context, sectionId ?? SectionId, NewPageStyle.BlankPageWithTitle, token),
+            ct ?? Ct,
+            prompt);
+    }
+
+    /// <summary>The open notebooks as <c>GetHierarchy("", sections)</c> returns them: W, plus <paramref name="others"/> (name, path).</summary>
+    private void OpenNotebooksAre(string wId = NotebookId, params (string Name, string Path)[] others)
+    {
+        var xml = new System.Text.StringBuilder("<?xml version=\"1.0\"?>\n<one:Notebooks " + Ns + ">");
+        xml.Append($"<one:Notebook name=\"W\" nickname=\"W\" ID=\"{wId}\" path=\"{NotebookPath}\">{Section(SectionId, "Open", string.Empty)}</one:Notebook>");
+        var n = 0;
+        foreach (var (name, path) in others)
+        {
+            xml.Append($"<one:Notebook name=\"{name}\" nickname=\"{name}\" ID=\"{{NBX0000{++n}-0000-4000-8000-000000000001}}{{1}}{{B0}}\" path=\"{path}\" />");
+        }
+
+        gateway.Hierarchies[(string.Empty, HierarchyScope.Sections)] = xml.Append("</one:Notebooks>").ToString();
+    }
+
+    private static GrantPromptResult Typed(string name) => new(GrantPromptStatus.Accepted, name);
+
+    private SettingsSnapshot Settings() => Store.Read();
+
+    /// <summary>A write-grant dialog driven by a delegate; the read dialog is never expected.</summary>
+    private sealed class ScriptedPrompt(Func<WriteGrantQuestion, CancellationToken, Task<GrantPromptResult>> answer) : IGrantPrompt
+    {
+        public int Asked { get; private set; }
+
+        public Task<GrantPromptResult> AskAsync(GrantQuestion question, CancellationToken ct) =>
+            throw new InvalidOperationException("create_page never asks for a read grant.");
+
+        public Task<GrantPromptResult> AskWriteAsync(WriteGrantQuestion question, CancellationToken ct)
+        {
+            Asked++;
+            return answer(question, ct);
+        }
+    }
 
     private void AssertNoWrite() => Assert.Empty(gateway.CreateCalls);
 

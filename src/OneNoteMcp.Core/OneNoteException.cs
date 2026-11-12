@@ -1,9 +1,10 @@
 namespace OneNoteMcp.Core;
 
 /// <summary>
-/// The only exception a gateway (real or fake) throws (AD-9). Messages never contain page content.
+/// The only exception a gateway (real or fake) throws (AD-9). Messages never contain page content. Not sealed only so
+/// Core can mark one case for itself (<c>WriteGrantMissing</c>, AD-7 step 1's dialog); every other error is this type.
 /// </summary>
-public sealed class OneNoteException : Exception
+public class OneNoteException : Exception
 {
     public OneNoteException(
         ErrorCode code,

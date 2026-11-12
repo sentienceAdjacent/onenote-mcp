@@ -10,7 +10,9 @@ namespace OneNoteMcp.Core.Settings;
 /// is one read-modify-write inside the named mutex <c>Local\OneNoteMcp.Settings</c>: re-read, change, write a temporary
 /// file beside it, then <c>File.Replace</c>. Members it doesn't know are kept as they were. Inside the same write it
 /// drops <c>protectedSections{}</c> entries whose <c>expiresAt</c> has passed, the one automatic pruning AD-10 allows. The
-/// mutex is held only for the file work, never across a prompt or a dialog.
+/// mutex is held only for the file work, never across a prompt or a dialog. A save refuses a file with any duplicate key;
+/// a revoke runs on a file invalid only for duplicate grant keys and removes every entry equal to its key, exact
+/// duplicates included (2.3 plan Q7). <see cref="RunLocked"/> lends the mutex to <c>uninstall --purge</c> (retro R4).
 /// </summary>
 public sealed class SettingsWriter
 {
@@ -41,7 +43,7 @@ public sealed class SettingsWriter
     public void SaveReadGrant(ProtectedSectionGrant grant)
     {
         ArgumentNullException.ThrowIfNull(grant);
-        Change(allowDuplicateKeys: false, root =>
+        Change(root =>
         {
             var sections = Area(root, ProtectedSectionsArea);
             RemoveKey(sections, grant.Key);
@@ -64,19 +66,63 @@ public sealed class SettingsWriter
     }
 
     /// <summary>
-    /// Removes every read grant whose key equals <paramref name="sectionKey"/> ignoring case. Runs on a file that is
-    /// invalid only because of case-only duplicate keys, so the user can remove one (AD-6). Returns how many it removed.
+    /// Removes every read grant whose key equals <paramref name="sectionKey"/>, exactly or ignoring case. Runs on a file
+    /// that is invalid only because of duplicate grant keys, so the user can fix it (AD-6, 2.3 plan Q7). Returns how many
+    /// entries it removed.
     /// </summary>
     public int RevokeReadGrant(string sectionKey)
     {
         ArgumentNullException.ThrowIfNull(sectionKey);
-        var removed = 0;
-        Change(allowDuplicateKeys: true, root =>
+        return Revoke(ProtectedSectionsArea, sectionKey);
+    }
+
+    /// <summary>
+    /// Removes every write grant (<c>notebooks{}</c> entry) whose key equals <paramref name="notebookKey"/>, exactly or
+    /// ignoring case (AD-6). Runs on a file invalid only because of duplicate grant keys, like
+    /// <see cref="RevokeReadGrant"/>. A permanent-delete grant isn't this revoke's (epic 5): if any matching entry has
+    /// <c>"permanentDelete": true</c>, the first such entry stays, alone, with <c>"write": false</c> and every other
+    /// member as it was. Returns how many matching entries it revoked, that one included.
+    /// </summary>
+    public int RevokeWriteGrant(string notebookKey)
+    {
+        ArgumentNullException.ThrowIfNull(notebookKey);
+        return Revoke(NotebooksArea, notebookKey);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> while holding <c>Local\OneNoteMcp.Settings</c> (AD-10), for work on the settings
+    /// files that isn't a grant change, such as <c>uninstall --purge</c> removing them (retro R4). An abandoned mutex
+    /// counts as acquired. Throws <see cref="ErrorCode.ComBusy"/> when another process holds the lock too long; then
+    /// <paramref name="action"/> doesn't run. Never hold it across a prompt.
+    /// </summary>
+    public void RunLocked(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        using var mutex = new Mutex(initiallyOwned: false, MutexName);
+        bool owned;
+        try
         {
-            removed = RemoveKey(Area(root, ProtectedSectionsArea), sectionKey);
-            return removed > 0;
-        });
-        return removed;
+            owned = mutex.WaitOne(lockTimeout);
+        }
+        catch (AbandonedMutexException)
+        {
+            // A writer that died holding it: the lock is ours (as AD-18 treats the write lock).
+            owned = true;
+        }
+
+        if (!owned)
+        {
+            throw new OneNoteException(ErrorCode.ComBusy, "Another OneNoteMcp process is writing settings.json.", userAction: "Retry in a moment.");
+        }
+
+        try
+        {
+            action();
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
     }
 
     /// <summary>
@@ -87,7 +133,7 @@ public sealed class SettingsWriter
     public void SaveWriteGrant(NotebookGrant grant)
     {
         ArgumentNullException.ThrowIfNull(grant);
-        Change(allowDuplicateKeys: false, root =>
+        Change(root =>
         {
             var notebooks = Area(root, NotebooksArea);
             var keptPermanentDelete = notebooks
@@ -137,42 +183,12 @@ public sealed class SettingsWriter
         return matches.Count;
     }
 
-    private void Change(bool allowDuplicateKeys, Func<JsonObject, bool> change)
-    {
-        using var mutex = new Mutex(initiallyOwned: false, MutexName);
-        bool owned;
-        try
-        {
-            owned = mutex.WaitOne(lockTimeout);
-        }
-        catch (AbandonedMutexException)
-        {
-            // A writer that died holding it: the lock is ours (as AD-18 treats the write lock).
-            owned = true;
-        }
-
-        if (!owned)
-        {
-            throw new OneNoteException(ErrorCode.ComBusy, "Another OneNoteMcp process is writing settings.json.", userAction: "Retry in a moment.");
-        }
-
-        try
-        {
-            ChangeLocked(allowDuplicateKeys, change);
-        }
-        finally
-        {
-            mutex.ReleaseMutex();
-        }
-    }
-
-    private void ChangeLocked(bool allowDuplicateKeys, Func<JsonObject, bool> change)
+    /// <summary>A grant change: a strict read-modify-write, refused on any file that isn't valid (or absent).</summary>
+    private void Change(Func<JsonObject, bool> change) => RunLocked(() =>
     {
         // Re-read inside the lock, so a change another process made since is never lost.
         var snapshot = store.Read();
-        var canWrite = snapshot.Status is SettingsStatus.Ok or SettingsStatus.Absent
-            || (allowDuplicateKeys && snapshot.DuplicateGrantKeysOnly);
-        if (!canWrite)
+        if (snapshot.Status is not (SettingsStatus.Ok or SettingsStatus.Absent))
         {
             snapshot.EnsureWritable();
             throw new OneNoteException(ErrorCode.SettingsInvalid, $"settings.json can't be written ({snapshot.Reason}).");
@@ -189,7 +205,149 @@ public sealed class SettingsWriter
             return;
         }
 
-        Write(root);
+        Write(root.ToJsonString(Indented));
+    });
+
+    /// <summary>
+    /// <c>grant --revoke</c> (AD-6, 2.3 plan Q7): removes every property of <paramref name="area"/> whose key equals
+    /// <paramref name="key"/> ignoring case, exact duplicates included, and drops expired read grants as every grant
+    /// writer does. A <see cref="JsonObject"/> can't hold a duplicate key, so the file is parsed as a
+    /// <see cref="JsonDocument"/> with duplicates allowed and written back property by property: everything else is
+    /// copied as it was, other duplicates included. Runs on a valid file, or one invalid only for duplicate grant keys.
+    /// </summary>
+    private int Revoke(string area, string key)
+    {
+        var removed = 0;
+        RunLocked(() =>
+        {
+            var snapshot = store.Read();
+            if (snapshot.Status == SettingsStatus.Absent)
+            {
+                return;
+            }
+
+            if (snapshot.Status != SettingsStatus.Ok && !snapshot.DuplicateGrantKeysOnly)
+            {
+                snapshot.EnsureWritable();
+                throw new OneNoteException(ErrorCode.SettingsInvalid, $"settings.json can't be written ({snapshot.Reason}).");
+            }
+
+            byte[] bytes;
+            try
+            {
+                bytes = ReadBytes();
+                using var document = JsonDocument.Parse(bytes, SettingsJson.Options(allowDuplicateProperties: true));
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    throw new OneNoteException(ErrorCode.SettingsInvalid, "settings.json: (root) must be a JSON object.");
+                }
+
+                var pruned = 0;
+                var keptPermanentDelete = false;
+                using var buffer = new MemoryStream();
+                using (var json = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
+                {
+                    json.WriteStartObject();
+                    foreach (var property in document.RootElement.EnumerateObject())
+                    {
+                        var isArea = property.NameEquals(area) && property.Value.ValueKind == JsonValueKind.Object;
+                        var isSections = property.NameEquals(ProtectedSectionsArea) && property.Value.ValueKind == JsonValueKind.Object;
+                        if (!isArea && !isSections)
+                        {
+                            property.WriteTo(json);
+                            continue;
+                        }
+
+                        json.WritePropertyName(property.Name);
+                        json.WriteStartObject();
+                        foreach (var entry in property.Value.EnumerateObject())
+                        {
+                            if (isArea && Access.GrantKeys.Comparer.Equals(entry.Name, key))
+                            {
+                                removed++;
+
+                                // A write revoke leaves the permanent-delete grant (epic 5's) alone: the first matching
+                                // entry that holds it stays, as one entry with write false.
+                                if (area == NotebooksArea && !keptPermanentDelete && HoldsPermanentDelete(entry.Value))
+                                {
+                                    keptPermanentDelete = true;
+                                    WriteWithoutWrite(json, entry);
+                                }
+                            }
+                            else if (isSections && IsExpired(entry.Value))
+                            {
+                                pruned++;
+                            }
+                            else
+                            {
+                                entry.WriteTo(json);
+                            }
+                        }
+
+                        json.WriteEndObject();
+                    }
+
+                    json.WriteEndObject();
+                }
+
+                if (removed == 0 && pruned == 0)
+                {
+                    return;
+                }
+
+                Write(System.Text.Encoding.UTF8.GetString(buffer.ToArray()));
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+            {
+                // The message may quote the file; name only the failure (AD-13).
+                throw new OneNoteException(ErrorCode.SettingsInvalid, $"settings.json couldn't be read for writing ({ex.GetType().Name}).", innerException: ex);
+            }
+        });
+        return removed;
+    }
+
+    /// <summary>True when a <c>notebooks{}</c> entry has <c>"permanentDelete": true</c>.</summary>
+    private static bool HoldsPermanentDelete(JsonElement entry) =>
+        entry.ValueKind == JsonValueKind.Object
+        && entry.TryGetProperty("permanentDelete", out var value)
+        && value.ValueKind == JsonValueKind.True;
+
+    /// <summary>Writes <paramref name="entry"/> under its own key spelling with <c>"write": false</c>, every other member copied.</summary>
+    private static void WriteWithoutWrite(Utf8JsonWriter json, JsonProperty entry)
+    {
+        json.WritePropertyName(entry.Name);
+        json.WriteStartObject();
+        var wroteWrite = false;
+        foreach (var member in entry.Value.EnumerateObject())
+        {
+            if (member.NameEquals("write"))
+            {
+                if (!wroteWrite)
+                {
+                    json.WriteBoolean("write", false);
+                    wroteWrite = true;
+                }
+            }
+            else
+            {
+                member.WriteTo(json);
+            }
+        }
+
+        if (!wroteWrite)
+        {
+            json.WriteBoolean("write", false);
+        }
+
+        json.WriteEndObject();
+    }
+
+    private byte[] ReadBytes()
+    {
+        using var stream = new FileStream(store.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var copy = new MemoryStream();
+        stream.CopyTo(copy);
+        return copy.ToArray();
     }
 
     private JsonObject Load()
@@ -227,7 +385,15 @@ public sealed class SettingsWriter
         return expired.Count > 0;
     }
 
-    private void Write(JsonObject root)
+    /// <summary><see cref="PruneExpired"/>'s test for one entry read from a <see cref="JsonDocument"/>.</summary>
+    private bool IsExpired(JsonElement entry) =>
+        entry.ValueKind == JsonValueKind.Object
+        && entry.TryGetProperty("expiresAt", out var value)
+        && value.ValueKind == JsonValueKind.String
+        && SettingsJson.TryParseUtc(value.GetString(), out var end)
+        && clock.GetUtcNow() >= end;
+
+    private void Write(string json)
     {
         var path = store.Path;
         var directory = Path.GetDirectoryName(path)!;
@@ -235,10 +401,10 @@ public sealed class SettingsWriter
         try
         {
             Directory.CreateDirectory(directory);
-            File.WriteAllText(temp, root.ToJsonString(Indented) + Environment.NewLine, new System.Text.UTF8Encoding(false));
+            File.WriteAllText(temp, json + Environment.NewLine, new System.Text.UTF8Encoding(false));
             if (File.Exists(path))
             {
-                File.Replace(temp, path, destinationBackupFileName: null);
+                ReplaceWithRetry(temp, path);
             }
             else
             {
@@ -247,8 +413,56 @@ public sealed class SettingsWriter
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            TryDelete(temp);
+            // Never delete the only copy of the new content: keep the temp file when settings.json is gone.
+            if (File.Exists(path) || !File.Exists(temp))
+            {
+                TryDelete(temp);
+            }
+
             throw new OneNoteException(ErrorCode.SettingsInvalid, $"settings.json couldn't be written ({ex.GetType().Name}).", innerException: ex, userAction: "Check that settings.json and its folder are writable, then retry.");
+        }
+    }
+
+    /// <summary>How many times <see cref="ReplaceWithRetry"/> tries, and how long it waits between tries: about half a second in all (bug 2.15).</summary>
+    internal const int ReplaceAttempts = 10;
+
+    internal static readonly TimeSpan ReplaceDelay = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// <c>File.Replace</c> of <paramref name="path"/> by <paramref name="temp"/>, tried for about half a second (bug
+    /// 2.15). A file replaced a moment ago can still be open in another program that scans new files (an antivirus, the
+    /// indexer), and Windows then refuses with "Unable to remove the file to be replaced"; this was seen in the unit
+    /// tests' back-to-back grant saves. A replace can also fail after removing <paramref name="path"/>
+    /// (<c>ERROR_UNABLE_TO_MOVE_REPLACEMENT</c>, 1176), leaving the new content only in <paramref name="temp"/>: then
+    /// <paramref name="temp"/> is moved into place, and nothing is lost. The settings mutex is held throughout, so no other
+    /// OneNoteMcp change can slip in between. <paramref name="replace"/> stands in for <c>File.Replace</c> in tests.
+    /// </summary>
+    internal static void ReplaceWithRetry(string temp, string path, Action<string, string>? replace = null)
+    {
+        replace ??= static (t, p) => File.Replace(t, p, destinationBackupFileName: null);
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                replace(temp, path);
+                return;
+            }
+            catch (IOException)
+            {
+                // 1176: the old file is gone and the new one never moved in. Finish the move ourselves.
+                if (!File.Exists(path) && File.Exists(temp))
+                {
+                    File.Move(temp, path);
+                    return;
+                }
+
+                if (attempt >= ReplaceAttempts)
+                {
+                    throw;
+                }
+
+                Thread.Sleep(ReplaceDelay);
+            }
         }
     }
 
