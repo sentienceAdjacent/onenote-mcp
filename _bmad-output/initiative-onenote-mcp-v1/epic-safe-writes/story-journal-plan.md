@@ -3,12 +3,13 @@ title: 'Journal'
 type: 'feature'
 ticket: '8'
 created: '2026-11-12'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '75355baa388771d7e73ce782a1b4d1e38d694320'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/CLAUDE.md'
@@ -74,19 +75,43 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `Directory.Packages.props`, `src/OneNoteMcp.Core/OneNoteMcp.Core.csproj`, `THIRD-PARTY-NOTICES.md` -- DPAPI dependency (decision Q2).
-- [ ] `src/OneNoteMcp.Core/Journal/JournalEntry.cs`, `JournalFiles.cs` -- model, JSON options, names and patterns.
-- [ ] `src/OneNoteMcp.Core/Journal/JournalStore.cs` -- `Write` (gzip, temp, rename, DPAPI, `JournalFailed`), `Read` (decompress, decrypt).
-- [ ] `src/OneNoteMcp.Core/Journal/JournalPruner.cs` -- retention, cap, temp leftovers, vanishing files.
-- [ ] `src/OneNoteMcp.Core/Journal/PageSnapshot.cs`, `HierarchyWalk.cs`, `src/OneNoteMcp.Xml/ImageCount.cs` -- the step-6 snapshot.
-- [ ] `WritePipeline.cs` -- step-6 failure → `JournalFailed`.
-- [ ] Settings resolver, `UninstallCommand.cs`, `clean-install-check.ps1` -- decision Q1 override, shared patterns.
-- [ ] `src/OneNoteMcp.Server/Journal/JournalPruneService.cs`, `ServerSetup.cs` -- startup and daily prune, logging.
-- [ ] Tests -- every matrix row, the format round trip with unknown members ignored, and the decision-Q1 resolution in the server, the pruner and purge.
+- [x] `Directory.Packages.props`, `src/OneNoteMcp.Core/OneNoteMcp.Core.csproj`, `THIRD-PARTY-NOTICES.md` -- DPAPI dependency (decision Q2).
+- [x] `src/OneNoteMcp.Core/Journal/JournalEntry.cs`, `JournalFiles.cs` -- model, JSON options, names and patterns.
+- [x] `src/OneNoteMcp.Core/Journal/JournalStore.cs` -- `Write` (gzip, temp, rename, DPAPI, `JournalFailed`), `Read` (decompress, decrypt).
+- [x] `src/OneNoteMcp.Core/Journal/JournalPruner.cs` -- retention, cap, temp leftovers, vanishing files.
+- [x] `src/OneNoteMcp.Core/Journal/PageSnapshot.cs`, `HierarchyWalk.cs`, `src/OneNoteMcp.Xml/ImageCount.cs` -- the step-6 snapshot.
+- [x] `WritePipeline.cs` -- step-6 failure → `JournalFailed`.
+- [x] Settings resolver, `UninstallCommand.cs`, `clean-install-check.ps1` -- decision Q1 override, shared patterns.
+- [x] `src/OneNoteMcp.Server/Journal/JournalPruneService.cs`, `ServerSetup.cs` -- startup and daily prune, logging.
+- [x] Tests -- every matrix row, the format round trip with unknown members ignored, and the decision-Q1 resolution in the server, the pruner and purge.
 
 **Acceptance Criteria:**
 - Given a test `WriteOperation` whose snapshot fails, when the pipeline runs, then the gateway records no write call and a second write can take the lock at once.
 - Given `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`, then both pass.
+
+## Implementation Notes
+
+- Pruning is registered only by the real server (`AddJournalPruning()` from `Program.cs`), not in `AddOneNoteMcp`, so `McpSdkBindingTests`' in-process host never prunes the real journal. The store and the snapshot are registered in `AddOneNoteMcp`.
+- "Never the newest" applies to the size cap only; retention removes an entry past `retentionDays` even if it is the newest. `.tmp` files are aged by their name's timestamp. A huge `retentionDays` keeps everything (no date overflow).
+- One README line changed: purge's file list now names the journal's `.<name>.tmp` leftovers.
+- A smoke run of the built exe with the settings and log overrides pruned the `journal` folder beside the overridden settings file and created nothing under `%LOCALAPPDATA%` (decision Q1 end to end).
+
+## Plan Change Log
+
+## Review Triage Log
+
+Pass 1 (quick lens): 6 findings. high 1, medium 0, low 5, false 0, maybe-false 0. All routed to patch.
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---|---|---|---|
+| 1 | `JournalPruner.Prune` prunes on defaults when settings.json is `Invalid`/`NewerSchema` | high | patch | `SettingsStore` returns `Defaults(..., defaultJournal)` for both (30 days, 2 GB, default folder); a user's longer retention is lost irreversibly, against AD-10's "writes fail on an invalid file". Fix: skip and report it. |
+| 2 | `clean-install-check.ps1` purge targets lack the journal beside the settings override | low | patch | `$purgeTargets` has the journal only under `$ownRoots[1]`; in the rehearsal the script's own comment describes, purge's removals under `$ownRoots[0]\journal` count as not owned and FAIL. Fix: add that row. |
+| 3 | `JournalStore.Write` invokes the success callback inside the failure-mapping try | low | patch | After the rename, a callback throwing a caught type yields `JournalFailed` with the entry left on disk. Fix: call it after the try. |
+| 4 | Journal log line has no correlationId | low | patch | `JournalLog.Written` logs entryId, bytes, protected only; AD-18 says correlationIds are carried in logs. Fix: add it to `JournalWritten` and the line. |
+| 5 | `ONENOTE_MCP_JOURNAL_DIR` untested for the pruner and the server's settings | low | patch | Only `DefaultFolder` and `UninstallPaths.Resolve` tests set it; the shared resolver makes the behaviour right today, but nothing pins it. Fix: add the cases. |
+| 6 | `PageSnapshot.TakeAsync` reads piBinaryData before checking the location | low | patch | `PageSnapshot.cs:45-53`: a page with no section or notebook costs a binary read under the lock before `JournalFailed`. Fix: check first. |
+
+All six patched by the implementer. Then: build -warnaserror 0/0; unit 1744 passed; integration (no `ONENOTE_MCP_INTEGRATION`) 154 passed, 41 skipped. Nothing deferred.
 
 ## Design Notes
 

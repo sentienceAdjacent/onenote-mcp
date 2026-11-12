@@ -96,6 +96,54 @@ internal sealed class HierarchyWalk(IOneNoteGateway gateway)
     }
 
     /// <summary>
+    /// Where the page <paramref name="pageId"/> sits, in one walk, for a journal snapshot (AD-8): its owning
+    /// <c>one:Section</c> (ID, name, path and <c>encrypted</c>, read live), the section groups between that section and the
+    /// notebook (names, outermost first), and the notebook. Page ancestors (a subpage's parent page) are skipped. A null
+    /// section or notebook means the chain ended first, reached something else first, or ran past
+    /// <see cref="MaxChainDepth"/> ancestors.
+    /// </summary>
+    internal async Task<PageLocation> PageLocationAsync(string pageId, CancellationToken ct)
+    {
+        HierarchyNode? section = null;
+        var groups = new List<string>();
+        var depth = 0;
+        await foreach (var node in AncestorsAsync(pageId ?? string.Empty, ct).ConfigureAwait(false))
+        {
+            if (++depth > MaxChainDepth)
+            {
+                break;
+            }
+
+            if (section is null)
+            {
+                if (node.Kind == HierarchyKind.Section)
+                {
+                    section = node;
+                    continue;
+                }
+
+                if (node.Kind == HierarchyKind.Page)
+                {
+                    continue;
+                }
+
+                break;
+            }
+
+            if (node.Kind == HierarchyKind.Notebook)
+            {
+                groups.Reverse();
+                return new PageLocation(section, groups, node);
+            }
+
+            groups.Add(node.Name);
+        }
+
+        groups.Reverse();
+        return new PageLocation(section, groups, null);
+    }
+
+    /// <summary>
     /// The ancestors of <paramref name="objectId"/>, nearest first, each fetched only when asked for. Ends at an empty
     /// parent. It has no depth limit of its own: each walk stops it.
     /// </summary>
@@ -116,3 +164,6 @@ internal sealed class HierarchyWalk(IOneNoteGateway gateway)
         }
     }
 }
+
+/// <summary>Where a page sits (<see cref="HierarchyWalk.PageLocationAsync"/>): its section, the section groups around it (outermost first) and its notebook.</summary>
+internal sealed record PageLocation(HierarchyNode? Section, IReadOnlyList<string> Groups, HierarchyNode? Notebook);

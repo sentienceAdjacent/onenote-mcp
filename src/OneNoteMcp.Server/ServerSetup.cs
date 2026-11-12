@@ -8,10 +8,12 @@ using ModelContextProtocol.Server;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
+using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
 using OneNoteMcp.Core.Writes;
+using OneNoteMcp.Server.Journal;
 using OneNoteMcp.Server.Logging;
 using OneNoteMcp.Server.Tools;
 
@@ -113,6 +115,17 @@ public static class ServerSetup
             dialog: sp.GetRequiredService<WriteGrantDialog>()));
         services.AddSingleton<CreatePageUseCase>();
 
+        // The recovery journal (AD-8): the store re-reads journal{} from settings.json at every write and logs each entry
+        // with IDs and sizes only (AD-13); step 6's page snapshot writes through it; the pruner re-reads journal{} at
+        // every prune. Pruning itself runs only where AddJournalPruning registers it (the server's own host).
+        services.AddSingleton(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("OneNoteMcp.Server.Journal");
+            return new JournalStore(sp.GetRequiredService<SettingsStore>().Read, written => JournalLog.Written(logger, written));
+        });
+        services.AddSingleton(sp => new PageSnapshot(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<JournalStore>(), TimeProvider.System));
+        services.AddSingleton(sp => new JournalPruner(sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System));
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -148,6 +161,19 @@ public static class ServerSetup
 
             return next(request, cancellationToken);
         }));
+    }
+
+    /// <summary>
+    /// The journal prune at startup and then daily (AD-8), as a hosted service. <c>Program</c> adds it to the server's
+    /// host; test hosts built with <see cref="AddOneNoteMcp"/> leave it out, so they never prune a real journal folder.
+    /// </summary>
+    public static IServiceCollection AddJournalPruning(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddHostedService(sp => new JournalPruneService(
+            sp.GetRequiredService<JournalPruner>(),
+            TimeProvider.System,
+            sp.GetRequiredService<ILogger<JournalPruneService>>()));
     }
 
     /// <summary>

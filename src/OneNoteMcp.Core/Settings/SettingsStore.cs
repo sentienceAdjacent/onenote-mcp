@@ -14,18 +14,35 @@ public sealed class SettingsStore
     /// <summary>Test-only override of the settings file path (Conventions: env vars only for test overrides of paths).</summary>
     public const string PathOverrideVariable = "ONENOTE_MCP_SETTINGS_PATH";
 
+    /// <summary>The store for this process: the settings path and the default journal folder from its environment.</summary>
     public SettingsStore()
-        : this(ResolvePath(Environment.GetEnvironmentVariable))
+        : this(ResolvePath(Environment.GetEnvironmentVariable), Journal.JournalFiles.DefaultFolder(Environment.GetEnvironmentVariable))
     {
     }
 
-    public SettingsStore(string path)
+    /// <param name="path">The settings file.</param>
+    /// <param name="defaultJournalPath">
+    /// The journal folder when the file sets no <c>journal.path</c> (story 2.8 decision Q1); null resolves it from this
+    /// process's environment (<see cref="Journal.JournalFiles.DefaultFolder"/>).
+    /// </param>
+    public SettingsStore(string path, string? defaultJournalPath = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         Path = path;
+        DefaultJournal = JournalSettings.Default(defaultJournalPath ?? Journal.JournalFiles.DefaultFolder(Environment.GetEnvironmentVariable));
     }
 
+    /// <summary>
+    /// The store a process with the environment <paramref name="getEnvironmentVariable"/> uses: what the parameterless
+    /// constructor does with this process's environment, for tests of the overrides.
+    /// </summary>
+    public static SettingsStore FromEnvironment(Func<string, string?> getEnvironmentVariable) =>
+        new(ResolvePath(getEnvironmentVariable), Journal.JournalFiles.DefaultFolder(getEnvironmentVariable));
+
     public string Path { get; }
+
+    /// <summary><c>journal{}</c> when the file doesn't set it, or can't be read.</summary>
+    public JournalSettings DefaultJournal { get; }
 
     /// <summary><see cref="PathOverrideVariable"/> when set, else <c>%APPDATA%\OneNoteMcp\settings.json</c>.</summary>
     public static string ResolvePath(Func<string, string?> getEnvironmentVariable)
@@ -53,17 +70,17 @@ public sealed class SettingsStore
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
-            return SettingsSnapshot.Defaults(Path, SettingsStatus.Absent);
+            return SettingsSnapshot.Defaults(Path, SettingsStatus.Absent, journal: DefaultJournal);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return SettingsSnapshot.Defaults(Path, SettingsStatus.Invalid, $"settings.json: could not be read ({ex.GetType().Name})");
+            return SettingsSnapshot.Defaults(Path, SettingsStatus.Invalid, $"settings.json: could not be read ({ex.GetType().Name})", DefaultJournal);
         }
 
-        return Parse(Path, bytes);
+        return Parse(Path, bytes, DefaultJournal);
     }
 
-    private static SettingsSnapshot Parse(string path, byte[] bytes)
+    private static SettingsSnapshot Parse(string path, byte[] bytes, JournalSettings defaultJournal)
     {
         JsonDocument document;
         try
@@ -74,18 +91,18 @@ public sealed class SettingsStore
         {
             // JsonException's message can quote the offending text; report only the position.
             var line = ex.LineNumber is { } l ? (l + 1).ToString(CultureInfo.InvariantCulture) : "?";
-            return SettingsSnapshot.Defaults(path, SettingsStatus.Invalid, $"settings.json: not valid JSON (line {line})");
+            return SettingsSnapshot.Defaults(path, SettingsStatus.Invalid, $"settings.json: not valid JSON (line {line})", defaultJournal);
         }
 
         using (document)
         {
             try
             {
-                return Validate(path, document.RootElement);
+                return Validate(path, document.RootElement, defaultJournal);
             }
             catch (InvalidSettingException ex)
             {
-                return SettingsSnapshot.Defaults(path, SettingsStatus.Invalid, ex.Message);
+                return SettingsSnapshot.Defaults(path, SettingsStatus.Invalid, ex.Message, defaultJournal);
             }
         }
     }
@@ -95,17 +112,17 @@ public sealed class SettingsStore
     /// <c>schemaVersion</c> stops the read. <c>notebooks</c> and then <c>protectedSections</c> are read last, so a key
     /// that differs only in case is the file's only problem when it is reported.
     /// </summary>
-    private static SettingsSnapshot Validate(string path, JsonElement root)
+    private static SettingsSnapshot Validate(string path, JsonElement root, JournalSettings defaultJournal)
     {
         if (ReadSchemaVersion(root) > SettingsSnapshot.KnownSchemaVersion)
         {
             // A newer shape may differ in any field, so none of it is read (AD-10, AD-19).
-            return SettingsSnapshot.Defaults(path, SettingsStatus.NewerSchema, "schemaVersion: newer than this server supports");
+            return SettingsSnapshot.Defaults(path, SettingsStatus.NewerSchema, "schemaVersion: newer than this server supports", defaultJournal);
         }
 
         var allowSilentActivation = ReadAllowSilentActivation(root);
         var timeouts = ReadTimeouts(root);
-        var journal = ReadJournal(root);
+        var journal = ReadJournal(root, defaultJournal);
         var results = ReadResults(root);
         var search = ReadSearch(root);
         var readGrants = ReadReadGrants(root);
@@ -128,7 +145,7 @@ public sealed class SettingsStore
                 $"{where}: two keys differ only in case",
                 allowSilentActivation: false,
                 Timeouts.Default,
-                JournalSettings.Default(),
+                defaultJournal,
                 ResultSettings.Default,
                 SearchSettings.Default,
                 ExportRoots.Default(),
@@ -254,9 +271,9 @@ public sealed class SettingsStore
             Seconds(t, "idleReleaseSeconds", timeouts.IdleRelease));
     }
 
-    private static JournalSettings ReadJournal(JsonElement root)
+    private static JournalSettings ReadJournal(JsonElement root, JournalSettings defaultJournal)
     {
-        var journal = JournalSettings.Default();
+        var journal = defaultJournal;
         if (!root.TryGetProperty("journal", out var j))
         {
             return journal;

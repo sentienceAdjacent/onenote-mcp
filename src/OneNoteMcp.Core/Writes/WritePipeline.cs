@@ -15,7 +15,9 @@ namespace OneNoteMcp.Core.Writes;
 /// once more, with no second dialog.</item>
 /// <item>Take the write lock (AD-18), waiting up to <c>timeouts.callSeconds</c>, capped by what is left of the deadline.
 /// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable.</item>
-/// <item>Read the current state; 4. validate; 5. optimistic check; 6. snapshot.</item>
+/// <item>Read the current state; 4. validate; 5. optimistic check; 6. snapshot (AD-8). A step-6 failure that isn't a
+/// <see cref="OneNoteException"/> (the snapshot's own COM reads keep their codes) or a cancellation becomes
+/// <see cref="ErrorCode.JournalFailed"/>; like any failure before step 7, it is never <c>outcomeUnknown</c>.</item>
 /// <item value="7">The COM call. A failure here with <see cref="ErrorCode.Timeout"/>, <see cref="ErrorCode.ComUnavailable"/>
 /// or <see cref="ErrorCode.Cancelled"/>, or with HRESULT <c>0x800706BE</c>, may have written: it gets
 /// <c>outcomeUnknown</c> (AD-9). No failure before step 7 ever does.</item>
@@ -136,7 +138,19 @@ public sealed class WritePipeline
             await operation.ReadAsync(token).ConfigureAwait(false);
             operation.Validate();
             await operation.CheckBasisAsync(token).ConfigureAwait(false);
-            await operation.SnapshotAsync(token).ConfigureAwait(false);
+            try
+            {
+                await operation.SnapshotAsync(token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OneNoteException and not OperationCanceledException)
+            {
+                // Step 6 (AD-8): any other failure to build or store the snapshot is JournalFailed, never outcomeUnknown,
+                // and the COM call doesn't run. A snapshot's own COM errors keep their codes (story 2.8 decision Q3).
+                throw new OneNoteException(
+                    ErrorCode.JournalFailed,
+                    $"The recovery snapshot couldn't be taken ({ex.GetType().Name}), so nothing was written.",
+                    innerException: ex);
+            }
 
             // 7. The COM call.
             try

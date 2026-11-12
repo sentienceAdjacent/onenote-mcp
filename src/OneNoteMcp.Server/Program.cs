@@ -69,6 +69,9 @@ builder.Services
     .AddOneNoteMcp()
     .WithStdioServerTransport();
 
+// The journal prune at startup, in the background, then daily (AD-8).
+builder.Services.AddJournalPruning();
+
 var host = builder.Build();
 
 var startupLogger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("OneNoteMcp.Startup");
