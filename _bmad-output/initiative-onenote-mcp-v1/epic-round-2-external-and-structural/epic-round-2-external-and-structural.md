@@ -32,11 +32,11 @@ Claude can export, move and merge notebook content, and bring back deleted items
   - makes the target canonical (`GetFullPath`, junctions resolved), then checks it: outside every root returns `ExportPathNotAllowed`, and an existing file returns `FileExists`;
   - creates the target's folder, because `Publish` into a missing folder raises a modal and blocks (5.1 constraint 6).
   
-  The call counts as done only once the file exists, because a package can land after `Publish` returns (5.1 constraint 18). Every export result carries `meta.outputPath`, and the skill tells the user where the file went. (AD-7 `ExternalWrite`, AD-11)
-- **E2 (R8) — `publish`.** Exports a page, section or notebook with `Publish`, in each format the spike proves for that scope. A scope or format that can't work is refused before COM, with the reason. A notebook can't publish as `.one`; of the OneNote formats only `.onepkg` works (5.1 constraint 18), and entry 1 probes the rest. `Publish` can't export a section group at all (5.1 constraint 6). A locked section is refused as `SectionLocked` before COM, because `Publish` would return a misleading `0x80042014` (5.1 constraint 16). (AD-7 `ExternalWrite`, AD-11)
-- **E3 (R8) — `open_package`.** Unpacks a `.onepkg` with `OpenPackage` into a new folder under an export root, and reports the folder and the notebook OneNote opened from it. Protected content in the opened notebook follows open question Q11. (AD-7 `ExternalWrite`, AD-21)
-- **E4 (R8) — `merge_files`.** `MergeFiles` into a target under an export root, or a dated Decision recording why it isn't exposed. (AD-7 `ExternalWrite`)
-- **E5 (R8) — Move.** Moves a page, section or section group to another section, section group or notebook through `UpdateHierarchy`, as an explicit move:
+  The call counts as done only once the file exists, because a package can land after `Publish` returns (5.1 constraint 18). Every export result carries `meta.outputPath`, and the skill tells the user where the file went. The user manages `exportRoots` by editing `settings.json` (Decision, Q8). (AD-7 `ExternalWrite`, AD-11)
+- **E2 (R8) — `publish`.** Exports a page, section or notebook with `Publish`, in each format the spike proves for that scope. A scope or format that can't work is refused before COM, with the reason. A notebook can't publish as `.one`; of the OneNote formats only `.onepkg` works (5.1 constraint 18), and entry 1 probes the rest. `Publish` can't export a section group at all (5.1 constraint 6), so `publish` refuses one before COM; exporting a group section by section is a skill recipe (Decision, Q7). A locked section is refused as `SectionLocked` before COM, because `Publish` would return a misleading `0x80042014` (5.1 constraint 16). (AD-7 `ExternalWrite`, AD-11)
+- **E3 (R8) — `open_package`.** Unpacks a `.onepkg` with `OpenPackage` into a new folder under an export root, and reports the folder and the notebook OneNote opened from it. The package may come from any path, and the opened notebook gets no automatic write grant (Decision, Q6). Every section in it counts as protected under AD-21 and needs a read grant, as does any notebook under an export root or the backup folder (Decision, Q11). The user closes it in OneNote until epic 4 (Decision, Q13). (AD-7 `ExternalWrite`, AD-21)
+- **E4 (R8) — `merge_files`.** `MergeFiles` into a target under an export root, shipped only if entry 1 shows a result the user would want; otherwise a dated Decision records why it isn't exposed (Decision, Q5). (AD-7 `ExternalWrite`)
+- **E5 (R8) — Move.** Moves a page, section or section group to another section, section group or notebook through `UpdateHierarchy`, as an explicit move by a separate move tool that takes the item, its new parent and a position and builds the XML in Core (Decision, Q2):
   - it needs the write grant of every notebook it touches, resolved through the gateway (AD-6);
   - it checks the basis (AD-17, as entry 2 sets it for a move) and takes the snapshot entry 2 sets for a move: a hierarchy snapshot of both parents, plus a page snapshot if entry 1 shows a page move can lose the page (AD-7, AD-8);
   - it refuses a move into or out of the recycle bin (restoring is E7);
@@ -44,16 +44,16 @@ Claude can export, move and merge notebook content, and bring back deleted items
   - a section move updates what depends on the section's path, its `SectionKey`, as entry 2 sets.
 
   No other hierarchy write moves anything: `update_hierarchy` keeps refusing an ID that isn't already under its parent (5.1 constraint 4). A write's notebook is re-resolved under the write lock, so a section moved between notebooks can't take another write's grant (deferred-work, story 2.4). (AD-7 `HierarchyWrite` move)
-- **E6 (R8) — `merge_sections`.** Merges one section into another with `MergeSections`, under the same grants, basis check and snapshot rules as a move, and reports what became of the source section. (AD-7 `HierarchyWrite`)
-- **E7 (R5, R8) — `restore_from_recycle_bin`.** Brings a soft-deleted page or section back out of the recycle bin. A page is matched to its soft-delete journal entry through the recycle-bin ID that story 5.5 records (Decision, Q10). That ID goes stale when the notebook reopens or the section is protected (AD-8; 5.1 constraint 15), so when it is missing or gone, the match falls back to the page's name. When a name is ambiguous, the user chooses (AD-8, Q3). An item from a protected section goes back only into its own section, found by `SectionKey`, as AD-8 already requires of protected journal entries. A soft-deleted section group can't come back as a unit: its sections land in the recycle bin one by one (5.1 constraint 8). (AD-7 `HierarchyWrite`, AD-8)
-- **E8 (R8) — Protected sections.** No export, move, merge or restore puts a password-protected section's content in a file, section or notebook that AD-21 wouldn't let the model read. Moves and merges out of a protected section are refused, as story 5.2 records (Decision, Q9); entry 2 may relax that with entry 1's evidence. Whether that covers moving a protected section whole is Q14, and whether it covers restore is part of Q4. Exports follow the rule entry 2 sets (Q1), and unpacked packages Q11. (AD-6, AD-21)
+- **E6 (R8) — `merge_sections`.** Merges one section into another with `MergeSections`, under the same grants and basis check as a move, and reports what became of the source section. If entry 1 shows it removes the source or gives its pages new IDs, it takes a page snapshot of every source page, DPAPI-encrypted where the source is protected (Decision, Q12). (AD-7 `HierarchyWrite`)
+- **E7 (R5, R8) — `restore_from_recycle_bin`.** Brings a soft-deleted page or section back out of the recycle bin. A page is matched to its soft-delete journal entry through the recycle-bin ID that story 5.5 records (Decision, Q10). That ID goes stale when the notebook reopens or the section is protected (AD-8; 5.1 constraint 15), so when it is missing or gone, the match falls back to the page's name. The tool takes the recycled item's ID; a lookup by name that matches several returns the candidates for the model to ask the user (Decision, Q3). The item goes back under its original parent from its journal entry, or under a target the caller names, and is otherwise refused with a `userAction` asking for a target. An item from a protected section goes back only into its own section, found by `SectionKey`, with no override and no `parentNamePath` fallback (Decision, Q4; AD-8). A soft-deleted section group can't come back as a unit: its sections land in the recycle bin one by one (5.1 constraint 8). (AD-7 `HierarchyWrite`, AD-8)
+- **E8 (R8) — Protected sections.** No export, move, merge or restore puts a password-protected section's content in a file, section or notebook that AD-21 wouldn't let the model read. Moves and merges out of a protected section are refused, as story 5.2 records (Decision, Q9); entry 2 may relax that with entry 1's evidence. That covers moving a protected section whole (Decision, Q14). Restore isn't in that rule; E7's `SectionKey` limit keeps protected content in its own section (Decision, Q4). An export of protected content needs the section's read grant and warns that the file isn't encrypted; a notebook package needs the read grant of every protected section in it (Decision, Q1). Unpacked packages follow E3 (Decision, Q11). (AD-6, AD-21)
 - **E9 (R8) — Coverage.** `Publish`, `OpenPackage`, `MergeFiles`, `MergeSections` and the `UpdateHierarchy` move each have a released tool, or a dated Decision recording why not (the initiative's Done when 4).
 
 ## Done when
 
 1. `publish`, and `open_package` and `merge_files` where they ship, write only under an export root. Any other path returns `ExportPathNotAllowed`, and an existing file `FileExists`. The result carries `meta.outputPath`, and the skill reports it.
 2. A page, section or section group moves between sections, section groups or notebooks, and `merge_sections` merges a section, only when every notebook involved is granted. The snapshot entry 2 sets is in the journal, and the result gives the moved item's current ID.
-3. `restore_from_recycle_bin` restores a soft-deleted page or section. When the name is ambiguous, it asks the user to choose.
+3. `restore_from_recycle_bin` restores a soft-deleted page or section. When a name matches several recycled items, it returns the candidates so the user chooses.
 4. An export, move, merge or restore of content in a password-protected section is refused unless E8's rule allows it, and the integration suite shows it.
 5. Every round-2 COM method has a released tool or a dated Decision, and the release ships through the epic 1 pipeline with the skill and README updated.
 
@@ -81,68 +81,18 @@ Out of scope: app-state and UI tools (epic 4), including `CloseNotebook` for a n
 
 ## Notes
 
-- **Needs Phill.** Each open question is settled in entry 2 (the spine amendment), unless it says otherwise.
-  - **Q1, protected exports.** An export to PDF, Word or MHTML is plaintext by nature (spike 1 row 23), and so is `.one`: `Publish` writes an unlocked protected section in the clear (5.1 constraint 17). The model can read an export file with its own file tools. Options:
-    - (a) Exporting content in a protected section needs that section's read grant, and the result warns that the file isn't encrypted. A notebook package needs the read grant of every protected section in it.
-    - (b) Refuse every export that holds protected content.
-    - (c) The notebook's write grant is enough. This contradicts AD-21: the model would read a protected section without its read grant.
-
-    Story 5.2 decides the same fact for the permanent-delete backup (refuse, encrypt, or opt in; 5.1 constraint 17). Entry 2 writes the export rule beside 5.2's in AD-21, so backups and exports have one rule in one place. Recommended: (a).
-  - **Q2, the move tool.** Options:
-    - (a) A separate tool that takes the item, its new parent and a position, and builds the `UpdateHierarchy` XML in Core. That is a second tool over one COM method, against AD-5's "roughly one MCP tool per COM method", so AD-5 records it as a promoted task. AD-14 also records its name, as it would `create_page`'s (deferred-work, story 2.4).
-    - (b) `update_hierarchy` accepts a move only with an explicit move argument. The cost: it changes `update_hierarchy`'s contract after epic 5 ships it, and the model has to write hierarchy XML that spans two notebooks.
-
-    Recommended: (a), because a cross-notebook move through hand-written XML is easy to get wrong and hard to check.
-  - **Q3, choosing among recycled items with the same name.** Options:
-    - (a) The tool takes the recycled item's ID. A lookup by name that matches several returns the candidates (ID, deletion time, where each came from) for the model to ask the user.
-    - (b) The server raises an elicitation dialog listing the candidates, and falls back to (a) without elicitation.
-
-    Recommended: (a), with AD-8's "asks the user" reworded to match.
-  - **Q4, where a restored item goes.** Options:
-    - (a) Back under its original parent, found from its soft-delete journal entry (`parentId`, else `parentNamePath`). Else it is refused, with a `userAction` asking for a target.
-    - (b) Always where the caller says.
-    - (c) The original parent when found, else a `Recovered` section.
-
-    Recommended: (a), with an optional target that overrides it, except for an item from a protected section: that goes back only into its own section, found by `SectionKey`, with no override and no `parentNamePath` fallback (AD-8). A second part: 5.2's refusal names moves and merges, but the spine's Deferred row (Fable H1) also lists `restore_from_recycle_bin` among writes that can carry content out of a protected section. Should 5.2's rule name restore too: (d) yes, or (e) no, the `SectionKey` limit above is enough? Recommended: (e), since that limit already keeps protected content in its own section.
-  - **Q5, `merge_files`.** Options:
-    - (a) Ship it only if the spike shows a result the user would want; else a dated Decision not to expose it.
-    - (b) Ship it as a thin tool whatever the spike shows.
-
-    Recommended: (a). Microsoft documents it only for merging three versions of one file in mobile scenarios.
-  - **Q6, `open_package` sources and grants.** May the package come from (a) any path, or (b) only from under an export root? Does the opened notebook get (c) no automatic write grant, or (d) one, as a created notebook does? Recommended: (a) and (c).
-  - **Q7, section groups.** `Publish` can't export one. Options:
-    - (a) `publish` refuses a section group.
-    - (b) `publish` exports each section in it into a new folder, as a promoted task (AD-5).
-
-    Recommended: (a), with (b) as a skill recipe.
-  - **Q8, managing export roots.** Options:
-    - (a) The user edits `exportRoots` in `settings.json` by hand, as the README will say (entry 10).
-    - (b) A new `OneNoteMcp export-root` CLI.
-
-    Recommended: (a).
-  - **Q11, protected content in an unpacked package.** A package opens as an ordinary notebook with no `encrypted` marker (5.1 constraints 17 and 18), so the read tools would serve its pages without a read grant. Options:
-    - (a) Every section in a notebook that `open_package` opened, or any notebook under an export root or the backup folder, counts as protected under AD-21 and needs a read grant.
-    - (b) Refuse a package known to hold a protected section, as entry 1 finds it can be known.
-    - (c) Accept it and warn in the result.
-
-    Recommended: (a), which also covers a backup opened by hand, as 5.1 constraint 17 suggests.
-  - **Q12, the snapshot for a merge (conditional).** Asked only if entry 1 shows `MergeSections` removes the source section or gives its pages new IDs; then a hierarchy snapshot can't bring the pages back. Options:
-    - (a) A page snapshot of every source page in the journal, DPAPI-encrypted where the source is protected.
-    - (b) A `Publish` backup of the source section, which is plaintext for a protected section (5.1 constraint 17).
-    - (c) A hierarchy snapshot only, with the merged pages in the destination as the way back.
-
-    Recommended: (a). Merges out of protected sections are refused anyway (Q9).
-  - **Q13, the notebook `open_package` leaves open** (entry 8 then extends the integration guard, which today never closes a notebook, to close `-unpacked` notebooks under (a)). Nothing in this epic closes it (`CloseNotebook` is epic 4), and it may sit in a OneDrive-synced Documents folder. Options:
-    - (a) The user closes it in OneNote, as the README will say (entry 10), until epic 4. Entry 8's integration test closes what it opened through the test harness's own COM seam and deletes its folder, so runs don't pile up `-unpacked` notebooks.
-    - (b) Bring `CloseNotebook` forward into this epic, for `open_package`'s notebooks only.
-    - (c) Move `open_package` to epic 4.
-
-    Recommended: (a).
-  - **Q14, moving a protected section whole.** 5.2 refuses moves "out of a protected section". A whole protected section moved to another group or notebook keeps its content inside itself, if `encrypted` survives the move (entry 1 checks), but its path, and so its `SectionKey`, changes. Options:
-    - (a) It counts as a move out, and is refused until entry 2 relaxes the rule on entry 1's evidence.
-    - (b) It doesn't count, and is allowed when entry 1 shows `encrypted` survives; its read grant then lapses and the user grants again.
-
-    Recommended: (a), so 5.2's cautious rule holds until the evidence is in.
+- Decision (Phill 2026-11-12, Q1, option a): exporting content in a password-protected section needs that section's read grant, and the result warns that the file isn't encrypted; a notebook package needs the read grant of every protected section in it. Exports are plaintext: PDF, Word and MHTML by nature (spike 1 row 23), `.one` because `Publish` writes a protected section in the clear (5.1 constraint 17). Entry 2 writes this rule in AD-21 beside 5.2's rule for the permanent-delete backup, so backups and exports have one rule in one place. Rejected: refusing every such export (b); the write grant alone (c), which contradicts AD-21.
+- Decision (Phill 2026-11-12, Q2, option a): moves go through a separate move tool that takes the item, its new parent and a position, and builds the `UpdateHierarchy` XML in Core. Entry 2 records it in AD-5 as a promoted task beside `update_hierarchy`, and its name in AD-14, as for `create_page`. Rejected: a move argument on `update_hierarchy` (b), which would change its contract after epic 5 ships it and have the model write XML spanning two notebooks.
+- Decision (Phill 2026-11-12, Q3, option a): `restore_from_recycle_bin` takes the recycled item's ID. A lookup by name that matches several returns the candidates (ID, deletion time, where each came from), and the model asks the user. Entry 2 rewords AD-8's "asks the user to choose" to match. Rejected: an elicitation dialog (b).
+- Decision (Phill 2026-11-12, Q4, options a and e): a restored item goes back under its original parent, found from its soft-delete journal entry (`parentId`, else `parentNamePath`), or under a target the caller names; with neither, it is refused, with a `userAction` asking for a target. An item from a protected section goes back only into its own section, found by `SectionKey`, with no override and no `parentNamePath` fallback (AD-8). 5.2's refusal of moves and merges out of protected sections isn't extended to restore (e): the `SectionKey` limit already keeps protected content in its own section.
+- Decision (Phill 2026-11-12, Q5, option a): `merge_files` ships only if entry 1 shows a result the user would want; otherwise entry 2 records a dated Decision not to expose it, which closes E4, and entry 9 is dropped.
+- Decision (Phill 2026-11-12, Q6, options a and c): `open_package` takes a package from any path, and the notebook it opens gets no automatic write grant.
+- Decision (Phill 2026-11-12, Q7, option a): `publish` refuses a section group before COM; exporting each section of a group into a folder is a skill recipe (entry 10).
+- Decision (Phill 2026-11-12, Q8, option a): the user manages `exportRoots` by editing `settings.json` by hand, as the README will say (entry 10). No new CLI.
+- Decision (Phill 2026-11-12, Q11, option a): every section of a notebook that `open_package` opened, and of any notebook under an export root or the backup folder, counts as protected under AD-21 and needs a read grant, because an opened package or backup carries no `encrypted` marker (5.1 constraints 17, 18). This also covers a backup opened by hand.
+- Decision (Phill 2026-11-12, Q12, option a; conditional on entry 1): if entry 1 shows `MergeSections` removes the source section or gives its pages new IDs, a merge takes a page snapshot of every source page, DPAPI-encrypted where the source is protected. If it doesn't, the hierarchy snapshot stands. Entry 2 writes whichever entry 1's result calls for.
+- Decision (Phill 2026-11-12, Q13, option a): the user closes a notebook that `open_package` opened, in OneNote, until epic 4's `CloseNotebook`; the README will say so (entry 10). Entry 8's integration tests close the `-unpacked` notebooks they open through the test harness's own COM seam and delete their folders.
+- Decision (Phill 2026-11-12, Q14, option a): moving a protected section whole counts as a move out of a protected section, so 5.2's refusal covers it until entry 2 relaxes the rule on entry 1's evidence.
 - Decision (2026-11-12, Phill, relayed by the team lead): plan rounds 2 and 3 now, and build them only after epics 2 and 5 land. This file's `after` gates every entry on both epics being done. That gate is the one cross-epic dependency model here: entries name epic 5's stories only as what they build on, never in `after`.
 - Decision (2026-11-12, Phill, Q9): keep the whole-epic gate; entry 1 runs after epics 2 and 5. Story 5.2 sets a cautious rule: moves and merges out of a protected section are refused. Entry 2 may relax it with entry 1's evidence. 3.1 is not added to 5.2's `after`. Epic 5's `tickets.toml` (5.2) records it.
 - Decision (2026-11-12, Phill, Q10, option a): story 5.5 reads back a soft-deleted page's recycle-bin ID and stores it in its journal entry, and 5.2 adds that field to AD-8 and AD-10; entry 5 uses it to match a recycled page to its original place. Epic 5's `tickets.toml` (5.2, 5.5) records it.
@@ -178,4 +128,4 @@ Out of scope: app-state and UI tools (epic 4), including `CloseNotebook` for a n
 - Assumption (unconfirmed): restoring a dissolved section group as a unit is out of scope; its sections come back one by one.
 - Assumption (unconfirmed): COM can't unlock a protected section, so no test unlocks MCP Test's protected section without Phill. Integration tests run the refusals and `SectionLocked` against that section locked. Unit tests on `FakeGateway` cover the unlocked paths. Entry 10 runs them once live, with Phill unlocking the section. Entry 5 is hitl because a recycled protected section needs Phill to unlock a section before its soft delete.
 - Assumption (unconfirmed): test fixtures. Entry 4 owns the second notebook for cross-notebook moves and merges: it reuses a throwaway notebook 5.1 left open (`MCP Test Throwaway 1112-034716 a`, which the integration guard already allows) and grants it in the tests' temporary settings; entries 12 and 6 reuse it. Entry 7 also exports that notebook, which holds no protected section, so entry 8 has a package to open whatever Q1 decides.
-- Decision proposed, not yet approved (autonomous inception, 2026-11-12; revised after the Fable review the same day): the breakdown is entries 1–13 in `tickets.toml`, in one lane, because every story after the spine amendment touches the tool registration and contract snapshot, the error list or the pipeline runner. The tracer bullet is entry 3, `publish` of a page to PDF through the new `ExternalWrite` pipeline. The moves (entries 4 and 12) follow it as the slices least known. If entry 5 (restore) is dropped, entry 6 goes after entry 12. If entry 9 (`merge_files`) is dropped, entry 10 goes after entry 8.
+- Decision (Phill 2026-11-12, accepting the plan by answering its questions; drafted in an autonomous inception and revised after its Fable review the same day): the breakdown is entries 1–13 in `tickets.toml`, in one lane, because every story after the spine amendment touches the tool registration and contract snapshot, the error list or the pipeline runner. The tracer bullet is entry 3, `publish` of a page to PDF through the new `ExternalWrite` pipeline. The moves (entries 4 and 12) follow it as the slices least known. If entry 5 (restore) is dropped, entry 6 goes after entry 12. If entry 9 (`merge_files`) is dropped, entry 10 goes after entry 8.
