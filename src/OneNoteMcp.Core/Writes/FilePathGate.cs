@@ -191,7 +191,16 @@ public static class FilePathGate
             return raw; // network or device: classified, never resolved
         }
 
-        return Path.IsPathFullyQualified(raw) ? Path.GetFullPath(raw) : Path.GetFullPath(Path.Combine(linkFolder, raw));
+        if (Path.IsPathFullyQualified(raw))
+        {
+            return Path.GetFullPath(raw);
+        }
+
+        // Rooted but not fully qualified (`\foo`, which a reparse point means in the NT namespace, or drive-relative
+        // `X:foo`): GetFullPath would resolve it against this process's drive and folder, not the link's volume, so it is
+        // returned unresolved and Classify refuses it (security review of 3946c72). Only a truly relative target is
+        // resolved against the link's own folder.
+        return Path.IsPathRooted(raw) ? raw : Path.GetFullPath(Path.Combine(linkFolder, raw));
     }
 
     /// <summary>The most link hops one path may take; more, a cycle included, is <see cref="FilePathRefusal.TooManyLinks"/>.</summary>

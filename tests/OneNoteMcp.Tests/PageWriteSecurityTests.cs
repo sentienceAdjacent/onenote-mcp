@@ -200,6 +200,30 @@ public sealed class PageWriteSecurityTests : IDisposable
         Assert.Equal([@"C:\a"], links.Asked);
     }
 
+    [Theory]
+    [InlineData(@"\foo")]
+    [InlineData("/foo")]
+    [InlineData(@"X:foo")]
+    [InlineData(@"\Device\Mup\evil\share")]
+    public void Canonical_ARootedButNotFullyQualifiedHop_IsRefused_NeverResolvedAgainstTheProcessDrive(string target)
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\a"] = target });
+
+        Assert.Null(FilePathGate.Canonical(@"C:\a\x.png", links, out var refusal));
+
+        Assert.Equal(FilePathRefusal.NotFullyQualified, refusal);
+        Assert.Equal([@"C:\a"], links.Asked);
+    }
+
+    [Fact]
+    public void Canonical_ARelativeHop_IsStillFollowed_AgainstTheLinksFolder()
+    {
+        var links = new FakeLinks(new(StringComparer.OrdinalIgnoreCase) { [@"C:\dir\a"] = @"..\x" });
+
+        Assert.Equal(@"C:\x\y.png", FilePathGate.Canonical(@"C:\dir\a\y.png", links, out _));
+        Assert.Equal([@"C:\dir", @"C:\dir\a", @"C:\x", @"C:\x\y.png"], links.Asked);
+    }
+
     [Fact]
     public void Canonical_FollowsLocalHopsOneAtATime_RelativeTargetsIncluded()
     {
