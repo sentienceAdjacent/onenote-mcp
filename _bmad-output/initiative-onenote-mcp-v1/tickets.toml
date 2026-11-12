@@ -25,7 +25,7 @@ id = 3
 slug = "epic-round-2-external-and-structural"
 title = "Round 2: exports, move and merge"
 covers = ["R5", "R8"]
-after = [{ epic = 2, needs = "the operation-class pipeline, grants, write lock and journal" }, { epic = 5, needs = "UpdateHierarchy and soft delete, which move and restore_from_recycle_bin build on" }]
+after = [{ epic = 2, needs = "the operation-class pipeline, grants, write lock and journal" }, { epic = 5, needs = "UpdateHierarchy and soft delete, which move and restore_from_recycle_bin build on, Publish on the gateway, which publish builds on, and the recycle-bin ID in soft-delete journal entries (5.5)" }]
 
 [[epic]]
 id = 4
