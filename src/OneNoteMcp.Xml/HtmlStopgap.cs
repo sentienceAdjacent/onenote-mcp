@@ -5,53 +5,79 @@ namespace OneNoteMcp.Xml;
 
 /// <summary>
 /// The HTML stopgap's scan of one <c>one:T</c>'s HTML (Phill, 2026-11-12, until the <c>html-local-ref</c> probe shows
-/// what OneNote fetches). Deny by default: the text is refused when, at any stage of entity decoding, it has a
-/// <c>file:</c> URL, a resource-loading tag (an image, frame, object, script, style sheet and the like), a URL-bearing
-/// attribute whose value isn't an absolute <c>http</c>, <c>https</c>, <c>mailto</c> or <c>onenote</c> URL, or a
-/// <c>style</c> attribute with any CSS function but an rgb or hsl colour (so no <c>url()</c>), a backslash escape or
-/// an at-rule. Tags are found twice, by an HTML5-style tokenizer (quotes, comments, <c>/</c> separators) and by a plain
-/// regex scan, and both results count, so a quirk in one doesn't hide a tag from the other. Refusing too much is the
-/// safe failure here.
+/// what OneNote fetches). An allowlist (Phill, 2026-11-12, after the bypass review of <c>e0ba25b</c>): an entity .NET can't decode left after the last stage refuses the text, and at every stage
+/// of entity decoding, the text is refused for a <c>file:</c> URL, a comment, declaration or processing instruction
+/// (<c>&lt;!</c>, <c>&lt;?</c>), or any tag or attribute outside the small set OneNote's own page text uses
+/// (<see cref="AllowedTags"/>, <see cref="GlobalAttributes"/>, <c>href</c> on <c>a</c>, and <c>face</c>, <c>size</c>,
+/// <c>color</c> on <c>font</c>). An attribute value is refused for a backtick (old IE quotes with it), an entity
+/// reference .NET can't decode left after the last stage (such as <c>&amp;lpar;</c>), an <c>href</c> that isn't an
+/// absolute http, https or mailto URL or an allowed <c>onenote:</c> link, or a <c>style</c> with any CSS function but
+/// an rgb or hsl colour (so no <c>url()</c>), a backslash escape or an at-rule. Text that still changes after five
+/// rounds of decoding is refused. Tags are found twice, by an HTML5-style tokenizer (quotes, <c>/</c> separators) and
+/// by a plain regex scan, and both results count. Refusing too much is the safe failure here.
 /// </summary>
 internal static class HtmlStopgap
 {
     private const RegexOptions Options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
 
-    /// <summary>Tags that load something, or change how other URLs load, whatever their attributes.</summary>
-    private static readonly HashSet<string> ResourceTags = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>The tags OneNote's own page text uses: inline formatting, paragraphs, line breaks and links.</summary>
+    private static readonly HashSet<string> AllowedTags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "img", "image", "picture", "source", "video", "audio", "track", "bgsound", "object", "embed", "applet", "param",
-        "iframe", "frame", "frameset", "portal", "link", "style", "script", "noscript", "template", "base", "meta", "svg",
-        "math", "form", "input", "isindex", "xml", "import",
+        "a", "b", "br", "cite", "code", "del", "em", "font", "i", "ins", "p", "s", "small", "span", "strike", "strong",
+        "sub", "sup", "u",
     };
 
-    /// <summary>Attributes whose value is a URL (or, for the list attributes, several).</summary>
-    private static readonly HashSet<string> UrlAttributes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "src", "href", "background", "data", "poster", "lowsrc", "dynsrc", "srcset", "imagesrcset", "action", "formaction",
-        "cite", "longdesc", "usemap", "codebase", "archive", "classid", "profile", "manifest", "icon", "ping", "datasrc",
-        "srcdoc", "vrml",
-    };
+    /// <summary>The attributes any allowed tag may carry.</summary>
+    private static readonly HashSet<string> GlobalAttributes = new(StringComparer.OrdinalIgnoreCase) { "style", "lang", "dir" };
 
-    /// <summary>URL attributes that hold a list: each URL in it is checked; srcset descriptors (1x, 200w) are skipped.</summary>
-    private static readonly HashSet<string> UrlListAttributes = new(StringComparer.OrdinalIgnoreCase) { "srcset", "imagesrcset", "ping", "archive" };
+    /// <summary>The attributes only <c>font</c> may carry.</summary>
+    private static readonly HashSet<string> FontAttributes = new(StringComparer.OrdinalIgnoreCase) { "face", "size", "color" };
 
     /// <summary>The only CSS functions a style attribute may call: colours, which never load anything.</summary>
     private static readonly HashSet<string> CssFunctions = new(StringComparer.OrdinalIgnoreCase) { "rgb", "rgba", "hsl", "hsla" };
 
     private static readonly Regex FileUrl = new("(?<![a-z0-9+.-])file:", Options);
 
+    /// <summary>A comment, conditional comment, declaration, CDATA section or processing instruction.</summary>
+    private static readonly Regex MarkupDeclaration = new("<[!?]", Options);
+
     /// <summary>
-    /// Absolute web and mail URLs, and <c>onenote:</c> only within the page (<c>onenote:#…</c>) or to a web notebook
-    /// (<c>onenote:http(s)://…</c>): an <c>onenote:</c> link to a local, relative or network notebook path is refused.
+    /// A <c>&lt;</c> or <c>&lt;/</c> before a non-ASCII letter: neither scan sees a tag there, but a parser that upper-cases
+    /// with Unicode rules may (dotless i makes <c>IMG</c>, long s makes <c>STYLE</c>).
     /// </summary>
-    private static readonly Regex AllowedUrl = new("^(?:https?://|mailto:|onenote:(?:#|https?://))", Options);
+    private static readonly Regex NonAsciiTagStart = new(@"</?(?![a-zA-Z])\p{L}", RegexOptions.CultureInvariant);
 
-    private static readonly Regex Descriptor = new(@"^[0-9]+(?:\.[0-9]+)?[wxh]$", Options);
+    /// <summary>
+    /// An end tag that isn't exactly an allowed name and then <c>&gt;</c>: HTML5 drops end-tag attributes, a legacy parser
+    /// may not, and <c>&lt;/br …&gt;</c> becomes a start tag.
+    /// </summary>
+    private static readonly Regex DisallowedEndTag = new(
+        @"</(?!(?:a|b|br|cite|code|del|em|font|i|ins|p|s|small|span|strike|strong|sub|sup|u)\s*>)", Options);
 
-    /// <summary>A resource tag's name right after <c>&lt;</c> or <c>&lt;/</c>, with or without a namespace prefix.</summary>
-    private static readonly Regex ResourceTagAnywhere = new(
-        "</?(?:[a-z][a-z0-9_.-]*:)?(?:" + string.Join('|', ResourceTags) + ")(?![a-z0-9_.:-])", Options);
+    /// <summary>The only <c>mailto:</c> query keys allowed: no <c>attach</c>, which some mail clients honour with local paths.</summary>
+    private static readonly HashSet<string> MailtoKeys = new(StringComparer.OrdinalIgnoreCase) { "subject", "body", "cc", "bcc", "to" };
+
+    /// <summary>A named reference left after the last decoding stage: one .NET doesn't know, which an HTML5 parser may.</summary>
+    private static readonly Regex UnknownReference = new("&[a-z][a-z0-9]*;", Options);
+
+    private static readonly Regex AllowedUrl = new("^(?:https?://|mailto:)", Options);
+
+    /// <summary>An <c>onenote:</c> link: an optional web-notebook address (with a host), then an optional <c>#</c> part.</summary>
+    private static readonly Regex OneNoteLink = new(
+        @"^onenote:(?<web>https?://[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?(?:[/?][^#]*)?)?(?:#(?<fragment>.*))?$", Options | RegexOptions.Singleline);
+
+    /// <summary>The scheme and host at the start of a web-notebook address, so the path checks look only at what follows.</summary>
+    private static readonly Regex WebAuthority = new("^https?://[^/?#]*", Options);
+
+    /// <summary>What lets an onenote: link name a notebook file: base-path, a backslash, //, a .. segment, file: or a drive.</summary>
+    private static readonly Regex OneNotePathMarker = new(
+        @"base-path|\\|//|file:|(?:^|[/=&])\.\.(?:[/&?]|$)|(?<![a-z0-9])[a-z]:[\\/]", Options);
+
+    /// <summary>The parameters OneNote's own page links carry after the title: GUID ids, a short hex index, and <c>end</c>.</summary>
+    private static readonly Regex OneNoteParameter = new(
+        @"^(?:(?:section-id|page-id|object-id)=\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}|[0-9a-f]{1,8}|end)$", Options);
+
+    private static readonly Regex ParameterSeparator = new("&(?:amp;)?", Options);
 
     private static readonly Regex NaiveTag = new("<([a-zA-Z][^\\s/>]*)([^>]*)(?:>|$)", RegexOptions.CultureInvariant);
 
@@ -60,17 +86,29 @@ internal static class HtmlStopgap
 
     private static readonly Regex NumericReference = new("&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?", RegexOptions.CultureInvariant);
 
-    /// <summary>The legacy named references HTML decodes without a semicolon, where they change the markup.</summary>
-    private static readonly Regex LegacyReference = new("&(lt|gt|quot|amp)(?![;a-zA-Z0-9=])", Options);
+    /// <summary>
+    /// The named references that change the markup, in any case (HTML5 has <c>&amp;LT;</c>, <c>&amp;GT;</c>,
+    /// <c>&amp;AMP;</c>, <c>&amp;QUOT;</c>, which .NET doesn't decode), with a semicolon or, as legacy references,
+    /// without one whatever follows (in text HTML5 decodes <c>&amp;ltimg</c> to <c>&lt;img</c>; in an attribute it
+    /// wouldn't, but decoding more only shows the scan more).
+    /// </summary>
+    private static readonly Regex LegacyReference = new("&(lt|gt|quot|amp);?", Options);
 
     private sealed record Tag(string Name, IReadOnlyList<(string Name, string? Value)> Attributes);
 
     public static bool IsRefused(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        foreach (var stage in Stages(text))
+        // An entity left after the last stage is one .NET can't decode but an HTML5 parser may, into anything.
+        if (Stages(text) is not { } stages || UnknownReference.IsMatch(stages[^1]))
         {
-            if (FileUrl.IsMatch(stage) || ResourceTagAnywhere.IsMatch(stage))
+            return true;
+        }
+
+        foreach (var stage in stages)
+        {
+            if (FileUrl.IsMatch(stage) || MarkupDeclaration.IsMatch(stage) || NonAsciiTagStart.IsMatch(stage)
+                || DisallowedEndTag.IsMatch(stage))
             {
                 return true;
             }
@@ -86,20 +124,25 @@ internal static class HtmlStopgap
 
     private static bool IsRefused(Tag tag)
     {
-        if (ResourceTags.Contains(LocalName(tag.Name)))
+        if (!AllowedTags.Contains(tag.Name))
         {
             return true;
         }
 
-        foreach (var (rawName, value) in tag.Attributes)
+        foreach (var (name, value) in tag.Attributes)
         {
-            var name = LocalName(rawName);
-            if (UrlAttributes.Contains(name) && Stages(value ?? string.Empty).Any(v => !IsAllowedUrlValue(name, v)))
+            var isHref = name.Equals("href", StringComparison.OrdinalIgnoreCase);
+            var allowed = GlobalAttributes.Contains(name)
+                || (isHref && tag.Name.Equals("a", StringComparison.OrdinalIgnoreCase))
+                || (FontAttributes.Contains(name) && tag.Name.Equals("font", StringComparison.OrdinalIgnoreCase));
+            if (!allowed || Stages(value ?? string.Empty) is not { } stages
+                || stages.Any(v => v.Contains('`', StringComparison.Ordinal)) || UnknownReference.IsMatch(stages[^1]))
             {
                 return true;
             }
 
-            if (name.Equals("style", StringComparison.OrdinalIgnoreCase) && value is not null && Stages(value).Any(IsRefusedCss))
+            if ((isHref && stages.Any(v => !IsAllowedUrl(v)))
+                || (name.Equals("style", StringComparison.OrdinalIgnoreCase) && stages.Any(IsRefusedCss)))
             {
                 return true;
             }
@@ -108,22 +151,10 @@ internal static class HtmlStopgap
         return false;
     }
 
-    private static string LocalName(string name) => name[(name.LastIndexOf(':') + 1)..];
-
-    private static bool IsAllowedUrlValue(string attribute, string value)
-    {
-        if (!UrlListAttributes.Contains(attribute))
-        {
-            return IsAllowedUrl(value);
-        }
-
-        var parts = value.Split([' ', '\t', '\n', '\r', '\f', ','], StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 0 && parts.All(p => Descriptor.IsMatch(p) || IsAllowedUrl(p));
-    }
-
     /// <summary>
-    /// True for an absolute http, https, mailto or onenote URL. As a browser does, tabs and newlines anywhere, and
-    /// controls and spaces at either end, are removed first; any other control character refuses the URL.
+    /// True for an absolute http, https or mailto URL, or an allowed onenote link. As a browser does, tabs and newlines
+    /// anywhere, and controls and spaces at either end, are removed first; any other control character refuses the URL, and
+    /// so does a backslash, as sent or percent-decoded. A <c>mailto:</c> query may hold only subject, body, cc, bcc and to.
     /// </summary>
     private static bool IsAllowedUrl(string value)
     {
@@ -131,7 +162,82 @@ internal static class HtmlStopgap
             .Replace("\n", string.Empty, StringComparison.Ordinal)
             .Replace("\r", string.Empty, StringComparison.Ordinal)
             .Trim(Enumerable.Range(0, 0x21).Select(c => (char)c).ToArray());
-        return url.Length > 0 && !url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f') && AllowedUrl.IsMatch(url);
+        if (url.Length == 0 || url.Any(c => c < 0x20 || c is >= '\u007f' and <= '\u009f')
+            || FullyDecoded(url) is not { } decoded || decoded.Contains('\\', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
+        {
+            var query = url.IndexOf('?', StringComparison.Ordinal);
+            return query < 0 || ParameterSeparator.Split(url[(query + 1)..]).Where(p => p.Length > 0)
+                .All(p => FullyDecoded(p.Split('=')[0]) is { } key && MailtoKeys.Contains(key));
+        }
+
+        return AllowedUrl.IsMatch(url) || IsAllowedOneNoteLink(url);
+    }
+
+    /// <summary>
+    /// An allowlist for <c>onenote:</c> links: optionally an http(s) web-notebook address with a host, then optionally a
+    /// <c>#</c> part holding a page title and only the parameters OneNote's own links carry (<see cref="OneNoteParameter"/>).
+    /// Each part must stop changing within four rounds of percent-decoding, and its decoded form must hold no backslash and
+    /// no <c>base-path</c> (which OneNote's links to local notebooks carry); the decoded title must hold no <c>&amp;</c>,
+    /// <c>=</c> or <c>#</c>, so no parameter hides in it. Links to local, relative or network notebooks are refused.
+    /// </summary>
+    private static bool IsAllowedOneNoteLink(string url)
+    {
+        var link = OneNoteLink.Match(url);
+        var web = link.Groups["web"];
+        var fragment = link.Groups["fragment"];
+        if (!link.Success || (!web.Success && !fragment.Success))
+        {
+            return false;
+        }
+
+        if (web.Success && (FullyDecoded(web.Value) is not { } address || address.Contains('&', StringComparison.Ordinal)
+            || OneNotePathMarker.IsMatch(WebAuthority.Replace(address, string.Empty))
+            || !Uri.TryCreate(web.Value, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.IsUnc
+            || !IsOneDriveOrSharePoint(uri.Host)))
+        {
+            return false;
+        }
+
+        if (!fragment.Success)
+        {
+            return true;
+        }
+
+        // Split on & and on &amp;: the value is checked before entity decoding too, where the separators are still &amp;.
+        var parts = ParameterSeparator.Split(fragment.Value);
+        return FullyDecoded(parts[0]) is { } title && !OneNotePathMarker.IsMatch(title) && title.IndexOfAny(['&', '=', '#']) < 0
+            && parts.Skip(1).All(OneNoteParameter.IsMatch);
+    }
+
+    /// <summary>
+    /// The web-notebook hosts an <c>onenote:</c> link may name (Phill, 2026-11-12): OneDrive (<c>d.docs.live.net</c>) and
+    /// SharePoint (<c>*.sharepoint.com</c>). OneNote opens such a link as a notebook, and on an intranet host Windows may
+    /// send the user's credentials.
+    /// </summary>
+    private static bool IsOneDriveOrSharePoint(string host) =>
+        host.Equals("d.docs.live.net", StringComparison.OrdinalIgnoreCase)
+        || (host.EndsWith(".sharepoint.com", StringComparison.OrdinalIgnoreCase) && host.Length > ".sharepoint.com".Length);
+
+    /// <summary>The text percent-decoded until it stops changing, or null when it still changes after four rounds.</summary>
+    private static string? FullyDecoded(string text)
+    {
+        for (var i = 0; i < 4; i++)
+        {
+            var next = Uri.UnescapeDataString(text);
+            if (next == text)
+            {
+                return text;
+            }
+
+            text = next;
+        }
+
+        return null;
     }
 
     /// <summary>True when a style value has a backslash escape, an at-rule, expression(), or any function but a colour.</summary>
@@ -160,22 +266,25 @@ internal static class HtmlStopgap
         return false;
     }
 
-    /// <summary>The text as sent, then decoded again and again until it stops changing (at most five stages).</summary>
-    private static List<string> Stages(string text)
+    /// <summary>
+    /// The text as sent, then decoded again and again until it stops changing (at most five stages); null when it still
+    /// changes after that, which the scan refuses.
+    /// </summary>
+    private static List<string>? Stages(string text)
     {
         var stages = new List<string> { text };
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < 5; i++)
         {
             var next = Decode(stages[^1]);
             if (next == stages[^1])
             {
-                break;
+                return stages;
             }
 
             stages.Add(next);
         }
 
-        return stages;
+        return null;
     }
 
     /// <summary>One round of HTML5-style character-reference decoding, including numeric and legacy references with no semicolon.</summary>
@@ -184,12 +293,13 @@ internal static class HtmlStopgap
         var numeric = NumericReference.Replace(text, m =>
         {
             var hex = m.Groups[1].Success;
-            var digits = hex ? m.Groups[1].Value : m.Groups[2].Value;
-            if (digits.Length > 8
+            // HTML5 allows any number of leading zeros, so they don't count toward the length.
+            var digits = (hex ? m.Groups[1].Value : m.Groups[2].Value).TrimStart('0');
+            if (digits.Length == 0 || digits.Length > 8
                 || !int.TryParse(digits, hex ? NumberStyles.AllowHexSpecifier : NumberStyles.None, CultureInfo.InvariantCulture, out var cp)
                 || cp == 0 || cp > 0x10FFFF || cp is >= 0xD800 and <= 0xDFFF)
             {
-                return "�";
+                return "\uFFFD";
             }
 
             return char.ConvertFromUtf32(cp);
