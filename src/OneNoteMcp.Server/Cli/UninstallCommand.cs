@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Server.Logging;
 
@@ -12,14 +13,17 @@ namespace OneNoteMcp.Server.Cli;
 /// </summary>
 /// <param name="SettingsPath">The settings file, from <see cref="SettingsStore.ResolvePath"/>.</param>
 /// <param name="LogDirectory">The log folder, from <see cref="FileLog.ResolveDirectory"/>.</param>
-/// <param name="DefaultJournalPath">The journal folder when <c>settings.json</c> doesn't set one or can't be read.</param>
+/// <param name="DefaultJournalPath">
+/// The journal folder when <c>settings.json</c> doesn't set one or can't be read, from <see cref="JournalFiles.DefaultFolder"/>
+/// (story 2.8 decision Q1), so the journal and settings test overrides apply here as in the server.
+/// </param>
 /// <param name="SystemFolders">Folders a journal path must never be: the profile, AppData, Desktop, Documents, Windows, Program Files.</param>
 public sealed record UninstallPaths(string SettingsPath, string LogDirectory, string DefaultJournalPath, IReadOnlyList<string> SystemFolders)
 {
     public static UninstallPaths Resolve(Func<string, string?> getEnvironmentVariable) => new(
         SettingsStore.ResolvePath(getEnvironmentVariable),
         FileLog.ResolveDirectory(getEnvironmentVariable),
-        JournalSettings.Default().Path,
+        JournalFiles.DefaultFolder(getEnvironmentVariable),
         DefaultSystemFolders());
 
     public static IReadOnlyList<string> DefaultSystemFolders() =>
@@ -43,7 +47,7 @@ public sealed record UninstallPaths(string SettingsPath, string LogDirectory, st
 /// <summary>
 /// <c>OneNoteMcp uninstall --purge</c> (AD-19): removes the files the server leaves on disk, and only those. That is the
 /// settings file and its <c>.settings.*.tmp</c> leftovers, the <c>onenote-mcp-*.log</c> files, and journal-named files
-/// (<c>{yyyyMMddTHHmmssfff}-{pid}-{guid}.json.gz</c>). It never recurses, removes a folder only when nothing is left in
+/// (<c>{yyyyMMddTHHmmssfff}-{pid}-{guid}.json.gz</c> and their <c>.{name}.tmp</c> leftovers, <see cref="JournalFiles"/>). It never recurses, removes a folder only when nothing is left in
 /// it, and refuses a journal folder that looks like a root or system folder. It never removes the exe, the plugin, or
 /// Claude Code's own <c>tool-results</c> files. It starts no COM.
 /// <para>Interactive, it asks the user to type <c>purge</c>; otherwise it needs <c>--yes</c>.</para>
@@ -274,7 +278,7 @@ public sealed partial class UninstallCommand
 
         // Settings: the file itself and the writer's temp-file leftovers beside it.
         var settingsPath = Path.GetFullPath(paths.SettingsPath);
-        var snapshot = new SettingsStore(settingsPath).Read();
+        var snapshot = new SettingsStore(settingsPath, paths.DefaultJournalPath).Read();
         AddSettingsFiles(plan, settingsPath);
         var settingsFolder = Path.GetDirectoryName(settingsPath);
         plan.SettingsFiles.AddRange(plan.Files);
@@ -292,7 +296,7 @@ public sealed partial class UninstallCommand
         }
         else
         {
-            AddMatching(plan, journalFolder, JournalFile());
+            AddMatching(plan, journalFolder, name => JournalFiles.IsEntry(name) || JournalFiles.IsTemp(name));
         }
 
         // OneNoteMcp's own folders, in removal order: children before the OneNoteMcp folders that hold them.
@@ -344,14 +348,14 @@ public sealed partial class UninstallCommand
             case SettingsStatus.Absent:
                 return paths.DefaultJournalPath;
             default:
-                // A journal.path that isn't set reads as the store's own default; resolve it through ours instead.
-                return string.Equals(snapshot.Journal.Path, JournalSettings.Default().Path, StringComparison.OrdinalIgnoreCase)
-                    ? paths.DefaultJournalPath
-                    : snapshot.Journal.Path;
+                // The store was given our default, so a journal.path that isn't set reads as it.
+                return snapshot.Journal.Path;
         }
     }
 
-    private void AddMatching(PurgePlan plan, string folder, Regex pattern)
+    private void AddMatching(PurgePlan plan, string folder, Regex pattern) => AddMatching(plan, folder, pattern.IsMatch);
+
+    private void AddMatching(PurgePlan plan, string folder, Func<string, bool> matches)
     {
         try
         {
@@ -362,7 +366,7 @@ public sealed partial class UninstallCommand
 
             // Top level only; matched by full name, so Win32 wildcard quirks can't widen it.
             plan.Files.AddRange(Directory.EnumerateFiles(folder)
-                .Where(f => pattern.IsMatch(Path.GetFileName(f))));
+                .Where(f => matches(Path.GetFileName(f))));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -449,9 +453,4 @@ public sealed partial class UninstallCommand
 
     [GeneratedRegex(@"^onenote-mcp-.*\.log$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LogFile();
-
-    [GeneratedRegex(
-        @"^\d{8}T\d{9}-\d+-(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json\.gz$",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex JournalFile();
 }

@@ -19,6 +19,7 @@ The released `OneNoteMcp.exe` is a self-contained .NET application. It bundles t
 | .NET runtime and libraries (Microsoft) | MIT |
 | `Microsoft.Extensions.Hosting` and its dependencies (Microsoft) | MIT |
 | `System.Security.Cryptography.Xml` (Microsoft) | MIT |
+| `System.Security.Cryptography.ProtectedData` (Microsoft) | MIT |
 | `ModelContextProtocol` (the MCP C# SDK) | Apache-2.0 |
 | `Serilog.Extensions.Logging` | Apache-2.0 |
 | `Serilog.Sinks.File` | Apache-2.0 |

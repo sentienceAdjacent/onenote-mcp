@@ -1,7 +1,9 @@
 using System.Text.Json;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Server.Cli;
+using OneNoteMcp.Server.Logging;
 using Xunit;
 
 namespace OneNoteMcp.Tests;
@@ -502,4 +504,55 @@ public sealed class UninstallCommandTests : IDisposable
     [Fact]
     public void OtherServerProcesses_NeverListsThisProcess() =>
         Assert.DoesNotContain(Environment.ProcessId, UninstallCommand.OtherServerProcesses());
+
+    // --- Story 2.8: the journal's temp leftovers and the decision-Q1 folder ------------------------------------------
+
+    [Fact]
+    public void Purge_RemovesJournalTempLeftovers_ButNotLookAlikes()
+    {
+        SeedEverything();
+        var leftover = Touch(JournalFolder, "." + JournalName + ".tmp");
+        var foreign = Touch(JournalFolder, JournalName + ".tmp");
+
+        Command().Run(["--purge", "--yes"]);
+
+        Assert.False(File.Exists(leftover));
+        Assert.True(File.Exists(foreign), "only the writer's .{name}.tmp form is ours");
+    }
+
+    [Fact]
+    public void Resolve_JournalFollowsTheTestOverrides_DecisionQ1()
+    {
+        var journalDir = temp.Combine("j");
+        string? SettingsOnly(string name) => name == SettingsStore.PathOverrideVariable ? SettingsPath : null;
+        string? Both(string name) => name == JournalFiles.DirectoryOverrideVariable ? journalDir : SettingsOnly(name);
+
+        Assert.Equal(Path.Combine(SettingsFolder, "journal"), UninstallPaths.Resolve(SettingsOnly).DefaultJournalPath);
+        Assert.Equal(journalDir, UninstallPaths.Resolve(Both).DefaultJournalPath);
+    }
+
+    [Fact]
+    public void Purge_WithOnlyTheSettingsAndLogOverrides_PurgesTheJournalBesideTheSettings()
+    {
+        WriteSettings();
+        var besideSettings = Path.Combine(SettingsFolder, "journal");
+        var entry = Touch(besideSettings, JournalName);
+        var leftover = Touch(besideSettings, "." + JournalNameD + ".tmp");
+        var resolved = UninstallPaths.Resolve(name =>
+            name == SettingsStore.PathOverrideVariable ? SettingsPath
+            : name == FileLog.DirectoryOverrideVariable ? LogFolder
+            : null);
+        var command = new UninstallCommand(new StringReader(string.Empty), output, interactive: false, resolved with { SystemFolders = [] }, () => [], RecordingLock);
+
+        var code = command.Run(["--purge", "--yes"]);
+
+        Assert.Equal(0, code);
+        Assert.False(File.Exists(entry));
+        Assert.False(File.Exists(leftover));
+        Assert.False(Directory.Exists(SettingsFolder), "the emptied journal folder and the settings folder holding it go too");
+        Assert.DoesNotContain(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OneNoteMcp"),
+            output.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
 }

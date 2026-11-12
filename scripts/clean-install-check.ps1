@@ -35,7 +35,8 @@ param(
     [string]$OutDir = (Join-Path ([IO.Path]::GetTempPath()) 'onenote-mcp-clean-check'),
 
     # Rehearsal only: stand-ins for %APPDATA%, %LOCALAPPDATA% and the plugin's install folder, so the script can be
-    # tried on a temp tree with ONENOTE_MCP_SETTINGS_PATH and ONENOTE_MCP_LOG_DIR pointing into it.
+    # tried on a temp tree with ONENOTE_MCP_SETTINGS_PATH, ONENOTE_MCP_LOG_DIR and ONENOTE_MCP_JOURNAL_DIR pointing into
+    # it. Without ONENOTE_MCP_JOURNAL_DIR, the journal follows the settings override into a 'journal' folder beside it.
     [string]$AppDataRoot = [Environment]::GetFolderPath('ApplicationData'),
     [string]$LocalAppDataRoot = [Environment]::GetFolderPath('LocalApplicationData'),
     [string]$PluginRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.claude\plugins\cache\sentienceadjacent\onenote')
@@ -54,7 +55,9 @@ $parents = @($appData, $localAppData)
 $purgeTargets = @(
     @{ Folder = $ownRoots[0]; Pattern = '^(settings\.json|\.settings\..+\.tmp)$' },
     @{ Folder = (Join-Path $ownRoots[1] 'logs'); Pattern = '^onenote-mcp-.*\.log$' },
-    @{ Folder = (Join-Path $ownRoots[1] 'journal'); Pattern = '^\d{8}T\d{9}-\d+-[0-9a-fA-F-]{32,36}\.json\.gz$' }
+    @{ Folder = (Join-Path $ownRoots[1] 'journal'); Pattern = '^(\d{8}T\d{9}-\d+-[0-9a-fA-F-]{32,36}\.json\.gz|\.\d{8}T\d{9}-\d+-[0-9a-fA-F-]{32,36}\.json\.gz\.tmp)$' },
+    # With only ONENOTE_MCP_SETTINGS_PATH set (the rehearsal above), the journal sits beside the settings file.
+    @{ Folder = (Join-Path $ownRoots[0] 'journal'); Pattern = '^(\d{8}T\d{9}-\d+-[0-9a-fA-F-]{32,36}\.json\.gz|\.\d{8}T\d{9}-\d+-[0-9a-fA-F-]{32,36}\.json\.gz\.tmp)$' }
 )
 
 function Test-PurgeTarget([string]$path) {

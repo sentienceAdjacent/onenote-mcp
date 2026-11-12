@@ -190,7 +190,7 @@ What purge removes, and nothing else:
 
 - `%APPDATA%\OneNoteMcp\settings.json`, and any `.settings.*.tmp` an interrupted save left beside it;
 - the `onenote-mcp-*.log` files in `%LOCALAPPDATA%\OneNoteMcp\logs`;
-- journal entries (files named like `20261107T101112123-<pid>-<guid>.json.gz`) in the journal folder: `journal.path` from `settings.json`, or `%LOCALAPPDATA%\OneNoteMcp\journal`. If `settings.json` can't be read, it uses that default and says so. It refuses a journal folder that is a drive or share root, your profile, `%APPDATA%` or `%LOCALAPPDATA%` themselves, Desktop, Documents, Windows or Program Files, or fewer than two folders below its root, and then removes nothing from it;
+- journal entries (files named like `20261107T101112123-<pid>-<guid>.json.gz`, and the same names with a leading `.` and a trailing `.tmp` that an interrupted write leaves) in the journal folder: `journal.path` from `settings.json`, or `%LOCALAPPDATA%\OneNoteMcp\journal`. If `settings.json` can't be read, it uses that default and says so. It refuses a journal folder that is a drive or share root, your profile, `%APPDATA%` or `%LOCALAPPDATA%` themselves, Desktop, Documents, Windows or Program Files, or fewer than two folders below its root, and then removes nothing from it;
 - then each of those folders, and the `OneNoteMcp` folder above the logs and journal, but only once nothing else is left in it. It never looks inside subfolders.
 
 It prints every path it removed, kept or refused. It exits with 0 when done, 1 when something was refused or couldn't be removed (usually a log still in use: quit the client and run it again), and 2 on bad usage. It never removes `OneNoteMcp.exe` or the plugin's install folder (that's step 3), and it never calls OneNote.
