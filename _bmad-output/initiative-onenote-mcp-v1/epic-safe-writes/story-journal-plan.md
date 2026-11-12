@@ -3,7 +3,7 @@ title: 'Journal'
 type: 'feature'
 ticket: '8'
 created: '2026-11-12'
-status: 'built'
+status: done
 baseline_revision: '75355baa388771d7e73ce782a1b4d1e38d694320'
 route: 'full'
 route_source: 'auto'

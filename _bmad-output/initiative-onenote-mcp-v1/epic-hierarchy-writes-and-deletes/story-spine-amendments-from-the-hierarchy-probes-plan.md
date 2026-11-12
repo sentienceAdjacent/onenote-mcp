@@ -3,7 +3,7 @@ title: 'Spine amendments from the hierarchy probes'
 type: 'chore'
 ticket: '2'
 created: '2026-11-12'
-status: 'built'
+status: done
 baseline_revision: 'fcb8663f676aaeb379f5690aeb427f1ba0963d9b'
 route: 'full'
 route_source: 'auto'
