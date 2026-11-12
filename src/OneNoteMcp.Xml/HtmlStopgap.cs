@@ -170,12 +170,19 @@ internal static class HtmlStopgap
 
         if (url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
         {
-            var query = url.IndexOf('?', StringComparison.Ordinal);
-            return query < 0 || ParameterSeparator.Split(url[(query + 1)..]).Where(p => p.Length > 0)
-                .All(p => FullyDecoded(p.Split('=')[0]) is { } key && MailtoKeys.Contains(key));
+            // Checked as sent and fully percent-decoded: a mail client may decode %3F, %26 and %3D into a query.
+            return HasOnlyMailtoKeys(url) && HasOnlyMailtoKeys(decoded);
         }
 
         return AllowedUrl.IsMatch(url) || IsAllowedOneNoteLink(url);
+    }
+
+    /// <summary>True when every key in the <c>mailto:</c> URL's query (from its first <c>?</c>) is an allowed one.</summary>
+    private static bool HasOnlyMailtoKeys(string url)
+    {
+        var query = url.IndexOf('?', StringComparison.Ordinal);
+        return query < 0 || ParameterSeparator.Split(url[(query + 1)..]).Where(p => p.Length > 0)
+            .All(p => MailtoKeys.Contains(p.Split('=')[0]));
     }
 
     /// <summary>

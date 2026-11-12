@@ -269,6 +269,9 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"mailto:x@example.invalid?subject=hi&amp;attachment=/etc/passwd\">m</a>")]
     [InlineData("<a href=\"mailto:x@example.invalid?Attach=%5C%5Cevil%5Cs%5Cx\">m</a>")]
     [InlineData("<a href=\"mailto:x@example.invalid?subject=a&amp;&amp;attach=x\">m</a>")]
+    [InlineData("<a href=\"mailto:x@example.invalid%3Fattach=C:/x\">m</a>")] // a query only after percent-decoding
+    [InlineData("<a href=\"mailto:x@example.invalid?subject=a%26attach%3DC:/x\">m</a>")]
+    [InlineData("<a href=\"mailto:x@example.invalid%253Fattach%253DC:/x\">m</a>")]
     [InlineData("<a href=\"http://\\\\evil\\s\\x\">h</a>")]
     [InlineData("<a href=\"https://example.invalid/a%5Cb\">h</a>")]
     [InlineData("<\u0131mg src=\\\\evil\\x.png>")] // dotless i: IMG to a parser that upper-cases with Unicode rules
