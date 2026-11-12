@@ -3,7 +3,7 @@ title: 'Spine amendments from the hierarchy probes'
 type: 'chore'
 ticket: '2'
 created: '2026-11-12'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'fcb8663f676aaeb379f5690aeb427f1ba0963d9b'
 route: 'full'
 route_source: 'auto'
@@ -85,7 +85,7 @@ context:
 - [x] epic 5 `epic-hierarchy-writes-and-deletes.md`, `tickets.toml` -- per Q7.
 - [x] `deferred-work.md` -- "Resolved (rule)" entries for the five items taken, naming who builds them (remaps: entry 4).
 - [x] lint; fix findings.
-- [ ] (orchestrating session) Fable final review, Phill's fixes and approval, memlog `event`, `updated`.
+- [x] (orchestrating session) Fable final review, Phill's fixes and approval, memlog `event`, `updated`.
 
 **Acceptance Criteria:**
 - Given the amended spine, when each 5.1 constraint 1–18 is traced, then it lands in an AD or a Deferred row, or is recorded as no change.
