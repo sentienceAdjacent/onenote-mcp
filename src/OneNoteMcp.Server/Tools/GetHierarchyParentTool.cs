@@ -30,13 +30,11 @@ public sealed class GetHierarchyParentTool(ToolRunner runner, GetHierarchyParent
     public Task<CallToolResult> GetHierarchyParent(
         [Description("OneNote ID of the page, section, section group or notebook.")] string objectId,
         CancellationToken cancellationToken = default,
-        McpServer? server = null,
-        RequestContext<CallToolRequestParams>? request = null) =>
+        McpServer? server = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, objectId ?? string.Empty, ct),
             cancellationToken,
-            ElicitationGrantPrompt.For(server),
-            request: request);
+            ElicitationGrantPrompt.For(server));
 }

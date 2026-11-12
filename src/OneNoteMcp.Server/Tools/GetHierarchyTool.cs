@@ -37,13 +37,11 @@ public sealed class GetHierarchyTool(ToolRunner runner, GetHierarchyUseCase useC
         [Description("How deep to read: self (the start node only), children (its direct children), notebooks, sections or pages (down to that level). Defaults to notebooks.")]
         HierarchyScopeArgument scope = HierarchyScopeArgument.Notebooks,
         CancellationToken cancellationToken = default,
-        McpServer? server = null,
-        RequestContext<CallToolRequestParams>? request = null) =>
+        McpServer? server = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, startNodeId ?? string.Empty, scope.ToCore(), ct),
             cancellationToken,
-            ElicitationGrantPrompt.For(server),
-            request: request);
+            ElicitationGrantPrompt.For(server));
 }

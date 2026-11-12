@@ -35,13 +35,11 @@ public sealed class GetBinaryPageContentTool(ToolRunner runner, GetBinaryPageCon
         [Description("OneNote ID of the page.")] string pageId,
         [Description("The callbackID of the binary object, from its one:CallbackID element in get_page_content's default XML (includeBinary false).")] string callbackId,
         CancellationToken cancellationToken = default,
-        McpServer? server = null,
-        RequestContext<CallToolRequestParams>? request = null) =>
+        McpServer? server = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, pageId ?? string.Empty, callbackId ?? string.Empty, ct),
             cancellationToken,
-            ElicitationGrantPrompt.For(server),
-            request: request);
+            ElicitationGrantPrompt.For(server));
 }
