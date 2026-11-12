@@ -243,7 +243,7 @@ public sealed partial class CreatePageIntegrationTests(ITestOutputHelper output)
         var useCase = new CreatePageUseCase(
             run.Gateway,
             new WriteAccess(run.Gateway, store.Read),
-            new WritePipeline(new WriteLock(), PageTextCache.WithDefaults(), store.Read));
+            new WritePipeline(new WriteLock(), run.Gateway, PageTextCache.WithDefaults(), store.Read));
         return new CreatePageTool(new ToolRunner(NullLogger<ToolRunner>.Instance), useCase);
     }
 

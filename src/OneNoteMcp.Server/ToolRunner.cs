@@ -2,12 +2,10 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.UseCases;
-using OneNoteMcp.Server.Tools;
 
 namespace OneNoteMcp.Server;
 
@@ -15,9 +13,8 @@ namespace OneNoteMcp.Server;
 /// Runs one tool call: creates the correlationId, runs the use case, hands an oversized result to the result store
 /// (AD-20), turns every outcome into the AD-9 envelope and never throws. Logs one stderr line per call with the
 /// correlationId, tool, code, HRESULT and duration, the result store's IDs and sizes, and the search page-text cache's
-/// counts and sizes, never XML or page content (AD-13). A call that came through the SDK (<c>request</c> set) is first
-/// checked for argument names its tool doesn't declare (story 2.5, AD-9): any is <see cref="ErrorCode.InvalidArgument"/>
-/// before the use case runs.
+/// counts and sizes, never XML or page content (AD-13). A call whose arguments don't fit its tool's input schema never
+/// gets here: the call-tool filter refuses it through <see cref="Refuse"/> before the SDK binds it (story 2.14, AD-9).
 /// </summary>
 public sealed partial class ToolRunner
 {
@@ -43,8 +40,7 @@ public sealed partial class ToolRunner
         IUseCase useCase,
         Func<ToolCallContext, CancellationToken, Task<ToolSuccess>> run,
         CancellationToken cancellationToken,
-        Core.Access.IGrantPrompt? prompt = null,
-        RequestContext<CallToolRequestParams>? request = null)
+        Core.Access.IGrantPrompt? prompt = null)
     {
         ArgumentNullException.ThrowIfNull(useCase);
         ArgumentNullException.ThrowIfNull(run);
@@ -59,11 +55,6 @@ public sealed partial class ToolRunner
         PageTextCacheUse? searchCache = null;
         try
         {
-            if (request is not null)
-            {
-                RejectUnknownArguments(tool, request);
-            }
-
             var success = await run(context, cancellationToken).ConfigureAwait(false);
             searchCache = success.SearchCache;
             var outcome = delivery.Deliver(success, settings);
@@ -183,34 +174,19 @@ public sealed partial class ToolRunner
     };
 
     /// <summary>
-    /// Story 2.5: throws <see cref="ErrorCode.InvalidArgument"/> when the call sent an argument name its tool's input
-    /// schema doesn't declare. The SDK has already bound the call, so its own argument errors came first (AD-9).
+    /// Story 2.14 (AD-9): a call refused before anything ran, such as one whose arguments don't fit the tool's input
+    /// schema. The failure envelope gets a fresh correlationId and the error's own <c>retryable</c>; the call is logged as
+    /// one call line with the code, never the error's message (it names the caller's arguments, AD-13). No use case, so
+    /// no gateway call, grant prompt or write lock.
     /// </summary>
-    private static void RejectUnknownArguments(string tool, RequestContext<CallToolRequestParams> request)
+    public CallToolResult Refuse(string tool, OneNoteException error)
     {
-        var schema = InputSchema(request)
-            ?? throw new OneNoteException(ErrorCode.Internal, $"No input schema was found for {tool}.");
-        var declared = ArgumentNames.Declared(schema);
-        var unknown = ArgumentNames.Unknown(declared, request.Params?.Arguments?.Keys);
-        if (unknown.Count > 0)
-        {
-            throw new OneNoteException(ErrorCode.InvalidArgument, ArgumentNames.Message(tool, declared, unknown));
-        }
-    }
+        ArgumentNullException.ThrowIfNull(error);
 
-    /// <summary>The called tool's input schema: the SDK's matched tool, else the server's tool of that name.</summary>
-    private static JsonElement? InputSchema(RequestContext<CallToolRequestParams> request)
-    {
-        if (request.MatchedPrimitive is McpServerTool matched)
-        {
-            return matched.ProtocolTool.InputSchema;
-        }
-
-        return request.Params?.Name is { } name
-            && request.Server.ServerOptions.ToolCollection is { } tools
-            && tools.TryGetPrimitive(name, out var listed)
-                ? listed.ProtocolTool.InputSchema
-                : null;
+        var correlationId = Guid.NewGuid().ToString("N");
+        var envelope = ToolEnvelope.Failure(ToolErrors.From(error, OperationClass.Read), new ToolMeta(correlationId));
+        LogCall(logger, correlationId, tool, error.Code.ToString(), envelope.Error?.HResult ?? "-", 0);
+        return ToResult(envelope);
     }
 
     private static ToolEnvelope Failure(OneNoteException ex, OperationClass operationClass, ToolCallContext context) =>

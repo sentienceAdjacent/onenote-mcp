@@ -3,9 +3,10 @@ namespace OneNoteMcp.Core;
 /// <summary>
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
-/// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and <see cref="CreateNewPageAsync"/>, a <c>Create</c>
-/// call only the write pipeline makes (AD-7); every XML result is 2013-schema, returned unchanged (AD-4). IDs are
-/// opaque strings, passed through unchanged.
+/// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and the writes only the write pipeline makes (AD-7):
+/// <see cref="CreateNewPageAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
+/// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
+/// IDs are opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
 {
@@ -49,4 +50,27 @@ public interface IOneNoteGateway
     /// check and under the write lock (AD-18).
     /// </summary>
     Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>PageWrite</c>, AD-7): applies <paramref name="pageXml"/>, a 2013-schema page document, with
+    /// <c>force: false</c>. <paramref name="expectedLastModified"/> is the page's <c>lastModifiedTime</c> exactly as
+    /// OneNote wrote it; one that is empty, unparsable or the minimum date is refused with
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. Never retried after a disconnect (AD-3). Only the write
+    /// pipeline calls it, after the access check and under the write lock (AD-18).
+    /// </summary>
+    Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>PageWrite</c>, AD-7): deletes the object <paramref name="objectId"/> from the page
+    /// <paramref name="pageId"/> with <c>force: false</c>. The date rules and callers are those of
+    /// <see cref="UpdatePageContentAsync"/>.
+    /// </summary>
+    Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct);
+
+    /// <summary>
+    /// Completes once no abandoned write is outstanding: a write that started in OneNote and whose caller stopped
+    /// waiting (a timeout, or a cancel while it ran) and that hasn't returned yet (AD-3). Completes at once when there
+    /// is none. Only the write pipeline waits on it, to keep the write lock until such a call settles.
+    /// </summary>
+    Task WaitForAbandonedWritesAsync(CancellationToken ct);
 }

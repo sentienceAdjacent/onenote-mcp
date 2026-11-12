@@ -37,13 +37,11 @@ public sealed class CreatePageTool(ToolRunner runner, CreatePageUseCase useCase)
         [Description("The new page's layout: blankPageWithTitle (an empty page with a title line; the default), blankPageNoTitle (no title line), or default (the section's own page template, which may add content).")]
         PageStyleArgument style = PageStyleArgument.BlankPageWithTitle,
         CancellationToken cancellationToken = default,
-        McpServer? server = null,
-        RequestContext<CallToolRequestParams>? request = null) =>
+        McpServer? server = null) =>
         runner.RunAsync(
             Name,
             useCase,
             (context, ct) => useCase.ExecuteAsync(context, sectionId ?? string.Empty, style.ToCore(), ct),
             cancellationToken,
-            ElicitationGrantPrompt.For(server),
-            request: request);
+            ElicitationGrantPrompt.For(server));
 }
