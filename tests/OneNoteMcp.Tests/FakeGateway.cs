@@ -12,7 +12,9 @@ namespace OneNoteMcp.Tests;
 /// <remarks>
 /// The story-3 scripting stays: <see cref="HierarchyXml"/>, when set, answers every <c>GetHierarchy</c>;
 /// <see cref="Failure"/>, when set, is thrown by every method; <see cref="Calls"/> records <c>GetHierarchy</c> calls.
-/// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21), which have no fixture.
+/// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21), and <see cref="CreateCalls"/> records
+/// <c>CreateNewPage</c> calls (story 2.4); <see cref="UpdateCalls"/> and <see cref="DeleteCalls"/> record the page
+/// writes (story 2.7), and <see cref="AbandonedWrites"/> scripts an outstanding abandoned write. None has a fixture.
 /// <para>
 /// Story 1.20's access check resolves a page's section (<c>GetHierarchyParent</c>, then <c>GetHierarchy</c> of the
 /// parent at <c>Self</c>) and reads a search's scope at <c>Sections</c>. <see cref="Parents"/> and
@@ -117,6 +119,68 @@ internal sealed class FakeGateway : IOneNoteGateway
         NavigateCalls.Add((hierarchyId, objectId));
         return Failure is not null ? Task.FromException(Failure) : Task.CompletedTask;
     }
+
+    /// <summary>Every <c>CreateNewPage</c> call, in order (story 2.4). It has no fixture: it records and returns <see cref="CreatedPageId"/>.</summary>
+    public List<(string SectionId, NewPageStyle Style)> CreateCalls { get; } = [];
+
+    /// <summary>When set, <c>CreateNewPage</c> alone throws it, so the steps before the call still succeed.</summary>
+    public Exception? CreateFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>CreateNewPage</c> before it answers, with the call's token (a hook to observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnCreate { get; set; }
+
+    /// <summary>The synthetic ID the <paramref name="n"/>th create (from 1) returns.</summary>
+    public static string CreatedPageId(int n) =>
+        string.Create(CultureInfo.InvariantCulture, $"{{C4EA7E00-0000-4000-8000-000000000001}}{{1}}{{E{n:D44}}}");
+
+    public async Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct)
+    {
+        CreateCalls.Add((sectionId, style));
+        if (OnCreate is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? CreateFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        return CreatedPageId(CreateCalls.Count);
+    }
+
+    /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
+    public List<(string PageXml, string ExpectedLastModified)> UpdateCalls { get; } = [];
+
+    /// <summary>When set, <c>UpdatePageContent</c> alone throws it.</summary>
+    public Exception? UpdateFailure { get; set; }
+
+    /// <summary>Every <c>DeletePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
+    public List<(string PageId, string ObjectId, string ExpectedLastModified)> DeleteCalls { get; } = [];
+
+    /// <summary>When set, <c>DeletePageContent</c> alone throws it.</summary>
+    public Exception? DeleteFailure { get; set; }
+
+    /// <summary>
+    /// When set, <c>WaitForAbandonedWritesAsync</c> waits on it, as if an abandoned write were outstanding until it
+    /// completes; when null there is none, and the wait completes at once.
+    /// </summary>
+    public TaskCompletionSource? AbandonedWrites { get; set; }
+
+    public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
+    {
+        UpdateCalls.Add((pageXml, expectedLastModified));
+        return (Failure ?? UpdateFailure) is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+    }
+
+    public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct)
+    {
+        DeleteCalls.Add((pageId, objectId, expectedLastModified));
+        return (Failure ?? DeleteFailure) is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+    }
+
+    public Task WaitForAbandonedWritesAsync(CancellationToken ct) =>
+        AbandonedWrites is { } pending ? pending.Task.WaitAsync(ct) : Task.CompletedTask;
 
     private static string Bool(bool value) => value ? "true" : "false";
 

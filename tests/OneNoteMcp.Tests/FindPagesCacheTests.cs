@@ -537,5 +537,13 @@ public sealed class FindPagesCacheTests
         public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) => throw new NotSupportedException();
 
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
     }
 }

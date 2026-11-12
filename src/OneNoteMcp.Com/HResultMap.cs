@@ -80,26 +80,97 @@ internal static class HResultMap
     /// <summary>The documented name, or null for an HRESULT in neither table.</summary>
     internal static string? Name(int hresult) => Names.GetValueOrDefault(hresult);
 
+    /// <summary>For the insert failures: the change may have partly applied.</summary>
+    internal const string InsertingUserAction =
+        "OneNote couldn't insert one element. Re-read the page to see what was applied, then send a corrected change for that element.";
+
     /// <summary>
-    /// Maps by family (AD-9). The codes left deliberately <see cref="ErrorCode.Internal"/>, and why, are listed in AD-9;
-    /// everything else unmapped falls to <see cref="ErrorCode.Internal"/> by the default arm.
+    /// The triage of every named HRESULT (AD-9, story 2.7): its code, plus its own <c>userAction</c> and
+    /// <c>retryable</c> flag where the code's defaults don't fit (null fields keep the defaults). The codes AD-9 keeps
+    /// deliberately <see cref="ErrorCode.Internal"/> get a row too, with a specific action where one helps. Only an
+    /// HRESULT with no name falls to <see cref="ErrorCode.Internal"/> and the defaults.
     /// </summary>
-    internal static ErrorCode ToErrorCode(int hresult) => unchecked((uint)hresult) switch
+    internal static readonly FrozenDictionary<int, Triage> Triaged = new Dictionary<int, Triage>
     {
+        // OneNote codes, 0x80042000–0x80042031 (the docs skip 0x80042021).
+        [unchecked((int)0x80042000)] = new(ErrorCode.InvalidXml),
+        [unchecked((int)0x80042001)] = new(ErrorCode.InvalidXml),
+        [unchecked((int)0x80042002)] = new(ErrorCode.Internal, "OneNote couldn't create the section. Check that its folder is writable and its name is valid."),
+        [unchecked((int)0x80042003)] = new(ErrorCode.Internal, "OneNote couldn't open the section. Ask the user to open it in OneNote to see why (still syncing, or its file is missing), then retry.", Retryable: true),
+        [unchecked((int)0x80042004)] = new(ErrorCode.ObjectNotFound),
+        [unchecked((int)0x80042005)] = new(ErrorCode.ObjectNotFound),
+        [unchecked((int)0x80042006)] = new(ErrorCode.Internal), // A path, not an object (AD-9).
+        [unchecked((int)0x80042007)] = new(ErrorCode.Internal, InsertingUserAction),
+        [unchecked((int)0x80042008)] = new(ErrorCode.Internal, InsertingUserAction),
+        [unchecked((int)0x80042009)] = new(ErrorCode.Internal, InsertingUserAction),
+        [unchecked((int)0x8004200A)] = new(ErrorCode.Internal, "OneNote couldn't go to the page. Re-read the hierarchy to check the ID."),
+        [unchecked((int)0x8004200B)] = new(ErrorCode.Internal, "OneNote reports the section as read-only (for example a view-only share). Ask the user for edit access, then retry.", Retryable: true),
+        [unchecked((int)0x8004200C)] = new(ErrorCode.Internal, "OneNote reports the page as read-only. Ask the user to make it editable in OneNote, then retry.", Retryable: true),
+        [unchecked((int)0x8004200D)] = new(ErrorCode.Internal, InsertingUserAction),
+        [unchecked((int)0x8004200E)] = new(ErrorCode.ObjectNotFound),
+        [unchecked((int)0x8004200F)] = new(ErrorCode.Internal), // Reads degrade it to the BinaryUnavailable warning (AD-9).
+        [unchecked((int)0x80042010)] = new(ErrorCode.StaleWrite),
+        [unchecked((int)0x80042011)] = new(ErrorCode.ObjectNotFound),
+        [unchecked((int)0x80042012)] = new(ErrorCode.ObjectNotFound),
+        [unchecked((int)0x80042013)] = new(ErrorCode.Internal), // Selection: no v1 call reaches it.
+        [unchecked((int)0x80042014)] = new(ErrorCode.ObjectNotFound),
+        [unchecked((int)0x80042015)] = new(ErrorCode.ObjectNotFound),
+        [unchecked((int)0x80042016)] = new(ErrorCode.Internal, InsertingUserAction),
+        [unchecked((int)0x80042017)] = new(ErrorCode.Internal, "OneNote refused the name. Choose a different name."),
+        [unchecked((int)0x80042018)] = new(ErrorCode.Internal), // A path, not an object (AD-9).
+        [unchecked((int)0x80042019)] = new(ErrorCode.InvalidQuery),
+        [unchecked((int)0x8004201A)] = new(ErrorCode.FileExists),
+        [unchecked((int)0x8004201B)] = new(ErrorCode.SectionLocked),
+        [unchecked((int)0x8004201C)] = new(ErrorCode.Internal, "An administrator policy turns this off in OneNote, so retrying won't help. The user's administrator can change the policy."),
+        [unchecked((int)0x8004201D)] = new(ErrorCode.ComBusy),
+        [unchecked((int)0x8004201E)] = new(ErrorCode.Internal, "The section is in the OneNote 2007 format or older. Ask the user to upgrade the notebook in OneNote, then retry.", Retryable: true),
+        [unchecked((int)0x8004201F)] = new(ErrorCode.Internal, "OneNote couldn't merge the change. Re-read the object to see its current state."),
+        [unchecked((int)0x80042020)] = new(ErrorCode.InvalidXml),
+        [unchecked((int)0x80042022)] = new(ErrorCode.Internal, "The change would lose content a newer OneNote wrote. Don't repeat it; ask the user to edit that content in OneNote."),
+        [unchecked((int)0x80042023)] = new(ErrorCode.Timeout),
+        [unchecked((int)0x80042024)] = new(ErrorCode.Internal, "A recording is in progress in OneNote. Ask the user to stop it, then retry.", Retryable: true),
+
+        // Linked notes, unread marks, selection and IM: no v1 call reaches these.
+        [unchecked((int)0x80042025)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80042026)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80042027)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80042028)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80042029)] = new(ErrorCode.Internal),
+        [unchecked((int)0x8004202A)] = new(ErrorCode.Internal),
+        [unchecked((int)0x8004202B)] = new(ErrorCode.Internal),
+        [unchecked((int)0x8004202C)] = new(ErrorCode.Internal),
+        [unchecked((int)0x8004202D)] = new(ErrorCode.Internal, "OneNote couldn't convert the content. Re-read the object to see its current state."),
+        [unchecked((int)0x8004202E)] = new(ErrorCode.Internal, "The target is in the notebook's recycle bin. Use a current ID, or ask the user to restore it in OneNote."),
+        [unchecked((int)0x8004202F)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80042030)] = new(ErrorCode.ModalDialogOpen),
+        [unchecked((int)0x80042031)] = new(ErrorCode.Internal, "OneNote can't publish labels in this format. Choose another format."),
+
+        // Generic COM / RPC codes.
+        [unchecked((int)0x80004005)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80040154)] = new(ErrorCode.Internal),
+
         // CO_E_SERVER_EXEC_FAILURE: the gateway checks integrity levels before it calls COM (AD-3), so this can still come
         // back at activation only after the check passed; cause not observed. ComUnavailable, not IntegrityMismatch.
-        0x80080005 or 0x800706BA or 0x80010108 => ErrorCode.ComUnavailable,
-        0x80010001 or 0x8001010A or 0x8004201D => ErrorCode.ComBusy,
-        0x80042030 => ErrorCode.ModalDialogOpen,
-        0x8004201B => ErrorCode.SectionLocked,
-        0x80042010 => ErrorCode.StaleWrite,
-        0x80042023 => ErrorCode.Timeout,
-        0x80042004 or 0x80042005 or 0x8004200E or 0x80042011 or 0x80042012 or 0x80042014 or 0x80042015 => ErrorCode.ObjectNotFound,
-        0x80042000 or 0x80042001 or 0x80042020 => ErrorCode.InvalidXml,
-        0x80042019 => ErrorCode.InvalidQuery,
-        0x8004201A => ErrorCode.FileExists,
-        _ => ErrorCode.Internal,
-    };
+        [unchecked((int)0x80080005)] = new(ErrorCode.ComUnavailable, ServerExecFailureUserAction),
+        [unchecked((int)0x800706BA)] = new(ErrorCode.ComUnavailable),
+        [unchecked((int)0x800706BE)] = new(ErrorCode.Internal), // Ambiguous: bad XML, or OneNote crashing mid-call (AD-9).
+        [unchecked((int)0x80010108)] = new(ErrorCode.ComUnavailable),
+        [unchecked((int)0x80010001)] = new(ErrorCode.ComBusy),
+        [unchecked((int)0x8001010A)] = new(ErrorCode.ComBusy),
+        [unchecked((int)0x80070005)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80070057)] = new(ErrorCode.Internal),
+        [unchecked((int)0x80020005)] = new(ErrorCode.Internal),
+        [unchecked((int)0x8002000E)] = new(ErrorCode.Internal),
+    }.ToFrozenDictionary();
+
+    /// <summary>The code <see cref="Triaged"/> gives; <see cref="ErrorCode.Internal"/> for an HRESULT with no row.</summary>
+    internal static ErrorCode ToErrorCode(int hresult) => Triaged.TryGetValue(hresult, out var triage) ? triage.Code : ErrorCode.Internal;
+
+    /// <summary>The HRESULT's own <c>userAction</c>, or null when its code's default applies.</summary>
+    internal static string? UserAction(int hresult) => Triaged.TryGetValue(hresult, out var triage) ? triage.UserAction : null;
+
+    /// <summary>The HRESULT's own <c>retryable</c> flag, or null when its code's default applies.</summary>
+    internal static bool? Retryable(int hresult) => Triaged.TryGetValue(hresult, out var triage) ? triage.Retryable : null;
 
     /// <summary><c>"{what} failed: {name} (0x80042014)."</c>, or hex only when the HRESULT has no known name.</summary>
     internal static string FailureMessage(string what, int hresult)
@@ -117,5 +188,9 @@ internal static class HResultMap
             FailureMessage(what, ex.HResult),
             ex.HResult,
             ex,
-            userAction: unchecked((uint)ex.HResult) == 0x80080005 ? ServerExecFailureUserAction : null);
+            userAction: UserAction(ex.HResult),
+            retryable: Retryable(ex.HResult));
 }
+
+/// <summary>One row of <see cref="HResultMap.Triaged"/>: the code, and the action and retry flag that override its defaults when set.</summary>
+internal readonly record struct Triage(ErrorCode Code, string? UserAction = null, bool? Retryable = null);

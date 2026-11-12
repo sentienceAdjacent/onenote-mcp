@@ -3,9 +3,12 @@ using System.Runtime.InteropServices;
 using OneNoteMcp.Com.Interop;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Settings;
+using OneNoteMcp.Xml;
+using CoreNewPageStyle = OneNoteMcp.Core.NewPageStyle;
 using CorePageInfo = OneNoteMcp.Core.PageInfo;
 using CoreScope = OneNoteMcp.Core.HierarchyScope;
 using CoreSpecialLocation = OneNoteMcp.Core.SpecialLocation;
+using InteropNewPageStyle = OneNoteMcp.Com.Interop.NewPageStyle;
 using InteropPageInfo = OneNoteMcp.Com.Interop.PageInfo;
 using InteropScope = OneNoteMcp.Com.Interop.HierarchyScope;
 using InteropSpecialLocation = OneNoteMcp.Com.Interop.SpecialLocation;
@@ -21,10 +24,17 @@ namespace OneNoteMcp.Com;
 /// fail <see cref="ErrorCode.ComBusy"/>, and the next call gets a fresh worker. A poisoned worker releases its COM
 /// reference and exits if its call ever returns. While <see cref="MaxAbandonedWorkers"/> are outstanding, every call
 /// returns <see cref="ErrorCode.ComUnavailable"/> without touching COM.</item>
-/// <item>A disconnect drops the reference, re-runs every activation rule and retries a read once.</item>
+/// <item>A write (<c>CreateNewPage</c>, <c>UpdatePageContent</c>, <c>DeletePageContent</c>, or the raw seam without the
+/// disconnect retry) that started in OneNote and was then left, by its deadline or its caller's cancel, is outstanding
+/// until it returns. Meanwhile every call but a read (writes, <c>NavigateTo</c>) returns <see cref="ErrorCode.ComBusy"/>
+/// without touching COM, and <see cref="WaitForAbandonedWritesAsync"/> stays pending. A write abandoned while still
+/// queued never ran and isn't tracked.</item>
+/// <item>A disconnect drops the reference, re-runs every activation rule and retries a read once; never a write or
+/// <c>NavigateTo</c>.</item>
 /// <item>Busy is retried with backoff until just before the deadline, then returns <see cref="ErrorCode.ComBusy"/>, so
 /// busy never poisons a worker. <c>0x8004201D</c> returns <see cref="ErrorCode.ComBusy"/> at once.</item>
-/// <item>Activation: process check (unless <c>allowSilentActivation</c>), integrity check, then <c>CoCreateInstance</c>
+/// <item>Activation: process check (unless <c>allowSilentActivation</c>; an <c>ONENOTE.EXE</c> Windows Error Reporting is
+/// handling doesn't count as running), integrity check, then <c>CoCreateInstance</c>
 /// on the worker under <c>timeouts.activation</c>. Settings are re-read at every activation.</item>
 /// <item>The COM reference is released after <c>timeouts.idleRelease</c> with no call.</item>
 /// </list>
@@ -57,6 +67,9 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     private int inFlight;
     private int workerSerial;
     private bool disposed;
+    private int outstandingWrites;
+    private int abandonedWritesTracked;
+    private TaskCompletionSource? writesSettled;
 
     public ComGateway(IProcessProbe probe, SettingsStore settings)
         : this(probe, () => GatewaySettings.From(settings.Read()), CreateApplication)
@@ -116,7 +129,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.GetHierarchy(startNodeId ?? string.Empty, interopScope, out var xml, XMLSchema.xs2013);
                 return xml;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
     }
 
@@ -128,7 +141,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.GetHierarchyParent(objectId ?? string.Empty, out var parent);
                 return parent;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
 
     public Task<string> GetPageContentAsync(string pageId, CorePageInfo pageInfo, CancellationToken ct)
@@ -141,7 +154,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.GetPageContent(pageId ?? string.Empty, out var xml, interopInfo, XMLSchema.xs2013);
                 return xml;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
     }
 
@@ -153,7 +166,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.GetBinaryPageContent(pageId ?? string.Empty, callbackId ?? string.Empty, out var base64);
                 return base64;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
 
     public Task<string> FindPagesAsync(string startNodeId, string query, bool includeUnindexed, CancellationToken ct) =>
@@ -165,7 +178,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.FindPages(startNodeId ?? string.Empty, query ?? string.Empty, out var xml, includeUnindexed, fDisplay: false, XMLSchema.xs2013);
                 return xml;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
 
     public Task<string> FindMetaAsync(string startNodeId, string name, bool includeUnindexed, CancellationToken ct) =>
@@ -176,7 +189,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.FindMeta(startNodeId ?? string.Empty, name ?? string.Empty, out var xml, includeUnindexed, XMLSchema.xs2013);
                 return xml;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
 
     public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
@@ -187,7 +200,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.GetHyperlinkToObject(hierarchyId ?? string.Empty, pageContentObjectId ?? string.Empty, out var link);
                 return link;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
 
     public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
@@ -198,7 +211,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.GetWebHyperlinkToObject(hierarchyId ?? string.Empty, pageContentObjectId ?? string.Empty, out var link);
                 return link;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
 
     public Task<string> GetSpecialLocationAsync(CoreSpecialLocation location, CancellationToken ct)
@@ -211,7 +224,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 app.GetSpecialLocation(interopLocation, out var path);
                 return path;
             },
-            retryOnDisconnect: true,
+            CallKind.Read,
             ct);
     }
 
@@ -225,17 +238,107 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 return true;
             },
             // AppState, not a read: a call that reached COM and then lost the connection isn't repeated (AD-3).
-            retryOnDisconnect: false,
+            CallKind.AppState,
             ct);
+
+    public Task<string> CreateNewPageAsync(string sectionId, CoreNewPageStyle style, CancellationToken ct)
+    {
+        var interopStyle = MapNewPageStyle(style);
+        return RunAsync(
+            nameof(IApplication.CreateNewPage),
+            app =>
+            {
+                app.CreateNewPage(sectionId ?? string.Empty, out var pageId, interopStyle);
+                return pageId;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
+    public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.UpdatePageContent);
+        if (OneNoteDates.ToUtc(expectedLastModified) is not { } date)
+        {
+            return Task.FromException(BadExpectedDate(method));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // force is always false: OneNote checks the date for an open page (AD-7, AD-17).
+                app.UpdatePageContent(pageXml ?? string.Empty, date, XMLSchema.xs2013, force: false);
+                return true;
+            },
+            CallKind.Write,
+            ct);
+    }
+
+    public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.DeletePageContent);
+        if (OneNoteDates.ToUtc(expectedLastModified) is not { } date)
+        {
+            return Task.FromException(BadExpectedDate(method));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.DeletePageContent(pageId ?? string.Empty, objectId ?? string.Empty, date, force: false);
+                return true;
+            },
+            CallKind.Write,
+            ct);
+    }
+
+    public Task WaitForAbandonedWritesAsync(CancellationToken ct)
+    {
+        lock (gate)
+        {
+            return writesSettled is { } settled ? settled.Task.WaitAsync(ct) : Task.CompletedTask;
+        }
+    }
 
     /// <summary>
     /// Raw seam for unit tests and the integration suite's guarded writes: runs <paramref name="call"/> under the same
-    /// lifecycle as every port method. A write passes <paramref name="retryOnDisconnect"/> false, which turns off only the
-    /// disconnect retry (AD-3). Busy (<c>RPC_E_CALL_REJECTED</c>, <c>RETRYLATER</c>) is still retried with backoff: a
-    /// rejected call never ran.
+    /// lifecycle as every port method. A write passes <paramref name="retryOnDisconnect"/> false, which makes it a write
+    /// for AD-3: no disconnect retry, refused with <see cref="ErrorCode.ComBusy"/> while an abandoned write is
+    /// outstanding, and tracked if it is abandoned itself. Busy (<c>RPC_E_CALL_REJECTED</c>, <c>RETRYLATER</c>) is still
+    /// retried with backoff: a rejected call never ran.
     /// </summary>
     internal Task<T> InvokeAsync<T>(Func<IApplication, T> call, CancellationToken ct, bool retryOnDisconnect = true, string method = "COM call") =>
-        RunAsync(method, call, retryOnDisconnect, ct);
+        RunAsync(method, call, retryOnDisconnect ? CallKind.Read : CallKind.Write, ct);
+
+    /// <summary>Writes whose caller stopped waiting while they ran in OneNote, and that haven't returned yet.</summary>
+    internal int OutstandingWrites
+    {
+        get
+        {
+            lock (gate)
+            {
+                return outstandingWrites;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every write ever counted as abandoned, settled or not. Only grows, so a test can tell that a write was never
+    /// tracked even when a tracked one would have settled at once (a queued write that never ran has already ended).
+    /// </summary>
+    internal int AbandonedWritesTracked
+    {
+        get
+        {
+            lock (gate)
+            {
+                return abandonedWritesTracked;
+            }
+        }
+    }
 
     public void Dispose()
     {
@@ -284,6 +387,14 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         _ => throw new OneNoteException(ErrorCode.Internal, $"Unknown page info {(int)pageInfo}."),
     };
 
+    internal static InteropNewPageStyle MapNewPageStyle(CoreNewPageStyle style) => style switch
+    {
+        CoreNewPageStyle.Default => InteropNewPageStyle.npsDefault,
+        CoreNewPageStyle.BlankPageWithTitle => InteropNewPageStyle.npsBlankPageWithTitle,
+        CoreNewPageStyle.BlankPageNoTitle => InteropNewPageStyle.npsBlankPageNoTitle,
+        _ => throw new OneNoteException(ErrorCode.Internal, $"Unknown page style {(int)style}."),
+    };
+
     internal static InteropSpecialLocation MapSpecialLocation(CoreSpecialLocation location) => location switch
     {
         CoreSpecialLocation.BackUpFolder => InteropSpecialLocation.slBackUpFolder,
@@ -300,8 +411,10 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     internal static bool IsBusy(Exception ex) =>
         ex is COMException && unchecked((uint)ex.HResult) is 0x80010001 or 0x8001010A;
 
-    private async Task<T> RunAsync<T>(string method, Func<IApplication, T> call, bool retryOnDisconnect, CancellationToken ct)
+    private async Task<T> RunAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct)
     {
+        // First, before any other refusal: nothing but a read goes to OneNote while an abandoned write may still run (AD-3).
+        ThrowIfWriteOutstanding(method, kind);
         BeginCall();
         try
         {
@@ -310,12 +423,12 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             {
                 try
                 {
-                    return await AttemptAsync(method, call, ct).ConfigureAwait(false);
+                    return await AttemptAsync(method, call, kind, ct).ConfigureAwait(false);
                 }
                 catch (ReconnectRequiredException ex)
                 {
                     // An attempt that never reached COM retries freely; one that did gets the read's one retry.
-                    var mayRetry = attempt < MaxAttempts && (!ex.ReachedCom || (retryOnDisconnect && !reconnected));
+                    var mayRetry = attempt < MaxAttempts && (!ex.ReachedCom || (kind == CallKind.Read && !reconnected));
                     if (!mayRetry)
                     {
                         throw ex.ToComUnavailable(method);
@@ -331,7 +444,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
     }
 
-    private async Task<T> AttemptAsync<T>(string method, Func<IApplication, T> call, CancellationToken ct)
+    private async Task<T> AttemptAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct)
     {
         var (worker, settings) = await EnsureActivatedAsync(ct).ConfigureAwait(false);
         var timeout = settings.Timeouts.Call;
@@ -339,6 +452,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         var backoff = FirstBackoff;
         while (true)
         {
+            // Again at each send: a write may have been abandoned while this call activated or backed off.
+            ThrowIfWriteOutstanding(method, kind);
             var item = worker.Enqueue(
                 () =>
                 {
@@ -358,7 +473,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
             try
             {
-                return await AwaitAsync(worker, item, deadline, timeout, method, ct).ConfigureAwait(false);
+                return await AwaitAsync(worker, item, deadline, timeout, method, kind, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (IsBusy(ex))
             {
@@ -379,16 +494,18 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     }
 
     /// <summary>
-    /// Returns the live worker with a COM reference, activating one if needed. The per-call process check drops a
-    /// reference to an OneNote that has gone. Activation re-reads settings, then runs the process check, the integrity
-    /// check and <c>CoCreateInstance</c>, in that order.
+    /// Returns the live worker with a COM reference, activating one if needed. The per-call process check
+    /// (<see cref="IProcessProbe.IsOneNoteStillRunning"/>) drops a reference to an OneNote that has gone or that WER
+    /// names as crashed; a WER process whose command line can't be read doesn't drop it (2.7 Q3). Activation re-reads
+    /// settings, then runs the connecting process check (<see cref="IProcessProbe.IsOneNoteRunning"/>, where that
+    /// unreadable WER process does count as a crash), the integrity check and <c>CoCreateInstance</c>, in that order.
     /// </summary>
     private async Task<(StaThread Worker, GatewaySettings Settings)> EnsureActivatedAsync(CancellationToken ct)
     {
         var (worker, settings) = LiveWorker();
-        if (worker.HasApplication && !probe.IsOneNoteRunning())
+        if (worker.HasApplication && !probe.IsOneNoteStillRunning())
         {
-            // OneNote closed: the reference is dead. Release it on its own thread; activation decides what happens next.
+            // OneNote closed or crashed: the reference is dead. Release it on its own thread; activation decides what happens next.
             worker.Post(worker.ReleaseApplication);
         }
         else if (worker.HasApplication)
@@ -416,21 +533,25 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             (worker, _) = LiveWorker();
             settings = readSettings();
 
+            if (worker.HasApplication && probe.IsOneNoteStillRunning())
+            {
+                // Another call activated while this one waited: that reference is live, so it gets the per-call check,
+                // not the connecting one (2.7 Q3). Still adopt the settings just read.
+                SetSettings(settings);
+                return (worker, settings);
+            }
+
             if (!probe.IsOneNoteRunning())
             {
                 worker.Post(worker.ReleaseApplication);
                 if (!settings.AllowSilentActivation)
                 {
+                    var crashing = probe.IsOneNoteCrashing();
                     throw new OneNoteException(
                         ErrorCode.OneNoteNotRunning,
-                        "OneNote is not running. Start OneNote desktop, then retry.");
+                        crashing ? CrashingMessage : "OneNote is not running. Start OneNote desktop, then retry.",
+                        userAction: crashing ? CrashingUserAction : null);
                 }
-            }
-            else if (worker.HasApplication)
-            {
-                // Another call activated while this one waited; still adopt the settings just read.
-                SetSettings(settings);
-                return (worker, settings);
             }
 
             var integrity = probe.CheckIntegrity();
@@ -462,7 +583,9 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 },
                 ct);
             var timeout = settings.Timeouts.Activation;
-            await AwaitAsync(worker, item, DateTime.UtcNow + timeout, timeout, ActivationWhat, ct).ConfigureAwait(false);
+
+            // Activation writes nothing: an abandoned one isn't an outstanding write.
+            await AwaitAsync(worker, item, DateTime.UtcNow + timeout, timeout, ActivationWhat, CallKind.Read, ct).ConfigureAwait(false);
             SetSettings(settings);
             return (worker, settings);
         }
@@ -474,9 +597,10 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>
     /// Waits for <paramref name="item"/> until <paramref name="deadline"/>. An item still queued at the deadline is
-    /// abandoned (it never touched COM). One that started and is still running is a hang: its worker is poisoned.
+    /// abandoned (it never touched COM). One that started and is still running is a hang: its worker is poisoned. A
+    /// write that started and is then left (a hang, or the caller's cancel while it runs) is outstanding until it returns.
     /// </summary>
-    private async Task<T> AwaitAsync<T>(StaThread worker, WorkItem<T> item, DateTime deadline, TimeSpan timeout, string method, CancellationToken ct)
+    private async Task<T> AwaitAsync<T>(StaThread worker, WorkItem<T> item, DateTime deadline, TimeSpan timeout, string method, CallKind kind, CancellationToken ct)
     {
         var remaining = deadline - DateTime.UtcNow;
         try
@@ -489,6 +613,11 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             if (item.TryAbandon(new OneNoteException(ErrorCode.Timeout, "abandoned")))
             {
                 throw new OneNoteException(ErrorCode.Timeout, $"{method} timed out after {seconds} s waiting for an earlier call to OneNote.");
+            }
+
+            if (kind == CallKind.Write)
+            {
+                TrackAbandonedWrite(item.Task);
             }
 
             Poison(worker);
@@ -504,6 +633,11 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             if (!item.TryAbandon(new OperationCanceledException(ct)))
             {
                 // Already running: the caller stops waiting, but a hang must still poison the worker at the deadline.
+                if (kind == CallKind.Write && !item.Task.IsCompleted)
+                {
+                    TrackAbandonedWrite(item.Task);
+                }
+
                 _ = WatchAfterCancelAsync(worker, item.Task, deadline);
             }
 
@@ -534,6 +668,73 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     private static OneNoteException PoisonedFailure() => new(
         ErrorCode.ComBusy,
         "An earlier call to OneNote stopped responding and was abandoned; retry.");
+
+    /// <summary>The not-running message while Windows Error Reporting handles a crashed <c>ONENOTE.EXE</c> (AD-3).</summary>
+    internal const string CrashingMessage =
+        "OneNote crashed and Windows is still closing it, so the server didn't start a hidden copy. Start OneNote desktop once it has closed, then retry.";
+
+    /// <summary>The userAction that goes with <see cref="CrashingMessage"/>, so the model waits for the crashed copy to close.</summary>
+    internal const string CrashingUserAction = "Wait until the crashed OneNote has closed, start OneNote desktop, then retry.";
+
+    private static OneNoteException BadExpectedDate(string method) => new(
+        ErrorCode.InvalidArgument,
+        $"{method} wasn't sent: the expected last-modified date isn't a date OneNote wrote.",
+        userAction: "Re-read the page and pass its lastModifiedTime exactly as OneNote wrote it.");
+
+    /// <summary>
+    /// AD-3: while an abandoned write may still be running in OneNote, only reads are sent. Anything else (a write,
+    /// <c>NavigateTo</c>) fails <see cref="ErrorCode.ComBusy"/> without touching COM.
+    /// </summary>
+    private void ThrowIfWriteOutstanding(string method, CallKind kind)
+    {
+        if (kind == CallKind.Read)
+        {
+            return;
+        }
+
+        lock (gate)
+        {
+            if (outstandingWrites > 0)
+            {
+                throw new OneNoteException(
+                    ErrorCode.ComBusy,
+                    $"{method} wasn't sent: an earlier write to OneNote timed out or was cancelled and hasn't returned yet.",
+                    userAction: "Wait for OneNote to finish the earlier write, then retry.");
+            }
+        }
+    }
+
+    /// <summary>Counts <paramref name="call"/> as an outstanding abandoned write until it returns, however it ends.</summary>
+    private void TrackAbandonedWrite(Task call)
+    {
+        lock (gate)
+        {
+            outstandingWrites++;
+            abandonedWritesTracked++;
+            writesSettled ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        _ = call.ContinueWith(
+            t =>
+            {
+                // Its outcome belongs to nobody now; observe it so a fault isn't reported as unobserved.
+                _ = t.Exception;
+                TaskCompletionSource? settled = null;
+                lock (gate)
+                {
+                    if (--outstandingWrites == 0)
+                    {
+                        settled = writesSettled;
+                        writesSettled = null;
+                    }
+                }
+
+                settled?.TrySetResult();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
 
     private (StaThread Worker, GatewaySettings Settings) LiveWorker()
     {
@@ -633,6 +834,14 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     {
         var type = Type.GetTypeFromCLSID(OneNoteClsid.Application, throwOnError: true)!;
         return Activator.CreateInstance(type)!;
+    }
+
+    /// <summary>What a call is, for AD-3's rules: a read retries once after a disconnect and runs while a write is outstanding; the others do neither.</summary>
+    private enum CallKind
+    {
+        Read,
+        AppState,
+        Write,
     }
 
     /// <summary>The reference is gone (released, or a reconnect trigger hit). <see cref="ReachedCom"/> says whether COM was called.</summary>

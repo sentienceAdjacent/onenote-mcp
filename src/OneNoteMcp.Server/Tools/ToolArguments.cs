@@ -40,9 +40,31 @@ public enum SpecialLocationArgument
     DefaultNotebookFolder,
 }
 
-/// <summary>Maps the wire enums to Core's. Total over both, so an unknown value is a bug, never a silent default.</summary>
+/// <summary><c>create_page</c>'s <c>style</c> on the wire (AD-14; Phill, 2026-11-10, 2.4 plan Q1).</summary>
+[JsonConverter(typeof(StrictStringEnumConverter<PageStyleArgument>))]
+public enum PageStyleArgument
+{
+    [JsonStringEnumMemberName("default")]
+    Default,
+
+    [JsonStringEnumMemberName("blankPageWithTitle")]
+    BlankPageWithTitle,
+
+    [JsonStringEnumMemberName("blankPageNoTitle")]
+    BlankPageNoTitle,
+}
+
+/// <summary>Maps the wire enums to Core's. Total over each, so an unknown value is a bug, never a silent default.</summary>
 public static class ToolArguments
 {
+    public static NewPageStyle ToCore(this PageStyleArgument style) => style switch
+    {
+        PageStyleArgument.Default => NewPageStyle.Default,
+        PageStyleArgument.BlankPageWithTitle => NewPageStyle.BlankPageWithTitle,
+        PageStyleArgument.BlankPageNoTitle => NewPageStyle.BlankPageNoTitle,
+        _ => throw new ArgumentOutOfRangeException(nameof(style), style, "Unknown page style."),
+    };
+
     public static HierarchyScope ToCore(this HierarchyScopeArgument scope) => scope switch
     {
         HierarchyScopeArgument.Self => HierarchyScope.Self,

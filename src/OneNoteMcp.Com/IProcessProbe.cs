@@ -13,7 +13,23 @@ namespace OneNoteMcp.Com;
 /// </summary>
 public interface IProcessProbe
 {
+    /// <summary>
+    /// The check before connecting (activation, or a reconnect): true when an <c>ONENOTE.EXE</c> runs in this session
+    /// that Windows Error Reporting isn't handling. A crashed one stays listed while WER dumps it; activating COM against
+    /// it would start a hidden <c>-Embedding</c> copy (AD-3). A WER process whose command line can't be read might be
+    /// handling any of them, so then none counts (fail safe).
+    /// </summary>
     bool IsOneNoteRunning();
+
+    /// <summary>
+    /// The per-call check while a COM reference is live: true unless every <c>ONENOTE.EXE</c> has gone or is the
+    /// target of a WER process whose command line names it (a real crash). A WER process whose command line can't be
+    /// read doesn't count here (Phill, 2.7 Q3): it can't be tied to OneNote, and a working connection keeps going.
+    /// </summary>
+    bool IsOneNoteStillRunning() => IsOneNoteRunning();
+
+    /// <summary>True when an <c>ONENOTE.EXE</c> in this session counts as crashing (see <see cref="IsOneNoteRunning"/>).</summary>
+    bool IsOneNoteCrashing() => false;
 
     /// <summary>Compares this process's integrity level with every <c>ONENOTE.EXE</c> in this session. Never touches COM.</summary>
     IntegrityReport CheckIntegrity();
@@ -55,7 +71,67 @@ public sealed record IntegrityReport(int? ServerLevel, IReadOnlyList<OneNoteInte
 /// </summary>
 public sealed class ProcessProbe : IProcessProbe
 {
-    public bool IsOneNoteRunning() => SessionOneNoteProcessIds().Count > 0;
+    private static readonly string[] WerProcessNames = ["WerFault", "WerFaultSecure"];
+
+    public bool IsOneNoteRunning()
+    {
+        var oneNote = SessionProcessIds("ONENOTE");
+        return oneNote.Count > 0 && Running(oneNote, WerCommandLines(), connecting: true).Count > 0;
+    }
+
+    public bool IsOneNoteStillRunning()
+    {
+        var oneNote = SessionProcessIds("ONENOTE");
+        return oneNote.Count > 0 && Running(oneNote, WerCommandLines(), connecting: false).Count > 0;
+    }
+
+    public bool IsOneNoteCrashing()
+    {
+        var oneNote = SessionProcessIds("ONENOTE");
+        return oneNote.Count > 0 && Running(oneNote, WerCommandLines(), connecting: true).Count < oneNote.Count;
+    }
+
+    /// <summary>
+    /// The <c>ONENOTE.EXE</c> IDs that count as running: those no WER process targets. A WER process whose command line
+    /// couldn't be read (null) might target any of them: when <paramref name="connecting"/>, none then counts (fail
+    /// safe: never start a hidden copy); for a live reference's per-call check it is ignored (Phill, 2.7 Q3).
+    /// </summary>
+    internal static IReadOnlyList<int> Running(IReadOnlyList<int> oneNote, IReadOnlyList<string?> werCommandLines, bool connecting)
+    {
+        ArgumentNullException.ThrowIfNull(oneNote);
+        ArgumentNullException.ThrowIfNull(werCommandLines);
+        if (connecting && werCommandLines.Any(line => line is null))
+        {
+            return [];
+        }
+
+        var crashing = werCommandLines.Select(WerFaultTarget).OfType<int>().ToHashSet();
+        return [.. oneNote.Where(pid => !crashing.Contains(pid))];
+    }
+
+    /// <summary>
+    /// The process ID a <c>WerFault.exe</c> command line reports on: the value after <c>-p</c> or <c>/p</c>, any case
+    /// (<c>WerFault.exe -u -p 1234 -s 568</c>). Null when there is none.
+    /// </summary>
+    internal static int? WerFaultTarget(string? commandLine)
+    {
+        if (string.IsNullOrWhiteSpace(commandLine))
+        {
+            return null;
+        }
+
+        var tokens = commandLine.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < tokens.Length - 1; i++)
+        {
+            if ((tokens[i].Equals("-p", StringComparison.OrdinalIgnoreCase) || tokens[i].Equals("/p", StringComparison.OrdinalIgnoreCase))
+                && int.TryParse(tokens[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var pid))
+            {
+                return pid;
+            }
+        }
+
+        return null;
+    }
 
     public IntegrityReport CheckIntegrity()
     {
@@ -65,7 +141,7 @@ public sealed class ProcessProbe : IProcessProbe
             server = IntegrityLevel(current.Id);
         }
 
-        return BuildReport(server, SessionOneNoteProcessIds(), IntegrityLevel, ProcessExists);
+        return BuildReport(server, SessionProcessIds("ONENOTE"), IntegrityLevel, ProcessExists);
     }
 
     /// <summary>
@@ -111,7 +187,67 @@ public sealed class ProcessProbe : IProcessProbe
         }
     }
 
-    private static List<int> SessionOneNoteProcessIds()
+    /// <summary>
+    /// The command line of every WER process (<c>WerFault.exe</c>, <c>WerFaultSecure.exe</c>) in this session; null for
+    /// one that couldn't be read. Empty when none runs.
+    /// </summary>
+    private static List<string?> WerCommandLines()
+    {
+        var lines = new List<string?>();
+        foreach (var name in WerProcessNames)
+        {
+            foreach (var pid in SessionProcessIds(name))
+            {
+                if (CommandLine(pid) is { } line)
+                {
+                    lines.Add(line);
+                }
+                else if (ProcessExists(pid))
+                {
+                    // Unreadable while it still runs: it might be handling OneNote.
+                    lines.Add(null);
+                }
+            }
+        }
+
+        return lines;
+    }
+
+    /// <summary>The process's command line (<c>ProcessCommandLineInformation</c>), or null when it can't be read.</summary>
+    private static string? CommandLine(int processId)
+    {
+        using var process = NativeMethods.OpenProcess(NativeMethods.ProcessQueryLimitedInformation, false, processId);
+        if (process.IsInvalid)
+        {
+            return null;
+        }
+
+        NativeMethods.NtQueryInformationProcess(process, NativeMethods.ProcessCommandLineInformation, IntPtr.Zero, 0, out var size);
+        if (size <= 0)
+        {
+            return null;
+        }
+
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (NativeMethods.NtQueryInformationProcess(process, NativeMethods.ProcessCommandLineInformation, buffer, size, out _) != 0)
+            {
+                return null;
+            }
+
+            // UNICODE_STRING { USHORT Length; USHORT MaximumLength; PWSTR Buffer }, the text following it in the buffer.
+            var length = (ushort)Marshal.ReadInt16(buffer);
+            var text = Marshal.ReadIntPtr(buffer, IntPtr.Size);
+            return text == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUni(text, length / 2);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    private static List<int> SessionProcessIds(string processName)
     {
         int sessionId;
         using (var current = Process.GetCurrentProcess())
@@ -120,7 +256,7 @@ public sealed class ProcessProbe : IProcessProbe
         }
 
         var ids = new List<int>();
-        foreach (var process in Process.GetProcessesByName("ONENOTE"))
+        foreach (var process in Process.GetProcessesByName(processName))
         {
             using (process)
             {
@@ -193,6 +329,7 @@ public sealed class ProcessProbe : IProcessProbe
         internal const uint ProcessQueryLimitedInformation = 0x1000;
         internal const uint TokenQuery = 0x0008;
         internal const int TokenIntegrityLevel = 25;
+        internal const int ProcessCommandLineInformation = 60;
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -207,5 +344,10 @@ public sealed class ProcessProbe : IProcessProbe
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool GetTokenInformation(SafeAccessTokenHandle tokenHandle, int tokenInformationClass, IntPtr tokenInformation, int tokenInformationLength, out int returnLength);
+
+        /// <summary>Returns an NTSTATUS: 0 on success; <c>STATUS_INFO_LENGTH_MISMATCH</c> with the size needed for a short buffer.</summary>
+        [DllImport("ntdll.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        internal static extern int NtQueryInformationProcess(SafeProcessHandle processHandle, int processInformationClass, IntPtr processInformation, int processInformationLength, out int returnLength);
     }
 }

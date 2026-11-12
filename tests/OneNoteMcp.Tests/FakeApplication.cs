@@ -9,7 +9,8 @@ internal sealed record FakeCall(string Method, object?[] Args, int ThreadId);
 /// Managed stand-in for the OneNote COM object. The read methods are programmable: <see cref="OnCall"/>, when set,
 /// answers every one of them (hang on a gate, throw a sequence, return a value); otherwise GetHierarchy answers from
 /// <see cref="OnGetHierarchy"/> and the rest throw. Every read call is recorded. <see cref="Factory"/> counts activations.
-/// Write and app-state methods always throw, except <c>NavigateTo</c>, which is recorded and scripted like a read.
+/// Write and app-state methods always throw, except <c>NavigateTo</c>, <c>CreateNewPage</c>, <c>UpdatePageContent</c>
+/// and <c>DeletePageContent</c>, which are recorded and scripted like a read.
 /// </summary>
 internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IApplication
 {
@@ -90,13 +91,18 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
 
     public void DeleteHierarchy(string bstrObjectID, DateTime dateExpectedLastModified, bool deletePermanently) => throw new NotSupportedException();
 
-    public void CreateNewPage(string bstrSectionID, out string pbstrPageID, NewPageStyle npsNewPageStyle) => throw new NotSupportedException();
+    // Recorded and scripted like the reads (story 2.4), so the gateway's argument mapping and no-retry rule can be checked.
+    public void CreateNewPage(string bstrSectionID, out string pbstrPageID, NewPageStyle npsNewPageStyle) =>
+        pbstrPageID = Answer(nameof(CreateNewPage), [bstrSectionID, npsNewPageStyle]);
 
     public void CloseNotebook(string bstrNotebookID, bool force) => throw new NotSupportedException();
 
-    public void UpdatePageContent(string bstrPageChangesXmlIn, DateTime dateExpectedLastModified, XMLSchema xsSchema, bool force) => throw new NotSupportedException();
+    // Recorded and scripted like the reads (story 2.7), so the gateway's argument mapping, UTC date and no-retry rule can be checked.
+    public void UpdatePageContent(string bstrPageChangesXmlIn, DateTime dateExpectedLastModified, XMLSchema xsSchema, bool force) =>
+        Answer(nameof(UpdatePageContent), [bstrPageChangesXmlIn, dateExpectedLastModified, xsSchema, force]);
 
-    public void DeletePageContent(string bstrPageID, string bstrObjectID, DateTime dateExpectedLastModified, bool force) => throw new NotSupportedException();
+    public void DeletePageContent(string bstrPageID, string bstrObjectID, DateTime dateExpectedLastModified, bool force) =>
+        Answer(nameof(DeletePageContent), [bstrPageID, bstrObjectID, dateExpectedLastModified, force]);
 
     // Recorded and scripted like the reads (story 1.21), so the gateway's argument mapping can be checked.
     public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID, bool fNewWindow) =>

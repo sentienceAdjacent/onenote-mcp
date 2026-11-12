@@ -7,7 +7,7 @@ paradigm: 'hexagonal (ports and adapters) with a single-STA actor per process'
 scope: 'Local stdio MCP server that reads and manages OneNote desktop notebooks over COM, plus its Claude Code plugin (skill + server config)'
 status: final
 created: '2026-11-03'
-updated: '2026-11-09'
+updated: '2026-11-12'
 binds: [all]
 sources:
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md
@@ -15,6 +15,7 @@ sources:
   - CLAUDE.md
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/research-onemore-lessons.md
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-do-the-read-tools-hold-up-on-a-large-real-notebook-findings.md
+  - _bmad-output/initiative-onenote-mcp-v1/epic-safe-writes/spike-write-probes-part-1-pages-paths-and-search-findings.md
 companions: [README.md]
 ---
 
@@ -84,7 +85,9 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Busy (`RPC_E_CALL_REJECTED` or `RETRYLATER`):** retry with backoff, up to the call's timeout, then return `ComBusy`. `0x8004201D` hrNotYetSynchronized is not a busy code for this rule: it returns `ComBusy` at once, with no backoff, because a notebook sync can take longer than one call (AD-9).
   - **Activation:**
     - If `ONENOTE.EXE` is not running, return `OneNoteNotRunning`, unless `allowSilentActivation` is set.
+    - An `ONENOTE.EXE` that has crashed doesn't count as running, though it stays listed while Windows Error Reporting writes its dump. Without that rule, a reconnect's activation started a hidden `ONENOTE.EXE -Embedding` that the user had to end before OneNote would start (spike 2.2, Failure modes). How a crashed process is detected is story 2.7's to build. The exception: with `allowSilentActivation` on, a reconnect after a crash may start a windowless instance, as that setting allows for any activation.
     - Check the integrity level at startup and at every activation. A mismatch returns `IntegrityMismatch` and never calls COM.
+  - **Modal dialogs:** with File > Options open, only `UpdatePageContent` failed, with `0x80042030` (`ModalDialogOpen`, AD-9). `DeletePageContent`, `CreateNewPage`, `GetPageContent`, `FindPages` and `GetHierarchy` went through (spike 2.2 constraint 8). No pipeline checks for a dialog up front; the error comes from the call. Other dialogs weren't tried (see Deferred).
   - **Idle:** release the COM reference after 5 minutes idle.
   - Never kill or close OneNote.
 
@@ -93,7 +96,9 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Binds:** every tool that returns or accepts hierarchy or page XML
 - **Prevents:** a different format per tool; lossy round trips; the server quietly changing content.
 - **Rule:**
-  - Tools take and return OneNote 2013-schema XML. Every COM call passes `xs2013`.
+  - Tools take and return OneNote 2013-schema XML. Every COM call passes `xs2013`, and no tool offers a schema choice: a `GetPageContent` in `xs2007` of a page just rewritten in `xs2010` crashed OneNote (spike 2.2, Failure modes).
+    - `xs2013` stays safe for tables with merged cells when an Outline is sent back as read: a 2013 round trip of an unchanged merged table kept the merge, and `0x80042022` hrFutureContentLoss never appeared (spike 2.2 constraint 12). The undocumented `xs2026` isn't used. Editing inside a merged table in `xs2013` wasn't probed (see Deferred).
+    - A page write's XML is merged by OneNote, not applied as a diff: a sent Outline's OE list replaces the one on the page (AD-7 `PageWrite`).
   - The server never adds, changes or removes elements or attributes in the XML it returns. The exceptions:
     - Search may remove whole `one:Page` elements, and each one removed is listed in `meta.filtered`, except pages withheld under AD-21, which are never listed.
     - A read without a read grant removes the whole `one:Page` elements of a protected section, and lists the section in `meta.withheld` (AD-21).
@@ -120,10 +125,11 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Who can do what:**
     - Reads are allowed on every notebook, except content in password-protected sections, which needs a read grant (AD-21).
     - Writes need a write grant for each notebook they touch.
+    - A write inside a password-protected section, by one of the tools AD-21 lists under Writes, needs only that notebook's write grant, never the section's read grant (Phill, 2026-11-10, 2.3 plan Q3 option c, superseding inception decision 3's "both grants"). The write's own reads (AD-7 step 3, the read-back, the snapshot) run under the write grant and never return content to the model. A write grant never opens a protected section to the read tools (AD-21): without the section's read grant, the model can't read the page and writes with `noBasis` (AD-17).
     - A permanent delete also needs a permanent-delete grant, which counts only alongside a write grant.
   - **How a grant is created:**
     - Through an MCP elicitation dialog in which the user types the notebook's name. The typed text is matched against each open notebook's displayed name (`nickname`, else `name`). If it matches more than one notebook, or none, no grant is made and the write returns `WriteNotGranted`. AD-7 step 1 raises the dialog itself when the client declares elicitation. If the user declines or cancels, or the client lacks the capability, the write returns `WriteNotGranted`, with `userAction` naming the CLI. Time spent waiting on the dialog doesn't count against the pipeline deadline.
-    - Or through the interactive `OneNoteMcp grant` CLI, which refuses to run when there is no interactive terminal. It uses the same name matcher as elicitation, and lists the candidates when a name is ambiguous. `grant --revoke` removes a grant. It also runs on a `settings.json` that is invalid only because of case-only duplicate keys, so the user can remove one.
+    - Or through the interactive `OneNoteMcp grant` CLI, which refuses to run when there is no interactive terminal. It uses the same name matcher as elicitation, and lists the candidates when a name is ambiguous. `grant --revoke` removes a grant. It also runs on a `settings.json` that is invalid only because of duplicate grant keys (below), and then removes every entry matching the key, so the user can fix the file.
     - Or automatically, when a notebook is created at a path the server checked was empty (AD-7 `Create`), recorded as `grantedVia: created`.
     - No tool can create a grant. The read-only `list_grants` tool shows grants, read grants included, and how each was created.
     - The plugin blocks the model from changing `settings.json` or anything else in its folder or in the default `%APPDATA%\OneNoteMcp` (blocked even when the settings path is overridden), from running the grant CLI, and from running `OneNoteMcp uninstall`, whose `--purge` deletes `settings.json` and every grant in it (AD-19).
@@ -135,10 +141,14 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - One Core function, `NotebookKey`, computes the key, and every unit uses it: the access check, elicitation, the CLI, the `Create` auto-grant, the journal and restore.
       - Its only input is the `one:Notebook@path` attribute read live from `GetHierarchy`. That means never a section's `path`, and never a path argument passed to COM. On create, the path is read back after the call.
       - The transform is to trim trailing `\` and `/`, and nothing else: no decoding, no `GetFullPath`.
-      - Keys compare `OrdinalIgnoreCase`. Two keys in `settings.json` that differ only in case make the file `SettingsInvalid`.
+      - Keys compare `OrdinalIgnoreCase`. Two keys in `notebooks{}`, or two in `protectedSections{}`, that are equal, exactly or ignoring case, make the file `SettingsInvalid` (Phill, 2026-11-10, 2.3 plan Q7). `grant --revoke` still runs on such a file, as above.
     - The notebook's `name` and its ID at grant time (`idAtGrant`, never refreshed) are stored for information only, and are never compared for access.
-    - If the notebook's folder or URL is moved or renamed, its path changes, so the grant no longer applies and the user is asked again. Renaming the notebook's display name doesn't change the path.
-    - That the path stays the same across close and reopen is expected but unverified (see Deferred).
+    - **Path stability**, measured on a local and a OneDrive notebook (spike 2.2 constraint 9):
+      - Close and reopen gives every notebook, section and section group a new ID and keeps every `path`.
+      - Renaming a notebook in OneNote changes only its `nickname`; its `name`, `path` and ID stay.
+      - Moving or renaming a local notebook's folder (with a reopen) changes its `name`, every `path` and every ID. Renaming the OneDrive item while the notebook is open changes its `name` and every `path`, live and with no sync error, and keeps the IDs.
+      - So a grant survives close, reopen and display renames, where an ID wouldn't. A folder move or a OneDrive rename changes the key: `list_grants` shows the grant as `notebookNotOpen`, and the user grants again. That fails closed.
+    - **Path forms:** a local notebook `C:\…\<notebook>`, with no trailing separator; a OneDrive notebook `https://d.docs.live.net/<cid>/Documents/<notebook>/`, with a trailing slash, which the transform trims. Sections end in `.one` in both forms; section groups end like their notebook form (spike 2.2 constraint 9).
   - **Limits** (they apply to AD-21's read grants too): the README says plainly that this guards against accidents and casual misuse, not against a hostile local process. Elicitation hooks can answer the dialog automatically, and headless runs cancel elicitation. A grant follows its path: a different notebook that later appears at a granted path inherits the grant without a prompt. This is an accepted risk, stated in the README. The plugin guard (the `PreToolUse` hook) is best effort and Claude Code only: a disguised shell command gets past it, and nothing stops another program from editing OneNoteMcp's files; the README says so.
 
 ### AD-7 — One write pipeline per operation class [ADOPTED]
@@ -147,24 +157,36 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Prevents:** writes that skip checks or run them in a different order; each story inventing what to snapshot.
 - **Rule:**
   - Every non-read use case runs these steps in order. Any failed step aborts with its error (AD-9), and no write path exists outside the pipeline.
-    1. Access check (AD-6).
+    1. Access check (AD-6). In a password-protected section, for the tools AD-21 lists under Writes, the notebook's write grant alone lets the write run, this pipeline's own reads included (step 3, the `PageWrite` read-back, the snapshot). Those reads never return content to the model (AD-21).
     2. Take the write lock (AD-18).
     3. Read the current state.
     4. Validate.
     5. Optimistic check (AD-17). The server compares the basis date and hashes against step 3's read itself, for every class AD-17 binds. It also passes the date to the COM methods that take one: `UpdatePageContent`, `DeletePageContent` and `DeleteHierarchy`. `UpdateHierarchy` takes no date, so its check is the server's comparison alone.
     6. Snapshot (AD-8).
-    7. COM call. A failure here with `Timeout`, `ComUnavailable` or `Cancelled` sets `outcomeUnknown` (AD-9).
+    7. COM call. A failure here with `Timeout`, `ComUnavailable` or `Cancelled`, or with HRESULT `0x800706BE`, sets `outcomeUnknown` (AD-9).
     8. Release the lock.
   - Creating a notebook adds a step between 7 and 8: write the automatic grant (AD-6) under `Local\OneNoteMcp.Settings`. The lock order is always `Local\OneNoteMcp.Write` outside and `Local\OneNoteMcp.Settings` inside. If the path can't be read back, the result is `ok: true` with the warning `createdNotGranted`, and its `userAction` names the grant CLI.
   - Each pipeline has a deadline: 120 s by default, 600 s for classes that publish.
   - A write drops the written page's entry from the search page-text cache (AD-12) before it returns, whatever the COM call's outcome.
   - Every call has exactly one class. Where a method appears in more than one row, the class comes from explicit arguments: `DeleteHierarchy` from `permanent`; `OpenHierarchy` from whether the target exists, checked under the write lock.
   - "XSD" in the table means the AD-16 gate.
+  - **`PageWrite` validation** (spike 2.2 constraints 1 and 2):
+    - **Whole Outlines:** `UpdatePageContent` replaces the OE list of every Outline it is sent: an OE left out is deleted, and an Outline left out is kept. So every Outline sent with an `objectID` must list every OE that step 3 read under it, nested OEs included, with their `objectID`s, except OEs the caller names for removal (story 2.9 names the argument). Anything else is refused with `InvalidArgument` before COM. An OE without an `objectID` is added, and an Outline without one is added beside the others.
+    - **Removal:** removing an OE means resending its Outline without it. `DeletePageContent` on an OE fails with `0x8004200E` and the OE stays.
+    - **`delete_page_content`** deletes Outlines only in v1 (Phill, 2026-11-10, 2.3 plan Q8). Any other target, an OE included, is refused with `InvalidArgument` before COM. Image and ink deletes are deferred (see Deferred).
+    - **Protected sections:** with no read grant for the section, a refusal names no `objectID` or anything else inside the page (AD-21 Messages).
+  - **`PageWrite` read-back**, a step between 7 and 8, under the lock, after a successful COM call (spike 2.2 constraint 7). OneNote silently ignores some edits: a changed `quickStyleIndex` on an existing OE is dropped with the page hash unchanged, and an OE moved to another Outline is deleted and re-created under a new `objectID`.
+    - The step re-reads the page and compares its attributes and `objectID`s with what was sent, not its text. It exempts two normalisations OneNote is known to make (spike 2.2, Results, Side effects rows): an OE `style` equal to its QuickStyleDef is dropped (`side-local-style-duplicate`), and every `&nbsp;` form reads back as the text `&nbsp;` (`side-nbsp-*`).
+    - For `DeletePageContent`, it checks only that the deleted Outline is gone, and warns `readBackDiffers` if it isn't.
+    - It reports as warnings: an attribute OneNote didn't apply (`readBackDiffers`); an OE re-created under a new `objectID` (`readBackDiffers`, with old and new IDs); an image in a sent Outline that is gone (`imageLost`; Phill, 2026-11-10, 2.3 plan Q1).
+    - It skips what `ElementHash` excludes (AD-17), so an auto-sized column width or a `pathCache` isn't reported.
+    - It never fails the write, which already happened. A read-back that fails gives the warning `readBackFailed`.
+    - Its warnings carry `objectID`s and attribute names, never content (AD-9). In a protected section with no read grant, they carry only counts (AD-21). "No read grant" means no grant that would let a read of that section pass at the call's start, a `once` grant included.
 
 | Class | COM methods | Grant | Validate | Snapshot |
 | --- | --- | --- | --- | --- |
 | `Read` | `GetHierarchy`, `GetHierarchyParent`, `GetPageContent`, `GetBinaryPageContent`, `FindPages`, `FindMeta`, `GetHyperlinkToObject`, `GetWebHyperlinkToObject`, `GetSpecialLocation`; the server-only `list_grants` and `read_result` (AD-20) | none, except a read grant for content in a protected section (AD-21) | none | none |
-| `PageWrite` | `UpdatePageContent`, `DeletePageContent` | write | XSD; referenced `objectID`s exist; section not locked; refuse to replace an Outline holding an image with no local binary | full page, with binary |
+| `PageWrite` | `UpdatePageContent`, `DeletePageContent` | write; in a protected section too, with no read grant (step 1) | XSD; referenced `objectID`s exist; section not locked; whole Outlines; `DeletePageContent` targets an Outline (all above). No image refusal: a resent Outline kept its image with no local binary (spike 2.2 constraint 6), and the read-back reports a lost one | full page, with binary |
 | `Create` | `CreateNewPage`; `OpenHierarchy` creating a section or section group by parent object ID (`bstrRelativeToObjectID`) plus a relative name, or a notebook at an absolute path verified empty; `restore_from_journal`. A section or section group is never created from an absolute path | write on the parent's notebook. A new notebook needs none and gets a write grant automatically (`grantedVia: created`), keyed by the `NotebookKey` of the path read back from `GetHierarchy` after creation | XSD; parent exists and isn't locked | none |
 | `HierarchyWrite` | `UpdateHierarchy` (add, rename, reorder or move); `MergeSections`; `restore_from_recycle_bin` | write on every notebook touched | XSD; IDs exist | hierarchy XML of the affected nodes |
 | `SoftDelete` | `DeleteHierarchy`, `permanent=false` | write | ID exists | a page gets a full page snapshot; a section or section group gets a hierarchy snapshot |
@@ -181,11 +203,18 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - The default location is `%LOCALAPPDATA%\OneNoteMcp\journal`, and the user can change it.
   - Retention is 30 days, with a size cap of 2 GB (oldest pruned first).
   - Each process prunes at startup and then daily, and tolerates entries that vanish while it does.
+  - **Entries from password-protected sections** (inception decision 3b, Phill 2026-11-09). A page is protected when its section is `encrypted` (AD-21), read live at the snapshot.
+    - The entry's `title` and `xml` are encrypted with Windows DPAPI for the current user (`DataProtectionScope.CurrentUser`), and the entry carries the section's `SectionKey` as its protection marker (AD-10).
+    - Retention, the size cap and pruning are the same as for any entry.
+    - DPAPI keeps the content from other Windows accounts, a copy of the disk and a backup. Any process running as the user can still read it for the entry's 30 days, whereas OneNote re-locks the section on its timer. The README says so.
   - **`restore_from_journal`** never overwrites. It finds the notebook only by the entry's `notebookPath`, which is a `NotebookKey` (AD-6). It never uses `notebookId`, because IDs regenerate when a notebook reopens.
     - It restores page entries only. For `hierarchy` and `onenoteBackup` entries it returns `NotSupported` in v1, with a `userAction` pointing to the entry or backup file.
     - It creates the new page under the entry's `parentId` if that parent still exists in that notebook. Otherwise it uses the one section whose name path inside the notebook equals the entry's `parentNamePath`, such as `Group/Section`. Failing both, it uses a `Recovered` section of that notebook. It reports the new ID.
     - If no open notebook matches, it returns `ObjectNotFound`, with a `userAction` asking the user to open the notebook at that path.
     - The write grant it checks is the one for the notebook it writes to. When `binaryComplete` is false it reports the missing binaries.
+    - **A protected entry** goes back only into the section whose `SectionKey` equals the entry's marker, and only while that section is still protected. It never uses `parentNamePath` or `Recovered` (inception decision 3b). Like any write in a protected section, it needs only the write grant (AD-6). Phill, 2026-11-10, 2.3 plan Q6:
+      - That section is locked: `SectionLocked`, retryable after the user unlocks it.
+      - It is gone, or no longer protected: `ObjectNotFound`, with a `userAction` naming the entry file, which stays for its 30 days.
   - **`restore_from_recycle_bin`** restores a soft-deleted item. When the name is ambiguous it asks the user to choose, because soft-deleted pages get new IDs.
 
 ### AD-9 — One result envelope and error set [ADOPTED]
@@ -201,7 +230,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
       - Anything else, every error included, carries the whole envelope JSON.
       - `structuredContent` always carries the full envelope.
       - This replaced a text block that repeated the whole envelope JSON, which escaped the XML to 1.25–1.66 times its size.
-    - Errors the MCP SDK raises before a tool runs are outside the envelope. An unknown tool is a JSON-RPC error. A missing required argument, a misnamed one standing in for a required one, or a value outside its enum fails as the SDK's own `isError` result: a generic text block and no `structuredContent`. A misnamed optional argument is ignored, and the tool runs with its default (SDK 2.3.1, `McpSdkBindingTests`, story 1.14).
+    - Errors the MCP SDK raises before a tool runs are outside the envelope: an unknown tool is a JSON-RPC error. A malformed request (arguments that aren't a JSON object) never reaches the check either; what the SDK returns for it isn't pinned by a test. Every input-schema argument error is ours (story 2.14, Phill 2026-11-11): before the SDK binds a call, a call-tool request filter (ModelContextProtocol 2.3.1) checks its arguments against the tool's input schema, and an undeclared name, a missing required argument, or a value of the wrong type or outside its enum fails with `InvalidArgument` inside the envelope, naming each argument and what it expects, never its value. An undeclared name is the caller's own text and is quoted back, cut to 64 characters, 10 names at most. The check is strict: no type conversion (`"5"` and `1.0` aren't integers), integers must fit in 32 bits, enum values match case-sensitively, and null passes only where the schema's type lists it, so null for an optional text argument is refused (leave the argument out instead). A refused call gets a correlationId and one log line, and runs nothing else: no grant prompt, lock or COM call. Every input schema declares `additionalProperties: false`. Tools still raise their own argument errors beyond the schema (`find_pages` with neither or both of its start options is `InvalidQuery`). The SDK's generic `isError` result (a text block, no `structuredContent`) would mean a bug: the check missed a case, or something threw outside the tool runner. History: until story 2.5 the SDK ignored a misnamed optional argument (SDK 2.3.1, story 1.14); 2.5 refused it after binding; 2.14 moved the check before binding.
   - **Who throws what:**
     - Tools never throw.
     - `ErrorCode` and `OneNoteException` live in Core. `ComGateway` and `FakeGateway` throw only `OneNoteException`.
@@ -213,11 +242,12 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - `retryable` comes from the per-code table below, unless the `OneNoteException` carries its own flag, which overrides it for that error only (a `read_result` refusal because an `hours` grant expired is `retryable: false`).
     - `outcomeUnknown: true` always comes with `retryable: false` and `userAction`: "re-read, then retry if the change is absent".
     - `hrTimeOut` (`0x80042023`) is an error OneNote returns, not our deadline: AD-3's timed-out-call rules (abandon the thread, count it toward the abandoned-thread limit) apply only to the gateway's own deadline.
-    - The write pipeline (AD-7) sets `outcomeUnknown` on a write that fails with `Timeout`, `ComUnavailable` or `Cancelled`, whatever the source, since the HRESULT map alone can't know the call wrote.
+    - The write pipeline (AD-7) sets `outcomeUnknown` on a write that fails with `Timeout`, `ComUnavailable` or `Cancelled`, whatever the source, since the HRESULT map alone can't know the call wrote. It also sets it on a write that fails with `0x800706BE`, which stays `Internal` (below): OneNote may have crashed mid-call (spike 2.2, Failure modes).
+    - Page-write HRESULTs are confirmed by spike 2.2 (constraint 13): `0x80042010` → `StaleWrite`; `0x8004200E` and `0x80042014` → `ObjectNotFound` (`0x80042014` came from a read after the crash, `hr-read-xs2010`, not from a page write); `0x80042030` → `ModalDialogOpen`; `0x80042000` and `0x80042001` → `InvalidXml`; `0x800706BE` → `Internal`. The table below already maps each one, and page writes need no new code.
     - Deliberately `Internal`, by reason:
       - Paths, not objects: `0x80042006` hrFileDoesNotExist, `0x80042018` hrFolderDoesNotExist.
       - Degraded instead: `0x8004200F` hrBinaryObjectDoesNotExist (reads turn it into the `BinaryUnavailable` warning).
-      - Ambiguous: `0x800706BE` (can mean bad XML).
+      - Ambiguous: `0x800706BE` RPC_S_CALL_FAILED (can mean bad XML, or OneNote crashing during the call; on a write, `outcomeUnknown`, above).
       - Write-side, no fitting code until epic 2's write tools: `0x8004200B` hrSectionReadOnly, `0x8004200C` hrPageReadOnly, `0x80042022` hrFutureContentLoss (content loss on update), `0x80042024` hrRecordingInProgress, `0x8004202E` hrRecycleBinEditFailed.
       - Policy, no fitting code: `0x8004201C` hrDisabledByPolicy.
     - The remaining OneNote codes are untriaged and fall to `Internal` by the default rule (see Deferred). Epic 1 accepts `Internal` for the ones its read tools can hit, such as `0x80042003` hrOpeningSection, `0x8004201E` hrLegacySection and `0x8004202B` hrUnreadDisabledForNotebook; epic 2 triages them all.
@@ -231,15 +261,16 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 | `Timeout` | call or pipeline deadline; `0x80042023` hrTimeOut | read yes; write no (`outcomeUnknown`) |
 | `Cancelled` | the call's own cancellation token was cancelled (a client cancel, or the session ending). Any other `OperationCanceledException` is `Internal` (story 1.14) | read yes; write no (`outcomeUnknown`, epic 2) |
 | `ModalDialogOpen` | `0x80042030` | yes, after the user closes the dialog |
-| `SectionLocked` | `0x8004201B`, or `locked="true"` | after the user unlocks it |
+| `SectionLocked` | `0x8004201B`, or `locked="true"`; AD-8 restore of a protected entry whose section is locked | after the user unlocks it |
 | `StaleWrite` | `0x80042010`, basis mismatch | no; re-read |
-| `ObjectNotFound` | the object does-not-exist HRESULTs: `0x80042004`, `0x80042005`, `0x8004200E`, `0x80042011`, `0x80042012`, `0x80042014`, `0x80042015`, as reported by OneNote; AD-8 restore when no open notebook matches `notebookPath` | no; re-read the hierarchy or page and use a current ID. For `0x80042015` and the AD-8 restore case, after the user opens the notebook |
+| `ObjectNotFound` | the object does-not-exist HRESULTs: `0x80042004`, `0x80042005`, `0x8004200E`, `0x80042011`, `0x80042012`, `0x80042014`, `0x80042015`, as reported by OneNote; AD-8 restore when no open notebook matches `notebookPath`, or when a protected entry's section is gone or no longer protected | no; re-read the hierarchy or page and use a current ID. For `0x80042015` and the AD-8 restore case where no open notebook matches `notebookPath`, after the user opens the notebook. A protected entry whose section is gone isn't retryable; its `userAction` names the entry file. One whose section is no longer protected is retryable after the user protects it again, at the same path |
 | `UnknownObjectId` | the server's own validation: `objectID` absent (the same stale ID reported by OneNote is `ObjectNotFound`) | no |
 | `InvalidXml` | XSD or namespace validation; `0x80042000`, `0x80042001`, `0x80042020` | no |
+| `InvalidArgument` | an argument that doesn't fit the tool's input schema: an undeclared name, a missing required argument, or a value of the wrong type or outside its enum (stories 2.5, 2.14); an argument the server refuses: an Outline sent without an OE that step 3 read under it and that the caller didn't name for removal, or a `delete_page_content` target that isn't an Outline (AD-7) | no |
 | `InvalidQuery` | `0x80042019`; AD-20 `read_result` with an `offset` at or past the span's length | no |
 | `FileExists` | `0x8004201A` | no |
 | `WriteNotGranted` / `PermanentDeleteNotGranted` | AD-6 | after the user grants |
-| `ReadNotGranted` | AD-21: a target-scoped read inside a protected section with no read grant; `read_result` on a part whose grant has lapsed (AD-20) | after the user grants (for `read_result`, then repeat the original call); a `read_result` part whose `hours` grant expired is `retryable: false`, since that stored result stays refused |
+| `ReadNotGranted` | AD-21: a target-scoped read inside a protected section with no read grant (never a write, AD-6); `read_result` on a part whose grant has lapsed (AD-20) | after the user grants (for `read_result`, then repeat the original call); a `read_result` part whose `hours` grant expired is `retryable: false`, since that stored result stays refused |
 | `ResultExpired` | AD-20: `read_result` with an unknown or expired `resultId` | no; repeat the original call |
 | `ExportPathNotAllowed` | AD-11 | no |
 | `SettingsInvalid` | AD-10 | after the user fixes it |
@@ -269,7 +300,8 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - If `schemaVersion` is newer than the server knows, the server runs read-only.
   - **Journal entry file:**
     - Named `{takenAtUtc:yyyyMMddTHHmmssfff}-{pid}-{guid}.json.gz`, written once.
-    - Contents: `{schemaVersion, entryId, correlationId, operation, operationClass, snapshotKind: page|hierarchy|onenoteBackup, objectId, notebookId, notebookPath, notebookName, parentId, parentNamePath, title, takenAtUtc, binaryComplete, missingBinary[], xml | backupFile}`.
+    - Contents: `{schemaVersion, entryId, correlationId, operation, operationClass, snapshotKind: page|hierarchy|onenoteBackup, objectId, notebookId, notebookPath, notebookName, parentId, parentNamePath, sectionKey?, protected?, title, takenAtUtc, binaryComplete, missingBinary[], xml | backupFile}`.
+    - `sectionKey` is the protection marker (AD-8): present only on an entry from a password-protected section, as that section's `SectionKey` (AD-21). On such an entry, `title` and `xml` are absent, and `protected` holds them: one DPAPI blob (current user) of the JSON `{title, xml}`, base64-encoded. Everything else stays readable, so pruning and restore can find the entry's place without decrypting it.
 
 ### AD-11 — Calls the user sees, and exports [ADOPTED]
 
@@ -305,7 +337,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - **Disk and log:** never written to disk. Only counts (hits, misses, evictions, entries) and sizes are logged (AD-13).
     - **Writes:** a write drops the written page's entry before it returns (AD-7).
     - **Guarantee:** for a page whose `lastModifiedTime` changed with its content, the result is the same as a read. It differs only through the known gap below and `notFound`, which only a read can detect: a cached page deleted since the search is kept or removed as `noMatch`, not `notFound`.
-  - **Known gap:** any COM edit of a page that isn't open in OneNote can leave the cache stale. That includes this server's own write tools (AD-7), journal restore (AD-8) and another server process (AD-10). On a page that isn't displayed, `lastModifiedTime` didn't advance within 8 s across COM edits (spike 1, row 18); whether it catches up later is open. COM edits on the page shown in OneNote do advance it (row 17). The time also has whole-second precision, so two edits within one second with a search between them can leave the first edit's text cached. Search can then match such a page against its old text until its `lastModifiedTime` changes, its entry is evicted, or the server restarts. This process's own writes drop their entries (above), so the gap that remains is another program's edit: another add-in, or a second OneNoteMcp process. The README and find_pages' description say so, and `search.cacheMaxMB: 0` avoids it.
+  - **Known gap:** any COM edit of a page that isn't open in OneNote can leave the cache stale. That includes this server's own write tools (AD-7), journal restore (AD-8) and another server process (AD-10). On a page that isn't displayed, `lastModifiedTime` didn't advance within 8 s across COM edits (spike 1, row 18); whether it catches up later is open. Spike 2.2 saw the same after accepted `UpdatePageContent` calls: the page XML's date stayed put on every page that wasn't displayed, local and cloud (constraint 4). COM edits on the page shown in OneNote do advance it (spike 1 row 17; spike 2.2, one displayed cloud page). The time also has whole-second precision, so two edits within one second with a search between them can leave the first edit's text cached. Search can then match such a page against its old text until its `lastModifiedTime` changes, its entry is evicted, or the server restarts. This process's own writes drop their entries (above), so the gap that remains is another program's edit: another add-in, or a second OneNoteMcp process. The README and find_pages' description say so, and `search.cacheMaxMB: 0` avoids it.
 
 ### AD-13 — Logging [ADOPTED]
 
@@ -368,7 +400,8 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - XML handling and use cases are unit-tested in CI against `FakeGateway`, using captured 2013-schema fixtures.
   - Anything touching COM goes in an opt-in integration suite, run locally against a real OneNote, with writes guarded to a test notebook.
   - The 2013 XSD is vendored in `OneNoteMcp.Xml`, with its provenance and SHA-256 recorded. Microsoft's link now returns 403; the copies are from the Wayback Machine and from stevencohn/OneMore.
-  - XSD validation becomes a hard gate in AD-7 only once a story proves it accepts partial-update XML. Until then the gate is well-formedness, namespace and `objectID` checks.
+  - XSD validation becomes a hard gate in AD-7 only once a story proves it accepts partial-update XML. Until then the gate is well-formedness, namespace and `objectID` checks. Story 2.9 settles it for page writes.
+  - Schema validity can't catch a partial Outline deleting OEs: XML that OneNote accepts can still delete content (spike 2.2 constraints 1 and 14). AD-7's whole-Outline check catches that, whichever gate applies.
 
 ### AD-17 — Caller basis and ElementHash
 
@@ -377,25 +410,29 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Rule:**
   - **Reads return the basis:** `lastModifiedTime`; `pageHash` for the whole page; and `elementHashes{objectID: hash}` for every Outline and OE.
     - **Source of `lastModifiedTime`, by target:**
-      - For a page, it is the root `lastModifiedTime` of the page XML from a `GetPageContent` read. The hierarchy's value for a page can differ and is never used for a page's basis.
+      - For a page, it is the root `lastModifiedTime` of the page XML from a `GetPageContent` read. The hierarchy's value for a page can differ and is never used for a page's basis. Where the two differed (cloud pages only), `UpdatePageContent` and `DeletePageContent` rejected the hierarchy's value with `0x80042010`, and `UpdatePageContent` accepted the page XML's (spike 2.2 constraint 3; `DeletePageContent`'s acceptance is inferred, see Deferred).
+      - On a page that isn't displayed, that date didn't advance after accepted updates, local or cloud (spike 2.2 constraint 4; spike 1 row 18). So the date check alone can't catch a second writer there; the hash check is what does.
       - For a section, section group or notebook, it is that node's `lastModifiedTime` from `GetHierarchy`.
     - Page reads return the basis as one object, `meta.basis: {lastModifiedTime?, pageHash?, elementHashes?}`. A field is left out only where OneNote's XML lacks it or AD-20 says so. The caller passes it back unchanged. For an oversized page (AD-20), each part carries a basis with the hashes of the elements in that part, and an `expand` response carries the hash of the element it expands. A caller may merge the `elementHashes` from one `resultId`'s responses into one basis.
     - Hierarchy reads add no `meta.basis`, because one result can hold many nodes. A notebook's, section group's or section's basis is the `lastModifiedTime` attribute on its element in the returned XML, and the caller passes it as `basis: {lastModifiedTime}`. A caller holding only an ID, such as one from `get_hierarchy_parent`, reads the node with `get_hierarchy` scope `self`. An oversized hierarchy result's index entries carry no `lastModifiedTime`, so the caller reads the node's part with `read_result` to get it.
     - The date stays the exact string OneNote returned until the gateway converts it. Only `OneNoteMcp.Xml` parses it.
   - **What each write compares:**
     - A page delete compares `pageHash`.
-    - Element edits compare `elementHashes`.
+    - An edit (`UpdatePageContent`) compares the hash of every Outline it sends that has an `objectID` (Phill, 2026-11-10, Fable H2). Hashes the basis supplies for elements the write doesn't send are ignored, so a change elsewhere on the page doesn't block it. A sent Outline whose hash the basis lacks follows the partial-basis rule below: that check is skipped, with the warning `partialBasis`. A sent Outline replaces its OE list (AD-7), so an OE another writer added under it since the caller's read would be deleted; the Outline's own hash catches that, and AD-7's whole-Outline check can't, because step 3's read already includes the new OE.
+    - An element delete (`DeletePageContent`) compares the hash of the Outline it deletes (epic 2 inception, Fable finding F12).
     - A section, section group or notebook delete or hierarchy write compares only the `lastModifiedTime` from `GetHierarchy`, best effort.
   - **The hash:**
-    - `ElementHash` is lowercase hex SHA-256 over the inclusive C14N (no comments) of the element's subtree. Two things are removed throughout the subtree first:
+    - `ElementHash` is lowercase hex SHA-256 over the inclusive C14N (no comments) of the element's subtree. These are removed throughout the subtree first:
       - Attributes that record time, authorship, selection or view state, not content: `lastModifiedTime`, `creationTime`, `lastModifiedBy`, `lastModifiedByInitials`, `lastModifiedByResolutionID`, `selected`, `isCurrentlyViewed` and `isUnread`.
       - The binary elements `one:Data` and `one:CallbackID`, so that a piBasic read and a piBinaryData read of a local page hash the same.
-    - Layout stays in the hash: `one:Size` and `one:Position` are content. Resizing or moving an Outline, with no text change, changes that Outline's hash and `pageHash`, but no OE's. So a page delete, or an edit that names that Outline, made with an older basis returns `StaleWrite`. An edit that names only its OEs goes through.
+      - Two attributes that OneNote sets itself (Phill, 2026-11-10, 2.3 plan Q2): `one:InsertedFile@pathCache`, a local cache path (story 1.17 saw it change on every read), and `width` on a `one:Column` without `isLocked="true"`, which OneNote sizes itself (it replaced the 80 and 120 sent on create with 37.11, spike 2.2 constraint 7; spike 1.15 saw a width alternate between reads). Spike 2.2 reproduced neither change in 20 reads each. A concurrent change to an unlocked column width alone goes undetected; a locked width stays in the hash.
+    - `lastModifiedTime` must stay excluded: resending a whole Outline bumps it on every OE in it, edited or not (spike 2.2 constraint 5).
+    - Layout stays in the hash: `one:Size` and `one:Position` are content. Resizing or moving an Outline, with no text change, changes that Outline's hash and `pageHash`, but no OE's. So a page delete, or any edit to that Outline (every edit sends whole Outlines), made with an older basis returns `StaleWrite`.
     - Only `OneNoteMcp.Xml` computes it. Callers never do.
   - **Writes check the basis:**
     - Write tools take an optional `basis: {lastModifiedTime?, pageHash?, elementHashes?}`.
     - A partial basis is filled from step 3's read. A missing date takes step 3's date, using the source-by-target rule. A page delete with no `pageHash`, or an element edit with no hash for a target element, proceeds without that check. Each fill adds the warning `partialBasis`.
-    - If any target element's current hash differs from its basis, the write returns `StaleWrite`.
+    - If any target element's current hash differs from its basis, the write returns `StaleWrite`. The target elements are the sent Outlines for an edit, and the deleted Outline for a delete.
     - `dateExpectedLastModified` comes from the basis. Without a basis, it comes from step 3's read, using the same source-by-target rule, so a page's date always comes from a `GetPageContent` read. The result then carries the warning `noBasis`.
     - Never pass `DateTime.MinValue`.
     - The server never replaces a caller's basis date with the live one, even when every hash matches. A date mismatch returns `StaleWrite`, and the caller re-reads.
@@ -405,7 +442,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 - **Binds:** every non-read pipeline in every process
 - **Prevents:** two writers, in one process or in two, both passing the check and overwriting each other.
 - **Rule:**
-  - Hold the named mutex `Local\OneNoteMcp.Write` from step 2 to step 7 of AD-7.
+  - Hold the named mutex `Local\OneNoteMcp.Write` from step 2 of AD-7 until step 8 releases it, through any step AD-7 adds between 7 and 8 (the `PageWrite` read-back, the notebook auto-grant).
   - Waiting for it times out with `ComBusy`, retryable.
   - An `AbandonedMutexException` counts as acquiring the lock.
   - Reads never take it.
@@ -465,12 +502,16 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ### AD-21 — Protected-section read grant
 
-- **Binds:** Core (access), every read use case and `read_result`, elicitation, the `grant` CLI, `list_grants`, settings, Xml
+- **Binds:** Core (access), every read use case and `read_result`, the write use cases listed under Writes below (which need no read grant), the journal (AD-8), elicitation, the `grant` CLI, `list_grants`, settings, Xml
 - **Prevents:** the model reading a password-protected section just because the user unlocked it in OneNote; the model granting itself; read tools guarding protected sections in different ways.
 - **Rule:**
-  - **What's protected** (Phill, 2026-11-06): a section whose `one:Section` has `encrypted="true"` (or `"1"`), locked or not. It is read live from `GetHierarchy` on every call and never cached across calls. One Xml function, `EncryptedSections`, finds them, as `LockedSections` does for `locked`.
-  - **Grant scope** (Phill, 2026-11-06): one protected section. A notebook or section group can't be granted as a whole, and a write grant (AD-6) doesn't grant reads of protected sections.
-  - **Grant key:** one Core function, `SectionKey`, is the only key. Its only input is the `one:Section@path` attribute read live from `GetHierarchy`, and it uses `NotebookKey`'s transform and comparison (AD-6). The section's `name`, its notebook's `NotebookKey` and its ID at grant time are stored for information only. Renaming or moving the section changes its path, so the user is asked again.
+  - **What's protected** (Phill, 2026-11-06): a section whose `one:Section` has `encrypted="true"` (or `"1"`), locked or not. It is read live from `GetHierarchy` on every call and never cached across calls. `encrypted` was on a protected section in the hierarchy, `FindPages` and `FindMeta` XML, locked and unlocked; `locked="true"` only while locked (spike 2.2 constraint 11). One Xml function, `EncryptedSections`, finds them, as `LockedSections` does for `locked`.
+  - **Grant scope** (Phill, 2026-11-06): one protected section. A notebook or section group can't be granted as a whole.
+    - The read grant gates the read tools only (Phill, 2026-11-10, 2.3 plan Q3 option c). A write in a protected section needs only the notebook's write grant (AD-6), and its own reads return no content to the model (AD-7).
+    - A write grant never opens a protected section to the read tools.
+  - **Grant key:** one Core function, `SectionKey`, is the only key. Its only input is the `one:Section@path` attribute read live from `GetHierarchy`, and it uses `NotebookKey`'s transform, comparison and duplicate-key rule (AD-6). The section's `name`, its notebook's `NotebookKey` and its ID at grant time are stored for information only.
+    - Close and reopen keeps a section's path while its ID changes. Renaming the section in OneNote renames its `.one` file, so its path changes and its ID stays. A move or rename of its notebook's folder or OneDrive item changes it too (spike 2.2 constraint 9). Any such change makes the grant `sectionNotOpen` in `list_grants`, and the user is asked again: it fails closed.
+    - Forms: `C:\…\<notebook>\<section>.one` locally, `https://d.docs.live.net/<cid>/…/<section>.one` on OneDrive.
   - **Lifetime, chosen by the user when granting** (Phill, 2026-11-06):
     - `once` (Phill, 2026-11-07): covers every read of that section, target-scoped and broad alike, for `readGrants.onceMinutes` (AD-10, default 5) from when the user's answer arrives. The window is checked when a call starts, so a call that starts inside it completes. `read_result` parts of results made under it follow AD-20. It's kept in memory by the server process that asked and never written; other server processes don't see it and keep asking (AD-10). It can't be revoked: it ends with its window or its process.
     - `hours`: 1 to 168. Stored with `expiresAt` in UTC.
@@ -499,6 +540,12 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
       - Both put the section IDs, without counts, in `meta.withheld`, with one `readNotGranted` warning per section whose `userAction` says how to grant.
     - **Allowed:** `get_hierarchy` with the section itself as `startNodeId` at scope `self`, `notebooks` or `sections`, which returns no pages; `get_hierarchy_parent` and both hyperlink tools on the section itself, because the section is visible in the hierarchy anyway. `get_special_location` is unaffected.
     - **`read_result`:** checks again, as AD-20 says.
+    - **Writes** (`create_page`, `update_page_content`, `delete_page_content`, `restore_from_journal`) need no read grant and never raise this dialog (AD-6; Phill, 2026-11-10, 2.3 plan Q3 option c, which also settles Q4 and Q5):
+      - The pipeline's own reads (AD-7 step 3, the `PageWrite` read-back, the snapshot) run under the write grant. Their content reaches only the comparison, the validation and the DPAPI journal entry (AD-8), never the result.
+      - Without a read grant, the model has no basis for the page and writes with `noBasis` (AD-17). Refusals and warnings then name nothing inside the page (AD-7).
+      - In practice such a write can only add: an Outline sent with an `objectID` it couldn't have read is refused by AD-7's whole-Outline check, and `delete_page_content` needs an Outline's `objectID`.
+      - A `once` grant's window doesn't bear on writes; it applies to reads as above.
+      - Soft and permanent deletes, and hierarchy writes that move or merge content out of a protected section, belong to epic 5 (or epic 3 for move and merge). They get no write-grant-alone exemption (see Deferred).
   - **Messages** carry the section's ID only, never its name or anything inside it (AD-9).
   - **Storage:** `settings.json` `protectedSections{}` (AD-10), written only by grant writers. If `settings.json` is invalid, or its `schemaVersion` is newer than the server knows, stored read grants count as absent. The dialog still works: `once` as usual, while `hours` or `untilRevoked` then works like `once` (for `readGrants.onceMinutes`, memory only), with the warning `grantNotSaved`.
 
@@ -570,17 +617,23 @@ flowchart LR
 | Release pipeline, code signing, SmartScreen | Release story (1.11). The release job refuses a tag that differs from `<Version>` (AD-14) |
 | How the plugin fetches the exe | Decided, see AD-15: an `archive` plugin source, a SHA-256-pinned release zip whose root is the plugin (`research-plugin-exe-delivery.md`, story 1.10) |
 | Stable-only catalog channel | Open. The catalog pins prereleases until 1.0. At 1.0, decide whether it moves to stable releases only, so a `1.0.1-rc.1` doesn't move every user onto an rc |
-| HRESULT triage | Epic 2. The untriaged OneNote codes, the write-side deliberate-`Internal` codes and `hrDisabledByPolicy` (AD-9); epic 1 reports them as `Internal` |
+| HRESULT triage | Story 2.7. The untriaged OneNote codes, the write-side deliberate-`Internal` codes and `hrDisabledByPolicy` (AD-9); epic 1 reports them as `Internal`. The page-write codes spike 2.2 saw already map (AD-9, constraint 13) |
 | Events (`OnHierarchyChange`, `OnNavigate`) | A later round. Microsoft says events can't be added in managed code, so this may need a native sink or be dropped |
 | Move semantics via `UpdateHierarchy`; `MergeSections` and `MergeFiles` behaviour | Not probed. Verify in the stories that add them. `restore_from_recycle_bin` depends on move |
 | `DeleteHierarchy` on a whole notebook; permanent delete of a section group | Not probed. Verify in the permanent-delete story |
+| Hierarchy writes that move or merge content out of a protected section (`UpdateHierarchy` move, `MergeSections`, `restore_from_recycle_bin`) | Open (Fable H1, Phill 2026-11-10). Such a write could carry a protected page into an unprotected section and make it readable without a read grant. Epic 5's spine amendments (5.2) decide the rule; until then these writes get no write-grant-alone exemption: AD-7 step 1's exemption covers only the tools AD-21 lists under Writes |
 | `DeleteHierarchy(deletePermanently=false)` on a page in a protected section | Not probed. Verify in epic 5's soft-delete story: if COM moves it to the recycle bin, amend AD-21; if COM deletes it permanently, the `SoftDelete` pipeline refuses it rather than do a permanent delete without AD-6's grant |
 | `Publish` to OneNote format as the backup route | Not probed. Verify in the permanent-delete story; if it fails, AD-8/AD-7 are amended |
-| Refusing to replace an Outline with an unavailable image (AD-7) | Rests on `UpdatePageContent` behaviour that wasn't probed. Epic 2's page-write story verifies it with a cloud-page fixture |
-| XML schema `xs2026` (undocumented; `Cell@colSpan`/`rowSpan`, `AuthorDef`) | AD-4 stays on `xs2013`. Spike before epic 2's write stories: does a 2013 round trip unmerge cells, and does `UpdatePageContent` accept 2026? Amend AD-4 if needed |
-| Which `lastModifiedTime` `UpdatePageContent`, `DeletePageContent` and `DeleteHierarchy` accept when a page's page-XML and hierarchy values differ | Epic 2's page-write stories and epic 5's soft-delete story test a test-notebook page whose two values differ. AD-17 pins the page-XML value; spike 1's update probes used it successfully, but the delete methods were never probed with a date. If the page-XML value is disproved, only the date passed to COM changes; `meta.basis` stays. A wrong value shows up as a spurious `StaleWrite` |
-| Whether a notebook's `path` is stable, and its exact forms | Epic 2's access story, in the test notebook. Capture local and cloud `path` values. Close and reopen, and compare. Rename in OneNote, then rename the folder or OneDrive item. Amend `NotebookKey` from the captures |
-| Whether a section's `path` is stable | Epic 2's access story, with the notebook row above. `SectionKey` (AD-21) assumes it is, as `NotebookKey` does; story 1.20 didn't capture it. Capture local and cloud values, close and reopen, and rename, as for notebooks. Amend `SectionKey` from the captures |
+| Refusing to replace an Outline with an unavailable image (AD-7) | Resolved, refusal dropped (Phill, 2026-11-10, 2.3 plan Q1). Resending the Outline that held a cloud image with no local binary kept the image, and so did a copy in a new Outline (spike 2.2 constraint 6). AD-7's read-back reports a lost image as `imageLost`. One image, one run: if one is ever lost, the journal can't bring back a binary it never had |
+| XML schema `xs2026` (undocumented; `Cell@colSpan`/`rowSpan`, `AuthorDef`) | Resolved, AD-4 stays on `xs2013` (spike 2.2 constraint 12). `UpdatePageContent` accepted `xs2026` with `colSpan`, and 2013 and 2010 round trips of the unchanged Outline kept the merge. Editing inside a merged table is the row below |
+| Editing inside a merged table in `xs2013` | Not probed: only unchanged round trips ran (spike 2.2, Evidence gaps). In 2013 XML a merged row reads as separate cells, one emptied. Story 2.9 probes an edit inside one on MCP Test before relying on it; if the merge is lost, amend AD-4 |
+| Which `lastModifiedTime` `UpdatePageContent`, `DeletePageContent` and `DeleteHierarchy` accept when a page's page-XML and hierarchy values differ | Resolved for `UpdatePageContent` (spike 2.2 constraint 3): the page XML's value is accepted and a differing hierarchy value is rejected `0x80042010`, as AD-17 says. `DeletePageContent` is the row below. `DeleteHierarchy` stays open for epic 5's soft-delete story. A wrong value shows up as a spurious `StaleWrite` |
+| `DeletePageContent` and dates | Spike 2.2's evidence gaps: it never succeeded with the page XML's date (every target was an OE, refused after the date check, so acceptance is inferred from the error order), and never ran on a displayed page whose two dates differed. Differing dates were seen only on cloud pages, so story 2.10 deletes an Outline with the page XML's date on MCP Test Cloud as well as MCP Test, on a displayed and an undisplayed page in each |
+| Whether a notebook's `path` is stable, and its exact forms | Resolved, `NotebookKey` unchanged (spike 2.2 constraint 9): see AD-6's path stability and path forms. Not tried: renaming a notebook's folder from OneNote itself |
+| Whether a section's `path` is stable | Resolved, `SectionKey` unchanged (spike 2.2 constraint 9): see AD-21's grant key. Not tried: moving a section between notebooks |
+| Page-level image and ink deletes (`DeletePageContent`) | Deferred (Phill, 2026-11-10, 2.3 plan Q8). Only an Outline delete was probed; image and ink are the API docs' claim. v1 refuses other targets with `InvalidArgument` (AD-7). Adding them needs `elementHashes` for every page-level object with an `objectID`, not just Outlines and OEs (`PageBasis`), a read contract change (AD-14), and a probe |
+| Modal dialogs other than File > Options | Not probed (spike 2.2). Another dialog may block more methods than `UpdatePageContent`. AD-9 maps `0x80042030` to `ModalDialogOpen` whichever method returns it, so nothing waits on this |
+| A basis date newer than the page's | Not probed: spike 2.2 sent only stale and equal dates. The server's own comparison (AD-7 step 5) refuses a basis date that differs from step 3's read, newer included, with `StaleWrite` before COM, so OneNote's handling only matters if that check is ever skipped |
 | OneNote elevated while the server isn't | Untested. AD-3's integrity check refuses either way |
 | A windowless OneNote left running after silent activation and idle release | Only possible when `allowSilentActivation` is on. The README notes it. With no OneNote running the integrity check passes trivially, so a failed silent launch that returns `0x80080005` gets the restart advice |
 | Attachment (`InsertedFile`) reads on cloud notebooks | Not probed. The AD-4 degrade rule applies |
@@ -588,4 +641,4 @@ flowchart LR
 | A header line over the inline threshold | Not seen in the stress-harness runs of stories 1.18 (617 comparisons, largest text block 100,000 characters) and 1.20 (617 and 620 comparisons, none over 100,000); AD-20 unchanged. `ToolRunner` warns (`text block over the inline threshold`, IDs and sizes only) if it happens; then amend AD-20 to store lists such as `meta.filtered` with the result |
 | Clients other than Claude Code | They don't know the `_meta` key. The user lowers `results.inlineMaxChars` for them, and the README says how |
 | Pages deleted from a protected section | Resolved for the UI, AD-21 unchanged (Phill, 2026-11-07, M365 OneNote desktop 16.0 on Windows). A UI delete of a page in a protected section is refused with "Pages from password protected sections cannot be moved to Deleted Notes", and only a permanent delete is offered. The notebook's "Deleted Pages" section isn't `encrypted`, so a page landing there would have leaked; the test page wasn't in it afterwards. Still unverified, for epic 5's soft-delete story: a protected section deleted whole (does `encrypted` survive in the recycle bin?), and other clients syncing into the notebook. Pages deleted before a section was protected stay readable in the recycle bin (README) |
-| Whether `FindPages` and `FindMeta` XML carries `encrypted` on `one:Section` | Partly answered, AD-21 unchanged (story 1.20, 2026-11-07, on story 17's fixture): the `FindPages` XML marks the protected section `encrypted="true"`. `FindMeta`'s XML wasn't checked, and one observation doesn't show the attribute is reliably present, so search keeps the extra `GetHierarchy`. Dropping it is an optimization; revisit with epic 2's search probe |
+| Whether `FindPages` and `FindMeta` XML carries `encrypted` on `one:Section` | Resolved, AD-21 unchanged (spike 2.2 constraint 11): the hierarchy, `FindPages` and `FindMeta` XML all carried `encrypted="true"` on the protected section, locked and unlocked; locked, its pages were listed nowhere, and unlocked, both searches listed them. Search keeps the extra `GetHierarchy`, which costs one call per search; dropping it is an optimization no story owns |

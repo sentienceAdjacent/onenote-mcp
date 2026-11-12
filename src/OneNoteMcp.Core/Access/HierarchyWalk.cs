@@ -45,6 +45,30 @@ internal sealed class HierarchyWalk(IOneNoteGateway gateway)
     }
 
     /// <summary>
+    /// The notebook that owns <paramref name="objectId"/>, for the write grant (AD-6): up the chain to the first
+    /// <c>one:Notebook</c>, whose <c>path</c> comes live from <c>GetHierarchy</c>. Null when the chain ends first (the
+    /// object is itself a notebook) or runs past <see cref="MaxChainDepth"/> ancestors.
+    /// </summary>
+    internal async Task<HierarchyNode?> OwningNotebookAsync(string objectId, CancellationToken ct)
+    {
+        var depth = 0;
+        await foreach (var node in AncestorsAsync(objectId ?? string.Empty, ct).ConfigureAwait(false))
+        {
+            if (node.Kind == HierarchyKind.Notebook)
+            {
+                return node;
+            }
+
+            if (++depth == MaxChainDepth)
+            {
+                break;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The notebook and section groups around <paramref name="sectionId"/>, groups outermost first, for the grant dialog:
     /// up the chain to the first <c>one:Notebook</c>. Every other ancestor counts as a group. A chain that ends, or runs
     /// past <see cref="MaxChainDepth"/> ancestors, before a notebook gives a null notebook and the groups seen so far.

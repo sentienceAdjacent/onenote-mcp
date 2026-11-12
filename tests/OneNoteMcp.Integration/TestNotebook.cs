@@ -385,6 +385,16 @@ internal sealed class TestNotebook
         IReadOnlyDictionary<string, IReadOnlySet<string>>? throwawayNotebookIds,
         IReadOnlySet<string>? created)
     {
+        await EnsureTestTargetAsync(gateway, targetId, method, ct);
+        return await gateway.InvokeAsync(write, ct, retryOnDisconnect: false, method: method);
+    }
+
+    /// <summary>
+    /// The guard alone: throws unless a live <c>GetHierarchy</c> shows <paramref name="targetId"/> is MCP Test, MCP Test
+    /// Cloud or inside one of them. A test that writes through a port method (story 2.7) calls it first.
+    /// </summary>
+    public static async Task EnsureTestTargetAsync(ComGateway gateway, string targetId, string method, CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(gateway);
         var folder = ResolveFolder(Environment.GetEnvironmentVariable);
 
@@ -425,8 +435,6 @@ internal sealed class TestNotebook
 
             throw new InvalidOperationException($"Refusing {method}: {targetId} is not inside MCP Test, MCP Test Cloud or a throwaway notebook.");
         }
-
-        return await gateway.InvokeAsync(write, ct, retryOnDisconnect: false, method: method);
     }
 
     /// <summary>MCP Test Cloud's ID from a live read, or null when it isn't open. Never creates it.</summary>

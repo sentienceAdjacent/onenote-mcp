@@ -384,7 +384,7 @@ public sealed class FixtureCapture : IDisposable
             sectionId,
             app =>
             {
-                app.CreateNewPage(sectionId, out var id, NewPageStyle.npsBlankPageWithTitle);
+                app.CreateNewPage(sectionId, out var id, Com.Interop.NewPageStyle.npsBlankPageWithTitle);
                 return id;
             },
             $"CreateNewPage({seed.Title})",

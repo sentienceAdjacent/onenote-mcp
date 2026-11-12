@@ -13,7 +13,8 @@ namespace OneNoteMcp.Server;
 /// Runs one tool call: creates the correlationId, runs the use case, hands an oversized result to the result store
 /// (AD-20), turns every outcome into the AD-9 envelope and never throws. Logs one stderr line per call with the
 /// correlationId, tool, code, HRESULT and duration, the result store's IDs and sizes, and the search page-text cache's
-/// counts and sizes, never XML or page content (AD-13).
+/// counts and sizes, never XML or page content (AD-13). A call whose arguments don't fit its tool's input schema never
+/// gets here: the call-tool filter refuses it through <see cref="Refuse"/> before the SDK binds it (story 2.14, AD-9).
 /// </summary>
 public sealed partial class ToolRunner
 {
@@ -171,6 +172,22 @@ public sealed partial class ToolRunner
         Meta = envelope.Meta with { Binary = null },
         Warnings = envelope.Warnings,
     };
+
+    /// <summary>
+    /// Story 2.14 (AD-9): a call refused before anything ran, such as one whose arguments don't fit the tool's input
+    /// schema. The failure envelope gets a fresh correlationId and the error's own <c>retryable</c>; the call is logged as
+    /// one call line with the code, never the error's message (it names the caller's arguments, AD-13). No use case, so
+    /// no gateway call, grant prompt or write lock.
+    /// </summary>
+    public CallToolResult Refuse(string tool, OneNoteException error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+
+        var correlationId = Guid.NewGuid().ToString("N");
+        var envelope = ToolEnvelope.Failure(ToolErrors.From(error, OperationClass.Read), new ToolMeta(correlationId));
+        LogCall(logger, correlationId, tool, error.Code.ToString(), envelope.Error?.HResult ?? "-", 0);
+        return ToResult(envelope);
+    }
 
     private static ToolEnvelope Failure(OneNoteException ex, OperationClass operationClass, ToolCallContext context) =>
         ToolEnvelope.Failure(ToolErrors.From(ex, operationClass), new ToolMeta(context.CorrelationId));

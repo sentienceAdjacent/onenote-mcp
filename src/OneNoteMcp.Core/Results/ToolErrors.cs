@@ -71,6 +71,7 @@ public static class ToolErrors
         ErrorCode.ObjectNotFound => "Re-read the hierarchy or page and use a current ID. If the notebook itself is missing, open it in OneNote.",
         ErrorCode.UnknownObjectId => "Re-read the page and use an objectID it contains.",
         ErrorCode.InvalidXml => "Fix the XML so it matches the OneNote 2013 schema, then retry.",
+        ErrorCode.InvalidArgument => "Call again with the arguments the message names corrected: only names the tool declares, spelled exactly as listed, each with a value of the type it expects.",
         ErrorCode.InvalidQuery => "Change the search query, then retry.",
         ErrorCode.FileExists => "Choose a path that does not exist yet.",
         ErrorCode.WriteNotGranted => "Grant write access to the notebook with the OneNoteMcp grant command, then retry.",
