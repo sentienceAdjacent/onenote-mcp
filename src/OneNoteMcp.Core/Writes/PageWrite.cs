@@ -29,10 +29,13 @@ public sealed record PageWriteServices(IOneNoteGateway Gateway, WriteAccess Writ
 /// <list type="number">
 /// <item>The notebook's write grant (AD-6), also in a password-protected section; never the read dialog (AD-21).</item>
 /// <item value="3">The page's section, then the page's own hierarchy node, both read fresh: a section in the recycle bin,
-/// not a page, or a page in the recycle bin is <see cref="ErrorCode.ObjectNotFound"/> (as 2.4 Q8); a locked section is
-/// <see cref="ErrorCode.SectionLocked"/> before the page is looked at; then the piBasic page XML.</item>
+/// not a page, or a page in the recycle bin is <see cref="ErrorCode.ObjectNotFound"/> (as 2.4 Q8); a write that
+/// <see cref="NeedsReadGrant"/> in a protected section with no read grant is <see cref="ErrorCode.ReadNotGranted"/>; a
+/// locked section is <see cref="ErrorCode.SectionLocked"/> before the page is looked at; then the piBasic page XML.</item>
+/// <item value="5">The basis check (AD-17), <see cref="CheckBasis"/>, against the elements each write targets.</item>
 /// <item value="6">The page snapshot (AD-8) of step 3's piBasic read.</item>
-/// <item value="8">Between 7 and 8, the read-back: a piBasic re-read compared with what was sent. It only adds warnings.</item>
+/// <item value="8">Between 7 and 8, the read-back: a piBasic re-read compared with what was sent. It only adds warnings;
+/// one that throws is <c>readBackFailed</c> (<see cref="AfterCallFailed"/>).</item>
 /// </list>
 /// Whether a message may name what is inside the page is decided once: with no read grant for a protected section, at
 /// the call's start, a <c>once</c> grant included and never asking (AD-7, AD-21), refusals and warnings carry counts
@@ -49,7 +52,12 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
     public const string NotAPageUserAction =
         "Pass the ID of a page that isn't in the recycle bin. Read the hierarchy (get_hierarchy with scope pages) and use a one:Page ID.";
 
+    /// <summary>What to do after <c>noBasis</c>, <c>partialBasis</c> or a basis date that isn't a date.</summary>
+    public const string NoBasisUserAction =
+        "Pass meta.basis from get_page_content (or from the previous update_page_content or delete_page_content) unchanged as basis, so a change made since your read is caught.";
+
     private readonly DateTimeOffset callStart;
+    private readonly List<ToolWarning> warnings = [];
     private string? basicXml;
     private HierarchyNode? page;
     private HierarchyNode? section;
@@ -82,6 +90,19 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
     /// <summary>False in a protected section with no read grant at the call's start: messages then name nothing inside the page.</summary>
     protected bool NamesIds { get; private set; }
 
+    /// <summary>The warnings steps 3 to 5 added (<c>noBasis</c>, <c>partialBasis</c>), in step order.</summary>
+    protected IReadOnlyList<ToolWarning> Warnings => warnings;
+
+    /// <summary>
+    /// True when the write runs in a password-protected section only with a read grant for it held at the call's start
+    /// (<c>delete_page_content</c>, Phill, 2026-11-12, 2.10 plan Q1). Without one, step 3 ends with
+    /// <see cref="ErrorCode.ReadNotGranted"/> before the page is read; it never asks.
+    /// </summary>
+    protected virtual bool NeedsReadGrant => false;
+
+    /// <summary>The <c>userAction</c> of the <see cref="ErrorCode.ReadNotGranted"/> that <see cref="NeedsReadGrant"/> gives.</summary>
+    protected virtual string ReadGrantUserAction => ToolErrors.ReadNotGrantedUserAction;
+
     public override Task AuthorizeAsync(CancellationToken ct) =>
         Services.WriteAccess.CheckAsync(PageId, () => NotAPage("isn't a page"), ct);
 
@@ -95,12 +116,20 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
             throw NotAPage("is in the recycle bin");
         }
 
+        // Never asks (AD-21). Like a read's grant check, it comes before SectionLocked.
+        NamesIds = Services.ReadAccess.HoldsReadGrant(section, callStart);
+        if (!NamesIds && NeedsReadGrant)
+        {
+            throw new OneNoteException(
+                ErrorCode.ReadNotGranted,
+                $"Section {section.Id} is password-protected, and {Operation} there needs a read grant for it held when the call starts, so nothing was read or written.",
+                userAction: ReadGrantUserAction);
+        }
+
         if (section.Locked)
         {
             throw new OneNoteException(ErrorCode.SectionLocked, $"Section {section.Id} is locked, so nothing was written to page {PageId}.");
         }
-
-        NamesIds = Services.ReadAccess.HoldsReadGrant(section, callStart);
 
         var self = await Services.Gateway.GetHierarchyAsync(PageId, HierarchyScope.Self, ct).ConfigureAwait(false);
         page = XmlReads.Readable(() => HierarchyNode.Root(self), "GetHierarchy");
@@ -119,6 +148,114 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
 
     public override Task SnapshotAsync(CancellationToken ct) =>
         Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, OperationClass.PageWrite, PageId, BasicXml), ct);
+
+    /// <summary>
+    /// The read-back threw (its deadline or a cancel included): the write stands, with the warning
+    /// <c>readBackFailed</c> and no <c>meta.basis</c>.
+    /// </summary>
+    public override PageWriteResult AfterCallFailed(PageWriteResult result, Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(exception);
+        var why = exception switch
+        {
+            OneNoteException one => one.Code.ToString(),
+            OperationCanceledException => "the write's deadline or a cancel",
+            _ => exception.GetType().Name,
+        };
+        return new PageWriteResult(null, [.. result.Warnings, new ToolWarning(
+            ToolWarnings.ReadBackFailed,
+            $"The write to page {PageId} succeeded, but the page couldn't be re-read afterwards ({why}), so what OneNote kept wasn't checked.",
+            "Re-read the page (get_page_content) to check the change and to get a basis for the next write.")]);
+    }
+
+    /// <summary>
+    /// Step 5 (AD-17): checks <paramref name="basis"/> against step 3's read and returns the date for COM, the caller's
+    /// and never the live one. A basis date must be step 3's instant (compared as UTC), else
+    /// <see cref="ErrorCode.StaleWrite"/>; one that isn't a date is <see cref="ErrorCode.InvalidArgument"/>. Each of
+    /// <paramref name="targets"/> whose basis hash differs from step 3's is <see cref="ErrorCode.StaleWrite"/>; hashes for
+    /// other elements are ignored. A missing date or target hash adds <c>partialBasis</c>; no basis takes step 3's date
+    /// and adds <c>noBasis</c> (both to <see cref="Warnings"/>).
+    /// </summary>
+    protected string CheckBasis(PageWriteBasis? basis, IReadOnlyList<string> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        var current = XmlReads.Readable(() => PageBasis.From(BasicXml), $"GetPageContent({PageId})");
+        if (basis is null)
+        {
+            warnings.Add(new ToolWarning(
+                ToolWarnings.NoBasis,
+                $"No basis was passed, so the write to page {PageId} was checked against the page as the server just read it: a change made since your own read could be overwritten.",
+                NoBasisUserAction));
+            return current.LastModifiedTime ?? string.Empty;
+        }
+
+        string expectedLastModified;
+        var filled = new List<string>();
+        if (basis.LastModifiedTime is null)
+        {
+            expectedLastModified = current.LastModifiedTime ?? string.Empty;
+            filled.Add("it has no lastModifiedTime, so the page's current one was used");
+        }
+        else
+        {
+            var sent = OneNoteDates.ToUtc(basis.LastModifiedTime)
+                ?? throw Invalid(
+                    $"The basis lastModifiedTime for page {PageId} isn't a date OneNote writes, so nothing was written.",
+                    NoBasisUserAction);
+            if (OneNoteDates.ToUtc(current.LastModifiedTime) != sent)
+            {
+                throw new OneNoteException(
+                    ErrorCode.StaleWrite,
+                    $"Page {PageId} changed since the basis was read (its lastModifiedTime differs), so nothing was written.");
+            }
+
+            expectedLastModified = basis.LastModifiedTime;
+        }
+
+        var stale = new List<string>();
+        var missing = new List<string>();
+        foreach (var target in targets)
+        {
+            if (basis.ElementHashes is { } hashes && hashes.TryGetValue(target, out var hash) && hash is not null)
+            {
+                if (!current.ElementHashes.TryGetValue(target, out var now) || !string.Equals(hash, now, StringComparison.Ordinal))
+                {
+                    stale.Add(target);
+                }
+            }
+            else
+            {
+                missing.Add(target);
+            }
+        }
+
+        if (stale.Count > 0)
+        {
+            throw new OneNoteException(
+                ErrorCode.StaleWrite,
+                NamesIds
+                    ? $"On page {PageId}, {IdList(stale)} changed since the basis was read, so nothing was written."
+                    : string.Create(CultureInfo.InvariantCulture, $"On page {PageId}, {stale.Count} sent element(s) changed since the basis was read, so nothing was written."));
+        }
+
+        if (missing.Count > 0)
+        {
+            filled.Add(NamesIds
+                ? $"it has no hash for {IdList(missing)}, so their check was skipped"
+                : string.Create(CultureInfo.InvariantCulture, $"it has no hash for {missing.Count} sent element(s), so their check was skipped"));
+        }
+
+        if (filled.Count > 0)
+        {
+            warnings.Add(new ToolWarning(
+                ToolWarnings.PartialBasis,
+                $"The basis for page {PageId} is partial: {string.Join("; ", filled)}.",
+                NoBasisUserAction));
+        }
+
+        return expectedLastModified;
+    }
 
     /// <summary><see cref="ErrorCode.InvalidArgument"/> with its own <c>userAction</c>, as AD-7's refusals need (deferred-work, 2.5 review).</summary>
     protected static OneNoteException Invalid(string message, string userAction) =>
@@ -212,16 +349,12 @@ public sealed class UpdatePageContentWrite : PageWrite
     public const string WrongElementUserAction =
         "Send each objectID on the same kind of element it has in get_page_content's XML.";
 
-    public const string NoBasisUserAction =
-        "Pass meta.basis from get_page_content (or from the previous update_page_content) unchanged as basis, so a change made since your read is caught.";
-
     public const string ReadBackUserAction =
         "Re-read the page (get_page_content) to see what OneNote kept. OneNote ignores some edits, such as a changed quickStyleIndex on an existing OE.";
 
     private readonly string xml;
     private readonly PageWriteBasis? basis;
     private readonly IReadOnlyList<string> removeObjectIds;
-    private readonly List<ToolWarning> warnings = [];
     private IReadOnlyList<string> hashTargets = [];
     private string? expectedLastModified;
 
@@ -254,87 +387,14 @@ public sealed class UpdatePageContentWrite : PageWrite
 
     public override Task CheckBasisAsync(CancellationToken ct)
     {
-        var current = XmlReads.Readable(() => PageBasis.From(BasicXml), $"GetPageContent({PageId})");
-        if (basis is null)
-        {
-            expectedLastModified = current.LastModifiedTime;
-            warnings.Add(new ToolWarning(
-                ToolWarnings.NoBasis,
-                $"No basis was passed, so the write to page {PageId} was checked against the page as the server just read it: a change made since your own read could be overwritten.",
-                NoBasisUserAction));
-            return Task.CompletedTask;
-        }
-
-        var filled = new List<string>();
-        if (basis.LastModifiedTime is null)
-        {
-            expectedLastModified = current.LastModifiedTime;
-            filled.Add("it has no lastModifiedTime, so the page's current one was used");
-        }
-        else
-        {
-            var sent = OneNoteDates.ToUtc(basis.LastModifiedTime)
-                ?? throw Invalid(
-                    $"The basis lastModifiedTime for page {PageId} isn't a date OneNote writes, so nothing was written.",
-                    NoBasisUserAction);
-            if (OneNoteDates.ToUtc(current.LastModifiedTime) != sent)
-            {
-                throw new OneNoteException(
-                    ErrorCode.StaleWrite,
-                    $"Page {PageId} changed since the basis was read (its lastModifiedTime differs), so nothing was written.");
-            }
-
-            expectedLastModified = basis.LastModifiedTime;
-        }
-
-        var stale = new List<string>();
-        var missing = new List<string>();
-        foreach (var target in hashTargets)
-        {
-            if (basis.ElementHashes is { } hashes && hashes.TryGetValue(target, out var hash) && hash is not null)
-            {
-                if (!current.ElementHashes.TryGetValue(target, out var now) || !string.Equals(hash, now, StringComparison.Ordinal))
-                {
-                    stale.Add(target);
-                }
-            }
-            else
-            {
-                missing.Add(target);
-            }
-        }
-
-        if (stale.Count > 0)
-        {
-            throw new OneNoteException(
-                ErrorCode.StaleWrite,
-                NamesIds
-                    ? $"On page {PageId}, {IdList(stale)} changed since the basis was read, so nothing was written."
-                    : string.Create(CultureInfo.InvariantCulture, $"On page {PageId}, {stale.Count} sent element(s) changed since the basis was read, so nothing was written."));
-        }
-
-        if (missing.Count > 0)
-        {
-            filled.Add(NamesIds
-                ? $"it has no hash for {IdList(missing)}, so their check was skipped"
-                : string.Create(CultureInfo.InvariantCulture, $"it has no hash for {missing.Count} sent element(s), so their check was skipped"));
-        }
-
-        if (filled.Count > 0)
-        {
-            warnings.Add(new ToolWarning(
-                ToolWarnings.PartialBasis,
-                $"The basis for page {PageId} is partial: {string.Join("; ", filled)}.",
-                NoBasisUserAction));
-        }
-
+        expectedLastModified = CheckBasis(basis, hashTargets);
         return Task.CompletedTask;
     }
 
     public override async Task<PageWriteResult> CallAsync(CancellationToken ct)
     {
         await Services.Gateway.UpdatePageContentAsync(xml, expectedLastModified ?? string.Empty, ct).ConfigureAwait(false);
-        return new PageWriteResult(null, [.. warnings]);
+        return new PageWriteResult(null, [.. Warnings]);
     }
 
     public override async Task<PageWriteResult> AfterCallAsync(PageWriteResult result, CancellationToken ct)
@@ -344,22 +404,6 @@ public sealed class UpdatePageContentWrite : PageWrite
         var diffs = XmlReads.Readable(() => PageWriteCheck.CompareReadBack(xml, after, BasicXml), $"GetPageContent({PageId})");
         var afterBasis = NamesIds ? PageBasisResult.From(XmlReads.Readable(() => PageBasis.From(after), $"GetPageContent({PageId})")) : null;
         return new PageWriteResult(afterBasis, [.. result.Warnings, .. ReadBackWarnings(diffs)]);
-    }
-
-    public override PageWriteResult AfterCallFailed(PageWriteResult result, Exception exception)
-    {
-        ArgumentNullException.ThrowIfNull(result);
-        ArgumentNullException.ThrowIfNull(exception);
-        var why = exception switch
-        {
-            OneNoteException one => one.Code.ToString(),
-            OperationCanceledException => "the write's deadline or a cancel",
-            _ => exception.GetType().Name,
-        };
-        return new PageWriteResult(null, [.. result.Warnings, new ToolWarning(
-            ToolWarnings.ReadBackFailed,
-            $"The write to page {PageId} succeeded, but the page couldn't be re-read afterwards ({why}), so what OneNote kept wasn't checked.",
-            "Re-read the page (get_page_content) to check the change and to get a basis for the next write.")]);
     }
 
     private IReadOnlyList<ToolWarning> ReadBackWarnings(IReadOnlyList<ReadBackDiff> diffs)
@@ -492,5 +536,98 @@ public sealed class UpdatePageContentWrite : PageWrite
             string.Create(CultureInfo.InvariantCulture, $"line {p.Line}, position {p.Position}") + (p.DisplayName is { } name ? $" ({name})" : string.Empty));
         var text = string.Join("; ", places);
         return problems.Count > 5 ? string.Create(CultureInfo.InvariantCulture, $"{text}; and {problems.Count - 5} more places") : text;
+    }
+}
+
+/// <summary>
+/// <c>DeletePageContent</c> as a <see cref="PageWrite"/> (AD-7, AD-17; story 2.10): deletes one Outline from a page.
+/// <list type="bullet">
+/// <item>Step 3: in a password-protected section, a read grant for it held at the call's start (a <c>once</c> grant
+/// included, never asking) is required; without one, <see cref="ErrorCode.ReadNotGranted"/> before the page is read
+/// (Phill, 2026-11-12, 2.10 plan Q1). So every message here may name IDs.</item>
+/// <item>Step 4 (<see cref="PageWriteCheck.DeleteTarget"/>): an <c>objectId</c> not on the page is
+/// <see cref="ErrorCode.UnknownObjectId"/>; one on the page that isn't a <c>one:Outline</c> is
+/// <see cref="ErrorCode.InvalidArgument"/> with <see cref="NotAnOutlineUserAction"/> (AD-7).</item>
+/// <item>Step 5 (AD-17): the basis date and the deleted Outline's hash only; the caller's date goes to COM.</item>
+/// <item>Step 7: <c>DeletePageContent</c> with that date and <c>force: false</c>.</item>
+/// <item>Read-back: the Outline is gone, else <c>readBackDiffers</c>; <c>readBackFailed</c>; and <c>meta.basis</c> from
+/// the re-read (Q3).</item>
+/// </list>
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class DeletePageContentWrite : PageWrite
+{
+    /// <summary>The tool's name, recorded in the journal entry.</summary>
+    public const string OperationName = "delete_page_content";
+
+    public const string NotAnOutlineUserAction =
+        "delete_page_content deletes whole Outlines only: pass the objectID of a one:Outline from get_page_content. To delete an OE, "
+        + "send its Outline with update_page_content and name the OE in removeObjectIds. Images and ink can't be deleted in this version.";
+
+    public const string ReadFirstUserAction =
+        "In a password-protected section, delete_page_content needs a read grant for the section. Read the page with get_page_content first "
+        + "(it asks the user for the grant), then call delete_page_content again with the meta.basis from that read.";
+
+    public const string StillThereUserAction =
+        "Re-read the page (get_page_content) to see whether the Outline is still there.";
+
+    private readonly string objectId;
+    private readonly PageWriteBasis? basis;
+    private string? expectedLastModified;
+
+    public DeletePageContentWrite(
+        PageWriteServices services,
+        string correlationId,
+        string pageId,
+        string objectId,
+        PageWriteBasis? basis,
+        DateTimeOffset callStart)
+        : base(services, correlationId, OperationName, pageId, callStart)
+    {
+        this.objectId = objectId ?? string.Empty;
+        this.basis = basis;
+    }
+
+    protected override bool NeedsReadGrant => true;
+
+    protected override string ReadGrantUserAction => ReadFirstUserAction;
+
+    public override void Validate()
+    {
+        switch (XmlReads.Readable(() => PageWriteCheck.DeleteTarget(BasicXml, objectId), $"GetPageContent({PageId})"))
+        {
+            case DeleteTargetKind.Unknown:
+                throw new OneNoteException(
+                    ErrorCode.UnknownObjectId,
+                    $"Page {PageId} has no {objectId}, so nothing was deleted.");
+            case DeleteTargetKind.NotAnOutline:
+                throw Invalid($"On page {PageId}, {objectId} isn't an Outline, so nothing was deleted.", NotAnOutlineUserAction);
+        }
+    }
+
+    public override Task CheckBasisAsync(CancellationToken ct)
+    {
+        expectedLastModified = CheckBasis(basis, [objectId]);
+        return Task.CompletedTask;
+    }
+
+    public override async Task<PageWriteResult> CallAsync(CancellationToken ct)
+    {
+        await Services.Gateway.DeletePageContentAsync(PageId, objectId, expectedLastModified ?? string.Empty, ct).ConfigureAwait(false);
+        return new PageWriteResult(null, [.. Warnings]);
+    }
+
+    public override async Task<PageWriteResult> AfterCallAsync(PageWriteResult result, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var after = await Services.Gateway.GetPageContentAsync(PageId, PageInfo.Basic, ct).ConfigureAwait(false);
+        var stillThere = XmlReads.Readable(() => PageWriteCheck.StillPresent(after, objectId), $"GetPageContent({PageId})");
+        var afterBasis = NamesIds ? PageBasisResult.From(XmlReads.Readable(() => PageBasis.From(after), $"GetPageContent({PageId})")) : null;
+        return new PageWriteResult(afterBasis, stillThere
+            ? [.. result.Warnings, new ToolWarning(
+                ToolWarnings.ReadBackDiffers,
+                $"On page {PageId}, Outline {objectId} is still on the page after the delete.",
+                StillThereUserAction)]
+            : result.Warnings);
     }
 }

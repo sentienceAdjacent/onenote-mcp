@@ -3,13 +3,14 @@ title: 'delete_page_content'
 type: 'feature'
 ticket: '10'
 created: '2026-11-12'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '0f67f9588fd6cf7eeba0617286cc371fda489d22'
 warnings: ['oversized']
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/CLAUDE.md'
@@ -83,18 +84,38 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Xml/PageWriteCheck.cs` + tests -- `DeleteTarget`, `StillPresent`.
-- [ ] `src/OneNoteMcp.Core/Writes/PageWrite.cs` -- lift the basis check and `AfterCallFailed` into `PageWrite`; `UpdatePageContentWrite` calls them (its tests stay green unchanged); add `DeletePageContentWrite`.
-- [ ] `src/OneNoteMcp.Core/UseCases/DeletePageContentUseCase.cs`, `src/OneNoteMcp.Server/Tools/DeletePageContentTool.cs`, `ServerSetup.cs` -- use case and tool.
-- [ ] `tests/OneNoteMcp.Tests/DeletePageContentToolTests.cs`, `FakeGateway.cs` -- every matrix row, the Q1 behaviour, lock free after each outcome, cache entry dropped, journal entry written.
-- [ ] Contract snapshot, tool lists, binding test, stress harness, `plugin/skills/guide/SKILL.md` and `README.md` tool rows (call only when the user asks to remove a block of a page).
-- [ ] `tests/OneNoteMcp.Integration/DeletePageContentIntegrationTests.cs` -- opt-in; not run here.
-- [ ] `deferred-work.md` -- resolve l.253's 2.10 half; add the spine-sync entry (AD-21: `delete_page_content` needs the read grant in a protected section, Q1; AD-17: its result carries `meta.basis`, Q3).
+- [x] `src/OneNoteMcp.Xml/PageWriteCheck.cs` + tests -- `DeleteTarget`, `StillPresent`.
+- [x] `src/OneNoteMcp.Core/Writes/PageWrite.cs` -- lift the basis check and `AfterCallFailed` into `PageWrite`; `UpdatePageContentWrite` calls them (its tests stay green unchanged); add `DeletePageContentWrite`.
+- [x] `src/OneNoteMcp.Core/UseCases/DeletePageContentUseCase.cs`, `src/OneNoteMcp.Server/Tools/DeletePageContentTool.cs`, `ServerSetup.cs` -- use case and tool.
+- [x] `tests/OneNoteMcp.Tests/DeletePageContentToolTests.cs`, `FakeGateway.cs` -- every matrix row, the Q1 behaviour, lock free after each outcome, cache entry dropped, journal entry written.
+- [x] Contract snapshot, tool lists, binding test, stress harness, `plugin/skills/guide/SKILL.md` and `README.md` tool rows (call only when the user asks to remove a block of a page).
+- [x] `tests/OneNoteMcp.Integration/DeletePageContentIntegrationTests.cs` -- opt-in; not run here.
+- [x] `deferred-work.md` -- resolve l.253's 2.10 half; add the spine-sync entry (AD-21: `delete_page_content` needs the read grant in a protected section, Q1; AD-17: its result carries `meta.basis`, Q3).
 
 **Acceptance Criteria:**
 - Given any refusal in steps 3–5, when the pipeline ends, then `DeleteCalls` is empty, no journal entry exists, and the lock is free.
 - Given the lift, when `UpdatePageContentToolTests` runs unchanged, then it passes.
 - Given `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`, then both pass; `dotnet test tests/OneNoteMcp.Integration` without the variable passes or skips.
+
+## Implementation Notes
+
+- The re-merge before implementing brought nothing: `origin/story/2.9-update-page-content` was still `7d172f4`, already in this branch.
+- `PageWrite.CheckBasis(basis, targets)` holds the shared basis check (returns the date for COM; collects `noBasis`/`partialBasis` in `Warnings`); `AfterCallFailed` and `NoBasisUserAction` moved up too. `UpdatePageContentToolTests` passes unchanged.
+- Q1 is a `NeedsReadGrant` hook in the shared step 3; the grant check now runs before `SectionLocked` (as reads order it), so a locked protected section without a grant gives a delete `ReadNotGranted`. No change for update (it never needs the grant). Flagged in deferred-work for 5.2.
+- An empty `objectId` is refused in the use case before the pipeline (no lock, no read), naming the argument.
+- Verification (lead, after review patches): build `-warnaserror` 0/0; unit 1890/1890; integration without the variable 154 passed, 46 skipped; stress harness builds.
+
+## Plan Change Log
+
+## Review Triage Log
+
+### 2026-11-12 — Review pass 1 (quick lens)
+- verdicts: 4 findings — high 0, medium 1, low 3, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` `plugin/skills/guide/SKILL.md:204`: the `ReadNotGranted` row tells Claude to retry so the dialog appears, but a `delete_page_content` retry never asks (Q1) — confirmed at the row; added the read-first sentence for `delete_page_content`.
+  - `[low]` `[patch]` `DeletePageContentIntegrationTests.StaleHash_OnAPageThatIsntDisplayed_IsStaleWrite` asserted only `StaleWrite`, so a date mismatch would pass too and the live check wouldn't show the hash caught it — it now also asserts the message names the Outline (only the hash refusal does); 2.9's twin test noted in deferred-work.
+  - `[low]` `[patch]` the re-merge of `origin/story/2.9-update-page-content` brought nothing (its tip `7d172f4` is in this branch), and the lift moves the code 2.9's date-only fix edits into `PageWrite.CheckBasis` — a real merge hazard with no code to fix now; a deferred-work note tells the merger to apply it in the shared method (moot for deletes under Q1). Re-checked before the final commit.
+  - `[low]` `[reject]` an empty `objectId` is refused in the use case before the pipeline, so step 1 and the cache eviction don't run — the matrix row says "no read"; nothing is read or written, so no cache entry can be stale. The fix would add a pipeline pass for a call that does nothing.
 
 ## Design Notes
 
