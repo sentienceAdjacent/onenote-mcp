@@ -164,6 +164,16 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"\u0001file:///C:/a\">p</a>")]
     [InlineData("<a href=\"&#104;ttps://example.invalid/\">p</a>")] // a value is checked at every decoding, not only the last
     [InlineData("<a href=\"https&colon;//example.invalid/\">p</a>")]
+    // onenote: only within the page (#...) or to a web notebook (http/https), never to a local, relative or network path
+    [InlineData("<a href=\"onenote:///C:\\x\\s.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:C:\\x\\s.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:\\\\server\\share\\s.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote://server/share/s.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:..\\s.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:s.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:file:///C:/x/s.one\">p</a>")]
+    [InlineData("<a href=\"onenote:\">p</a>")]
+    [InlineData("<a href=\"onenote:&#9;\\\\server\\s.one\">p</a>")]
     // tags a parser could read differently: both the tokenizer and the plain scan count
     [InlineData("<a title=\"a>b\" href=\"C:\\x\">p</a>")] // a > inside quotes: only the tokenizer sees the href
     [InlineData("<!-- <a title=\" --> <a href=\"C:\\x\">p</a>")] // a comment ends before the quote closes
@@ -206,6 +216,8 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"mailto:someone@example.invalid\">mail</a>")]
     [InlineData("<a href=\"onenote:#page\">p</a>")]
     [InlineData("<a href=\"onenote:https://example.invalid/n.one#p\">p</a>")]
+    [InlineData("<a href=\"ONENOTE:HTTP://example.invalid/n.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:#Page&amp;section-id={1}&amp;page-id={2}&amp;end\">p</a>")]
     [InlineData("my profile: settings")]
     [InlineData("the share is \\\\server\\share")]
     [InlineData("C:\\temp is a folder")]

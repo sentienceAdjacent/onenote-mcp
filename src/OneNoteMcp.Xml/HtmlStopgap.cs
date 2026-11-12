@@ -41,7 +41,11 @@ internal static class HtmlStopgap
 
     private static readonly Regex FileUrl = new("(?<![a-z0-9+.-])file:", Options);
 
-    private static readonly Regex AllowedUrl = new("^(?:https?://|mailto:|onenote:)", Options);
+    /// <summary>
+    /// Absolute web and mail URLs, and <c>onenote:</c> only within the page (<c>onenote:#…</c>) or to a web notebook
+    /// (<c>onenote:http(s)://…</c>): an <c>onenote:</c> link to a local, relative or network notebook path is refused.
+    /// </summary>
+    private static readonly Regex AllowedUrl = new("^(?:https?://|mailto:|onenote:(?:#|https?://))", Options);
 
     private static readonly Regex Descriptor = new(@"^[0-9]+(?:\.[0-9]+)?[wxh]$", Options);
 
