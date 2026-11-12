@@ -195,6 +195,17 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"onenote:https:///s.one#p\">p</a>")] // no host
     [InlineData("<a href=\"onenote:https://example.invalid/n.one%5C..%5Cx#p\">p</a>")]
     [InlineData("<a href=\"onenote:https://example.invalid/n.one?base-path=x#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid:/n.one#p\">p</a>")] // an empty port
+    [InlineData("<a href=\"onenote:https://user@example.invalid/n.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/a//b.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/a/../b.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/a/%2E%2E/b.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/C:/x.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:https://example.invalid/file:x.one#p\">p</a>")]
+    [InlineData("<a href=\"onenote:#..%2F..%2Fx.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#x%2F%2Fserver%2Fs.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#C:%2Fx.one\">p</a>")]
+    [InlineData("<a href=\"onenote:#file:x.one\">p</a>")]
     // tags a parser could read differently: both the tokenizer and the plain scan count
     [InlineData("<a title=\"a>b\" href=\"C:\\x\">p</a>")] // a > inside quotes: only the tokenizer sees the href
     [InlineData("<!-- <a title=\" --> <a href=\"C:\\x\">p</a>")] // a comment ends before the quote closes
@@ -242,6 +253,7 @@ public sealed class PageWriteSecurityTests : IDisposable
     [InlineData("<a href=\"onenote:#My%20Page&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;object-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;end\">p</a>")]
     [InlineData("<a href=\"onenote:https://example.invalid/Docs/My%20Notebook/S.one#P&amp;section-id={0f6e7c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b}&amp;page-id={1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d}&amp;end\">p</a>")]
     [InlineData("<a href=\"onenote:https://example.invalid/Docs/My%20Notebook/S.one\">p</a>")] // a section, no page
+    [InlineData("<a href=\"onenote:https://example.invalid:8443/Docs/S.one#Q1/Q2%20plan...\">p</a>")]
     [InlineData("my profile: settings")]
     [InlineData("the share is \\\\server\\share")]
     [InlineData("C:\\temp is a folder")]

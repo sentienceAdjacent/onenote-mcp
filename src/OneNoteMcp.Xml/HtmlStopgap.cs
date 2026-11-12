@@ -45,7 +45,14 @@ internal static class HtmlStopgap
 
     /// <summary>An <c>onenote:</c> link: an optional web-notebook address (with a host), then an optional <c>#</c> part.</summary>
     private static readonly Regex OneNoteLink = new(
-        @"^onenote:(?<web>https?://[^/\\?#\s]+[^#]*)?(?:#(?<fragment>.*))?$", Options | RegexOptions.Singleline);
+        @"^onenote:(?<web>https?://[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?(?:[/?][^#]*)?)?(?:#(?<fragment>.*))?$", Options | RegexOptions.Singleline);
+
+    /// <summary>The scheme and host at the start of a web-notebook address, so the path checks look only at what follows.</summary>
+    private static readonly Regex WebAuthority = new("^https?://[^/?#]*", Options);
+
+    /// <summary>What lets an onenote: link name a notebook file: base-path, a backslash, //, a .. segment, file: or a drive.</summary>
+    private static readonly Regex OneNotePathMarker = new(
+        @"base-path|\\|//|file:|(?:^|[/=&])\.\.(?:[/&?]|$)|(?<![a-z0-9])[a-z]:[\\/]", Options);
 
     /// <summary>The parameters OneNote's own page links carry after the title: GUID ids, a short hex index, and <c>end</c>.</summary>
     private static readonly Regex OneNoteParameter = new(
@@ -158,8 +165,10 @@ internal static class HtmlStopgap
             return false;
         }
 
-        if (web.Success && (FullyDecoded(web.Value) is not { } address || HasPathMarker(address)
-            || !Uri.TryCreate(web.Value, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.IsUnc || uri.Host.Length == 0))
+        if (web.Success && (FullyDecoded(web.Value) is not { } address || address.Contains('&', StringComparison.Ordinal)
+            || OneNotePathMarker.IsMatch(WebAuthority.Replace(address, string.Empty))
+            || !Uri.TryCreate(web.Value, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.IsUnc
+            || !uri.Host.Contains('.', StringComparison.Ordinal)))
         {
             return false;
         }
@@ -171,12 +180,9 @@ internal static class HtmlStopgap
 
         // Split on & and on &amp;: the value is checked before entity decoding too, where the separators are still &amp;.
         var parts = ParameterSeparator.Split(fragment.Value);
-        return FullyDecoded(parts[0]) is { } title && !HasPathMarker(title) && title.IndexOfAny(['&', '=', '#']) < 0
+        return FullyDecoded(parts[0]) is { } title && !OneNotePathMarker.IsMatch(title) && title.IndexOfAny(['&', '=', '#']) < 0
             && parts.Skip(1).All(OneNoteParameter.IsMatch);
     }
-
-    private static bool HasPathMarker(string text) =>
-        text.Contains('\\', StringComparison.Ordinal) || text.Contains("base-path", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The text percent-decoded until it stops changing, or null when it still changes after four rounds.</summary>
     private static string? FullyDecoded(string text)
