@@ -404,10 +404,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                     message += string.Create(CultureInfo.InvariantCulture, $" OneNote refused the {refused} attachment or media file(s) sent from their temporary copies, so the page was written without them.");
                 }
 
-                warnings.Add(new ToolWarning(
-                    ToolWarnings.BinaryMissing,
-                    message,
-                    "Images missing from the snapshot weren't on this PC when it was taken. Attachments and media come back only while OneNote's temporary copy still exists; re-insert any that are missing from the original files."));
+                warnings.Add(new ToolWarning(ToolWarnings.BinaryMissing, message, MissingBinaryAdvice(counts)));
             }
 
             if (fallback is { } used)
@@ -421,6 +418,29 @@ public sealed class RestoreFromJournalUseCase : IUseCase
             }
 
             return warnings;
+        }
+
+        /// <summary>binaryMissing's userAction: one sentence per group of kinds actually missing, so the advice matches the counts.</summary>
+        private static string MissingBinaryAdvice(Dictionary<string, int> counts)
+        {
+            bool Any(params string[] kinds) => kinds.Any(k => counts.GetValueOrDefault(k) > 0);
+            var advice = new List<string>();
+            if (Any(RestoredPage.ImageKind, RestoredPage.InkKind))
+            {
+                advice.Add("Images and ink missing from the snapshot weren't on this PC when it was taken; re-insert any you still have.");
+            }
+
+            if (Any(RestoredPage.AttachmentKind, RestoredPage.MediaKind))
+            {
+                advice.Add("Attachments and media come back only while OneNote's temporary copy still exists; re-insert any that are missing from the original files.");
+            }
+
+            if (Any(RestoredPage.OtherKind))
+            {
+                advice.Add("Other embedded content, such as HTML blocks and printouts, isn't restored; add it back by hand if you need it.");
+            }
+
+            return string.Join(" ", advice);
         }
     }
 }

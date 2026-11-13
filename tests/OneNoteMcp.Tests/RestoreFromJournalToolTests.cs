@@ -451,6 +451,24 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         Assert.Contains("1 image", message, StringComparison.Ordinal);
         Assert.Contains("1 attachment", message, StringComparison.Ordinal);
         Assert.DoesNotContain("report", message, StringComparison.Ordinal);
+        var userAction = WarningUserAction(root, "binaryMissing");
+        Assert.Contains(ImagesAdvice, userAction, StringComparison.Ordinal);
+        Assert.Contains(AttachmentsAdvice, userAction, StringComparison.Ordinal);
+        Assert.DoesNotContain(OtherAdvice, userAction, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OnlyAnAttachmentMissing_AdvisesAboutAttachmentsOnly()
+    {
+        // Seen live: "(1 attachment)" came with advice that opened with images.
+        var entryId = WriteEntry(Plain() with { Xml = WithInsertedFile(@"C:\Users\someone\Documents\report.docx", @"C:\Users\someone\Documents\report.docx") });
+
+        var root = Ok(await Tool().RestoreFromJournal(entryId, Ct));
+
+        Assert.Contains("1 attachment", Warning(root, "binaryMissing"), StringComparison.Ordinal);
+        var userAction = WarningUserAction(root, "binaryMissing");
+        Assert.Equal(AttachmentsAdvice, userAction);
+        Assert.DoesNotContain("Images", userAction, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -508,7 +526,7 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         // Phill, 2026-11-13: a forged journal file must never carry what a page write refuses, so restore drops every
         // one:HTMLBlock (OneNote fetches the local files its HTML names) and counts it under binaryMissing.
         XNamespace one = OneNoteXml.Namespace2013;
-        var withHtml = After(p =>
+        var withHtml = SnapshotWith(p =>
         {
             p.Add(new XElement(one + "Outline", new XElement(one + "OEChildren",
                 new XElement(one + "OE", new XElement(one + "HTMLBlock",
@@ -524,7 +542,10 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         var sent = Assert.Single(gateway.UpdateCalls).PageXml;
         Assert.DoesNotContain("HTMLBlock", sent, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-b", sent, StringComparison.Ordinal);
-        Assert.Contains("2 other", Warning(root, "binaryMissing"), StringComparison.Ordinal);
+        var message = Warning(root, "binaryMissing");
+        Assert.Contains("2 other", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("image", message, StringComparison.Ordinal);
+        Assert.Equal(OtherAdvice, WarningUserAction(root, "binaryMissing"));
     }
 
     [Fact]
@@ -939,6 +960,18 @@ public sealed class RestoreFromJournalToolTests : IDisposable
 
     private static string Warning(JsonElement root, string code) =>
         root.GetProperty("warnings").EnumerateArray().First(w => w.GetProperty("code").GetString() == code).GetProperty("message").GetString()!;
+
+    private static string WarningUserAction(JsonElement root, string code) =>
+        root.GetProperty("warnings").EnumerateArray().First(w => w.GetProperty("code").GetString() == code).GetProperty("userAction").GetString()!;
+
+    private const string ImagesAdvice =
+        "Images and ink missing from the snapshot weren't on this PC when it was taken; re-insert any you still have.";
+
+    private const string AttachmentsAdvice =
+        "Attachments and media come back only while OneNote's temporary copy still exists; re-insert any that are missing from the original files.";
+
+    private const string OtherAdvice =
+        "Other embedded content, such as HTML blocks and printouts, isn't restored; add it back by hand if you need it.";
 
     private static JsonElement Ok(CallToolResult result)
     {
