@@ -20,6 +20,9 @@ namespace OneNoteMcp.Server.Grants;
 /// until revoked with <c>grant --revoke --write</c>, and has one typed-name field (<c>notebookName_</c> plus 8 random hex
 /// digits, renamed on every request and the only field the answer is read from), with the notebook's name as its hint.
 /// There is no lifetime field: write grants have none (AD-10).</para>
+/// <para>And the one-call permanent-delete confirmation (story 5.6, plan Q1 c): it names the object's kind and name and its
+/// notebook, and has one typed-name field (<c>objectName_</c> plus 8 random hex digits, read the same way). Nothing is
+/// stored.</para>
 /// </summary>
 public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
 {
@@ -230,6 +233,87 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                     },
                 },
                 Required = [notebookNameField],
+            },
+        };
+    }
+
+    // --- The permanent-delete confirmation (AD-6; Phill, 2026-11-13, 5.6 plan Q1 c) ------------------------------------
+
+    /// <summary>The prefix of the permanent-delete confirmation's typed-name field's per-request name.</summary>
+    public const string ObjectNameField = "objectName";
+
+    public async Task<GrantPromptResult> AskPermanentDeleteAsync(PermanentDeleteQuestion question, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        if (server.ClientCapabilities?.Elicitation is null)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+
+        var field = NewObjectNameField();
+        ElicitResult result;
+        try
+        {
+            result = await server.ElicitAsync(PermanentDeleteRequest(question, field), ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+        catch (McpException)
+        {
+            // The client answered the request with an error: no confirmation.
+            return new GrantPromptResult(GrantPromptStatus.Cancelled);
+        }
+
+        // The same reading as the write dialog's: only the field named in this request counts.
+        return ReadWrite(result, field);
+    }
+
+    /// <summary>A fresh typed-name field name for the confirmation: <c>objectName_</c> plus 8 random lowercase hex digits.</summary>
+    public static string NewObjectNameField() =>
+        ObjectNameField + "_" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(8, lowercase: true);
+
+    /// <summary>
+    /// The permanent-delete confirmation's form (5.6 plan Q1 c), with the typed-name field named
+    /// <paramref name="objectNameField"/>. It names what will go, by kind and name, and where it is (a page's section, a
+    /// section's page count, and the notebook by name and path), says the delete skips the recycle bin and that this
+    /// confirmation covers this one delete only, and asks the user to type the name. The question's texts are already safe
+    /// to show (<see cref="PermanentDeleteDialog.Shown"/>). The CLI command it suggests holds a placeholder, never the
+    /// notebook's name, which a model can choose. Nothing is stored. Public for tests, which have no in-process MCP client.
+    /// </summary>
+    public static ElicitRequestParams PermanentDeleteRequest(PermanentDeleteQuestion question, string objectNameField)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        var named = question.ObjectName.Length > 0 ? $" \"{question.ObjectName}\"" : " (untitled)";
+        var detail = question switch
+        {
+            { SectionName: { } section } => $" in the section \"{section}\"",
+            { PageCount: { } count } => string.Create(CultureInfo.InvariantCulture, $" ({count} page{(count == 1 ? string.Empty : "s")})"),
+            _ => string.Empty,
+        };
+        var path = question.NotebookPath.Length > 0 ? $" ({question.NotebookPath})" : string.Empty;
+        return new ElicitRequestParams
+        {
+            Message =
+                $"Claude wants to delete the {question.Kind}{named}{detail} of the OneNote notebook \"{question.NotebookName}\"{path} permanently. "
+                + "It won't go to OneNote's recycle bin; the server keeps a copy in its recovery journal for 30 days. "
+                + $"To allow this one delete, type \"{question.ExpectedText}\". "
+                + "Decline to keep it. This covers this delete only; to allow permanent deletes in this notebook without asking, run "
+                + GrantCli.Run("--permanent-delete \"<notebook name>\"") + " yourself, with the notebook's name in place of <notebook name>. "
+                + "Only you can allow this: the model can't.",
+            RequestedSchema = new ElicitRequestParams.RequestSchema
+            {
+                Properties = new Dictionary<string, ElicitRequestParams.PrimitiveSchemaDefinition>
+                {
+                    [objectNameField] = new ElicitRequestParams.StringSchema
+                    {
+                        Title = question.ExpectedText == question.ObjectName ? $"The {question.Kind}'s name" : "Confirmation",
+                        Description = $"Type \"{question.ExpectedText}\" to confirm.",
+                        MinLength = 1,
+                    },
+                },
+                Required = [objectNameField],
             },
         };
     }

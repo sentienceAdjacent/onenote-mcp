@@ -10,7 +10,7 @@ internal sealed record FakeCall(string Method, object?[] Args, int ThreadId);
 /// answers every one of them (hang on a gate, throw a sequence, return a value); otherwise GetHierarchy answers from
 /// <see cref="OnGetHierarchy"/> and the rest throw. Every read call is recorded. <see cref="Factory"/> counts activations.
 /// Write and app-state methods always throw, except <c>NavigateTo</c>, <c>CreateNewPage</c>, <c>OpenHierarchy</c>, <c>UpdatePageContent</c>,
-/// <c>DeletePageContent</c>, <c>UpdateHierarchy</c> and <c>DeleteHierarchy</c>, which are recorded and scripted like a read.
+/// <c>DeletePageContent</c>, <c>UpdateHierarchy</c>, <c>DeleteHierarchy</c> and <c>Publish</c> (story 5.6), which are recorded and scripted like a read.
 /// </summary>
 internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IApplication
 {
@@ -116,7 +116,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
 
     public void NavigateToUrl(string bstrUrl, bool fNewWindow) => throw new NotSupportedException();
 
-    public void Publish(string bstrHierarchyID, string bstrTargetFilePath, PublishFormat pfPublishFormat, string bstrCLSIDofExporter) => throw new NotSupportedException();
+    // Recorded and scripted like the reads (story 5.6); a test's OnCall writes the file when it wants one to land.
+    public void Publish(string bstrHierarchyID, string bstrTargetFilePath, PublishFormat pfPublishFormat, string bstrCLSIDofExporter) =>
+        Answer(nameof(Publish), [bstrHierarchyID, bstrTargetFilePath, pfPublishFormat, bstrCLSIDofExporter]);
 
     public void OpenPackage(string bstrPathPackage, string bstrPathDest, out string pbstrPathOut) => throw new NotSupportedException();
 

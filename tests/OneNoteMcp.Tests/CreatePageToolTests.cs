@@ -72,7 +72,7 @@ public sealed class CreatePageToolTests : IDisposable
 
     private Dictionary<string, string> Parents => gateway.Parents;
 
-    private SettingsStore Store => new(temp.Combine("settings.json"));
+    private SettingsStore Store => new(temp.Combine("settings.json"), temp.Combine("journal"));
 
     public void Dispose() => temp.Dispose();
 
@@ -650,8 +650,9 @@ public sealed class CreatePageToolTests : IDisposable
     }
 
     [Fact]
-    public async Task Dialog_KeepsAnExistingPermanentDeleteFlag()
+    public async Task Dialog_NeverRevivesAPermanentDeleteFlagHeldWithoutAWriteGrant()
     {
+        // Story 5.6 plan Q2 b: a write grant, the dialog's included, never silently brings permanent deletes back.
         File.WriteAllText(
             Store.Path,
             """{"schemaVersion": 1, "notebooks": {"C:\\notebooks\\W": {"name": "W", "idAtGrant": "x", "write": false, "permanentDelete": true, "grantedAt": "2026-11-01T00:00:00.000Z", "grantedVia": "cli"}}}""");
@@ -660,7 +661,8 @@ public sealed class CreatePageToolTests : IDisposable
         Ok(await CreateWithPrompt(new FakePrompt(Typed("W"))));
 
         var grant = Assert.Single(Settings().Notebooks.Values);
-        Assert.True(grant.Write && grant.PermanentDelete);
+        Assert.True(grant.Write);
+        Assert.False(grant.PermanentDelete);
         Assert.Equal(GrantedVia.Elicitation, grant.GrantedVia);
     }
 
@@ -826,7 +828,7 @@ public sealed class CreatePageToolTests : IDisposable
     {
         // The check reads a settings file the dialog's save doesn't reach, so the re-check still finds no grant.
         File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
-        var elsewhere = new SettingsStore(temp.Combine("elsewhere.json"));
+        var elsewhere = new SettingsStore(temp.Combine("elsewhere.json"), temp.Combine("journal-elsewhere"));
         File.WriteAllText(elsewhere.Path, """{"schemaVersion": 1}""");
         OpenNotebooksAre();
         var prompt = new FakePrompt(Typed("W"), Typed("W"));

@@ -75,7 +75,7 @@ public static class ToolErrors
         ErrorCode.InvalidQuery => "Change the search query, then retry.",
         ErrorCode.FileExists => "Choose a path that does not exist yet.",
         ErrorCode.WriteNotGranted => "Grant write access to the notebook with the OneNoteMcp grant command, then retry.",
-        ErrorCode.PermanentDeleteNotGranted => "Grant permanent-delete access to the notebook with the OneNoteMcp grant command, then retry.",
+        ErrorCode.PermanentDeleteNotGranted => Access.WriteAccess.PermanentDeleteNotGrantedUserAction,
         ErrorCode.ReadNotGranted => ReadNotGrantedUserAction,
         ErrorCode.ResultExpired => "Repeat the original call to get a new resultId.",
         ErrorCode.ExportPathNotAllowed => "Choose a path under one of the configured export roots.",

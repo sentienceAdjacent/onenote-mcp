@@ -520,6 +520,39 @@ public sealed class UninstallCommandTests : IDisposable
         Assert.True(File.Exists(foreign), "only the writer's .{name}.tmp form is ours");
     }
 
+    // --- Story 5.6: PermanentDelete backups -----------------------------------------------------------------------------
+
+    [Fact]
+    public void Purge_RemovesBackups_AndTheBackupsFolder_WithTheJournal()
+    {
+        SeedEverything();
+        var backups = Path.Combine(JournalFolder, JournalFiles.BackupsFolderName);
+        var backup = Touch(backups, JournalFiles.BackupName(JournalName));
+
+        Assert.Equal(0, Command().Run(["--purge", "--yes"]));
+
+        Assert.False(File.Exists(backup));
+        Assert.False(Directory.Exists(backups));
+        Assert.False(Directory.Exists(JournalFolder));
+    }
+
+    [Fact]
+    public void Purge_KeepsForeignFilesInBackups_AndNeverRecursesFurther()
+    {
+        SeedEverything();
+        var backups = Path.Combine(JournalFolder, JournalFiles.BackupsFolderName);
+        var backup = Touch(backups, JournalFiles.BackupName(JournalName));
+        var foreign = Touch(backups, "Notes.one");
+        var deeper = Touch(Path.Combine(backups, "nested"), JournalFiles.BackupName(JournalName));
+
+        Command().Run(["--purge", "--yes"]);
+
+        Assert.False(File.Exists(backup));
+        Assert.True(File.Exists(foreign));
+        Assert.True(File.Exists(deeper), "only the backups folder's top level is ours");
+        Assert.True(Directory.Exists(backups));
+    }
+
     [Fact]
     public void Resolve_JournalFollowsTheTestOverrides_DecisionQ1()
     {

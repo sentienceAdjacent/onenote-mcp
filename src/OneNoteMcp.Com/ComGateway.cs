@@ -463,6 +463,54 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.Publish);
+        if (string.IsNullOrEmpty(objectId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no object ID was given.",
+                retryable: false));
+        }
+
+        if (LocalFileProblem(targetPath) is { } problem)
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the target file {problem}.",
+                retryable: false));
+        }
+
+        // AD-3: Publish has its own timeout (timeouts.publishSeconds); a write, so never retried after a disconnect.
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.Publish(objectId, targetPath, PublishFormat.pfOneNote, string.Empty);
+                return true;
+            },
+            CallKind.Write,
+            ct,
+            publish: true);
+    }
+
+    /// <summary>Why <paramref name="path"/> can't be a <c>Publish</c> target, or null: it must be a fully qualified local file path (<c>C:\…</c>), not UNC, a device path or a URL.</summary>
+    private static string? LocalFileProblem(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return "is empty";
+        }
+
+        var slashed = path.Replace('/', '\\');
+        return slashed.StartsWith(@"\\", StringComparison.Ordinal) || slashed.StartsWith(@"\??\", StringComparison.Ordinal)
+            || !System.IO.Path.IsPathFullyQualified(slashed) || slashed.Length < 4 || !char.IsAsciiLetter(slashed[0]) || slashed[1] != ':'
+            || slashed.EndsWith('\\')
+            ? "isn't a fully qualified local file path"
+            : null;
+    }
+
     public Task WaitForAbandonedWritesAsync(CancellationToken ct)
     {
         lock (gate)
@@ -579,7 +627,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     internal static bool IsBusy(Exception ex) =>
         ex is COMException && unchecked((uint)ex.HResult) is 0x80010001 or 0x8001010A;
 
-    private async Task<T> RunAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct)
+    /// <param name="publish">True for <c>Publish</c>, which runs under <c>timeouts.publishSeconds</c> instead of <c>callSeconds</c> (AD-3).</param>
+    private async Task<T> RunAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct, bool publish = false)
     {
         // First, before any other refusal: nothing but a read goes to OneNote while an abandoned write may still run (AD-3).
         ThrowIfWriteOutstanding(method, kind);
@@ -591,7 +640,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             {
                 try
                 {
-                    return await AttemptAsync(method, call, kind, ct).ConfigureAwait(false);
+                    return await AttemptAsync(method, call, kind, publish, ct).ConfigureAwait(false);
                 }
                 catch (ReconnectRequiredException ex)
                 {
@@ -612,10 +661,10 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
     }
 
-    private async Task<T> AttemptAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct)
+    private async Task<T> AttemptAsync<T>(string method, Func<IApplication, T> call, CallKind kind, bool publish, CancellationToken ct)
     {
         var (worker, settings) = await EnsureActivatedAsync(ct).ConfigureAwait(false);
-        var timeout = settings.Timeouts.Call;
+        var timeout = publish ? settings.Timeouts.Publish : settings.Timeouts.Call;
         var deadline = DateTime.UtcNow + timeout;
         var backoff = FirstBackoff;
         while (true)

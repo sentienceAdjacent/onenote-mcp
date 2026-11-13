@@ -315,6 +315,16 @@ internal sealed class FakePrompt(params GrantPromptResult[] answers) : IGrantPro
         return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : new GrantPromptResult(GrantPromptStatus.Cancelled));
     }
 
+    /// <summary>The permanent-delete confirmation's questions (story 5.6), in order.</summary>
+    public List<PermanentDeleteQuestion> PermanentQuestions { get; } = [];
+
+    public Task<GrantPromptResult> AskPermanentDeleteAsync(PermanentDeleteQuestion question, CancellationToken ct)
+    {
+        PermanentQuestions.Add(question);
+        Order.Add("permanent");
+        return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : new GrantPromptResult(GrantPromptStatus.Cancelled));
+    }
+
     public static GrantPromptResult Accept(string typed, ReadGrantLifetime lifetime, int? hours = null) =>
         new(GrantPromptStatus.Accepted, typed, lifetime, hours);
 }
@@ -331,7 +341,7 @@ internal sealed class VaultHarness : IDisposable
     {
         Gateway = new VaultGateway(locked);
         SettingsPath = temp.Combine("settings.json");
-        Settings = new SettingsStore(SettingsPath);
+        Settings = new SettingsStore(SettingsPath, temp.Combine("journal"));
         Writer = new SettingsWriter(Settings, Clock);
         Access = new ReadAccess(Gateway, Settings.Read, Writer, Clock);
         ResultSettings = new ResultSettings(inlineMaxChars, TtlMinutes: 30, MaxStoreMB: 16);
