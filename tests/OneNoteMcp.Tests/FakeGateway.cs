@@ -200,6 +200,51 @@ internal sealed class FakeGateway : IOneNoteGateway
         return Task.FromResult(created);
     }
 
+    /// <summary>Every <c>OpenHierarchy</c> section-group create, in order (story 5.3). It has no fixture: it records and returns <see cref="CreatedGroupId"/>.</summary>
+    public List<(string ParentId, string GroupName)> CreateGroupCalls { get; } = [];
+
+    /// <summary>When set, the section-group create alone throws it.</summary>
+    public Exception? CreateGroupFailure { get; set; }
+
+    /// <summary>The synthetic ID the <paramref name="n"/>th section-group create (from 1) returns.</summary>
+    public static string CreatedGroupId(int n) =>
+        string.Create(CultureInfo.InvariantCulture, $"{{6C70C4EA-0000-4000-8000-{n:D12}}}{{1}}{{B0}}");
+
+    public Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct)
+    {
+        CreateGroupCalls.Add((parentId, groupName));
+        if ((Failure ?? CreateGroupFailure) is { } failure)
+        {
+            return Task.FromException<string>(failure);
+        }
+
+        return Task.FromResult(CreatedGroupId(CreateGroupCalls.Count));
+    }
+
+    /// <summary>Every <c>OpenHierarchy</c> notebook create, in order (story 5.3). It has no fixture: it records and returns <see cref="CreatedNotebookId"/>.</summary>
+    public List<string> CreateNotebookCalls { get; } = [];
+
+    /// <summary>When set, the notebook create alone throws it.</summary>
+    public Exception? CreateNotebookFailure { get; set; }
+
+    /// <summary>When set, the notebook create returns its answer instead of <see cref="CreatedNotebookId"/>, after recording the call.</summary>
+    public Func<string, string>? OnCreateNotebook { get; set; }
+
+    /// <summary>The synthetic ID the <paramref name="n"/>th notebook create (from 1) returns.</summary>
+    public static string CreatedNotebookId(int n) =>
+        string.Create(CultureInfo.InvariantCulture, $"{{4B0BC4EA-0000-4000-8000-{n:D12}}}{{1}}{{B0}}");
+
+    public Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct)
+    {
+        CreateNotebookCalls.Add(folderPath);
+        if ((Failure ?? CreateNotebookFailure) is { } failure)
+        {
+            return Task.FromException<string>(failure);
+        }
+
+        return Task.FromResult(OnCreateNotebook?.Invoke(folderPath) ?? CreatedNotebookId(CreateNotebookCalls.Count));
+    }
+
     /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
     public List<(string PageXml, string ExpectedLastModified)> UpdateCalls { get; } = [];
 

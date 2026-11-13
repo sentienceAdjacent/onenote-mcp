@@ -3,19 +3,27 @@ title: 'Create: section, section group and notebook'
 type: 'feature'
 ticket: '3'
 created: '2026-11-12'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '008ad0a2dfc611c89d1eb6a6f03504bd3efa3f96'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      ComGatewayLifecycleTests.AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked is timing-flaky (failed 1 run in 6 on 2026-11-13).
+    evidence: |-
+      Seen during 5.3's pre-commit verification: 2 of 8 full runs of tests/OneNoteMcp.Tests failed on this one test (406 ms), every other run passed 2469/2469. The test dates from story 2.7 (commit 06524c3) and this diff doesn't change it; it races the STA thread against a short deadline and is sensitive to machine load.
+    location: >-
+      tests/OneNoteMcp.Tests/ComGatewayLifecycleTests.cs:899
+    severity: low
 ---
 
 <intent-contract>
@@ -71,6 +79,20 @@ deferred: []
 - Q6: live notebook creation runs in an opt-in integration test that makes a throwaway notebook under the test folder; Phill closes and deletes it afterwards.
 - Q7: approved with these answers.
 
+## Build Directions (unattended build, 2026-11-13)
+
+These settle what the answers leave to the build. They are binding for this build and sit beside the Answers; where the intent contract above predates an answer, the answer and these directions win. Three of them began as assumptions; Phill confirmed all three as decisions on 2026-11-13 (marked **Decision (Phill, 2026-11-13)**): the name rule for groups and notebooks, `NotSupported` without dialog support, and the editable, prefilled folder field.
+
+- **Name rule for groups and notebooks (the spine's AD-7 open point, PR #43). Decision (Phill, 2026-11-13).** The whole section rule applies to section groups and notebooks too: one file-system name; no `..`, `\`, `/`, control or `< > : " | ? *` characters; no reserved device name (`CON`, `NUL`, `COM1`…, also with an extension, as `SectionFileNames` already does); no leading or trailing space or dot; `OneNote_RecycleBin` and `OneNote_DeletedPages` refused ignoring case. Reason: a group is a folder and a notebook is a folder, so Windows has the same limits, and a trailing dot or space makes a folder Explorer and OneNote handle badly. Only a section gets `.one` (Q2). Record this choice in `deferred-work.md`'s spine-sync item.
+- **`create_notebook(name, folder?)` and its location dialog (Q3).** The tool takes the notebook's name and an optional parent folder. In step 1, after the name check and the settings-writable check, the server asks the user where the notebook goes through a new Core port (beside `IGrantPrompt`, for example `INotebookLocationPrompt`) with an MCP elicitation adapter in `src/OneNoteMcp.Server/Grants/`. The form names the notebook and offers a `location` choice and an editable `folder` field (**Decision (Phill, 2026-11-13)**: editable and prefilled) prefilled with the caller's `folder` or, when absent, OneNote's `DefaultNotebookFolder` if that is a local path (blank otherwise, and then required). The notebook goes in `<chosen folder>\<name>`, and every folder rule in the intent contract runs on the folder the user chose, never only on the one the model proposed (the implementer may also pre-check the proposal to avoid asking about a folder that would be refused).
+  - The `location` choice offers `local` always, and `oneDrive` only when the cloud seam (below) is open. In this build it is closed, so the dialog offers the local folder only.
+  - Declined or cancelled: `Cancelled`, no lock, no COM.
+  - **Decision (Phill, 2026-11-13):** a client without elicitation gets `NotSupported` with a `userAction` (create the notebook in OneNote, or use a client that shows dialogs), and nothing is created. The no-dialog auto-grant is only safe because the user picked the location, so without a dialog there is no create.
+- **The cloud (OneDrive URL) seam.** Whether COM `OpenHierarchy(url, "", cftNotebook)` can create a notebook at a OneDrive URL is unproven; a live probe runs at the next sitting. Build the local path fully. Put the URL path behind one clearly marked seam in Core (for example `CloudNotebookCreate` with `Enabled => false` and a comment `SEAM(5.3 cloud probe)` saying what the probe must show before it opens), consulted by the dialog (whether to offer OneDrive) and by the use case (a URL `folder`, or a `oneDrive` answer, is `NotSupported` while it is closed — the intent contract's "A URL is `NotSupported`"). Where the OneDrive base URL would come from (the default notebook folder when it is a URL, or an open cloud notebook's parent) is part of the probe; the seam leaves it unimplemented. No code path sends a URL to COM in this build.
+- **The probe, written but not run.** `tests/OneNoteMcp.Integration/CreateHierarchyIntegrationTests.cs` gets, beside Q6's local-notebook test and the section and group tests, an opt-in probe test (skipped unless `ONENOTE_MCP_INTEGRATION=1`, like the others) that tries `OpenHierarchy` `cftNotebook` at a throwaway OneDrive URL built from the cloud test notebook's parent URL, records what came back (ID or HRESULT, the read-back `path`, whether the notebook syncs), and prints the throwaway's name for Phill to close and delete. It must not be run in this build.
+- **This build never touches OneNote.** No integration tests run, no COM, no starting, closing or killing OneNote, no `ONENOTE_MCP_INTEGRATION`, no server exe. Only `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`.
+- **Privacy.** No real notebook, employer or person names in code, tests, fixtures or docs; use "notebook A/B/C", "MCP Test" and "MCP Test Cloud".
+
 ## Open Questions
 
 1. **Tool shape.**
@@ -120,18 +142,18 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/SectionFileNames.cs` (+ tests) -- name rules shared by all three kinds, reserved OneNote names, Q2's `.one` rule.
-- [ ] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs` (+ `ComGatewayLifecycleTests`) -- the two gateway methods, guarded before COM, never retried.
-- [ ] `src/OneNoteMcp.Xml/` new parent-children reader (+ fixture tests).
-- [ ] `src/OneNoteMcp.Core/Access/WriteAccess.cs` -- container-parent check.
-- [ ] `src/OneNoteMcp.Core/UseCases/CreateHierarchyUseCase.cs` (new) -- section, group and notebook `Create` operations; notebook folder rules and auto-grant.
-- [ ] `src/OneNoteMcp.Core/Results/ToolWarnings.cs`, `ToolMeta.cs` -- warnings and meta.
-- [ ] `src/OneNoteMcp.Server/Tools/` new tools per Q1, `ServerSetup.cs` registration.
-- [ ] `tests/OneNoteMcp.Tests/CreateHierarchyToolTests.cs` (new) -- every I/O matrix row, lock order (settings inside write), no COM on refusals and `alreadyExisted`.
-- [ ] `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs` -- contract.
-- [ ] `tests/OneNoteMcp.Integration/CreateHierarchyIntegrationTests.cs` (new, opt-in) -- each kind on MCP Test, per Q6.
-- [ ] `README.md`, `plugin/skills/guide/SKILL.md` -- tool rows; the skill's "read-only" wording for structure writes updated.
-- [ ] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync (AD-7 `Create` row: gateway methods, Q2-Q4 rules, notebook folder rules), unprobed group existing name.
+- [x] `src/OneNoteMcp.Core/SectionFileNames.cs` (+ tests) -- name rules shared by all three kinds, reserved OneNote names, Q2's `.one` rule.
+- [x] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs` (+ `ComGatewayLifecycleTests`) -- the two gateway methods, guarded before COM, never retried.
+- [x] `src/OneNoteMcp.Xml/` new parent-children reader (+ fixture tests).
+- [x] `src/OneNoteMcp.Core/Access/WriteAccess.cs` -- container-parent check.
+- [x] `src/OneNoteMcp.Core/UseCases/CreateHierarchyUseCase.cs` (new) -- section, group and notebook `Create` operations; notebook folder rules and auto-grant.
+- [x] `src/OneNoteMcp.Core/Results/ToolWarnings.cs`, `ToolMeta.cs` -- warnings and meta.
+- [x] `src/OneNoteMcp.Server/Tools/` new tools per Q1, `ServerSetup.cs` registration.
+- [x] `tests/OneNoteMcp.Tests/CreateHierarchyToolTests.cs` (new) -- every I/O matrix row, lock order (settings inside write), no COM on refusals and `alreadyExisted`.
+- [x] `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs` -- contract.
+- [x] `tests/OneNoteMcp.Integration/CreateHierarchyIntegrationTests.cs` (new, opt-in) -- each kind on MCP Test, per Q6.
+- [x] `README.md`, `plugin/skills/guide/SKILL.md` -- tool rows; the skill's "read-only" wording for structure writes updated.
+- [x] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync (AD-7 `Create` row: gateway methods, Q2-Q4 rules, notebook folder rules), unprobed group existing name.
 
 **Acceptance Criteria:**
 - Given a granted notebook, when `create_section` names it or one of its live groups as the parent, then a section with that name exists under it and its ID is returned.
@@ -141,9 +163,32 @@ deferred: []
 
 ## Implementation Notes
 
+Build of 2026-11-13 (unattended; nothing touched OneNote). Choices the plan left open, and the build directions' assumptions, are recorded here and as spine-sync items in `deferred-work.md` (Story 5.3).
+
+- Step 1 for a notebook runs before the pipeline, outside its deadline: the name, `settings.json` writable, the proposed folder (a URL is `NotSupported`; a UNC, device or relative path `InvalidArgument`; one that doesn't exist yet is still offered, since the user may change it), then the location dialog. The chosen folder must exist; the notebook's folder is `<chosen>\<name>`, made canonical with `FilePathGate.Canonical`. The pipeline's own step 1 re-checks settings; steps 3-4 read the open notebooks and the folder under the lock.
+- Folder rules (`NotebookFolders`): an open notebook's own folder, a non-empty folder (hidden entries count; one that can't be listed counts as not empty) or a file there is `FileExists`; inside or around an open notebook's folder, or inside OneNoteMcp's folders (the settings folder, the journal folder, the default journal folder, the roaming and local `OneNoteMcp` folders; each also canonical) is `InvalidArgument`.
+- Auto-grant: only when the read-back key equals the target's key and the ID wasn't open before; `meta.path` is reported only in that case (a path OneNote put elsewhere isn't echoed). A failed read-back or save gives `createdNotGranted` saying which. Step-7 ambiguous failures (and the pipeline's own deadline or cancel, through `FailureNote`) add "If a notebook was created, it has no write grant yet."
+- A declined or dismissed location dialog is `Cancelled`, `retryable: false`, no `outcomeUnknown`; no dialog (no server, or no elicitation) is `NotSupported` (Phill's decision, 2026-11-13).
+- When a section and a group of the same name both already exist under a parent, the same kind wins (`alreadyExisted`); otherwise the other kind's name is `InvalidArgument` (Q4).
+- The device-name check now also ignores spaces before an extension (`CON .x`), for `Problem` too; that only refuses more.
+- `create_section` and `create_section_group` are marked idempotent (a repeat returns the same ID); `create_notebook` isn't. `create_notebook` raises no write-grant dialog.
+- The cloud seam is `CloudNotebookCreate` (`Enabled => false`, `SEAM(5.3 cloud probe)`); the probe is `CreateHierarchyIntegrationTests.CloudNotebookProbe_RecordsWhatOpenHierarchyDoesAtAOneDriveUrl`, not run.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-11-13 — Review pass
+
+The Quick lens was launched as a subagent, but on the coordinator's instruction (finish in this turn, do not wait on a running subagent) the orchestrator ran the Quick lens inline against the diff, the plan's acceptance criteria and `CLAUDE.md`; the subagent's later output, if any, is not part of this triage.
+
+- verdicts: 5 findings — high 0, medium 0, low 2, false 3, maybe-false 0
+- findings:
+  - `[false]` `[reject]` A step-7 ambiguous failure could carry the "no write grant yet" note twice (once from `CreateNotebook.CallAsync`, once from the pipeline's `FailureNote`) — `WritePipeline.cs:195-205`: an ambiguous `OneNoteException` is rethrown with its own message only; `FailureNote` is added only on the cancel and deadline paths, which `CallAsync` does not catch, so the note appears once.
+  - `[false]` `[reject]` A notebook folder could contain one of OneNoteMcp's own folders, since only "same or inside" is checked — the target must be absent or empty (`NotebookFolders.State`, step 4), so it can't contain anything.
+  - `[false]` `[reject]` The auto-grant could land on a different notebook when OneNote resolves the folder through a link — `CreateHierarchyUseCase.cs:419-432`: the target is canonical (links followed) before the call, and the grant is written only when the read-back key equals the target's key and the ID wasn't open before; otherwise `createdNotGranted`.
+  - `[low]` `[reject]` With a client that lacks elicitation, `create_notebook` still reads OneNote's default notebook folder (one COM read) before the dialog reports itself unsupported — `CreateHierarchyUseCase.cs:134-135`; harmless (a read, no write, result `NotSupported` as decided), and avoiding it needs a new capability query on the prompt port.
+  - `[low]` `[reject]` The location dialog accepts the model-proposed folder with one click (no typed confirmation as the grant dialog has) — Phill's 2026-11-13 decision is an editable, prefilled field; the dialog states the grant and how to revoke it, and every folder rule runs on the answer. Not a defect against the plan.
 
 ## Design Notes
 
@@ -159,3 +204,30 @@ The auto-grant's key check (the read-back key equals the checked folder's key, a
 
 **Manual checks (if no CLI):**
 - Phill's live sitting: `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter CreateHierarchy` on MCP Test, then close and delete the throwaway notebook it names. A security review of the diff runs before merge.
+
+## Auto Run Result
+
+Status: built (2026-11-13, unattended `bmad-build-auto`, full route).
+
+**Summary.** Three new MCP tools create OneNote structure through the AD-7 write pipeline as `Create`: `create_section` and `create_section_group` (by parent notebook or section group ID plus a relative name; existing same-kind name returns `alreadyExisted` with no COM call; the other kind's same name is `InvalidArgument`), and `create_notebook` (the user picks a local folder in an elicitation dialog; the folder is checked absent or empty and outside open notebooks and OneNoteMcp's folders under the lock; the notebook's write grant `grantedVia: created` is saved inside the write lock, else `createdNotGranted`). Creating a notebook at a OneDrive URL is behind the closed `CloudNotebookCreate` seam (`NotSupported`); its live probe is written as an opt-in integration test and was not run.
+
+**Files changed (main ones).**
+- `src/OneNoteMcp.Core/UseCases/CreateHierarchyUseCase.cs` — the three `Create` operations, notebook folder rules, auto-grant.
+- `src/OneNoteMcp.Core/SectionFileNames.cs` — one name rule for all kinds, OneNote's reserved names, Q2's `.one` rule.
+- `src/OneNoteMcp.Core/Writes/NotebookFolders.cs` — containment, OneNoteMcp's own folders, folder state.
+- `src/OneNoteMcp.Core/Access/NotebookLocationPrompt.cs`, `src/OneNoteMcp.Server/Grants/ElicitationNotebookLocationPrompt.cs` — the location dialog port and its MCP elicitation adapter.
+- `src/OneNoteMcp.Core/CloudNotebookCreate.cs` — the `SEAM(5.3 cloud probe)`, closed.
+- `src/OneNoteMcp.Core/Access/WriteAccess.cs` — `CheckContainerAsync` for a parent that may be the notebook.
+- `src/OneNoteMcp.Xml/HierarchyChildren.cs` — a parent and its live children.
+- `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs` — `CreateSectionGroupAsync`, `CreateNotebookAsync`, guarded before COM, never retried.
+- `src/OneNoteMcp.Server/Tools/Create{Section,SectionGroup,Notebook}Tool.cs`, `ServerSetup.cs` — tools and registration; `ToolMeta.ObjectId`, `ToolWarnings.AlreadyExisted`/`CreatedNotGranted`.
+- Tests: `CreateHierarchyToolTests.cs` (every I/O matrix row, lock order, mutex-held `createdNotGranted`), `HierarchyCreateRulesTests.cs`, `ComGatewayLifecycleTests.cs`, contract snapshot, test gateways; opt-in `tests/OneNoteMcp.Integration/CreateHierarchyIntegrationTests.cs` (section and group on MCP Test, throwaway notebook, cloud probe).
+- Docs: `README.md`, `plugin/skills/guide/SKILL.md` tool rows; spine-sync items in `deferred-work.md`.
+
+**Review.** One pass (Quick, run inline): 5 findings; 0 patched, 0 deferred, 5 rejected (3 false, 2 low; reasons in the triage log). Separately deferred (frontmatter `deferred`): the pre-existing story-2.7 test `AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked` is timing-flaky, failing 2 of 8 full runs during verification.
+
+**Follow-up review recommended:** false (no patched entries).
+
+**Verification.** `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2469 passed, 0 failed, 0 skipped (contract snapshot matches). Privacy grep on the diff: 0 hits. No integration test ran; OneNote was not touched.
+
+**Residual risks.** Nothing ran against a real OneNote: whether `OpenHierarchy` `cftNotebook` creates a notebook at an absent local folder, what `path` it reads back, and how a group's existing name behaves are for the live sitting. The OneDrive path is unproven and closed. Two unit tests hold the real `Local\OneNoteMcp.Settings` mutex for up to about 0.3 s. A security review of the diff is due before merge (ticket Verify).

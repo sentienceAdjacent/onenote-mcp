@@ -272,7 +272,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             return Task.FromException<string>(new OneNoteException(
                 ErrorCode.InvalidArgument,
                 $"{method} wasn't sent: the new section's file name {problem}.",
-                userAction: "Use a section name with no path separators, no '..' and no characters a Windows file name can't hold.",
+                userAction: NameUserAction,
                 retryable: false));
         }
 
@@ -288,6 +288,88 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
             CallKind.Write,
             ct);
+    }
+
+    public Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenHierarchy);
+        if (string.IsNullOrEmpty(parentId))
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no parent ID was given for the new section group.",
+                retryable: false));
+        }
+
+        if (SectionFileNames.NameProblem(groupName) is { } problem)
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the new section group's name {problem}.",
+                userAction: NameUserAction,
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // Relative to the parent's ID only, never an absolute path (AD-7 Create row).
+                app.OpenHierarchy(groupName, parentId, out var groupId, CreateFileType.cftFolder);
+                return groupId;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
+    public Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenHierarchy);
+        if (NotebookFolderProblem(folderPath) is { } problem)
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the new notebook's folder {problem}.",
+                userAction: "Create a notebook only in a local folder (C:\\…), named with no characters a Windows folder name can't hold.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // An absolute local folder, no parent ID (AD-7 Create row). The caller checked it is absent or empty.
+                app.OpenHierarchy(folderPath, string.Empty, out var notebookId, CreateFileType.cftNotebook);
+                return notebookId;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
+    private const string NameUserAction = "Use a name with no path separators, no '..' and no characters a Windows file name can't hold.";
+
+    /// <summary>
+    /// Why <paramref name="folderPath"/> can't be a new notebook's folder, as a phrase that never quotes it; null when it is
+    /// a fully qualified local path (not UNC, a device path or a URL) whose last segment is a valid name.
+    /// </summary>
+    private static string? NotebookFolderProblem(string? folderPath)
+    {
+        if (string.IsNullOrEmpty(folderPath))
+        {
+            return "is empty";
+        }
+
+        var slashed = folderPath.Replace('/', '\\');
+        if (slashed.StartsWith(@"\\", StringComparison.Ordinal) || slashed.StartsWith(@"\??\", StringComparison.Ordinal)
+            || !System.IO.Path.IsPathFullyQualified(slashed) || slashed.Length < 3 || !char.IsAsciiLetter(slashed[0]) || slashed[1] != ':')
+        {
+            return "isn't a fully qualified local path";
+        }
+
+        var leaf = System.IO.Path.GetFileName(slashed.TrimEnd('\\'));
+        return SectionFileNames.NameProblem(leaf) is { } problem ? "has a last segment that " + problem : null;
     }
 
     public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
