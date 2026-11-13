@@ -471,6 +471,31 @@ public sealed class RestoreFromJournalToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AnHtmlBlock_IsDroppedAndCountedAsOther_EvenWithInlineData_AndNestedInAnOE()
+    {
+        // Phill, 2026-11-13: a forged journal file must never carry what a page write refuses, so restore drops every
+        // one:HTMLBlock (OneNote fetches the local files its HTML names) and counts it under binaryMissing.
+        XNamespace one = OneNoteXml.Namespace2013;
+        var withHtml = After(p =>
+        {
+            p.Add(new XElement(one + "Outline", new XElement(one + "OEChildren",
+                new XElement(one + "OE", new XElement(one + "HTMLBlock",
+                    new XElement(one + "Data", Convert.ToBase64String("<img src=\"file:///C:/secret-a.png\">"u8.ToArray())))))));
+            p.Add(new XElement(one + "Outline", new XElement(one + "OEChildren",
+                new XElement(one + "OE", new XElement(one + "HTMLBlock",
+                    new XElement(one + "File", new XAttribute("path", @"C:\Users\someone\secret-b.htm")))))));
+        });
+        var entryId = WriteEntry(Plain() with { Xml = withHtml });
+
+        var root = Ok(await Tool().RestoreFromJournal(entryId, Ct));
+
+        var sent = Assert.Single(gateway.UpdateCalls).PageXml;
+        Assert.DoesNotContain("HTMLBlock", sent, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-b", sent, StringComparison.Ordinal);
+        Assert.Contains("2 other", Warning(root, "binaryMissing"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AttachmentKept_WhenItsTempCopyIsThere_IsSentWithPathCacheOnly()
     {
         var cacheFile = Path.Combine(Path.GetTempPath(), "{" + Guid.NewGuid().ToString("D").ToUpperInvariant() + "}.bin");

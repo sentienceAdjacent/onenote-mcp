@@ -145,6 +145,8 @@ deferred:
 
 ## Plan Change Log
 
+- 2026-11-13 (Phill): restore drops every `one:HTMLBlock` in the snapshot, inline or by path, nested or not, and counts it under `binaryMissing` as `other`. Restore skips the page-write HTML check, and OneNote fetches the local files an HTMLBlock's HTML names, so a forged journal file must never carry what a page write refuses. `other` rather than a new `html` kind: the kinds are a closed, documented set with a fixed display order, and `other` already means "an object whose content isn't restored inline".
+
 ## Review Triage Log
 
 ### 2026-11-12 — Review pass

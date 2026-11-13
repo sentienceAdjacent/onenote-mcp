@@ -27,7 +27,7 @@ public static class RestoredPage
     /// <summary>A <c>one:MediaFile</c> not restored.</summary>
     public const string MediaKind = "media";
 
-    /// <summary>Any other object whose binary is referenced by path or callback, such as an XPS printout.</summary>
+    /// <summary>Any other object whose binary is referenced by path or callback, such as an XPS printout, and any <c>one:HTMLBlock</c>.</summary>
     public const string OtherKind = "other";
 
     private static readonly XName[] TopLevelContent =
@@ -49,6 +49,7 @@ public static class RestoredPage
     /// dropped and counted.</item>
     /// <item>Any other object whose binary is named by a path (<c>one:File@path</c>) or a callback (<c>one:CallbackID</c>)
     /// rather than held inline is dropped and counted.</item>
+    /// <item>Every <c>one:HTMLBlock</c>, inline or by path, is dropped and counted as <c>other</c> (Phill, 2026-11-13).</item>
     /// </list>
     /// Throws <see cref="OneNoteXmlException"/> when the XML has a DOCTYPE, isn't well-formed, or isn't a <c>one:Page</c>.
     /// The exception's message carries positions and element names only (AD-13).
@@ -84,6 +85,16 @@ public static class RestoredPage
             }
 
             Drop(file, file.Name.LocalName == "MediaFile" ? MediaKind : AttachmentKind, dropped);
+        }
+
+        // Phill, 2026-11-13: an HTMLBlock goes whether its HTML is inline or by path. OneNote fetches the local files the
+        // HTML names, and a page write refuses it (PageWriteScan.HtmlProblems), so a forged journal entry mustn't carry it.
+        foreach (var html in root.Descendants(OneNoteXml.One + "HTMLBlock").ToList())
+        {
+            if (html.Parent is not null)
+            {
+                Drop(html, OtherKind, dropped);
+            }
         }
 
         var byReference = root.Descendants()
