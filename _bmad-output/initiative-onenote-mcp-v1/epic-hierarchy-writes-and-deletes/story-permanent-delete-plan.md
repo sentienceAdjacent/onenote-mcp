@@ -3,7 +3,7 @@ title: 'Permanent delete'
 type: 'feature'
 ticket: '6'
 created: '2026-11-13'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -69,7 +69,22 @@ deferred: []
 
 </intent-contract>
 
+## Answers (Phill, 2026-11-13, Inbox thread "5.6 permanent delete")
+
+Phill took the recommendation on every question.
+
+- Q1 (c): the grant CLI stores a permanent-delete grant. Without a stored grant, each permanent delete raises a one-off dialog that names the object (its kind and name, and its notebook) and asks the user to type the object's name; nothing is stored. The model can never cause a lasting permission for this write.
+- Q2 (b): revoking the write grant revokes both; `grant --revoke --permanent-delete` removes only the permanent-delete grant; `grant --permanent-delete` refuses a notebook with no write grant. `list_grants` lists it as its own row, kind `permanentDeleteNotebook`.
+- Q3 (b): the journal keeps the `onenoteBackup` entry (with the section's `pages`-scope XML), plus a `page` entry for every page in the section, all written before anything is deleted (and before `Publish`), sharing the call's `correlationId`; `meta.pageEntryIds` lists them in section order. If any can't be saved, nothing is deleted.
+- Q4 (a): as the spine says. A recycled section can be permanently deleted, after a backup; a recycled page can't (COM can't do it), so it is `NotSupported` and the user empties Deleted Pages in OneNote; the recycle bin is `ObjectNotFound`; the Deleted Pages section is `NotSupported`.
+- Q5 (a): if probe P1 shows OneNote ignores a stale date on a permanent delete, ship anyway; the server compares the date itself, under the lock, before every delete.
+- Q6 (a): permanently deleting an empty section group, and backing up an empty section (untested live), are allowed in the build, with opt-in probes (P2, P9) to run before merge; refuse them in a follow-up if a probe goes badly.
+- Q7 (b): whether the backup folder counts as protected (AD-21) is left to epic 3's spine work; a Deferred row says so.
+- Q8: approved with these answers.
+
 ## Open Questions
+
+Closed: all answered above (Phill, 2026-11-13). Kept for the record.
 
 1. **How the permanent-delete grant is given.** AD-6 makes it a stored grant created like the write grant (dialog or CLI); the ticket says "CLI, dialog, listing". It is the one irreversible write, and an elicitation hook can answer any dialog (AD-6 Limits).
    - (a) As the spine says: the dialog (type the notebook's name, worded for permanent deletion) or `grant --permanent-delete "<notebook>"`, stored until revoked. After one answer, every later permanent delete in that notebook runs without asking.
