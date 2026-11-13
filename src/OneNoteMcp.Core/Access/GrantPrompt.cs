@@ -107,4 +107,18 @@ public interface IGrantPrompt
     /// typed name: <see cref="GrantPromptResult.Lifetime"/> is null, since write grants last until revoked.
     /// </summary>
     Task<GrantPromptResult> AskWriteAsync(WriteGrantQuestion question, CancellationToken ct);
+
+    /// <summary>
+    /// Asks the user to confirm that a page write may read the files <see cref="FilePathQuestion.Paths"/> into a page
+    /// (AD-7 user-gated file paths; Phill, 2026-11-12, story 2.9 security review). <see cref="GrantPromptStatus.Accepted"/>
+    /// means the user confirmed every path; nothing is stored. A prompt that can't ask returns
+    /// <see cref="GrantPromptStatus.Unsupported"/>, the default.
+    /// </summary>
+    Task<GrantPromptResult> AskFilePathsAsync(FilePathQuestion question, CancellationToken ct) => Task.FromResult(GrantPromptResult.Unsupported);
 }
+
+/// <summary>
+/// What the file-path dialog shows the user (AD-7): the page's ID and each new path, canonical (links and junctions
+/// resolved). The paths go to the user's client only, never into a tool result or a log (AD-9, AD-13).
+/// </summary>
+public sealed record FilePathQuestion(string PageId, IReadOnlyList<string> Paths);

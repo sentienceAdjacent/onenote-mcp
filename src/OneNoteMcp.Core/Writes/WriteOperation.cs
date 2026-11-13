@@ -3,8 +3,9 @@ namespace OneNoteMcp.Core.Writes;
 /// <summary>
 /// One write of one operation class (AD-7): the steps <see cref="WritePipeline"/> runs, in its order, under its lock and
 /// deadline. A class supplies the target's access check (1), the current-state read (3), validation (4) and the COM call
-/// (7), and names the pages it wrote. Steps 5 (optimistic check, AD-17) and 6 (snapshot, AD-8) are hooks that do
-/// nothing unless a class needs them, so a later class adds them without reshaping the runner. Each instance serves one
+/// (7), and names the pages it wrote. Steps 5 (optimistic check, AD-17), 6 (snapshot, AD-8) and the step after 7 (the
+/// <c>PageWrite</c> read-back) are hooks that do nothing unless a class needs them, so a later class adds them without
+/// reshaping the runner. Each instance serves one
 /// call, so a step may keep what an earlier step read.
 /// </summary>
 /// <typeparam name="TResult">What the COM call returns, such as a new page's ID.</typeparam>
@@ -30,6 +31,17 @@ public abstract class WriteOperation<TResult>
 
     /// <summary>Step 7: the COM call. A failure here can leave the outcome unknown; the runner decides (AD-9).</summary>
     public abstract Task<TResult> CallAsync(CancellationToken ct);
+
+    /// <summary>
+    /// A step between 7 and 8, under the lock, after a successful COM call: the <c>PageWrite</c> read-back (AD-7). It
+    /// returns the result to report, by default <paramref name="result"/> unchanged. It never fails the write, which
+    /// already happened: the runner hands any exception it throws, its deadline and a cancellation included, to
+    /// <see cref="AfterCallFailed"/>.
+    /// </summary>
+    public virtual Task<TResult> AfterCallAsync(TResult result, CancellationToken ct) => Task.FromResult(result);
+
+    /// <summary>The result to report when <see cref="AfterCallAsync"/> threw <paramref name="exception"/>; by default <paramref name="result"/> unchanged.</summary>
+    public virtual TResult AfterCallFailed(TResult result, Exception exception) => result;
 
     /// <summary>The pages this write wrote or may have written, dropped from the search page-text cache whatever the outcome (AD-7, AD-12).</summary>
     public virtual IReadOnlyCollection<string> WrittenPageIds => [];

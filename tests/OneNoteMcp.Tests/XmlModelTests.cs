@@ -152,6 +152,59 @@ public sealed partial class XmlModelTests
             ElementHash.ExcludedAttributes.Order(StringComparer.Ordinal));
     }
 
+    // --- AD-17's two attributes OneNote sets itself (Phill, 2026-11-10, 2.3 plan Q2; built by story 2.9) ---------------
+
+    private const string ExclusionPage =
+        "<one:Page xmlns:one=\"" + OneNoteXml.Namespace2013 + "\" ID=\"{5E900000-0000-4000-8000-000000000001}{1}{E1}\">"
+        + "<one:Outline objectID=\"{5E900000-0000-4000-8000-000000000001}{20}{B0}\"><one:OEChildren>"
+        + "<one:OE objectID=\"{5E900000-0000-4000-8000-000000000001}{21}{B0}\"><one:Table><one:Columns>"
+        + "<one:Column index=\"0\" width=\"80.0\" /><one:Column index=\"1\" width=\"105.51\" isLocked=\"true\" />"
+        + "</one:Columns><one:Row><one:Cell><one:OEChildren><one:OE><one:T>x</one:T></one:OE></one:OEChildren></one:Cell>"
+        + "<one:Cell><one:OEChildren><one:OE><one:T>y</one:T></one:OE></one:OEChildren></one:Cell></one:Row></one:Table></one:OE>"
+        + "<one:OE objectID=\"{5E900000-0000-4000-8000-000000000001}{22}{B0}\"><one:InsertedFile pathCache=\"C:\\cache\\a.bin\" pathSource=\"C:\\a.txt\" preferredName=\"a.txt\" /></one:OE>"
+        + "</one:OEChildren></one:Outline></one:Page>";
+
+    [Fact]
+    public void InsertedFilePathCache_IsExcluded()
+    {
+        var changed = ExclusionPage.Replace(@"C:\cache\a.bin", @"C:\cache\b.bin", StringComparison.Ordinal);
+
+        Assert.Equal(PageBasis.From(ExclusionPage), PageBasis.From(changed), BasisComparer.Instance);
+    }
+
+    [Fact]
+    public void UnlockedColumnWidth_IsExcluded()
+    {
+        var changed = ExclusionPage.Replace("width=\"80.0\"", "width=\"37.11\"", StringComparison.Ordinal);
+
+        Assert.Equal(PageBasis.From(ExclusionPage), PageBasis.From(changed), BasisComparer.Instance);
+    }
+
+    [Fact]
+    public void LockedColumnWidth_StaysInTheHash()
+    {
+        var changed = ExclusionPage.Replace("width=\"105.51\"", "width=\"90.0\"", StringComparison.Ordinal);
+
+        Assert.NotEqual(PageBasis.From(ExclusionPage).PageHash, PageBasis.From(changed).PageHash);
+        Assert.NotEqual(
+            PageBasis.From(ExclusionPage).ElementHashes["{5E900000-0000-4000-8000-000000000001}{20}{B0}"],
+            PageBasis.From(changed).ElementHashes["{5E900000-0000-4000-8000-000000000001}{20}{B0}"]);
+    }
+
+    [Fact]
+    public void PathCacheAndWidth_ElsewhereStayInTheHash()
+    {
+        // Only one:InsertedFile@pathCache and an unlocked one:Column@width are excluded, not the names on other elements.
+        var root = XElement.Parse(ExclusionPage);
+        var size = new XElement(One + "Size", new XAttribute("width", "10.0"), new XAttribute("height", "10.0"));
+        root.Element(One + "Outline")!.AddFirst(size);
+        var before = ElementHash.Compute(root);
+        size.SetAttributeValue("width", "20.0");
+
+        Assert.NotEqual(before, ElementHash.Compute(root));
+        Assert.False(ElementHash.IsExcluded(new XAttribute("pathCache", "x")));
+    }
+
     [Fact]
     public void DateOnlyChange_LeavesEveryHashEqual()
     {

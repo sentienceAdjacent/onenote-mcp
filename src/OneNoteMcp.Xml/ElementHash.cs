@@ -8,7 +8,8 @@ namespace OneNoteMcp.Xml;
 /// <summary>
 /// AD-17's content hash. Only Xml computes it; callers never do. The hash is lowercase hex SHA-256 over the inclusive
 /// C14N (<see cref="XmlDsigC14NTransform"/>, no comments) of a copy of the element's subtree from which, throughout the
-/// subtree, the <see cref="ExcludedAttributes"/> and the <see cref="BinaryElements"/> have been removed.
+/// subtree, the <see cref="ExcludedAttributes"/>, the two attributes OneNote sets itself (<see cref="IsExcluded"/>) and
+/// the <see cref="BinaryElements"/> have been removed.
 /// </summary>
 public static class ElementHash
 {
@@ -38,6 +39,9 @@ public static class ElementHash
         OneNoteXml.One + "Data",
         OneNoteXml.One + "CallbackID",
     };
+
+    private static readonly XName InsertedFile = OneNoteXml.One + "InsertedFile";
+    private static readonly XName Column = OneNoteXml.One + "Column";
 
     /// <summary>The hash of <paramref name="element"/>'s subtree, in the context of its document's namespace declarations.</summary>
     public static string Compute(XElement element)
@@ -89,6 +93,28 @@ public static class ElementHash
         return Compute(root);
     }
 
-    private static bool IsExcluded(XAttribute attribute) =>
-        !attribute.IsNamespaceDeclaration && attribute.Name.Namespace == XNamespace.None && ExcludedAttributes.Contains(attribute.Name.LocalName);
+    /// <summary>
+    /// True for an attribute the hash leaves out: one of the <see cref="ExcludedAttributes"/>, or one of the two that
+    /// OneNote sets itself (AD-17; Phill, 2026-11-10, 2.3 plan Q2): <c>one:InsertedFile@pathCache</c>, a local cache
+    /// path, and <c>width</c> on a <c>one:Column</c> without <c>isLocked="true"</c>, which OneNote sizes itself. A locked
+    /// column's width stays in the hash. The <c>PageWrite</c> read-back skips the same attributes (AD-7).
+    /// </summary>
+    public static bool IsExcluded(XAttribute attribute)
+    {
+        ArgumentNullException.ThrowIfNull(attribute);
+        if (attribute.IsNamespaceDeclaration || attribute.Name.Namespace != XNamespace.None)
+        {
+            return false;
+        }
+
+        var name = attribute.Name.LocalName;
+        if (ExcludedAttributes.Contains(name))
+        {
+            return true;
+        }
+
+        return attribute.Parent is { } owner
+            && ((name == "pathCache" && owner.Name == InsertedFile)
+                || (name == "width" && owner.Name == Column && !OneNoteXml.IsTrue((string?)owner.Attribute("isLocked"))));
+    }
 }
