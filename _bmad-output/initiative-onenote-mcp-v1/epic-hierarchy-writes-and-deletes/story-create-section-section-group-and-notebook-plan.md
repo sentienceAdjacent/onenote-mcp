@@ -195,6 +195,10 @@ A security review of the 5.3 diff raised three findings; Phill decided on 2026-1
   - `[low]` `[patch]` Hardening: the automatic grant could land on an existing notebook OneNote opened at the checked folder — fixed: the read-back is at `Children` scope and the grant is written only for a notebook with no sections or section groups (recycle bin ignored); otherwise `createdNotGranted`. Tests: `Notebook_ReadBackHoldingSectionsOrGroups_IsOk_CreatedNotGranted`, `Notebook_ReadBackHoldingOnlyTheRecycleBin_IsGranted`, `Notebook_ReadBack_IsOneChildrenScopeRead_OfTheNewNotebook`; the settings-mutex lock-order test now hooks the `Children` read.
 - verification: `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings, 0 errors; `dotnet test tests/OneNoteMcp.Tests` 2515 passed, 0 failed (2469 before, plus 46 new cases). Nothing touched OneNote.
 
+### 2026-11-13 — Commit security review (on 990d274)
+
+- `[medium]` `[patch]` The character rule was a list, so format characters it didn't name (U+061C, U+00AD, U+180E, U+2061–U+2064, U+206A–U+206F, U+FFF9–U+FFFB, the tag characters U+E0000–U+E007F) got through — fixed: `SectionFileNames.HasHiddenOrControl` refuses whole categories (Cc, Cf, Zl, Zp) by code point (`Rune`), and an unpaired surrogate. Within the scope of Phill's "fix all three" decision: same rule, closed gaps. Tests: new rows in `NameProblem_RefusesControlBidiAndInvisibleCharacters_*` (seen failing first), `NameProblem_RefusesAnUnpairedSurrogate`, and allowed rows for an emoji and a right-to-left script. 2526 passed, 0 failed.
+
 ### 2026-11-13 — Review pass
 
 The Quick lens was launched as a subagent, but on the coordinator's instruction (finish in this turn, do not wait on a running subagent) the orchestrator ran the Quick lens inline against the diff, the plan's acceptance criteria and `CLAUDE.md`; the subagent's later output, if any, is not part of this triage.

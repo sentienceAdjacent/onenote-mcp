@@ -20,6 +20,8 @@ public sealed class HierarchyCreateRulesTests
     [InlineData("a.b", true)]
     [InlineData("Notes.one", true)]
     [InlineData("Ünïcödé", true)]
+    [InlineData("Trip \U0001F334", true)]
+    [InlineData("עברית", true)]
     [InlineData("", false)]
     [InlineData(" ", false)]
     [InlineData("..", false)]
@@ -84,6 +86,17 @@ public sealed class HierarchyCreateRulesTests
     [InlineData("a\u200Db")]
     [InlineData("a\u2060b")]
     [InlineData("\uFEFFab")]
+    // Whole categories, not a list (commit security review, 2026-11-13): every format character (Cf), including ones a
+    // list misses, and the tag characters beyond the BMP. Unpaired surrogates are a Fact below: test-data serialization
+    // turns them into U+FFFD.
+    [InlineData("a\u061Cb")]
+    [InlineData("a\u00ADb")]
+    [InlineData("a\u180Eb")]
+    [InlineData("a\u2061b")]
+    [InlineData("a\u206Ab")]
+    [InlineData("a\uFFF9b")]
+    [InlineData("a\U000E0041b")]
+    [InlineData("a\U000E007Fb")]
     public void NameProblem_RefusesControlBidiAndInvisibleCharacters_NeverQuotingTheName(string name)
     {
         var problem = SectionFileNames.NameProblem(name);
@@ -91,6 +104,15 @@ public sealed class HierarchyCreateRulesTests
         Assert.NotNull(problem);
         Assert.DoesNotContain(name, problem, StringComparison.Ordinal);
         Assert.DoesNotContain("ab", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NameProblem_RefusesAnUnpairedSurrogate()
+    {
+        Assert.NotNull(SectionFileNames.NameProblem("a" + (char)0xD800 + "b"));
+        Assert.NotNull(SectionFileNames.NameProblem("a" + (char)0xDC00 + "b"));
+        Assert.NotNull(SectionFileNames.NameProblem("ab" + (char)0xD83C));
+        Assert.Null(SectionFileNames.NameProblem("a" + (char)0xD83C + (char)0xDF34 + "b"));
     }
 
     [Fact]

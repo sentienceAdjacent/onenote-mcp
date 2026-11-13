@@ -142,23 +142,39 @@ public static class SectionFileNames
             return "contains a character a Windows file name can't hold";
         }
 
-        return name.Any(IsHiddenOrControl) ? "contains a control, invisible or text-direction character" : null;
+        return HasHiddenOrControl(name) ? "contains a control, invisible or text-direction character" : null;
     }
 
     /// <summary>
-    /// True for a character that can make a name read as something it isn't, in a dialog or a listing (security review,
-    /// Phill, 2026-11-13): any control character (Unicode category Cc, which covers U+007F–U+009F as well as the ASCII
-    /// ones), the line and paragraph separators U+2028 and U+2029, the bidi controls U+200E, U+200F, U+202A–U+202E and
-    /// U+2066–U+2069, and the invisible U+200B–U+200D, U+2060 and U+FEFF.
+    /// True when <paramref name="name"/> holds a character that can make it read as something it isn't, in a dialog or a
+    /// listing (security review, Phill, 2026-11-13), or an unpaired surrogate. Whole Unicode categories are refused, not a
+    /// list, so nothing a list would miss gets through (commit security review, 2026-11-13): control characters (Cc,
+    /// U+007F–U+009F included), format characters (Cf: every bidi control such as U+200E, U+202A–U+202E, U+2066–U+2069 and
+    /// U+061C, the invisible U+200B–U+200D, U+2060 and U+FEFF, the soft hyphen, and the tag characters U+E0000–U+E007F,
+    /// which is why the check reads whole code points), and the line and paragraph separators (Zl, Zp: U+2028, U+2029).
     /// </summary>
-    private static bool IsHiddenOrControl(char c) =>
-        char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Control
-        || (int)c is 0x2028 or 0x2029
-            or 0x200E or 0x200F
-            or (>= 0x202A and <= 0x202E)
-            or (>= 0x2066 and <= 0x2069)
-            or (>= 0x200B and <= 0x200D)
-            or 0x2060 or 0xFEFF;
+    private static bool HasHiddenOrControl(string name)
+    {
+        for (var i = 0; i < name.Length; i++)
+        {
+            if (!System.Text.Rune.TryGetRuneAt(name, i, out var rune))
+            {
+                return true;
+            }
+
+            if (System.Text.Rune.GetUnicodeCategory(rune) is System.Globalization.UnicodeCategory.Control
+                or System.Globalization.UnicodeCategory.Format
+                or System.Globalization.UnicodeCategory.LineSeparator
+                or System.Globalization.UnicodeCategory.ParagraphSeparator)
+            {
+                return true;
+            }
+
+            i += rune.Utf16SequenceLength - 1;
+        }
+
+        return false;
+    }
 
     /// <summary>The leading or trailing space or dot, and the reserved device name, of <paramref name="whole"/> and its <paramref name="stem"/>.</summary>
     private static string? Shape(string whole, string stem)
