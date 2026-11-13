@@ -223,6 +223,18 @@ None runs in the build. Each is an opt-in test in `tests/OneNoteMcp.Integration/
   - **A5.** The confirmation dialog cleans every name it shows: it drops control, format and bidi characters and line or paragraph separators, turns `"` into `'`, and caps the name at 80 characters. The text the user types is that cleaned name. The dialog also says where the object is: the notebook's path (the grant key), a page's section name, and a section's page count. Its CLI hint uses the `<notebook name>` placeholder, never the real name, because PowerShell expands `$(...)` inside double quotes.
   - **A6.** Step 1 also refuses, before any dialog, everything step 4 can recognise cheaply: the recycle bin, Deleted Pages, a recycled page (one inside a recycled section included) and a non-empty group. Step 4 still checks each of them again under the lock.
   - **From the build:** a page whose section is in the recycle bin counts as a recycled page (`NotSupported`). A failure writing the `onenoteBackup` entry after the file has landed is `JournalFailed`, not `BackupFailed`. A timed-out `Publish` keeps the write lock until the abandoned call settles.
+- **2026-11-13, rebased onto the built 5.5 (6ccb1d8, itself on 5.4 and 5.3).**
+  - **Merged, keeping 5.5's one copy:**
+    - `IOneNoteGateway.DeleteHierarchyAsync` is now abstract, as 5.5 declared it, with 5.5's `ComGateway` body and its own `FakeGateway`/`FakeApplication` records. 5.5's `OnDeleteHierarchy` runs only after a call succeeds. 5.6's duplicate gateway tests are dropped in favour of 5.5's.
+    - `HierarchySnapshot` is 5.5's, including its `WithoutProtectedPages` rule. It gains `EntryAsync(request, snapshotKind)` so a section's `onenoteBackup` entry can be built and stored last.
+    - `JournalEntry.HierarchyKind` is 5.5's. `ToolMeta` keeps 5.5's `RecycleBinId` beside 5.6's `BackupFile` and `PageEntryIds`.
+    - `RestoreFromJournal` keeps both 5.5's soft-delete `hierarchy` message and 5.6's backup message.
+  - **Kept from 5.6:** `PublishAsync`, which still has a `NotSupported` default; `OnenoteBackupKind`, entry naming, backups, the grants and the tool.
+  - **Both tools registered:** the contract snapshot was regenerated with 23 tools.
+  - **5.6's target reader renamed** from `HierarchyTarget` to `PermanentDeleteTarget`, because 5.4 owns `HierarchyTarget`. 5.5's `DeleteTargets` isn't a drop-in: it folds `isDeletedPages` into `InRecycleBin`, while a permanent delete allows a recycled section and refuses Deleted Pages.
+  - **Share points still open:**
+    - One target reader (`DeleteTargets`/`PermanentDeleteTarget`, and the subpage count in both).
+    - The refusals common to both deletes (recycle bin, Deleted Pages, locked section, subpages, notebook, protected check) in one place both use cases call.
 
 ## Review Triage Log
 
