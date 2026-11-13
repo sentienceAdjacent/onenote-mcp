@@ -16,7 +16,7 @@ context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
 warnings: ['oversized']
-deferred:
+resolved:
   - summary: >-
       The write-grant dialog and the create_notebook location dialog suggest a grant command with the notebook's display name inside double quotes, which PowerShell expands, so a model-named notebook "$(...)" can plant a command the user may paste.
     evidence: |-
@@ -24,6 +24,9 @@ deferred:
     location: >-
       src/OneNoteMcp.Server/Grants/ElicitationGrantPrompt.cs:221; src/OneNoteMcp.Server/Grants/ElicitationNotebookLocationPrompt.cs:70
     severity: high
+    resolution: >-
+      Fixed 2026-11-13 at the bottom of the stack, each with a $(evil) test watched failing first: fc07d1b on 2.11 (the write dialog's revoke hint, and the grant CLI's --write and --read-section success lines, which had the same pattern); d132b26 on 5.3 (the location dialog); 06d0fa2 on 5.6 (the grant CLI's --permanent-delete lines: the "grant writes first" hint and the revoke command). Every suggested command now holds "<notebook name>" or "<section name>"; the prose still names the object.
+deferred:
   - summary: >-
       The section backup is accepted once non-empty and size-stable across two 250 ms polls, without proof OneNote has finished writing it.
     evidence: |-
@@ -249,7 +252,7 @@ None runs in the build. Each is an opt-in test in `tests/OneNoteMcp.Integration/
   - `[false]` `[reject]` (quick) "`BackupFailed`'s userAction says retry while it is `retryable: no`". `retryable` means retrying unchanged; the text asks the user to fix the cause first ("Check that no dialog is open … then retry"), the same pattern as other non-retryable codes' userActions.
   - `[medium]` `[patch]` (quick) `restore_from_journal`'s `onenoteBackup` userAction pointed at the journal folder, but the file is in `backups`. Grouped with the security lens's pruned-backup finding. Fixed under A4.
   - `[high]` `[patch]` (security) The confirmation named the object only by model-writable text, inserted raw: quotes, bidi or control characters, any length. A model-chosen title could forge the sentence or disguise the target. Fixed under A5: names are cleaned and capped, and the dialog adds the notebook path, a page's section and a section's page count. Tests cover it.
-  - `[high]` `[patch]` (security) The confirmation's CLI hint put the notebook's display name inside double quotes, and PowerShell expands `$(...)` there; a model can create a notebook with that name. Fixed: `<notebook name>` placeholder, tested with a notebook named `$(evil)`. The same pattern in the write-grant dialog (`ElicitationGrantPrompt.cs` ~l.221) and `ElicitationNotebookLocationPrompt.cs` ~l.70 is pre-existing and deferred.
+  - `[high]` `[patch]` (security) The confirmation's CLI hint put the notebook's display name inside double quotes, and PowerShell expands `$(...)` there; a model can create a notebook with that name. Fixed: `<notebook name>` placeholder, tested with a notebook named `$(evil)`. The same pattern in the write-grant dialog (`ElicitationGrantPrompt.cs` ~l.221) and `ElicitationNotebookLocationPrompt.cs` ~l.70 is pre-existing and deferred. Since resolved (2026-11-13): fc07d1b (2.11), d132b26 (5.3), and 06d0fa2 here for the same pattern in the `--permanent-delete` CLI lines.
   - `[medium]` `[patch]` (security) A section's staleness was checked before the page snapshots and the publish (up to 300 s), so pages added or edited during the backup would go with no copy. Fixed under A2, with tests for a page added, a page edited and the section's date moving during `Publish`.
   - `[medium]` `[patch]` (security) The grants were checked only at step 1, so a revoke during a long backup didn't stop the delete. Fixed under A3, with tests.
   - `[maybe-false]` `[defer]` (security) The backup counts as finished when it is non-empty and its size is stable across two 250 ms polls, without proof that OneNote has finished writing. A pause over 250 ms mid-write could accept a truncated backup. This follows the Intent's own wording. To settle it: P4/P9 live, watch whether the file is still open for write when the poll accepts it (an exclusive-open check, `FileShare.None`, would close it).
@@ -320,7 +323,7 @@ Status: built (2026-11-13). The Open Questions were answered by Phill on 2026-11
 
 **Review findings.** Two lenses ran, the pinned quick lens and a security lens (the ticket's verify), for 14 findings:
 - **Patched** (11 rows, 8 entries after grouping): 2 high (dialog identity and injection; shell injection in the CLI hint) and 6 medium entries (the `list_grants` grantedVia, refusals before the dialog, protected-title leak, AC 5 tests, the stale window after the backup, revocation mid-call, and the backup `userAction`).
-- **Deferred:** the backup-completeness poll (maybe-false, high if true); the pre-existing shell-injection hint in the write-grant and notebook-location dialogs (high); and the `grantedAt` of the permanent-delete row (low).
+- **Deferred:** the backup-completeness poll (maybe-false, high if true); the pre-existing shell-injection hint in the write-grant and notebook-location dialogs (high; since resolved, see the plan's `resolved` entry); and the `grantedAt` of the permanent-delete row (low).
 - **Rejected:**
   - a deadline expiry during `Publish` reporting `Timeout` rather than `BackupFailed` (low: rare, nothing deleted, the fix adds a pipeline branch);
   - "`BackupFailed` says retry" (false: the text says to fix the cause first).
