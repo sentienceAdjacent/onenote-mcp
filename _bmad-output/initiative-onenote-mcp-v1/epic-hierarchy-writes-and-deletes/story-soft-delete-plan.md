@@ -3,7 +3,7 @@ title: 'Soft delete'
 type: 'feature'
 ticket: '5'
 created: '2026-11-13'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -69,7 +69,22 @@ Tool name from Q1 (b): `delete_hierarchy_object`.
 
 </intent-contract>
 
+## Answers (Phill, 2026-11-13, Inbox thread "5.5 soft delete")
+
+He took the recommendation on every question.
+
+- Q1 (b): two tools, `delete_hierarchy_object` here and 5.6's `permanently_delete_hierarchy_object`.
+- Q2 (a): a page that has subpages is refused, saying how many subpages it has; delete those first.
+- Q3 (a): the deleted page's new ID in Deleted Pages comes from comparing Deleted Pages before and after the delete, under the lock; if more than one page is new, narrow by name; if that still isn't exactly one, return no ID and warn (`recycleBinIdMissing`).
+- Q4 (a): `restore_from_journal` on a deleted section or group says where it went: a section is in the notebook's recycle bin under the same ID; a group's sections are there one by one, and the journal entry records how the group was laid out.
+- Q5 (a): restoring a soft-deleted page from the journal makes a new page while the original stays in Deleted Pages; leave it. The guide points to OneNote's own restore, or epic 3's restore tool.
+- Q6 (a): a delete returns the object's ID, the journal entry's ID, and, for a page, its new ID in the recycle bin.
+- Q7 (a): an empty section group and a nested section group (not yet tested live) are allowed in the build; opt-in integration probes for them (L5, L6) run at the sitting before merge.
+- Q8: approved with these answers.
+
 ## Open Questions
+
+Closed: all answered above (Phill, 2026-11-13).
 
 1. **Tool shape.** AD-21 names one `delete_hierarchy`; AD-7 takes the class from an explicit `permanent` argument. 5.6 adds the permanent delete.
    - (a) One `delete_hierarchy(objectId, permanent?, basis?)`, `permanent` defaulting to false, shared with 5.6.
