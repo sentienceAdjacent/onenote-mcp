@@ -45,7 +45,7 @@ public sealed class FakeGatewayTests
     public void Manifest_CoversAllNineContentPortMethods_WithASuccess()
     {
         // NavigateTo (story 1.21) returns no content, and CreateNewPage (story 2.4), CreateSection (story 2.11), the
-        // section-group and notebook creates (story 5.3) and the page writes (story 2.7) are writes, so none has a fixture;
+        // section-group and notebook creates (story 5.3), the page writes (story 2.7) and UpdateHierarchy (story 5.4) are writes, so none has a fixture;
         // FakeGateway records them instead.
         string[] writes =
         [
@@ -59,7 +59,7 @@ public sealed class FakeGatewayTests
             .Select(m => m.Name[..^"Async".Length])
             .ToHashSet();
         Assert.Equal(9, methods.Count);
-        Assert.Equal(17, typeof(IOneNoteGateway).GetMethods().Length);
+        Assert.Equal(18, typeof(IOneNoteGateway).GetMethods().Length); // + UpdateHierarchy (story 5.4), a Task with no content
 
         var served = FakeGateway.Manifest.Entries.Where(e => e.Error is null).Select(e => e.Method).ToHashSet();
 

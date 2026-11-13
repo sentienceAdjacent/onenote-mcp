@@ -116,7 +116,7 @@ internal static class HResultMap
         [unchecked((int)0x80042014)] = new(ErrorCode.ObjectNotFound),
         [unchecked((int)0x80042015)] = new(ErrorCode.ObjectNotFound),
         [unchecked((int)0x80042016)] = new(ErrorCode.Internal, InsertingUserAction),
-        [unchecked((int)0x80042017)] = new(ErrorCode.Internal, "OneNote refused the name. Choose a different name."),
+        [unchecked((int)0x80042017)] = new(ErrorCode.InvalidArgument, "OneNote refused the name. Choose a different name."), // A sibling's name on UpdateHierarchy (story 5.4; 2.7 plan Q2).
         [unchecked((int)0x80042018)] = new(ErrorCode.Internal), // A path, not an object (AD-9).
         [unchecked((int)0x80042019)] = new(ErrorCode.InvalidQuery),
         [unchecked((int)0x8004201A)] = new(ErrorCode.FileExists),
@@ -128,7 +128,7 @@ internal static class HResultMap
         [unchecked((int)0x80042020)] = new(ErrorCode.InvalidXml),
         [unchecked((int)0x80042022)] = new(ErrorCode.Internal, "The change would lose content a newer OneNote wrote. Don't repeat it; ask the user to edit that content in OneNote."),
         [unchecked((int)0x80042023)] = new(ErrorCode.Timeout),
-        [unchecked((int)0x80042024)] = new(ErrorCode.Internal, "A recording is in progress in OneNote. Ask the user to stop it, then retry.", Retryable: true),
+        [unchecked((int)0x80042024)] = new(ErrorCode.ComBusy, "A recording is in progress in OneNote. Ask the user to stop it, then retry.", Retryable: true), // Not in ComGateway.IsBusy: no backoff (story 5.4).
 
         // Linked notes, unread marks, selection and IM: no v1 call reaches these.
         [unchecked((int)0x80042025)] = new(ErrorCode.Internal),
@@ -140,7 +140,7 @@ internal static class HResultMap
         [unchecked((int)0x8004202B)] = new(ErrorCode.Internal),
         [unchecked((int)0x8004202C)] = new(ErrorCode.Internal),
         [unchecked((int)0x8004202D)] = new(ErrorCode.Internal, "OneNote couldn't convert the content. Re-read the object to see its current state."),
-        [unchecked((int)0x8004202E)] = new(ErrorCode.Internal, "The target is in the notebook's recycle bin. Use a current ID, or ask the user to restore it in OneNote."),
+        [unchecked((int)0x8004202E)] = new(ErrorCode.ObjectNotFound, "The target is in the notebook's recycle bin. Use a current ID, or ask the user to restore it in OneNote."), // Story 5.4 (2.7 plan Q2).
         [unchecked((int)0x8004202F)] = new(ErrorCode.Internal),
         [unchecked((int)0x80042030)] = new(ErrorCode.ModalDialogOpen),
         [unchecked((int)0x80042031)] = new(ErrorCode.Internal, "OneNote can't publish labels in this format. Choose another format."),
