@@ -454,9 +454,34 @@ public sealed class GrantCommandTests : IDisposable
 
         var text = output.ToString();
         Assert.Contains(@"Path:     C:\notebooks\A", text, StringComparison.Ordinal);
-        Assert.Contains("grant --revoke --permanent-delete \"Notebook A\"", text, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --permanent-delete \"<notebook name>\"", text, StringComparison.Ordinal);
         var grant = Assert.Single(Store.Read().Notebooks.Values);
         Assert.True(grant.Write && grant.PermanentDelete);
+    }
+
+    [Fact]
+    public async Task PermanentDelete_WithoutAWriteGrant_TheSuggestedCommand_NeverHoldsTheNotebooksName()
+    {
+        // A shared or model-created notebook can be named $(...), which PowerShell would expand inside double quotes.
+        var xml = NotebooksXml.Replace("\"Notebook A\"", "\"$(evil)\"", StringComparison.Ordinal);
+
+        Assert.Equal(1, await WriteCommand("yes\n", xml: xml).RunAsync(["--permanent-delete", "$(evil)"], Ct));
+
+        var command = output.ToString().Split("with: ")[1].Split('\n')[0].Trim();
+        Assert.Equal("OneNoteMcp grant --write \"<notebook name>\"", command);
+    }
+
+    [Fact]
+    public async Task PermanentDelete_Granted_TheSuggestedRevokeCommand_NeverHoldsTheNotebooksName()
+    {
+        // A shared or model-created notebook can be named $(...), which PowerShell would expand inside double quotes.
+        SaveWriteGrant(@"C:\notebooks\A", "$(evil)");
+        var xml = NotebooksXml.Replace("\"Notebook A\"", "\"$(evil)\"", StringComparison.Ordinal);
+
+        Assert.Equal(0, await WriteCommand("yes\n", xml: xml).RunAsync(["--permanent-delete", "$(evil)"], Ct));
+
+        var command = output.ToString().Split("with: ")[1].Trim();
+        Assert.Equal("OneNoteMcp grant --revoke --permanent-delete \"<notebook name>\"", command);
     }
 
     [Theory]

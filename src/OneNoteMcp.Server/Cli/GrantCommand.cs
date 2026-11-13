@@ -327,7 +327,7 @@ public sealed class GrantCommand
         var snapshot = writer.Store.Read();
         if (!snapshot.Notebooks.TryGetValue(notebook.Key, out var grant) || !grant.Write)
         {
-            output.WriteLine($"\"{notebook.DisplayName}\" has no write grant, and permanent deletes count only beside one. Grant writes first with: OneNoteMcp grant --write \"{notebook.DisplayName}\"");
+            output.WriteLine($"\"{notebook.DisplayName}\" has no write grant, and permanent deletes count only beside one. Grant writes first with: OneNoteMcp grant --write \"<notebook name>\"");
             output.WriteLine("Nothing changed.");
             return 1;
         }
@@ -349,7 +349,7 @@ public sealed class GrantCommand
         }
 
         writer.SavePermanentDeleteGrant(notebook.Key);
-        output.WriteLine($"Granted: OneNoteMcp can now delete permanently in \"{notebook.DisplayName}\", until you revoke it with: OneNoteMcp grant --revoke --permanent-delete \"{notebook.DisplayName}\"");
+        output.WriteLine($"Granted: OneNoteMcp can now delete permanently in \"{notebook.DisplayName}\", until you revoke it with: OneNoteMcp grant --revoke --permanent-delete \"<notebook name>\"");
         return 0;
     }
 
