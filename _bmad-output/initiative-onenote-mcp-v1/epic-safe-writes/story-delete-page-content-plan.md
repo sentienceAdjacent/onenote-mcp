@@ -3,7 +3,7 @@ title: 'delete_page_content'
 type: 'feature'
 ticket: '10'
 created: '2026-11-12'
-status: 'built'
+status: done
 baseline_revision: '0f67f9588fd6cf7eeba0617286cc371fda489d22'
 warnings: ['oversized']
 route: 'full'
