@@ -119,6 +119,8 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
             throw new OneNoteException(ErrorCode.SectionLocked, $"Section {section.Id} is locked, so nothing was written to page {PageId}.");
         }
 
+        CheckSection(section);
+
         var self = await Services.Gateway.GetHierarchyAsync(PageId, HierarchyScope.Self, ct).ConfigureAwait(false);
         page = XmlReads.Readable(() => HierarchyNode.Root(self), "GetHierarchy");
         if (page.Kind != HierarchyKind.Page)
@@ -145,6 +147,30 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
     }
 
     /// <summary>
+    /// Step 3's check of the page's live, unlocked section, before the page itself is read: throws to refuse the write
+    /// there (story 5.5: a soft delete in a password-protected section is <see cref="ErrorCode.NotSupported"/>). Nothing to
+    /// check by default.
+    /// </summary>
+    protected virtual void CheckSection(HierarchyNode owningSection)
+    {
+    }
+
+    /// <summary>The <c>userAction</c> of <c>noBasis</c>, <c>partialBasis</c> and a basis date that isn't a date; <see cref="NoBasisUserAction"/> unless a write says otherwise (a delete takes no <c>elementHashes</c>).</summary>
+    protected virtual string BasisUserAction => NoBasisUserAction;
+
+    /// <summary>What <c>noBasis</c> says could happen without a basis; an overwrite unless a write says otherwise.</summary>
+    protected virtual string UnbasedRisk => "a change made since your own read could be overwritten";
+
+    /// <summary>Step 3's read of the page's section; null until step 3 has read it.</summary>
+    protected HierarchyNode? OwningSection => section;
+
+    /// <summary>Step 3's read of the page's own hierarchy node; null until step 3 has read it.</summary>
+    protected HierarchyNode? PageNode => page;
+
+    /// <summary>The journal entry step 6 stored, with its file; null until the snapshot is taken.</summary>
+    protected JournalWritten? JournalFile { get; private set; }
+
+    /// <summary>
     /// Step 1's view of the read grant, before the page is read: true when the page's section isn't protected or a grant
     /// covered it at the call's start; also true when the walk finds no section (step 3 refuses that). Never asks.
     /// </summary>
@@ -167,8 +193,9 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
 
     public override async Task SnapshotAsync(CancellationToken ct)
     {
-        var written = await Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, OperationClass.PageWrite, PageId, BasicXml), ct).ConfigureAwait(false);
+        var written = await Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, Class, PageId, BasicXml), ct).ConfigureAwait(false);
         JournalEntryId = written.EntryId;
+        JournalFile = written;
     }
 
     /// <summary>
@@ -176,25 +203,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
     /// HRESULT, flags and userAction, and a message that also names the journal entry step 6 stored (2.11 plan Q1), so the
     /// caller can restore it with <c>restore_from_journal</c>. The pipeline still decides <c>outcomeUnknown</c> (AD-9).
     /// </summary>
-    protected async Task CallNamingEntryAsync(Func<Task> call)
-    {
-        ArgumentNullException.ThrowIfNull(call);
-        try
-        {
-            await call().ConfigureAwait(false);
-        }
-        catch (OneNoteException ex) when (FailureNote is { } note)
-        {
-            throw new OneNoteException(
-                ex.Code,
-                $"{ex.Message} {note}",
-                ex.ComHResult,
-                ex,
-                ex.OutcomeUnknown,
-                ex.UserAction,
-                ex.Retryable);
-        }
-    }
+    protected Task CallNamingEntryAsync(Func<Task> call) => CallNamingFailureNoteAsync(call);
 
     /// <summary>
     /// The read-back threw (its deadline or a cancel included): the write stands, with the warning
@@ -222,9 +231,11 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
     /// <see cref="ErrorCode.StaleWrite"/>; one that isn't a date is <see cref="ErrorCode.InvalidArgument"/>. Each of
     /// <paramref name="targets"/> whose basis hash differs from step 3's is <see cref="ErrorCode.StaleWrite"/>; hashes for
     /// other elements are ignored. A missing date or target hash adds <c>partialBasis</c>; no basis takes step 3's date
-    /// and adds <c>noBasis</c> (both to <see cref="Warnings"/>).
+    /// and adds <c>noBasis</c> (both to <see cref="Warnings"/>). With <paramref name="comparePageHash"/> (a page delete,
+    /// AD-17), the basis <c>pageHash</c> must also equal step 3's, else <see cref="ErrorCode.StaleWrite"/>; a missing one
+    /// adds <c>partialBasis</c>.
     /// </summary>
-    protected string CheckBasis(PageWriteBasis? basis, IReadOnlyList<string> targets)
+    protected string CheckBasis(PageWriteBasis? basis, IReadOnlyList<string> targets, bool comparePageHash = false)
     {
         ArgumentNullException.ThrowIfNull(targets);
         var current = XmlReads.Readable(() => PageBasis.From(BasicXml), $"GetPageContent({PageId})");
@@ -232,8 +243,8 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
         {
             warnings.Add(new ToolWarning(
                 ToolWarnings.NoBasis,
-                $"No basis was passed, so the write to page {PageId} was checked against the page as the server just read it: a change made since your own read could be overwritten.",
-                NoBasisUserAction));
+                $"No basis was passed, so the write to page {PageId} was checked against the page as the server just read it: {UnbasedRisk}.",
+                BasisUserAction));
             return current.LastModifiedTime ?? string.Empty;
         }
 
@@ -249,7 +260,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
             var sent = OneNoteDates.ToUtc(basis.LastModifiedTime)
                 ?? throw Invalid(
                     $"The basis lastModifiedTime for page {PageId} isn't a date OneNote writes, so nothing was written.",
-                    NoBasisUserAction);
+                    BasisUserAction);
             if (OneNoteDates.ToUtc(current.LastModifiedTime) != sent)
             {
                 throw new OneNoteException(
@@ -258,6 +269,20 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
             }
 
             expectedLastModified = basis.LastModifiedTime;
+        }
+
+        if (comparePageHash)
+        {
+            if (basis.PageHash is null)
+            {
+                filled.Add("it has no pageHash, so the page's content wasn't compared");
+            }
+            else if (!string.Equals(basis.PageHash, current.PageHash, StringComparison.Ordinal))
+            {
+                throw new OneNoteException(
+                    ErrorCode.StaleWrite,
+                    $"Page {PageId} changed since the basis was read (its pageHash differs), so nothing was written.");
+            }
         }
 
         var stale = new List<string>();
@@ -298,7 +323,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
             warnings.Add(new ToolWarning(
                 ToolWarnings.PartialBasis,
                 $"The basis for page {PageId} is partial: {string.Join("; ", filled)}.",
-                NoBasisUserAction));
+                BasisUserAction));
         }
 
         return expectedLastModified;

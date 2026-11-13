@@ -12,13 +12,15 @@ namespace OneNoteMcp.Core.Journal;
 public sealed record HierarchySnapshotRequest(string CorrelationId, string Operation, OperationClass OperationClass, string ObjectId, string HierarchyXml);
 
 /// <summary>
-/// AD-7 step 6 for a hierarchy write (AD-8; story 5.4): one <c>hierarchy</c> entry holding step 3's XML of the node the write
-/// changes (the renamed node at <c>self</c>, or the reordered parent with its children), under the write lock. It places
+/// AD-7 step 6 for a hierarchy write (AD-8; stories 5.4 and 5.5): one <c>hierarchy</c> entry holding step 3's XML of the
+/// node the write changes (the renamed node at <c>self</c>, the reordered parent with its children, or a soft-deleted
+/// section or section group at <c>pages</c> scope), under the write lock. It places
 /// the node once (its parent, the section groups around it and its notebook, read live; a notebook is its own) and stores
 /// the entry (<see cref="JournalStore"/>).
 /// <para>A snapshot rooted at a password-protected section (<c>encrypted</c> in step 3's read) is a protected entry, marked
 /// with that section's <c>SectionKey</c> from its path before the write, so its title and XML are encrypted with DPAPI
-/// (AD-8, AD-21). A larger node's children-scope XML holds no <c>one:Page</c> elements.</para>
+/// (AD-8, AD-21). Any other entry never keeps a protected section's pages: its <c>one:Section</c> stays, its
+/// <c>one:Page</c> elements are dropped (a section group's <c>pages</c>-scope read, story 5.5).</para>
 /// <para>Errors: the walk's own COM errors pass through unchanged. Only building or storing the entry fails with
 /// <see cref="ErrorCode.JournalFailed"/>: XML the server can't read, a node it can't place in a notebook, I/O or DPAPI.
 /// Messages carry IDs only.</para>
@@ -46,9 +48,16 @@ public sealed class HierarchySnapshot
         var objectId = request.ObjectId ?? string.Empty;
 
         HierarchyNode root;
+        string xml;
         try
         {
             root = HierarchyNode.Root(request.HierarchyXml ?? string.Empty);
+
+            // A protected section's own entry is encrypted whole; anything else never keeps a protected section's pages
+            // (AD-8, AD-21; story 5.5).
+            xml = root.Kind == HierarchyKind.Section && root.Encrypted
+                ? request.HierarchyXml!
+                : DeleteTargets.WithoutProtectedPages(request.HierarchyXml!);
         }
         catch (OneNoteXmlException ex)
         {
@@ -89,7 +98,7 @@ public sealed class HierarchySnapshot
             TakenAtUtc = clock.GetUtcNow().UtcDateTime,
             BinaryComplete = true,
             MissingBinary = [],
-            Xml = request.HierarchyXml,
+            Xml = xml,
         };
         return store.Write(entry);
     }

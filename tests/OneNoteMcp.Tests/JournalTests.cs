@@ -600,6 +600,66 @@ public sealed class JournalTests : IDisposable
         await service.StopAsync(TestContext.Current.CancellationToken);
     }
 
+    // --- Story 5.5: the one-time recycleBinId rewrite ----------------------------------------------------------------
+
+    [Fact]
+    public void AddRecycleBinId_RewritesTheEntryOnce_KeepingEveryOtherMember_AndLeavesNoTempFile()
+    {
+        var entry = Entry();
+        var written = new JournalStore(Store.Read).Write(entry);
+        var before = Raw(written.Path);
+        Assert.False(before.ContainsKey("recycleBinId"));
+
+        Assert.Null(JournalStore.TryAddRecycleBinId(written.Path, entry.EntryId, "{RB}{1}{E9}"));
+
+        var after = Raw(written.Path);
+        Assert.Equal("{RB}{1}{E9}", after["recycleBinId"]!.GetValue<string>());
+        after.Remove("recycleBinId");
+        Assert.True(JsonNode.DeepEquals(before, after));
+        Assert.Equal("{RB}{1}{E9}", JournalStore.Read(written.Path).RecycleBinId);
+        Assert.Equal([Path.GetFileName(written.Path)], Directory.GetFiles(Folder).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void AddRecycleBinId_OnAProtectedEntry_KeepsTheBlobAsItWas_WithNoTitleOrXml()
+    {
+        var entry = Entry() with { SectionKey = @"C:\notebooks\A\Vault.one" };
+        var written = new JournalStore(Store.Read).Write(entry);
+        var blob = Raw(written.Path)["protected"]!.GetValue<string>();
+
+        Assert.Null(JournalStore.TryAddRecycleBinId(written.Path, entry.EntryId, "{RB}{1}{E9}"));
+
+        var raw = Raw(written.Path);
+        Assert.Equal(blob, raw["protected"]!.GetValue<string>());
+        Assert.False(raw.ContainsKey("title"));
+        Assert.False(raw.ContainsKey("xml"));
+        Assert.DoesNotContain("SECRET", Decompressed(written.Path), StringComparison.Ordinal);
+        var read = JournalStore.Read(written.Path);
+        Assert.Equal("{RB}{1}{E9}", read.RecycleBinId);
+        Assert.Equal(entry.Xml, read.Xml);
+    }
+
+    [Fact]
+    public void AddRecycleBinId_AMissingFile_IsReported_NotThrown()
+    {
+        var why = JournalStore.TryAddRecycleBinId(Path.Combine(Folder, "20261112T093000123-1-0123456789abcdef0123456789abcdef.json.gz"), Guid.NewGuid(), "{RB}");
+
+        Assert.Equal("the entry file is gone", why);
+        Assert.False(Directory.Exists(Folder) && Directory.EnumerateFileSystemEntries(Folder).Any());
+    }
+
+    [Fact]
+    public void AddRecycleBinId_AFileHoldingAnotherEntry_IsReported_AndLeftAsItWas()
+    {
+        var entry = Entry();
+        var written = new JournalStore(Store.Read).Write(entry);
+        var bytes = File.ReadAllBytes(written.Path);
+
+        Assert.Equal("the entry file holds another entry", JournalStore.TryAddRecycleBinId(written.Path, Guid.NewGuid(), "{RB}"));
+
+        Assert.Equal(bytes, File.ReadAllBytes(written.Path));
+    }
+
     // --- Helpers -----------------------------------------------------------------------------------------------------
 
     private static JournalEntry Entry() => new()
