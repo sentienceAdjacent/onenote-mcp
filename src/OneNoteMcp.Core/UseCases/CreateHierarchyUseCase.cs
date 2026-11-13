@@ -21,9 +21,12 @@ namespace OneNoteMcp.Core.UseCases;
 /// <item><b>Notebook</b>, in a local folder the user chose in a dialog (Q3): <c>&lt;folder&gt;\&lt;name&gt;</c>, made
 /// canonical. It needs no grant, but <c>settings.json</c> must be writable. Under the lock the server checks the folder is
 /// absent or empty (<see cref="ErrorCode.FileExists"/> otherwise), and not inside or around an open notebook or inside
-/// OneNoteMcp's own folders (<see cref="ErrorCode.InvalidArgument"/>). After the call, still under the lock, it reads the
-/// notebook back and writes its write grant (<c>grantedVia: created</c>) under <c>Local\OneNoteMcp.Settings</c>, inside the
-/// write lock (AD-7), only when the read-back path's key equals the checked folder's and the ID wasn't open before;
+/// OneNoteMcp's own folders (<see cref="ErrorCode.InvalidArgument"/>). The proposed folder, before the dialog, and the
+/// folder the user accepted are also refused (<see cref="ErrorCode.InvalidArgument"/>) when they or a folder above them hold
+/// a <c>*.onetoc2</c> file, which marks a closed notebook too. After the call, still under the lock, it reads the
+/// notebook back at <c>Children</c> scope and writes its write grant (<c>grantedVia: created</c>) under
+/// <c>Local\OneNoteMcp.Settings</c>, inside the write lock (AD-7), only when the read-back path's key equals the checked
+/// folder's, the ID wasn't open before and the notebook holds no section or section group outside its recycle bin;
 /// otherwise the create stands with the warning <c>createdNotGranted</c>. The result is <c>meta.objectId</c> and
 /// <c>meta.path</c>. A OneDrive (URL) notebook is <see cref="ErrorCode.NotSupported"/> while
 /// <see cref="CloudNotebookCreate"/> is closed.</item>
@@ -38,7 +41,7 @@ public sealed class CreateHierarchyUseCase : IUseCase
 
     /// <summary>What to do about a name the server refuses.</summary>
     public const string NameUserAction =
-        "Use a name with no path separators, no '..', no characters a Windows file name can't hold (< > : \" | ? *), no leading or trailing space or dot, and not a reserved name such as CON or OneNote_RecycleBin.";
+        "Use a name of at most 128 characters with no path separators, no '..', no characters a Windows file name can't hold (< > : \" | ? *), no control, invisible or text-direction characters, no leading or trailing space or dot, and not a reserved name such as CON or OneNote_RecycleBin.";
 
     /// <summary>What to do when the client can't show the notebook-location dialog (story 5.3 build directions, an assumption).</summary>
     public const string NoDialogUserAction =
@@ -123,7 +126,7 @@ public sealed class CreateHierarchyUseCase : IUseCase
         if (folder is not null)
         {
             // Refused before the dialog only when it could never be accepted; one that doesn't exist yet the user may change.
-            CheckFolderArgument(folder, "The proposed folder", mustExist: false);
+            CheckNotInANotebook(CheckFolderArgument(folder, "The proposed folder", mustExist: false), "The proposed folder");
         }
 
         if (prompt is null)
@@ -177,8 +180,27 @@ public sealed class CreateHierarchyUseCase : IUseCase
             throw new OneNoteException(ErrorCode.InvalidArgument, "No folder was chosen for the new notebook, so nothing was created.", userAction: "Retry, and have the user enter a folder on this PC.", retryable: false);
         }
 
-        return CheckFolderArgument(answer.Folder, "The chosen folder", mustExist: true);
+        // The dialog's folder field is editable, so the folder the user accepted is checked again.
+        return CheckNotInANotebook(CheckFolderArgument(answer.Folder, "The chosen folder", mustExist: true), "The chosen folder");
     }
+
+    /// <summary>
+    /// <paramref name="folder"/> (canonical) when neither it nor any folder above it holds a <c>*.onetoc2</c> file, so it
+    /// isn't inside a notebook, open or closed (security review, Phill, 2026-11-13); otherwise
+    /// <see cref="ErrorCode.InvalidArgument"/>, as for a folder inside an open notebook. The message never names the path.
+    /// </summary>
+    private static string CheckNotInANotebook(string folder, string what) =>
+        NotebookFolders.InsideANotebookFolder(folder)
+            ? throw new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{what} is inside a notebook's folder (it, or a folder above it, holds a notebook's .onetoc2 file), so no notebook was created.",
+                userAction: InsideANotebookUserAction,
+                retryable: false)
+            : folder;
+
+    /// <summary>What to do about a folder inside a notebook, open or closed.</summary>
+    private const string InsideANotebookUserAction =
+        "Choose a folder outside every notebook, open or closed (no folder on the way to it may hold a .onetoc2 file), and outside OneNoteMcp's own folders.";
 
     /// <summary>
     /// <paramref name="folder"/> (a parent folder) made canonical; a URL is <see cref="ErrorCode.NotSupported"/> while
@@ -409,8 +431,10 @@ public sealed class CreateHierarchyUseCase : IUseCase
         /// </summary>
         public override async Task<NotebookCreated> AfterCallAsync(NotebookCreated result, CancellationToken ct)
         {
-            var xml = await owner.gateway.GetHierarchyAsync(result.Id, HierarchyScope.Self, ct).ConfigureAwait(false);
+            // At Children scope, so one read gives the path and whether the notebook already holds anything.
+            var xml = await owner.gateway.GetHierarchyAsync(result.Id, HierarchyScope.Children, ct).ConfigureAwait(false);
             var node = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
+            var contents = XmlReads.Readable(() => HierarchyChildren.Read(xml), "GetHierarchy");
             if (node.Kind != HierarchyKind.Notebook || node.Path.Length == 0)
             {
                 return result with { NotGranted = "OneNote didn't report a notebook with a path for it." };
@@ -429,6 +453,13 @@ public sealed class CreateHierarchyUseCase : IUseCase
             if (openIds?.Contains(result.Id) == true)
             {
                 return read with { NotGranted = "OneNote returned a notebook that was already open." };
+            }
+
+            if (contents.Children.Count > 0)
+            {
+                // Security review, Phill, 2026-11-13: only an empty notebook is surely new. The recycle bin and what is in
+                // it don't count (HierarchyChildren skips them).
+                return read with { NotGranted = "It already holds sections or section groups, so it may be an existing notebook OneNote opened rather than a new one." };
             }
 
             ct.ThrowIfCancellationRequested();

@@ -7,7 +7,8 @@ namespace OneNoteMcp.Core;
 /// (<c>CON</c>, <c>NUL</c>, <c>COM1</c>…, also with an extension), and no leading or trailing space or dot, because a
 /// section is a file and a section group or notebook is a folder. <see cref="NameProblem"/> also refuses OneNote's own
 /// <c>OneNote_RecycleBin</c> and <c>OneNote_DeletedPages</c>, ignoring case. A section reaches COM as a file name ending
-/// <c>.one</c> (<see cref="ToSectionFileName"/>, Phill, 2026-11-13, 5.3 Q2). The gateway refuses a name that fails with
+/// <c>.one</c> (<see cref="ToSectionFileName"/>, Phill, 2026-11-13, 5.3 Q2). The security review (Phill, 2026-11-13) added
+/// control, bidi and invisible characters to the refused ones and a <see cref="MaxNameLength"/>. The gateway refuses a name that fails with
 /// <see cref="ErrorCode.InvalidArgument"/> before COM, so OneNote's path errors (<c>0x80042004</c>, <c>0x80042006</c>) and
 /// its phantom <c>..</c> group are never reached through a bad name. Problems are phrases that never quote the name.
 /// </summary>
@@ -15,6 +16,13 @@ public static class SectionFileNames
 {
     /// <summary>The extension OneNote gives a section file.</summary>
     public const string Extension = ".one";
+
+    /// <summary>
+    /// The longest name a new section, section group or notebook may have (security review, Phill, 2026-11-13). It counts
+    /// UTF-16 code units (<see cref="string.Length"/>), not text elements, as nothing else here counts text elements: a
+    /// character outside the Basic Multilingual Plane, such as an emoji, counts as two.
+    /// </summary>
+    public const int MaxNameLength = 128;
 
     private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -64,13 +72,20 @@ public static class SectionFileNames
     /// <summary>
     /// Null when <paramref name="name"/> is a valid name for a new section (as OneNote shows it, or its file name), section
     /// group or notebook; otherwise what is wrong with it, as a phrase that never quotes the name. On top of
-    /// <see cref="Problem"/>'s rules it refuses OneNote's own names, ignoring case, with or without <c>.one</c>.
+    /// <see cref="Problem"/>'s rules it refuses OneNote's own names, ignoring case, with or without <c>.one</c>, and a name
+    /// longer than <see cref="MaxNameLength"/>. This is the one name rule all three kinds share, so the use case and the
+    /// gateway both check it before any dialog or COM call.
     /// </summary>
     public static string? NameProblem(string? name)
     {
         if (string.IsNullOrEmpty(name))
         {
             return "is empty";
+        }
+
+        if (name.Length > MaxNameLength)
+        {
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"is longer than {MaxNameLength} characters");
         }
 
         if (Characters(name) is { } characters)
@@ -122,8 +137,28 @@ public static class SectionFileNames
             return "contains a path separator";
         }
 
-        return name.IndexOfAny(InvalidCharacters) >= 0 ? "contains a character a Windows file name can't hold" : null;
+        if (name.IndexOfAny(InvalidCharacters) >= 0)
+        {
+            return "contains a character a Windows file name can't hold";
+        }
+
+        return name.Any(IsHiddenOrControl) ? "contains a control, invisible or text-direction character" : null;
     }
+
+    /// <summary>
+    /// True for a character that can make a name read as something it isn't, in a dialog or a listing (security review,
+    /// Phill, 2026-11-13): any control character (Unicode category Cc, which covers U+007F–U+009F as well as the ASCII
+    /// ones), the line and paragraph separators U+2028 and U+2029, the bidi controls U+200E, U+200F, U+202A–U+202E and
+    /// U+2066–U+2069, and the invisible U+200B–U+200D, U+2060 and U+FEFF.
+    /// </summary>
+    private static bool IsHiddenOrControl(char c) =>
+        char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Control
+        || (int)c is 0x2028 or 0x2029
+            or 0x200E or 0x200F
+            or (>= 0x202A and <= 0x202E)
+            or (>= 0x2066 and <= 0x2069)
+            or (>= 0x200B and <= 0x200D)
+            or 0x2060 or 0xFEFF;
 
     /// <summary>The leading or trailing space or dot, and the reserved device name, of <paramref name="whole"/> and its <paramref name="stem"/>.</summary>
     private static string? Shape(string whole, string stem)

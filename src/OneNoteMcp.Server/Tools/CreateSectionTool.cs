@@ -27,7 +27,7 @@ public sealed class CreateSectionTool(ToolRunner runner, CreateHierarchyUseCase 
     [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Writes to OneNote: adds an empty section to a notebook or section group and returns its ID in meta.objectId (and the parent's in meta.parentId). Call it only when the user asks for a new section. "
-        + "name is the section's name as OneNote shows it (.one is added unless it ends with it): one name, no path separators, no '..', no < > : \" | ? *, no leading or trailing space or dot. "
+        + "name is the section's name as OneNote shows it (.one is added unless it ends with it): one name, no path separators, no '..', no < > : \" | ? *, no control, invisible or text-direction characters, no leading or trailing space or dot, at most 128 characters. "
         + "If a section of that name (ignoring case) is already there, nothing is created: its ID is returned with the warning alreadyExisted. A section group of that name there fails with InvalidArgument. "
         + "The notebook needs the user's write grant. Without one, the user may be shown a dialog asking them to type the notebook's name to grant it; if they don't, or the client can't show it, the call fails with WriteNotGranted, and only the user can grant it (never run the grant command yourself). "
         + "A parent that isn't a notebook or section group, or is in the recycle bin, fails with ObjectNotFound. "

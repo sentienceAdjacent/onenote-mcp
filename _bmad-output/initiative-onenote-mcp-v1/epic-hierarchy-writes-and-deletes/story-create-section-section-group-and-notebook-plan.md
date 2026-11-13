@@ -176,7 +176,24 @@ Build of 2026-11-13 (unattended; nothing touched OneNote). Choices the plan left
 
 ## Plan Change Log
 
+- 2026-11-13 — Security review fixes (Phill: "fix all three"). Three rules added to the plan's behaviour; status stays `built`.
+  - **Closed-notebook containment.** Besides the open-notebook checks, `create_notebook` refuses with `InvalidArgument` (the code the open-notebook containment refusal uses) a proposed folder, before the dialog, and the folder the user accepted, after it, when that folder or any folder above it holds a `*.onetoc2` file (`NotebookFolders.InsideANotebookFolder`; hidden files count, case ignored; a folder that doesn't exist yet, or can't be listed, is passed over). OneNote's default-folder prefill isn't checked: the user may change it, and the accepted folder is.
+  - **Name hygiene, all three kinds.** `SectionFileNames.NameProblem` (the one rule section, section group and notebook share, in the use case and the gateway) also refuses control characters (Unicode Cc, including U+007F-U+009F), U+2028/U+2029, the bidi controls U+200E, U+200F, U+202A-U+202E and U+2066-U+2069, the invisible U+200B-U+200D, U+2060 and U+FEFF, and a name over 128 UTF-16 code units (`MaxNameLength`; not text elements, since nothing in the code counts those, so an emoji counts as two). The character rule sits in the shared `Characters` check, so `Problem` (a section's file name at the gateway) gets it too; the length rule is in `NameProblem` only, so `.one` added to a 128-character section name is still accepted. Messages are phrases that never quote the name; `NameUserAction` and the three tool descriptions name the new rules.
+  - **Grant only an empty new notebook.** The post-call read-back is now one `GetHierarchy` at `Children` scope (was `Self`); the automatic grant is written only when, on top of the existing key and not-already-open checks, the notebook holds no section or section group outside its recycle bin (`HierarchyChildren` skips the bin and what is in it). Otherwise the create stands with `createdNotGranted` ("It already holds sections or section groups, so it may be an existing notebook OneNote opened rather than a new one.") and `meta.path`.
+  - Docs: `README.md`, `plugin/skills/guide/SKILL.md` (`createdNotGranted` row) and the `create_*` tool descriptions updated to match.
+
 ## Review Triage Log
+
+### 2026-11-13 — Security review (after the build)
+
+A security review of the 5.3 diff raised three findings; Phill decided on 2026-11-13 to fix all three. Each was fixed test-first (new tests seen failing, then passing).
+
+- verdicts: 3 findings — all accepted and patched
+- findings:
+  - `[medium]` `[patch]` The "not inside another notebook" check knew only open notebooks, so a notebook could be created inside a closed one's folder — fixed: `NotebookFolders.InsideANotebookFolder` (any `*.onetoc2` in the folder or an ancestor), checked on the proposed folder before the dialog and on the accepted folder after it (`CreateHierarchyUseCase.CheckNotInANotebook`), `InvalidArgument`. Tests: `Notebook_AProposedFolderInAClosedNotebook_*`, `Notebook_AChosenFolderInAClosedNotebook_*`, `Notebook_AFolderNextToAClosedNotebook_IsCreated`, `InsideANotebookFolder_*`.
+  - `[medium]` `[patch]` Names could carry control, bidi and invisible characters, and had no length cap, so a name in the location dialog or a listing could read as something it isn't — fixed in the shared `SectionFileNames.NameProblem` path (all three kinds, before any dialog or COM call), `InvalidArgument`, message never quotes the name. Tests: `NameProblem_RefusesControlBidiAndInvisibleCharacters_*`, `NameProblem_AllowsUpTo128Utf16Characters`, new rows in `BadName_*` and `Notebook_BadName_*`, `AnyKind_ANameOver128Characters_*`, `AnyKind_ANameOf128Characters_IsAccepted`.
+  - `[low]` `[patch]` Hardening: the automatic grant could land on an existing notebook OneNote opened at the checked folder — fixed: the read-back is at `Children` scope and the grant is written only for a notebook with no sections or section groups (recycle bin ignored); otherwise `createdNotGranted`. Tests: `Notebook_ReadBackHoldingSectionsOrGroups_IsOk_CreatedNotGranted`, `Notebook_ReadBackHoldingOnlyTheRecycleBin_IsGranted`, `Notebook_ReadBack_IsOneChildrenScopeRead_OfTheNewNotebook`; the settings-mutex lock-order test now hooks the `Children` read.
+- verification: `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings, 0 errors; `dotnet test tests/OneNoteMcp.Tests` 2515 passed, 0 failed (2469 before, plus 46 new cases). Nothing touched OneNote.
 
 ### 2026-11-13 — Review pass
 

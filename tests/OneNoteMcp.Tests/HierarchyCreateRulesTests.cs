@@ -60,6 +60,76 @@ public sealed class HierarchyCreateRulesTests
     public void NameProblem_NeverQuotesTheName(string name) =>
         Assert.DoesNotContain(name, SectionFileNames.NameProblem(name)!, StringComparison.Ordinal);
 
+    // Security review, 2026-11-13: control (Cc) characters past ASCII, line and paragraph separators, bidi controls and
+    // invisible format characters, which could make a name in a dialog or a listing read as something it isn't.
+    [Theory]
+    [InlineData("a\u007Fb")]
+    [InlineData("a\u0085b")]
+    [InlineData("a\u009Fb")]
+    [InlineData("a\u2028b")]
+    [InlineData("a\u2029b")]
+    [InlineData("a\u200Eb")]
+    [InlineData("a\u200Fb")]
+    [InlineData("a\u202Ab")]
+    [InlineData("a\u202Bb")]
+    [InlineData("a\u202Cb")]
+    [InlineData("a\u202Db")]
+    [InlineData("a\u202Eb")]
+    [InlineData("a\u2066b")]
+    [InlineData("a\u2067b")]
+    [InlineData("a\u2068b")]
+    [InlineData("a\u2069b")]
+    [InlineData("a\u200Bb")]
+    [InlineData("a\u200Cb")]
+    [InlineData("a\u200Db")]
+    [InlineData("a\u2060b")]
+    [InlineData("\uFEFFab")]
+    public void NameProblem_RefusesControlBidiAndInvisibleCharacters_NeverQuotingTheName(string name)
+    {
+        var problem = SectionFileNames.NameProblem(name);
+
+        Assert.NotNull(problem);
+        Assert.DoesNotContain(name, problem, StringComparison.Ordinal);
+        Assert.DoesNotContain("ab", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NameProblem_AllowsUpTo128Utf16Characters()
+    {
+        Assert.Null(SectionFileNames.NameProblem(new string('a', SectionFileNames.MaxNameLength)));
+        Assert.Equal(128, SectionFileNames.MaxNameLength);
+
+        var problem = SectionFileNames.NameProblem(new string('a', SectionFileNames.MaxNameLength + 1));
+        Assert.NotNull(problem);
+        Assert.DoesNotContain("aaaa", problem, StringComparison.Ordinal);
+
+        // UTF-16 code units, not text elements: 64 surrogate pairs fit, 65 don't.
+        Assert.Null(SectionFileNames.NameProblem(string.Concat(Enumerable.Repeat("\U0001F600", 64))));
+        Assert.NotNull(SectionFileNames.NameProblem(string.Concat(Enumerable.Repeat("\U0001F600", 65))));
+    }
+
+    [Fact]
+    public void InsideANotebookFolder_IsTrue_WhenTheFolderOrAnAncestorHoldsAnOnetoc2File()
+    {
+        using var temp = new TempDirectory();
+        var closed = Directory.CreateDirectory(temp.Combine("closed")).FullName;
+        File.WriteAllText(Path.Combine(closed, "Open Notebook.onetoc2"), "x");
+        var group = Directory.CreateDirectory(Path.Combine(closed, "Group")).FullName;
+        var plain = Directory.CreateDirectory(temp.Combine("plain")).FullName;
+        var hidden = Directory.CreateDirectory(temp.Combine("hidden")).FullName;
+        var toc = Path.Combine(hidden, "x.ONETOC2");
+        File.WriteAllText(toc, "x");
+        File.SetAttributes(toc, FileAttributes.Hidden);
+
+        Assert.True(NotebookFolders.InsideANotebookFolder(closed));
+        Assert.True(NotebookFolders.InsideANotebookFolder(group));
+        Assert.True(NotebookFolders.InsideANotebookFolder(Path.Combine(group, "missing", "deeper")));
+        Assert.True(NotebookFolders.InsideANotebookFolder(hidden));
+        Assert.False(NotebookFolders.InsideANotebookFolder(plain));
+        Assert.False(NotebookFolders.InsideANotebookFolder(Path.Combine(plain, "missing")));
+        Assert.False(NotebookFolders.InsideANotebookFolder("https://d.docs.live.net/0123/x"));
+    }
+
     [Theory]
     [InlineData("Ideas", "Ideas.one")]
     [InlineData("Ideas.one", "Ideas.one")]

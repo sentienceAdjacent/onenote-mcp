@@ -227,7 +227,7 @@ Warnings (`ok: true`, with `warnings[]`) mean the result is usable but degraded.
 | `readNotGranted` | A password-protected section's pages were left out (its ID is in `meta.withheld`). Say so, and that the user can grant a read (see Password-protected sections). |
 | `grantNotSaved` | The user's grant for some hours or until revoked couldn't be saved (its settings file is invalid or not writable), so it works like the N-minute grant: it covers that section for those minutes, in this server only. Relay `userAction`. |
 | `alreadyExisted` | From `mcp__plugin_onenote_desktop__create_section` or `mcp__plugin_onenote_desktop__create_section_group`: one of that name was already there, so nothing was created and `meta.objectId` is the existing one. Tell the user. |
-| `createdNotGranted` | From `mcp__plugin_onenote_desktop__create_notebook`: the notebook was created, but its automatic write grant couldn't be saved. Tell the user; writing to it needs their grant (relay `userAction`, never run the command yourself). |
+| `createdNotGranted` | From `mcp__plugin_onenote_desktop__create_notebook`: the notebook was created, but it has no automatic write grant: the grant couldn't be saved, or the notebook already held sections or section groups (so it may be an existing notebook OneNote opened). Tell the user; writing to it needs their grant (relay `userAction`, never run the command yourself). |
 
 ## User-visible actions and limits
 

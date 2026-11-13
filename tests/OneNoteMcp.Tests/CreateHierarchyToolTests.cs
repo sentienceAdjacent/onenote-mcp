@@ -265,6 +265,12 @@ public sealed class CreateHierarchyToolTests : IDisposable
     [InlineData("OneNote_RecycleBin")]
     [InlineData("onenote_deletedpages")]
     [InlineData("OneNote_RecycleBin.one")]
+    [InlineData("ab\u0085cd")]
+    [InlineData("ab\u2028cd")]
+    [InlineData("ab\u202Ecd")]
+    [InlineData("ab\u2066cd")]
+    [InlineData("ab\u200Bcd")]
+    [InlineData("\uFEFFabcd")]
     public async Task BadName_IsInvalidArgument_BeforeTheLock_NeverQuotingIt(string name)
     {
         Grant();
@@ -548,6 +554,54 @@ public sealed class CreateHierarchyToolTests : IDisposable
         Assert.Empty(gateway.CreateNotebookCalls);
     }
 
+    // Security review, 2026-11-13: a closed notebook isn't in OneNote's open list, so its .onetoc2 file marks it.
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Group")]
+    [InlineData(@"Group\not yet")]
+    public async Task Notebook_AProposedFolderInAClosedNotebook_IsInvalidArgument_WithoutAskingTheUser(string under)
+    {
+        var closed = ClosedNotebook();
+        Directory.CreateDirectory(Path.Combine(closed, "Group"));
+        var proposed = under.Length == 0 ? closed : Path.Combine(closed, under);
+        var prompt = Location(NotebooksFolder);
+
+        var error = Error(await NotebookTool(prompt).CreateNotebook(NewNotebook, proposed, Ct), "InvalidArgument");
+
+        Assert.Contains("notebook", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNoPathOrName(error);
+        Assert.Empty(prompt.Questions);
+        Assert.Empty(gateway.CreateNotebookCalls);
+        Assert.Empty(holds);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Group")]
+    public async Task Notebook_AChosenFolderInAClosedNotebook_IsInvalidArgument_NoLock_NoCom(string under)
+    {
+        var closed = ClosedNotebook();
+        var chosen = Directory.CreateDirectory(Path.Combine(closed, under)).FullName;
+
+        var error = Error(await NotebookTool(Location(chosen)).CreateNotebook(NewNotebook, NotebooksFolder, Ct), "InvalidArgument");
+
+        AssertNoPathOrName(error);
+        Assert.Empty(gateway.CreateNotebookCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
+    public async Task Notebook_AFolderNextToAClosedNotebook_IsCreated()
+    {
+        ClosedNotebook();
+        ReadBackAt(Target);
+
+        Ok(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(NewNotebook, NotebooksFolder, Ct));
+
+        Assert.Equal([Target], gateway.CreateNotebookCalls);
+    }
+
     [Fact]
     public async Task Notebook_InsideOneNoteMcpsSettingsFolder_IsInvalidArgument()
     {
@@ -708,15 +762,58 @@ public sealed class CreateHierarchyToolTests : IDisposable
     [InlineData("CON")]
     [InlineData("x.")]
     [InlineData("OneNote_RecycleBin")]
+    [InlineData("Trips\u202Eabcd")]
+    [InlineData("Trips\u2029abcd")]
+    [InlineData("Trips\u200Dabcd")]
+    [InlineData("Trips\u009Babcd")]
     public async Task Notebook_BadName_IsInvalidArgument_BeforeTheDialog(string name)
     {
         var prompt = Location(NotebooksFolder);
 
-        Error(await NotebookTool(prompt).CreateNotebook(name, NotebooksFolder, Ct), "InvalidArgument");
+        var error = Error(await NotebookTool(prompt).CreateNotebook(name, NotebooksFolder, Ct), "InvalidArgument");
 
+        Assert.DoesNotContain("abcd", error.GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Empty(prompt.Questions);
         Assert.Empty(gateway.CreateNotebookCalls);
         Assert.Empty(holds);
+    }
+
+    [Fact]
+    public async Task AnyKind_ANameOver128Characters_IsInvalidArgument_BeforeAnyDialogOrCom_NeverQuotingIt()
+    {
+        Grant();
+        var longName = new string('q', SectionFileNames.MaxNameLength + 1);
+        var prompt = Location(NotebooksFolder);
+
+        foreach (var result in new[]
+        {
+            await SectionTool().CreateSection(NotebookId, longName, Ct),
+            await GroupTool().CreateSectionGroup(NotebookId, longName, Ct),
+            await NotebookTool(prompt).CreateNotebook(longName, NotebooksFolder, Ct),
+        })
+        {
+            var error = Error(result, "InvalidArgument");
+            Assert.Equal(CreateHierarchyUseCase.NameUserAction, error.GetProperty("userAction").GetString());
+            Assert.DoesNotContain("qqqq", error.GetRawText(), StringComparison.Ordinal);
+        }
+
+        Assert.Empty(prompt.Questions);
+        AssertNoCreate();
+        Assert.Empty(holds);
+        Assert.Empty(gateway.Calls);
+    }
+
+    [Fact]
+    public async Task AnyKind_ANameOf128Characters_IsAccepted()
+    {
+        Grant();
+        var name = new string('q', SectionFileNames.MaxNameLength);
+
+        Ok(await SectionTool().CreateSection(NotebookId, name, Ct));
+        Ok(await GroupTool().CreateSectionGroup(NotebookId, name, Ct));
+
+        Assert.Single(gateway.CreateSectionCalls);
+        Assert.Single(gateway.CreateGroupCalls);
     }
 
     [Theory]
@@ -800,11 +897,55 @@ public sealed class CreateHierarchyToolTests : IDisposable
         OpenNotebooksAre(("Other", @"C:\notebooks\Other", openId));
         gateway.OnCreateNotebook = _ => openId;
         Self(openId, $"<one:Notebook {Ns} name=\"Other\" ID=\"{openId}\" path=\"{Target}\" />");
+        Children(openId, $"<one:Notebook {Ns} name=\"Other\" ID=\"{openId}\" path=\"{Target}\" />");
 
         var root = Ok(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(NewNotebook, NotebooksFolder, Ct));
 
         AssertCreatedNotGranted(root);
         Assert.Empty(Store.Read().Notebooks);
+    }
+
+    // Security review, 2026-11-13: only an empty notebook is new enough to grant; one holding sections or section groups
+    // may be an existing notebook OneNote opened instead.
+
+    [Theory]
+    [InlineData("<one:Section name=\"Old\" ID=\"{SN000000-0000-4000-8000-000000000001}{1}{B0}\" path=\"x.one\" />")]
+    [InlineData("<one:SectionGroup name=\"Old\" ID=\"{GN000000-0000-4000-8000-000000000001}{1}{B0}\" path=\"x\" />")]
+    [InlineData("<one:SectionGroup name=\"OneNote_RecycleBin\" ID=\"{RN000000-0000-4000-8000-000000000001}{1}{B0}\" path=\"r\" isRecycleBin=\"true\" /><one:Section name=\"Old\" ID=\"{SN000000-0000-4000-8000-000000000001}{1}{B0}\" path=\"x.one\" />")]
+    public async Task Notebook_ReadBackHoldingSectionsOrGroups_IsOk_CreatedNotGranted(string children)
+    {
+        ReadBackAt(Target, children);
+
+        var root = Ok(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(NewNotebook, NotebooksFolder, Ct));
+
+        var warning = AssertCreatedNotGranted(root);
+        Assert.Contains("already holds sections or section groups", warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(NewNotebook, warning.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(Target, root.GetProperty("meta").GetProperty("path").GetString());
+        Assert.Empty(Store.Read().Notebooks);
+        Assert.Single(gateway.CreateNotebookCalls);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task Notebook_ReadBackHoldingOnlyTheRecycleBin_IsGranted()
+    {
+        ReadBackAt(Target, "<one:SectionGroup name=\"OneNote_RecycleBin\" ID=\"{RN000000-0000-4000-8000-000000000001}{1}{B0}\" path=\"r\" isRecycleBin=\"true\" />");
+
+        var root = Ok(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(NewNotebook, NotebooksFolder, Ct));
+
+        Assert.Equal(0, root.GetProperty("warnings").GetArrayLength());
+        Assert.Equal(GrantedVia.Created, Store.Read().Notebooks[GrantKeys.NotebookKey(Target)].GrantedVia);
+    }
+
+    [Fact]
+    public async Task Notebook_ReadBack_IsOneChildrenScopeRead_OfTheNewNotebook()
+    {
+        ReadBackAt(Target);
+
+        Ok(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(NewNotebook, NotebooksFolder, Ct));
+
+        Assert.Equal([(FakeGateway.CreatedNotebookId(1), HierarchyScope.Children)], gateway.Calls.Where(c => c.Item1 == FakeGateway.CreatedNotebookId(1)));
     }
 
     [Fact]
@@ -837,7 +978,7 @@ public sealed class CreateHierarchyToolTests : IDisposable
         {
             BeforeHierarchy = (id, scope) =>
             {
-                if (id == FakeGateway.CreatedNotebookId(1) && scope == HierarchyScope.Self)
+                if (id == FakeGateway.CreatedNotebookId(1) && scope == HierarchyScope.Children)
                 {
                     holder = SettingsMutexHolder.Take();
                 }
@@ -939,11 +1080,20 @@ public sealed class CreateHierarchyToolTests : IDisposable
     private void Children(string id, string xml) =>
         gateway.Hierarchies[(id, HierarchyScope.Children)] = "<?xml version=\"1.0\"?>\n" + xml;
 
-    /// <summary>The new notebook reads back at <paramref name="path"/>.</summary>
-    private void ReadBackAt(string path)
+    /// <summary>The new notebook reads back at <paramref name="path"/>, holding <paramref name="children"/> (XML; none by default).</summary>
+    private void ReadBackAt(string path, string children = "")
     {
         var id = FakeGateway.CreatedNotebookId(1);
         Self(id, $"<one:Notebook {Ns} name=\"{NewNotebook}\" ID=\"{id}\" path=\"{path}\" />");
+        Children(id, $"<one:Notebook {Ns} name=\"{NewNotebook}\" ID=\"{id}\" path=\"{path}\">{children}</one:Notebook>");
+    }
+
+    /// <summary>A closed notebook's folder in <see cref="NotebooksFolder"/>, beside the new one: it holds an <c>.onetoc2</c> file and isn't open.</summary>
+    private string ClosedNotebook()
+    {
+        var closed = Directory.CreateDirectory(Path.Combine(NotebooksFolder, "Closed")).FullName;
+        File.WriteAllText(Path.Combine(closed, "Open Notebook.onetoc2"), "x");
+        return closed;
     }
 
     /// <summary>The open notebooks, at <c>Notebooks</c> and <c>Sections</c> scope: W, plus <paramref name="others"/>.</summary>

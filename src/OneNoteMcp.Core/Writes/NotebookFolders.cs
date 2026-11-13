@@ -91,6 +91,70 @@ public static class NotebookFolders
         return all;
     }
 
+    /// <summary>The table-of-contents file every local notebook keeps at its root, such as <c>Open Notebook.onetoc2</c>.</summary>
+    public const string NotebookTocPattern = "*.onetoc2";
+
+    /// <summary>
+    /// True when <paramref name="folder"/> or any folder above it holds a <c>*.onetoc2</c> file (security review, Phill,
+    /// 2026-11-13): a closed notebook isn't in OneNote's open list, so its table of contents is how a folder inside one is
+    /// found. Hidden and system files count, and the name is matched ignoring case. A folder that doesn't exist yet is
+    /// passed over, as is one that can't be listed (it can't be shown to hold a notebook); a URL or a path that isn't
+    /// fully qualified is false. Links aren't followed here, so pass a canonical path.
+    /// </summary>
+    public static bool InsideANotebookFolder(string folder)
+    {
+        ArgumentNullException.ThrowIfNull(folder);
+        if (Normal(folder) is null)
+        {
+            return false;
+        }
+
+        DirectoryInfo? current;
+        try
+        {
+            current = new DirectoryInfo(Path.GetFullPath(folder.Replace('/', '\\')));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or System.Security.SecurityException)
+        {
+            return false;
+        }
+
+        for (; current is not null; current = current.Parent)
+        {
+            if (HoldsANotebookToc(current.FullName))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HoldsANotebookToc(string folder)
+    {
+        try
+        {
+            if (!Directory.Exists(folder))
+            {
+                return false;
+            }
+
+            using var files = Directory.EnumerateFiles(folder, NotebookTocPattern, new EnumerationOptions
+            {
+                AttributesToSkip = 0,
+                IgnoreInaccessible = true,
+                MatchCasing = MatchCasing.CaseInsensitive,
+                MatchType = MatchType.Simple,
+                RecurseSubdirectories = false,
+            }).GetEnumerator();
+            return files.MoveNext();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>What is at <paramref name="folder"/> now.</summary>
     public static FolderState State(string folder)
     {
