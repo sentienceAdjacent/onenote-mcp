@@ -16,12 +16,12 @@ public sealed class FilePathsUnconfirmed : OneNoteException
     /// <summary>What to do when no dialog can ask the user: there is no other way to confirm a path.</summary>
     public const string NoDialogUserAction =
         "This client can't show the dialog in which the user confirms a file path, so the write can't name a file on this PC. "
-        + "Send the image as inline one:Data (base64) instead, or ask the user to insert the file in OneNote themselves.";
+        + "For an image, send it as inline one:Data (base64) instead; or ask the user to insert the file in OneNote themselves.";
 
     /// <summary>What to do when the user declined or dismissed the dialog.</summary>
     public const string DeclinedUserAction =
         "The user didn't confirm the file path(s). Ask the user whether they want the file read into the page, and retry only if they agree; "
-        + "or send the image as inline one:Data (base64) instead, or ask the user to insert the file in OneNote themselves.";
+        + "or, for an image, send it as inline one:Data (base64) instead; or ask the user to insert the file in OneNote themselves.";
 
     private readonly Action confirm;
 

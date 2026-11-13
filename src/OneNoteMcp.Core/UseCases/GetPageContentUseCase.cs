@@ -1,5 +1,6 @@
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Results;
+using OneNoteMcp.Core.Writes;
 using OneNoteMcp.Xml;
 
 namespace OneNoteMcp.Core.UseCases;
@@ -16,8 +17,10 @@ namespace OneNoteMcp.Core.UseCases;
 /// Basic is read first so that, if the page changes between the two reads, the basis is the older one and a write
 /// made with it fails safe as <c>StaleWrite</c>. The basis never comes from piBinaryData, whose hashes differ for a
 /// cloud page (see <see cref="PageBasis"/>), so it is the same whatever <c>includeBinary</c> is.
+/// <para>Every <c>pathCache</c> in the XML it returns goes into <paramref name="issued"/>, so a write that sends it back
+/// unchanged isn't asked about OneNote's own temp copy again (Phill, 2026-11-12, after the live sitting's B3).</para>
 /// </remarks>
-public sealed class GetPageContentUseCase(IOneNoteGateway gateway, ReadAccess access) : IUseCase
+public sealed class GetPageContentUseCase(IOneNoteGateway gateway, ReadAccess access, IssuedPathCaches? issued = null) : IUseCase
 {
     public GetPageContentUseCase(IOneNoteGateway gateway)
         : this(gateway, ReadAccess.WithoutStoredGrants(gateway))
@@ -46,10 +49,12 @@ public sealed class GetPageContentUseCase(IOneNoteGateway gateway, ReadAccess ac
         var source = new ResultSource(ResultKind.PageXml, PiBasicXml: basic);
         if (!includeBinary)
         {
+            issued?.Remember(id, basic);
             return ToolSuccess.WithXml(basic, meta) with { Source = source };
         }
 
         var binary = await gateway.GetPageContentAsync(id, PageInfo.BinaryData, ct).ConfigureAwait(false);
+        issued?.Remember(id, binary);
         var missing = Readable(() => ImageCount.Missing(basic, binary), id);
         if (missing == 0)
         {
