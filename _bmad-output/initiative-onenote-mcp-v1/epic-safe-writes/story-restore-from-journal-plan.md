@@ -3,7 +3,7 @@ title: 'restore_from_journal'
 type: 'feature'
 ticket: '11'
 created: '2026-11-12'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -34,7 +34,7 @@ deferred: []
 - A protected entry (`sectionKey` set): only the live section whose `SectionKey` equals the marker and that is still `encrypted`. Locked: `SectionLocked`. Absent or no longer protected: `ObjectNotFound`, `userAction` naming the entry file, which stays for its 30 days. Never `parentId`, `parentNamePath` or `Recovered` (AD-8; 2.3 Q6).
 - `hierarchy` and `onenoteBackup` entries: `NotSupported` before any COM call, `userAction` naming the entry file (or the backup file, saying the user can open it in OneNote, without promising it brings the section back; AD-8).
 - The page XML sent is built in `OneNoteMcp.Xml` from the snapshot: parsed with DTD prohibited, root `ID` set to the new page's, every `objectID` removed, then the AD-16 gate. Images and ink keep their inline `one:Data`.
-- Result: `meta.pageId` (the new page) and `meta.parentId` (its section). Warnings: `binaryMissing` with counts by kind when anything wasn't restored (the entry's `missingBinary` plus anything the XML build dropped), never IDs or content; `restoredElsewhere` saying `parentNamePath` or `Recovered` when the entry's `parentId` wasn't used (an existing `Recovered` is simply used).
+- Result: `meta.pageId` (the new page) and `meta.parentId` (its section). Warnings: `binaryMissing` with counts by kind when anything wasn't restored (the entry's missing images, plus each attachment or media file not restored: dropped by Q2's rule or refused by OneNote), never IDs or content; `restoredElsewhere` saying `parentNamePath` or `Recovered` when the entry's `parentId` wasn't used (an existing `Recovered` is simply used).
 - Never overwrites: the only content write goes to the page this call created. The new page is dropped from the search cache whatever the outcome (AD-7).
 - Messages and logs carry IDs, counts and the entry's file name only: never a title, page content or `parentNamePath` of a protected entry (AD-9, AD-13, AD-21). `outcomeUnknown` per AD-9 for an ambiguous failure in step 7.
 - Gateway: section creation by parent object ID only (`bstrRelativeToObjectID` + a relative name ending `.one`); never an absolute path (AD-7 `Create` row). Write `CallKind`, never retried. The relative name is checked before COM (no `..`, `\`, `/`, or characters a Windows file name can't hold; spike 5.1 constraint 5).
@@ -59,40 +59,28 @@ deferred: []
 | Unknown entry | no file for that ID in the journal folder | no COM call | `ObjectNotFound` (pruned after 30 days, or wrong ID) |
 | Bad argument | not a GUID, or empty | nothing read | `InvalidArgument` naming the argument |
 | Unreadable entry | gzip/JSON/DPAPI/XML failure, or a newer `schemaVersion` | no COM call | `JournalFailed` (newer schema: `NotSupported`) |
-| Missing binaries | `binaryComplete: false`, or attachments dropped (Q2) | page restored without them | warning `binaryMissing`, counts by kind |
+| Missing binaries | images missing in the entry, or an attachment whose temp copy is gone or outside the temp folder (Q2) | page restored without them | warning `binaryMissing`, counts by kind |
+| Attachment kept | `pathCache` a `{GUID}.bin` directly in the user's temp folder, present | sent with `pathCache` only, `pathSource` removed | — |
+| Attachment refused | content write with kept attachments fails with a definite code; re-read shows the page empty | sent once more without attachments | warning `binaryMissing` (refused by OneNote) |
 | Content write fails | page created, then e.g. `ModalDialogOpen` on `UpdatePageContent` | an empty page is left | the step's code; message names the empty page's ID (Q3) |
 | Ambiguous step 7 | `Timeout` / `ComUnavailable` / `Cancelled` / `0x800706BE` | — | `outcomeUnknown` |
 
+## Decisions (Phill, 2026-11-12, plan approved; guardrails for Q2 and the retry are the coordinator's reading of his answer)
+
+- **Q1 (a):** `restore_from_journal(entryId)`. `update_page_content` and `delete_page_content` add `meta.journalEntryId` to their success result; a failure after their snapshot (step 7) names the entry's ID in its message (AD-9's error `meta` stays `{correlationId}`). The file is found by its name pattern in the configured journal folder; no scan. A later-session lookup (listing tool) goes to deferred work.
+- **Q2 (b), with guardrails:**
+  - Restore sends only `pathCache`, never `pathSource`: `pathSource` is removed, so nothing the original author's path names is read.
+  - A `pathCache` is kept only when its canonical form (`FilePathGate.Canonical`, which refuses network, device and relative paths) is a file directly in the current user's temp folder (`Path.GetTempPath()`, made canonical the same way), named `{GUID}.bin` as OneNote names it, and the file exists now. Otherwise the element is dropped and counted in `binaryMissing`.
+  - `one:MediaFile`: the same rule. Images and ink keep their inline `one:Data` (unchanged); an element with any other path attribute (`one:File@path`) is dropped and counted.
+  - Unprobed whether OneNote accepts an `InsertedFile` with only `pathCache`: an opt-in integration probe (below) prints `RESULT restore-attachment: kept|dropped|error <hex>`; the live sitting runs it.
+  - **If OneNote refuses the write with attachments kept, the restore doesn't fail for that:** when the content write sent at least one kept attachment or media file and fails with a code that isn't ambiguous (AD-9: not `Timeout`, `ComUnavailable`, `Cancelled`, `0x800706BE`) and isn't `ModalDialogOpen`, `ComBusy`, `SectionLocked` or `StaleWrite`, the server re-reads the new page (piBasic). If that read shows no top-level content object (`Outline`, `Image`, `InkDrawing`, `InsertedFile`, `MediaFile`), it sends the page once more with every attachment and media file dropped, using that read's date, and counts them in `binaryMissing` (its message says OneNote refused them). If the page already holds content, or the second write fails, Q3 applies. This is one retry of the server's own payload into the empty page this call created, checked empty first; it is not a retry of a caller's write, so AD-7/AD-17's "never auto-retry writes" stance (CLAUDE.md, OneMore difference) isn't crossed. Flag it in the spine sync.
+- **Q3 (a):** a failed content write fails with that step's code and retry rule; the message names the empty page's ID and the `userAction` says to delete it in OneNote before retrying. `outcomeUnknown` only for AD-9's ambiguous codes.
+- **Q4 (a):** read the new page, delete each top-level template object (`Outline`, `Image`, `InkDrawing`, `InsertedFile`, `MediaFile`) with `DeletePageContent`, re-read for the date, then write.
+- **Q5 (a):** gateway `CreateSectionAsync(parentId, sectionFileName)`; epic 5 adds its siblings.
+- **Q6 (a):** an unprotected entry's chosen section that is locked gives `SectionLocked`, retryable; no fall-through.
+- **Probe:** `tests/OneNoteMcp.Integration/WriteProbes/` or beside `HtmlLocalRefProbe.cs`, same pattern: opt-in (`ONENOTE_MCP_INTEGRATION=1`), MCP Test only, behind `TestNotebook`'s guard. It snapshots an MCP Test page holding an attachment (through `update_page_content` or a direct `PageSnapshot`), restores the entry, and prints `RESULT restore-attachment: kept|dropped|error <hex>`. Not run in the build lane.
+
 </intent-contract>
-
-## Open Questions
-
-1. **How does the caller name the entry?** Nothing returns an entry's ID today: the write tools log it, and the file name holds it (`{takenAtUtc}-{pid}-{entryId:N}.json.gz`).
-   - (a) `restore_from_journal(entryId)`, and `update_page_content` and `delete_page_content` add `meta.journalEntryId` to their success result. A failure after the snapshot (step 7 or the read-back) names the entry's ID in its message, since AD-9's error `meta` holds only `correlationId`. The server finds the file by its name pattern; no scan.
-   - (b) As (a), and `entryId` or `pageId`: with `pageId`, the newest page entry for that page, scanning newest-first and reading only each file's leading JSON members. Serves "undo yesterday's change" in a later session without the ID.
-   - (c) `entryId` only, with no change to the write tools: the user reads the ID from the journal folder's file names.
-   Recommended: (a). It meets the Verify exactly and keeps the write tools' change to one meta field. A later-session lookup is better served by a listing tool (titles, dates; protected titles withheld) than by guessing the newest entry, so I'd record that as deferred work rather than build half of it here.
-2. **Attachments and media.** The snapshot keeps each `one:InsertedFile`'s `pathCache` (a `%TEMP%\{GUID}.bin` copy OneNote made during the snapshot read and never deletes; sitting B3) and `pathSource`, but not the bytes (2.8 Q4). OneMore's Duplicate Page sends them unchanged.
-   - (a) Drop every `one:InsertedFile` and `one:MediaFile` from the restored page and count them in `binaryMissing`. Nothing reads a path from a journal file.
-   - (b) Keep an attachment whose `pathCache` exists and, made canonical, lies under the user's temp folder, sending only `pathCache`; drop and count the rest. Unprobed: whether `UpdatePageContent` takes a `pathCache`-only `InsertedFile` on a new page; the live sitting would settle it.
-   - (c) Send the paths through 2.9's file-path dialog.
-   Recommended: (a). It matches 2.8 Q4 (attachments are listed as not kept) and never turns a journal file into a way to read files into a notebook. (b) is a cheap follow-up once probed; I'd log it in deferred work.
-3. **The page is created but its content write fails** (for example `ModalDialogOpen`: spike 2.2 saw a modal block only `UpdatePageContent`, not `CreateNewPage`). The gateway can't delete a page until epic 5.
-   - (a) Fail with that step's own code and retry rule; the message names the empty page's ID and the `userAction` says to delete it in OneNote before retrying (a retry makes another page). `outcomeUnknown` only for AD-9's ambiguous codes, as the pipeline does now.
-   - (b) Add an optional `intoPageId` so a retry fills the empty page this tool made, checked to be empty.
-   Recommended: (a). (b) adds an argument that writes into an existing page, which is the overwrite AD-8 rules out; an empty page is easy to see and delete.
-4. **Section page templates.** OneNote applies a section's default template to a page `CreateNewPage` makes; OneMore's Duplicate Page deletes those template objects (top-level `Outline`, `Image`, `InkDrawing`, `InsertedFile`, `MediaFile`) before writing. `UpdatePageContent` keeps any Outline it isn't sent (AD-7), so template content would stay beside the restored content.
-   - (a) Read the new page (piBasic), delete each such object with `DeletePageContent` (it is the page this call created), then re-read for the date and write.
-   - (b) Leave template content in place; one read for the date, then the write.
-   Recommended: (a), so a restore gives back the page as it was. It costs a delete per template object, usually none.
-5. **Gateway shape for `OpenHierarchy`.**
-   - (a) A narrow `CreateSectionAsync(parentId, sectionFileName)`: section creation by parent ID only, as the ticket names it. Epic 5's entry 3 adds `CreateSectionGroupAsync` and `CreateNotebookAsync` beside it, and epic 4 its own `AppState` open, so no gateway method can create a section from an absolute path.
-   - (b) One general `OpenHierarchyAsync(path, relativeToObjectId, createType)` mirroring COM, used here for sections only.
-   Recommended: (a). The gateway then can't express what AD-7 forbids, and each epic adds the one form it owns.
-6. **An unprotected entry whose chosen section is now locked** (it was protected after the snapshot, or `Recovered` is locked).
-   - (a) `SectionLocked`, retryable after the user unlocks it, as for `create_page`.
-   - (b) Fall through to the next candidate (`parentNamePath`, then `Recovered`).
-   Recommended: (a). The restore lands where AD-8's order says or not at all; falling through would put the page somewhere the user didn't expect because of a lock.
 
 ## Code Map
 
@@ -105,6 +93,7 @@ deferred: []
 - `src/OneNoteMcp.Core/Access/OpenNotebooks.cs:19` -- `Find(hierarchyXml)` gives `OpenNotebook(Id, Name, DisplayName, Path, Key)`; match `Key` to `entry.NotebookPath` with `GrantKeys.Comparer` (`GrantKeys.cs:10`). `GrantKeys.SectionKey` (`:22`) for the protected match.
 - `src/OneNoteMcp.Xml/` -- no helper lists a notebook's sections with their group path (`EncryptedSections.From` `:40-54` does it for encrypted ones only). Add a public `NotebookSections.Find(sectionsScopeXml)` → `(Id, Name, Path, Groups, Encrypted, Locked, InRecycleBin)` that skips the `OneNote_RecycleBin` group. `HierarchyNode` (`HierarchyNode.cs:21`; `InRecycleBin` covers `isInRecycleBin` and `isDeletedPages`).
 - `src/OneNoteMcp.Xml/` -- add a public `RestoredPage` with `Build(snapshotXml, newPageId)` → XML plus dropped counts (Q2), and `TemplateObjectIds(newPageBasicXml)` (Q4). `OneNoteXml.Parse` (`OneNoteXml.cs:18`, internal; DTD prohibited) is reachable only inside Xml, so the transform lives there. `SchemaValidation.Problems` (`:85`) is the AD-16 gate.
+- `src/OneNoteMcp.Core/Writes/FilePathGate.cs:43` -- `Canonical(path, out refusal)` (junctions resolved; UNC, device and relative refused) for Q2's temp-folder check. The check lives in Core (it touches the file system); the Xml transform takes a predicate deciding which `pathCache` values to keep.
 - `src/OneNoteMcp.Core/Journal/JournalStore.cs:95` -- `Read(path)` decompresses, decrypts a protected entry, throws only `JournalFailed`. `JournalFiles.cs:51,100` -- the name and pattern; add a finder for `*-{entryId:N}.json.gz` in `settings().Journal.Path` (`SettingsSnapshot.cs:30,234`).
 - `src/OneNoteMcp.Core/Journal/PageSnapshot.cs:84-88` -- how `NotebookPath`, `ParentId`, `ParentNamePath` (groups and section `name`, `/`-joined) and `SectionKey` were made; the restore matches the same forms.
 - `src/OneNoteMcp.Core/Results/ToolWarnings.cs` -- add `binaryMissing` and `restoredElsewhere` as `public const string` with docs (`NoBasis` `:52` is the shape). `ToolMeta.cs:15-28` -- `PageId` and `ParentId` exist; Q1 (a) adds `JournalEntryId`. `ToolErrors.cs:46,69-85` -- default `userAction` per code; the restore passes its own where AD-8 names one.
@@ -127,7 +116,8 @@ deferred: []
 - [ ] `tests/OneNoteMcp.Tests/RestoreFromJournalToolTests.cs`, `FakeGateway.cs` -- every matrix row, Q2–Q6 behaviour, entries made by a real `PageSnapshot` (one protected, DPAPI), lock free after each outcome, cache entry dropped.
 - [ ] Contract snapshot, tool lists, binding test, stress harness, guide skill and `README.md` tool rows (call when the user asks to bring back a page's earlier version).
 - [ ] `tests/OneNoteMcp.Integration/RestoreFromJournalIntegrationTests.cs` -- opt-in, MCP Test only: update a page, restore its entry, the new page holds the earlier Outlines and image. Not run here.
-- [ ] `deferred-work.md` -- spine sync for what Q1–Q6 decide (AD-8, AD-9 warnings, AD-10's gateway note for epic 5); Q1's later-session lookup; Q2 (b) if not chosen.
+- [ ] `tests/OneNoteMcp.Integration/RestoreAttachmentProbe.cs` -- the Decisions' probe (`HtmlLocalRefProbe.cs` pattern). Not run here.
+- [ ] `deferred-work.md` -- spine sync for what Q1–Q6 decide (AD-8: Q2's guardrails and the one empty-page retry, Q3, Q4, Q6; AD-9 warnings and `meta.journalEntryId`; the gateway note for epic 5); Q1's later-session lookup; the live probe result pending.
 
 **Acceptance Criteria:**
 - Given any refusal before step 7, when the pipeline ends, then `CreateCalls`, `CreateSectionCalls` and `UpdateCalls` are empty and the lock is free.
@@ -143,7 +133,7 @@ deferred: []
 
 ## Design Notes
 
-- **Step 7, in order** (Q4 (a) assumed): `CreateSectionAsync(notebookId, "Recovered.one")` only when step 3 found no `Recovered`; `CreateNewPageAsync(section)`; `GetPageContentAsync(new, Basic)`; `DeletePageContentAsync` for each template object, then one more read for the date; `UpdatePageContentAsync(built XML, that date)`. The date comes from the new page, so `force: false` and the gateway's date rule hold.
+- **Step 7, in order** (Q4 (a) assumed): `CreateSectionAsync(notebookId, "Recovered.one")` only when step 3 found no `Recovered`; `CreateNewPageAsync(section)`; `GetPageContentAsync(new, Basic)`; `DeletePageContentAsync` for each template object, then one more read for the date; `UpdatePageContentAsync(built XML, that date)`. The date comes from the new page, so `force: false` and the gateway's date rule hold. If that write carried kept attachments and fails with a definite code, the Decisions' one empty-page retry without them follows.
 - **Evidence for the content write:** OneMore's `Commands/Page/DuplicatePageCommand.cs:97-139` creates the page, deletes the template's top-level objects, sets the root `ID`, removes every `objectID` ("let OneNote generate new IDs"), keeps `QuickStyleDef`, `TagDef`, `PageSettings` and the `Title` as read, and sends the whole page with one update. It passes `force: true` and `DateTime.MinValue` (`OneNote.cs`, `Update`); we don't. Learned from, not copied; the README credit and `research-onemore-lessons.md` get a row.
 - **Name paths:** a section's hierarchy `name` has no `.one`, and `parentNamePath` is groups plus that name joined by `/` (`PageSnapshot.cs:87`), so the match compares segment by segment, ignoring case. File names can't hold `/`, so the split is safe.
 - **`Recovered`:** a live section of that name (ignoring case) directly under the notebook is used as found; otherwise step 7 creates it. Spike 5.1 constraint 5: an existing name returns the existing ID, so a create racing another process's still lands in one section.
@@ -163,4 +153,4 @@ deferred: []
 - Delete the original section, restore again: the page lands by `parentNamePath` if a same-named section exists, else in `Recovered` (created once, reused next time).
 - A section with a page template: the restored page carries no template content (Q4).
 - MCP Test's protected section: write grant only, unlocked → restored there, no dialog; locked → `SectionLocked`.
-- A page with an attachment: restored without it, `binaryMissing` counts it (Q2).
+- `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter RestoreAttachmentProbe` on MCP Test: record `RESULT restore-attachment: kept|dropped|error <hex>`. Then from Claude Code, a page with an attachment: kept while its temp copy exists; after deleting that `%TEMP%` copy, restored without it and counted in `binaryMissing` (Q2).
