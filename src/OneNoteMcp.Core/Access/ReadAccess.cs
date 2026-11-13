@@ -134,7 +134,18 @@ public sealed class ReadAccess
             return true;
         }
 
-        var key = GrantKeys.SectionKey(section.Path);
+        return HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), at);
+    }
+
+    /// <summary>
+    /// True when a stored read grant (<c>hours</c> not yet expired, or <c>untilRevoked</c>) or a live <c>once</c> window is
+    /// held for the section key <paramref name="key"/> at <paramref name="at"/> (now when null), whatever section is at
+    /// that location now, or none. A rename checks the locations it would move sections to, so our own write never hands
+    /// one section's grant to another (AD-21; story 5.4 security review). Never asks and never stores.
+    /// </summary>
+    public bool HoldsReadGrantAt(string key, DateTimeOffset? at = null)
+    {
+        ArgumentNullException.ThrowIfNull(key);
         var now = at ?? clock.GetUtcNow();
         return Stored(settings(), key, now) is not null || windows.IsOpen(key, now);
     }

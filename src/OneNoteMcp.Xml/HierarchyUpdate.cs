@@ -79,6 +79,18 @@ public sealed record HierarchyTarget(
             children);
     }
 
+    /// <summary>
+    /// The <c>path</c> of every section below the root of <paramref name="hierarchyXml"/> (a section group read at
+    /// <c>sections</c> scope), nested ones included, in document order; an empty string for a section with no
+    /// <c>path</c>. A rename of the group moves each of them (story 5.4 security review). Throws
+    /// <see cref="OneNoteXmlException"/> when the XML isn't well-formed or has no root.
+    /// </summary>
+    public static IReadOnlyList<string> SectionPathsBelow(string hierarchyXml)
+    {
+        var root = OneNoteXml.Parse(hierarchyXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        return [.. root.Descendants(OneNoteXml.One + "Section").Select(s => (string?)s.Attribute("path") ?? string.Empty)];
+    }
+
     private static int PageLevel(XElement page) =>
         int.TryParse((string?)page.Attribute("pageLevel"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var level) && level >= 1 ? level : 1;
 }

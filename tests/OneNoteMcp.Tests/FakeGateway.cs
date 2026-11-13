@@ -77,9 +77,13 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>The text of a fixture file, relative to <c>Fixtures/</c>.</summary>
     public static string ReadFixture(string relativePath) => Shared.Value.Read(relativePath);
 
+    /// <summary>Runs on each <c>GetHierarchy</c> before it answers, with its start node and scope.</summary>
+    public Action<string, HierarchyScope>? OnGetHierarchy { get; set; }
+
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct)
     {
         Calls.Add((startNodeId, scope));
+        OnGetHierarchy?.Invoke(startNodeId, scope);
         return HierarchyXml is not null && Failure is null ? Task.FromResult(HierarchyXml)
             : Failure is null && Hierarchies.TryGetValue((startNodeId, scope), out var xml) ? Task.FromResult(xml)
             : Serve(nameof(IOneNoteGateway.GetHierarchyAsync), startNodeId, scope.ToString());
