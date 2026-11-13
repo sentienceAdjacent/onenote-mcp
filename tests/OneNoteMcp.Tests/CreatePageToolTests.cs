@@ -352,7 +352,7 @@ public sealed class CreatePageToolTests : IDisposable
     [InlineData(ErrorCode.SectionLocked, 0x8004201Bu)]
     [InlineData(ErrorCode.ModalDialogOpen, 0x80042030u)]
     [InlineData(ErrorCode.ObjectNotFound, 0x80042005u)]
-    [InlineData(ErrorCode.Internal, 0x80042024u)]
+    [InlineData(ErrorCode.ComBusy, 0x80042024u)]
     public async Task AClearFailureAtTheCall_KeepsItsCode_WithoutOutcomeUnknown(ErrorCode code, uint hresult)
     {
         Grant();
@@ -1059,6 +1059,9 @@ public sealed class CreatePageToolTests : IDisposable
         public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => inner.UpdatePageContentAsync(pageXml, expectedLastModified, ct);
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => inner.DeletePageContentAsync(pageId, objectId, expectedLastModified, ct);
+
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => inner.UpdateHierarchyAsync(changesXml, ct);
 
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => inner.WaitForAbandonedWritesAsync(ct);
     }

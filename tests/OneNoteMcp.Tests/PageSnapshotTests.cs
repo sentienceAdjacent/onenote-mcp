@@ -402,6 +402,9 @@ public sealed class PageSnapshotTests : IDisposable
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
 
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw new NotSupportedException();
+
         private static Task<T> NotFound<T>() =>
             Task.FromException<T>(new OneNoteException(ErrorCode.ObjectNotFound, "hrObjectDoesNotExist (0x80042014).", unchecked((int)0x80042014)));
     }

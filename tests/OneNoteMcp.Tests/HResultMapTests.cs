@@ -36,6 +36,11 @@ public sealed partial class HResultMapTests
         [0x80042020] = ErrorCode.InvalidXml,
         [0x80042019] = ErrorCode.InvalidQuery,
         [0x8004201A] = ErrorCode.FileExists,
+
+        // Story 5.4 (2.7 plan Q2): UpdateHierarchy reaches these.
+        [0x80042017] = ErrorCode.InvalidArgument,
+        [0x80042024] = ErrorCode.ComBusy,
+        [0x8004202E] = ErrorCode.ObjectNotFound,
     };
 
     private static readonly Lazy<Dictionary<int, string>> PsmTable = new(ReadPsmTable);
@@ -117,10 +122,7 @@ public sealed partial class HResultMapTests
         { 0x8004200Bu, true },
         { 0x8004200Cu, true },
         { 0x80042022u, null },
-        { 0x80042024u, true },
-        { 0x8004202Eu, null },
         { 0x8004201Cu, null },
-        { 0x80042017u, null },
         { 0x80042002u, null },
         { 0x80042003u, true },
         { 0x8004201Eu, true },
@@ -142,6 +144,20 @@ public sealed partial class HResultMapTests
         var hr = unchecked((int)hresult);
 
         Assert.Equal(ErrorCode.Internal, HResultMap.ToErrorCode(hr));
+        Assert.False(string.IsNullOrWhiteSpace(HResultMap.UserAction(hr)));
+        Assert.Equal(retryable, HResultMap.Retryable(hr));
+    }
+
+    // Story 5.4: the three rows AD-9 remaps keep their own userAction, and 0x80042024 stays retryable.
+    [Theory]
+    [InlineData(0x80042017u, ErrorCode.InvalidArgument, null)]
+    [InlineData(0x80042024u, ErrorCode.ComBusy, true)]
+    [InlineData(0x8004202Eu, ErrorCode.ObjectNotFound, null)]
+    public void RemappedRow_KeepsItsUserAction_AndRetryFlag(uint hresult, ErrorCode code, bool? retryable)
+    {
+        var hr = unchecked((int)hresult);
+
+        Assert.Equal(code, HResultMap.ToErrorCode(hr));
         Assert.False(string.IsNullOrWhiteSpace(HResultMap.UserAction(hr)));
         Assert.Equal(retryable, HResultMap.Retryable(hr));
     }

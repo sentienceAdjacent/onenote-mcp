@@ -22,6 +22,9 @@ public sealed record JournalEntry
     /// <summary><see cref="SnapshotKind"/> of a page snapshot.</summary>
     public const string PageKind = "page";
 
+    /// <summary><see cref="SnapshotKind"/> of a hierarchy snapshot (story 5.4): the hierarchy XML of the node a write changed.</summary>
+    public const string HierarchyKind = "hierarchy";
+
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     /// <summary>A GUID (Conventions), also in the file's name.</summary>
@@ -36,10 +39,10 @@ public sealed record JournalEntry
     /// <summary>The write's AD-7 class, such as <c>PageWrite</c>.</summary>
     public string OperationClass { get; init; } = string.Empty;
 
-    /// <summary><c>page</c>, <c>hierarchy</c> or <c>onenoteBackup</c>. This story writes <c>page</c> only.</summary>
+    /// <summary><c>page</c>, <c>hierarchy</c> (story 5.4) or <c>onenoteBackup</c>.</summary>
     public string SnapshotKind { get; init; } = PageKind;
 
-    /// <summary>The snapshotted object's ID: for a page, the page's.</summary>
+    /// <summary>The snapshotted object's ID: for a page, the page's; for a hierarchy entry, the node at the root of <see cref="Xml"/>.</summary>
     public string ObjectId { get; init; } = string.Empty;
 
     public string NotebookId { get; init; } = string.Empty;
@@ -50,10 +53,14 @@ public sealed record JournalEntry
     /// <summary>The notebook's displayed name, as in the grants.</summary>
     public string NotebookName { get; init; } = string.Empty;
 
-    /// <summary>The owning section's ID.</summary>
+    /// <summary>The owning section's ID; for a hierarchy entry, the node's parent (empty for a notebook).</summary>
     public string ParentId { get; init; } = string.Empty;
 
-    /// <summary>The owning section's groups and name inside the notebook, joined by <c>/</c>, such as <c>Group/Section</c>.</summary>
+    /// <summary>
+    /// The owning section's groups and name inside the notebook, joined by <c>/</c>, such as <c>Group/Section</c>; for a
+    /// hierarchy entry, the section groups between the notebook and the node (empty at the notebook's top level or for a
+    /// notebook).
+    /// </summary>
     public string ParentNamePath { get; init; } = string.Empty;
 
     /// <summary>The protection marker (AD-8, AD-21): the section's <c>SectionKey</c>, only on an entry from a protected section.</summary>
@@ -62,7 +69,7 @@ public sealed record JournalEntry
     /// <summary>On disk only: the base64 DPAPI blob (current user) of the JSON <c>{title, xml}</c> of a protected entry.</summary>
     public string? Protected { get; init; }
 
-    /// <summary>The page's title. Absent on disk for a protected entry.</summary>
+    /// <summary>The page's title; a hierarchy entry's node's displayed name, as it was before the write. Absent on disk for a protected entry.</summary>
     public string? Title { get; init; }
 
     /// <summary>When the snapshot was taken, UTC.</summary>
@@ -74,7 +81,7 @@ public sealed record JournalEntry
     /// <summary>What the snapshot lacks: images with no local binary, and attachments (AD-8).</summary>
     public IReadOnlyList<MissingBinary> MissingBinary { get; init; } = [];
 
-    /// <summary>The page's piBinaryData XML, unchanged. Absent on disk for a protected entry.</summary>
+    /// <summary>The page's piBinaryData XML, unchanged; a hierarchy entry's <c>GetHierarchy</c> XML, unchanged. Absent on disk for a protected entry.</summary>
     public string? Xml { get; init; }
 
     /// <summary>A <c>onenoteBackup</c> entry's backup file (epic 5); never set by a page snapshot.</summary>

@@ -156,6 +156,15 @@ public static class ServerSetup
             sp.GetRequiredService<SettingsWriter>(),
             TimeProvider.System));
 
+        // Story 5.4: UpdateHierarchy renames and reorders (AD-7 HierarchyWrite), each with a hierarchy journal entry (AD-8).
+        services.AddSingleton(sp => new HierarchySnapshot(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<JournalStore>(), TimeProvider.System));
+        services.AddSingleton(sp => new HierarchyWriteServices(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<HierarchySnapshot>()));
+        services.AddSingleton<UpdateHierarchyUseCase>();
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -176,7 +185,9 @@ public static class ServerSetup
             .WithTools<RestoreFromJournalTool>(EnvelopeJson.Options)
             .WithTools<CreateSectionTool>(EnvelopeJson.Options)
             .WithTools<CreateSectionGroupTool>(EnvelopeJson.Options)
-            .WithTools<CreateNotebookTool>(EnvelopeJson.Options);
+            .WithTools<CreateNotebookTool>(EnvelopeJson.Options)
+            .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.

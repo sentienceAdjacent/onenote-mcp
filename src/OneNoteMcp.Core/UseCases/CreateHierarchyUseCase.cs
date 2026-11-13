@@ -259,7 +259,7 @@ public sealed class CreateHierarchyUseCase : IUseCase
     private static OneNoteException BadName(string noun, string problem) =>
         new(ErrorCode.InvalidArgument, $"The new {noun}'s name {problem}, so nothing was created.", userAction: NameUserAction, retryable: false);
 
-    private static string Noun(HierarchyKind kind) => kind == HierarchyKind.Section ? "section" : "section group";
+    private static string Noun(HierarchyKind kind) => HierarchyRules.Noun(kind);
 
     private static OneNoteException NotAContainer(string parentId, string why) =>
         new(ErrorCode.ObjectNotFound, $"Object {parentId} {why}, so nothing was created.", userAction: NotAContainerUserAction);
@@ -301,9 +301,9 @@ public sealed class CreateHierarchyUseCase : IUseCase
         public override void Validate()
         {
             var node = parent ?? throw new InvalidOperationException("Validate runs after ReadAsync.");
-            if (node.IsRecycleBin)
+            if (HierarchyRules.RecycleBinProblem(node.IsRecycleBin, node.InRecycleBin) is { } binned)
             {
-                throw NotAContainer(parentId, "is a notebook's recycle bin");
+                throw NotAContainer(parentId, binned);
             }
 
             if (node.Kind is not (HierarchyKind.Notebook or HierarchyKind.SectionGroup))
@@ -311,13 +311,8 @@ public sealed class CreateHierarchyUseCase : IUseCase
                 throw NotAContainer(parentId, "isn't a notebook or section group");
             }
 
-            if (node.InRecycleBin)
-            {
-                throw NotAContainer(parentId, "is in the recycle bin");
-            }
-
-            var shown = ShownName;
-            var named = node.Children.Where(c => string.Equals(c.Name, shown, StringComparison.OrdinalIgnoreCase)).ToList();
+            // Shared with story 5.4's rename (HierarchyRules): live children only, ignoring case.
+            var named = HierarchyRules.Named(node, ShownName);
             if (named.FirstOrDefault(c => c.Kind == kind) is { } same)
             {
                 existingId = same.Id;

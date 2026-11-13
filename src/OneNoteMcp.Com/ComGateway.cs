@@ -411,6 +411,29 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.UpdateHierarchy);
+        if (string.IsNullOrEmpty(changesXml))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no hierarchy XML was given.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.UpdateHierarchy(changesXml, XMLSchema.xs2013);
+                return true;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
     public Task WaitForAbandonedWritesAsync(CancellationToken ct)
     {
         lock (gate)

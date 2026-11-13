@@ -6,7 +6,7 @@ namespace OneNoteMcp.Core;
 /// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and the writes only the write pipeline makes (AD-7):
 /// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
 /// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
-/// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
+/// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
 /// IDs are opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
@@ -100,6 +100,16 @@ public interface IOneNoteGateway
     /// <see cref="UpdatePageContentAsync"/>.
     /// </summary>
     Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>HierarchyWrite</c>, AD-7; story 5.4): <c>UpdateHierarchy</c> with the 2013 schema, applying
+    /// <paramref name="changesXml"/>, a minimal hierarchy document that <c>OneNoteMcp.Xml</c> built and the AD-16 XSD gate
+    /// passed (a rename: the node's element with <c>ID</c> and <c>name</c> or <c>nickname</c>; a reorder: the parent's
+    /// element with ID-only children). It takes no date, so the optimistic check is the pipeline's own (AD-17). Empty XML
+    /// is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. Never retried after a disconnect (AD-3). Only
+    /// the write pipeline calls it, after the access check and under the write lock (AD-18).
+    /// </summary>
+    Task UpdateHierarchyAsync(string changesXml, CancellationToken ct);
 
     /// <summary>
     /// Completes once no abandoned write is outstanding: a write that started in OneNote and whose caller stopped
