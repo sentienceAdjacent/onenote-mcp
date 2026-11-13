@@ -4,7 +4,7 @@ namespace OneNoteMcp.Core;
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
 /// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and the writes only the write pipeline makes (AD-7):
-/// <see cref="CreateNewPageAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
+/// <see cref="CreateNewPageAsync"/> and <see cref="CreateSectionAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
 /// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
 /// IDs are opaque strings, passed through unchanged.
 /// </summary>
@@ -50,6 +50,18 @@ public interface IOneNoteGateway
     /// check and under the write lock (AD-18).
     /// </summary>
     Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>Create</c>, AD-7): <c>OpenHierarchy</c> with <c>cftSection</c>, creating the section
+    /// <paramref name="sectionFileName"/> (a relative file name ending <c>.one</c>) under the object
+    /// <paramref name="parentId"/>, and returns its ID. Only by parent ID, never by an absolute path. A name that fails
+    /// <see cref="SectionFileNames.Problem"/> (or an empty parent ID) is refused with <see cref="ErrorCode.InvalidArgument"/>
+    /// before COM. When a section of that name already exists there, OneNote returns its ID (spike 5.1 constraint 5).
+    /// Never retried after a disconnect (AD-3). Only the write pipeline calls it, after the access check and under the
+    /// write lock (AD-18); <c>restore_from_journal</c> uses it for its <c>Recovered</c> section, and epic 5 adds its
+    /// siblings (section groups, notebooks).
+    /// </summary>
+    Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct);
 
     /// <summary>
     /// A write (<c>PageWrite</c>, AD-7): applies <paramref name="pageXml"/>, a 2013-schema page document, with

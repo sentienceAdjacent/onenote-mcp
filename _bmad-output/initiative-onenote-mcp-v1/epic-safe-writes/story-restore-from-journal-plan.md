@@ -3,19 +3,27 @@ title: 'restore_from_journal'
 type: 'feature'
 ticket: '11'
 created: '2026-11-12'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '171021992c9c209810695d2fee682c9aeccd58fa'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      SettingsReplaceTests.ASettingsFileHeldForAMoment_StillSaves fails intermittently under full-suite load.
+    evidence: |-
+      Pre-existing and untouched by 2.11 (no Settings code or that test in the diff). In this lane it failed in 4 of 7 full runs, including 1 of 2 runs with the new 2.11 test classes filtered out, and passed 3 of 3 alone. A 100 ms file hold against a 0.5 s retry budget.
+    location: >-
+      tests/OneNoteMcp.Tests/SettingsReplaceTests.cs
+    severity: low
 ---
 
 <intent-contract>
@@ -106,18 +114,18 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Xml/RestoredPage.cs`, `NotebookSections.cs` + tests -- the transform (ID set, every `objectID` removed, `one:Data` kept, Q2's drops counted, DOCTYPE refused) and the section list (group paths, recycle bin skipped), against the fixtures.
-- [ ] `IOneNoteGateway.cs`, `ComGateway.cs`, `FakeApplication.cs`, `ComGatewayTests` -- `CreateSectionAsync` by parent ID (Q5): name checks before COM, `cftSection`, `CallKind.Write`, never retried.
-- [ ] `src/OneNoteMcp.Core/Journal/` -- find an entry file by ID in the configured folder; refuse a newer `schemaVersion`.
-- [ ] `src/OneNoteMcp.Core/Access/WriteAccess.cs` -- the check for an already-found notebook.
-- [ ] `src/OneNoteMcp.Core/UseCases/RestoreFromJournalUseCase.cs` -- the `Create` operation: step 1, steps 3–4 (target choice, protected rule, lock check, XML build and gate), step 7 (Design Notes), result and warnings.
-- [ ] `ToolWarnings.cs`, `ToolMeta.cs`, `PageWrite.cs`, `UpdatePageContentUseCase.cs`, `DeletePageContentUseCase.cs` -- the new warnings; Q1's `meta.journalEntryId`.
-- [ ] `src/OneNoteMcp.Server/Tools/RestoreFromJournalTool.cs`, `ServerSetup.cs` -- `restore_from_journal(entryId)`.
-- [ ] `tests/OneNoteMcp.Tests/RestoreFromJournalToolTests.cs`, `FakeGateway.cs` -- every matrix row, Q2–Q6 behaviour, entries made by a real `PageSnapshot` (one protected, DPAPI), lock free after each outcome, cache entry dropped.
-- [ ] Contract snapshot, tool lists, binding test, stress harness, guide skill and `README.md` tool rows (call when the user asks to bring back a page's earlier version).
-- [ ] `tests/OneNoteMcp.Integration/RestoreFromJournalIntegrationTests.cs` -- opt-in, MCP Test only: update a page, restore its entry, the new page holds the earlier Outlines and image. Not run here.
-- [ ] `tests/OneNoteMcp.Integration/RestoreAttachmentProbe.cs` -- the Decisions' probe (`HtmlLocalRefProbe.cs` pattern). Not run here.
-- [ ] `deferred-work.md` -- spine sync for what Q1–Q6 decide (AD-8: Q2's guardrails and the one empty-page retry, Q3, Q4, Q6; AD-9 warnings and `meta.journalEntryId`; the gateway note for epic 5); Q1's later-session lookup; the live probe result pending.
+- [x] `src/OneNoteMcp.Xml/RestoredPage.cs`, `NotebookSections.cs` + tests -- the transform (ID set, every `objectID` removed, `one:Data` kept, Q2's drops counted, DOCTYPE refused) and the section list (group paths, recycle bin skipped), against the fixtures.
+- [x] `IOneNoteGateway.cs`, `ComGateway.cs`, `FakeApplication.cs`, `ComGatewayTests` -- `CreateSectionAsync` by parent ID (Q5): name checks before COM, `cftSection`, `CallKind.Write`, never retried.
+- [x] `src/OneNoteMcp.Core/Journal/` -- find an entry file by ID in the configured folder; refuse a newer `schemaVersion`.
+- [x] `src/OneNoteMcp.Core/Access/WriteAccess.cs` -- the check for an already-found notebook.
+- [x] `src/OneNoteMcp.Core/UseCases/RestoreFromJournalUseCase.cs` -- the `Create` operation: step 1, steps 3–4 (target choice, protected rule, lock check, XML build and gate), step 7 (Design Notes), result and warnings.
+- [x] `ToolWarnings.cs`, `ToolMeta.cs`, `PageWrite.cs`, `UpdatePageContentUseCase.cs`, `DeletePageContentUseCase.cs` -- the new warnings; Q1's `meta.journalEntryId`.
+- [x] `src/OneNoteMcp.Server/Tools/RestoreFromJournalTool.cs`, `ServerSetup.cs` -- `restore_from_journal(entryId)`.
+- [x] `tests/OneNoteMcp.Tests/RestoreFromJournalToolTests.cs`, `FakeGateway.cs` -- every matrix row, Q2–Q6 behaviour, entries made by a real `PageSnapshot` (one protected, DPAPI), lock free after each outcome, cache entry dropped.
+- [x] Contract snapshot, tool lists, binding test, stress harness, guide skill and `README.md` tool rows (call when the user asks to bring back a page's earlier version).
+- [x] `tests/OneNoteMcp.Integration/RestoreFromJournalIntegrationTests.cs` -- opt-in, MCP Test only: update a page, restore its entry, the new page holds the earlier Outlines and image. Not run here.
+- [x] `tests/OneNoteMcp.Integration/RestoreAttachmentProbe.cs` -- the Decisions' probe (`HtmlLocalRefProbe.cs` pattern). Not run here.
+- [x] `deferred-work.md` -- spine sync for what Q1–Q6 decide (AD-8: Q2's guardrails and the one empty-page retry, Q3, Q4, Q6; AD-9 warnings and `meta.journalEntryId`; the gateway note for epic 5); Q1's later-session lookup; the live probe result pending.
 
 **Acceptance Criteria:**
 - Given any refusal before step 7, when the pipeline ends, then `CreateCalls`, `CreateSectionCalls` and `UpdateCalls` are empty and the lock is free.
@@ -127,9 +135,28 @@ deferred: []
 
 ## Implementation Notes
 
+- Gateway: `CreateSectionAsync` refuses an empty parent or a name failing `SectionFileNames.Problem` (Core; ends `.one`, no `..`, separators, invalid characters, reserved device names, or a leading/trailing space or dot) with `InvalidArgument` before COM.
+- `JournalFiles.Find(folder, entryId)` matches `*-{id}.json.gz` (32-hex or dashed) by name only; `JournalStore.Read` now refuses a newer `schemaVersion` with `NotSupported` before decrypting.
+- `WriteAccess.CheckNotebook(OpenNotebook)` shares `CheckAsync`'s grant rules (one private `Granted`). Step 1 lists open notebooks with `GetHierarchy("", Sections)`, as the grant dialog does.
+- Q1: `PageWrite.JournalEntryId` is set in step 6; both page-write use cases put it in `meta.journalEntryId`, and `CallNamingEntryAsync` appends the entry ID to a step-7 failure's message (code, HRESULT, flags and userAction unchanged).
+- Choices the plan left open (listed in `deferred-work.md` for the spine sync): unparsable/DOCTYPE/non-page snapshot XML is `JournalFailed`, a schema-gate failure is `InvalidXml`; the page is created `blankPageWithTitle` when the snapshot has a title, else `blankPageNoTitle`; an ambiguous `parentNamePath` (more than one live match) falls through to `Recovered`; `binaryMissing` kinds are image, ink, attachment, media, other.
+- After review: `WriteOperation.FailureNote` (PageWrite: the journal entry; restore: the created page and the delete-it guidance) is appended by the pipeline to its own step-7 cancel and deadline messages. The AD-16 gate runs on both send variants in step 4 and on the exact XML before each content write. A file found by name that holds another entry ID is `JournalFailed`. "Notebook not open" and "section no longer protected" are `ObjectNotFound` with `retryable: true` (AD-9); "protected section gone" stays non-retryable. `SectionFileNames` also refuses a leading dot.
+- Tests: `RestoreFromJournalToolTests` (37, every matrix row), `RestoredPageTests` (XML, sections, journal find, Q2 rule, file names), gateway tests in `ComGatewayLifecycleTests`, Q1 asserts in the update/delete tool tests. Integration test and probe written, not run (opt-in).
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-11-12 — Review pass
+- verdicts: 7 findings — high 0, medium 4, low 3, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` Notebook-not-open `ObjectNotFound` came back not retryable; AD-9's row makes this AD-8 case retryable after the user opens the notebook — `retryable: true`, asserted in the test.
+  - `[medium]` `[patch]` A protected entry's "gone" and "no longer protected" shared one non-retryable error; AD-9 makes the second retryable after the user protects the section again — split into two errors (gone: not retryable; unprotected: retryable, `userAction` to protect it again at the same path); the "gone" test was found to be testing the other case and was corrected.
+  - `[medium]` `[patch]` A step-7 cancel or deadline (messages the pipeline builds itself) named neither the journal entry (update/delete, Q1) nor restore's new page (Q3) — `WriteOperation.FailureNote` hook appended by `WritePipeline` to its step-7 `Cancelled` and deadline messages; `PageWrite` and the restore supply it; two tests; the deferred-work note removed.
+  - `[medium]` `[patch]` The AD-16 gate checked a stand-in build, never the XML sent, and never the Q2 retry's build — `Validate` gates both variants; `CallAsync` gates the exact XML before each `UpdatePageContent` (`InvalidXml`, named page via Q3). The asked-for "no-files variant fails" test can't exist under the 2013 XSD (dropping files never invalidates); a kept-variant failure test was added instead.
+  - `[low]` `[patch]` `SectionFileNames.Problem` let a leading dot through while its message and notes said it refused one — leading dot refused; `.hidden.one` and ` lead.one` cases added.
+  - `[low]` `[patch]` README status sentence and the "(planned)" Undo row contradicted the new tool row — `restore_from_journal` added to the status sentence; "(planned)" dropped.
+  - `[low]` `[patch]` An entry file found by name wasn't checked to hold the requested entry — `JournalFailed` when `EntryId` differs; one test.
 
 ## Design Notes
 
@@ -154,3 +181,13 @@ deferred: []
 - A section with a page template: the restored page carries no template content (Q4).
 - MCP Test's protected section: write grant only, unlocked → restored there, no dialog; locked → `SectionLocked`.
 - `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter RestoreAttachmentProbe` on MCP Test: record `RESULT restore-attachment: kept|dropped|error <hex>`. Then from Claude Code, a page with an attachment: kept while its temp copy exists; after deleting that `%TEMP%` copy, restored without it and counted in `binaryMissing` (Q2).
+
+## Auto Run Result
+
+- **Summary:** `restore_from_journal(entryId)` restores a page journal entry as a new page through the `Create` pipeline (AD-8 order; protected entries only into their own still-protected section), writing the snapshot with every `objectID` stripped after clearing the new page's template objects. Q1–Q6 as decided: `meta.journalEntryId` on `update_page_content`/`delete_page_content` and the entry named in their step-7 failures; Q2's `pathCache`-only attachments from the user's temp folder, with one empty-page retry without them; the gateway's `CreateSectionAsync` by parent ID.
+- **Files:** new `RestoreFromJournalUseCase.cs`, `RestoreFromJournalTool.cs`, `RestoredPage.cs`, `NotebookSections.cs`, `RestoreAttachments.cs`, `SectionFileNames.cs`; changed `IOneNoteGateway.cs`/`ComGateway.cs` (`CreateSectionAsync`), `WriteAccess.cs` (`CheckNotebook`), `JournalFiles.cs` (`Find`), `JournalStore.cs` (newer schema → `NotSupported`), `PageWrite.cs`, `WriteOperation.cs`/`WritePipeline.cs` (`FailureNote`), `ToolMeta.cs`, `ToolWarnings.cs`, both page-write use cases and tools, `ServerSetup.cs`; tests (`RestoreFromJournalToolTests`, `RestoredPageTests`, gateway, fakes, tool lists, contract snapshot at 16 tools), opt-in `RestoreFromJournalIntegrationTests` and `RestoreAttachmentProbe`, guide skill and README rows, `deferred-work.md`, `research-onemore-lessons.md`.
+- **Review:** one quick pass, 7 findings, all patched (4 medium, 3 low); none rejected; one pre-existing flaky test deferred.
+- **Follow-up review recommended: true** (4 medium patched on a first pass). The named risk: the `FailureNote` hook changed `WritePipeline`'s shared step-7 cancel and deadline messages for every write class, and the gate-before-send and Q2 retry paths were added in the patch round; unit-tested, not reviewed again.
+- **Verification:** `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings 0 errors; `dotnet test tests/OneNoteMcp.Tests` 2263/2263 (one run fully green; the deferred flaky test failed in other runs); `dotnet test tests/OneNoteMcp.Integration` without the variable 154 passed, 49 skipped; `dotnet build spikes/stress-harness -c Release` builds. Matrix audit: every row has a passing test.
+- **Residual risks (live sitting):** whether OneNote accepts a `pathCache`-only `InsertedFile` (the probe); whether a stripped-ID `Title` replaces the new page's title (OneMore relies on it); whether the template deletes work with the page XML's date; a temp folder reported in 8.3 short form would drop every attachment (fails safe, counted).
+

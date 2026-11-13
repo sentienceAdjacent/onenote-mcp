@@ -256,6 +256,40 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenHierarchy);
+        if (string.IsNullOrEmpty(parentId))
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no parent ID was given for the new section.",
+                retryable: false));
+        }
+
+        if (SectionFileNames.Problem(sectionFileName) is { } problem)
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the new section's file name {problem}.",
+                userAction: "Use a section name with no path separators, no '..' and no characters a Windows file name can't hold.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // Relative to the parent's ID only, never an absolute path (AD-7 Create row). An existing name returns the
+                // existing section's ID (spike 5.1 constraint 5).
+                app.OpenHierarchy(sectionFileName, parentId, out var sectionId, CreateFileType.cftSection);
+                return sectionId;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
     public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
     {
         const string method = nameof(IApplication.UpdatePageContent);
