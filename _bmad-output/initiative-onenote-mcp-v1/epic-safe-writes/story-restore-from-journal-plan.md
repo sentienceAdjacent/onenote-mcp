@@ -11,14 +11,14 @@ review: 'quick'
 review_source: 'pinned'
 lenses_ran: ['quick']
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
 warnings: ['oversized']
 deferred:
   - summary: >-
-      SettingsReplaceTests.ASettingsFileHeldForAMoment_StillSaves fails intermittently under full-suite load.
+      Resolved (coordinator, after the follow-up review): SettingsReplaceTests.ASettingsFileHeldForAMoment_StillSaves failed under full-suite load once 2.11's test class was added (main's code 0/5, 2.11 3/5; 0/4 with RestoreFromJournalToolTests excluded). Its 100 ms release ran on the thread pool and fired after the writer's 0.5 s retry window. The release now runs on a dedicated thread: 0 failures in 12 full runs.
     evidence: |-
       Pre-existing and untouched by 2.11 (no Settings code or that test in the diff). In this lane it failed in 4 of 7 full runs, including 1 of 2 runs with the new 2.11 test classes filtered out, and passed 3 of 3 alone. A 100 ms file hold against a 0.5 s retry budget.
     location: >-

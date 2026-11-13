@@ -542,6 +542,28 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(ErrorCode.Timeout, "Timeout")]
+    [InlineData(ErrorCode.ComUnavailable, "ComUnavailable")]
+    public async Task AttachmentKept_AndAnAmbiguousFailure_IsNotRetried(ErrorCode code, string expected)
+    {
+        // Follow-up review (2.11): the retry never follows an outcome that may have written (AD-9 ambiguous codes).
+        var cacheFile = TempCopy();
+        try
+        {
+            var entryId = WriteEntry(Plain() with { Xml = WithInsertedFile("C:\\x\\a.docx", cacheFile) });
+            gateway.UpdateFailures.Enqueue(new OneNoteException(code, "UpdatePageContent failed."));
+
+            Error(await Tool().RestoreFromJournal(entryId, Ct), expected);
+
+            Assert.Single(gateway.UpdateCalls);
+        }
+        finally
+        {
+            File.Delete(cacheFile);
+        }
+    }
+
     [Fact]
     public async Task AttachmentKept_AndModalDialogOpen_IsNotRetried()
     {
