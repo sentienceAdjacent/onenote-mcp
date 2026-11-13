@@ -3,7 +3,7 @@ title: 'Rename and reorder: update_hierarchy'
 type: 'feature'
 ticket: '4'
 created: '2026-11-13'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -69,7 +69,20 @@ Tool names are Q1 (b)'s; under (a) or (c) the rows hold, with the arguments carr
 
 </intent-contract>
 
+## Answers (Phill, 2026-11-13, Inbox thread "5.4 rename and reorder")
+
+- Q1: two tools, `rename_hierarchy_object(objectId, name)` and `reorder_hierarchy_children(parentId, childIds[])`, each with the optional `basis`; Core builds the XML.
+- Q2: no creating through `UpdateHierarchy`. 5.3's create tools stay the only way to create.
+- Q3: sections, section groups and notebooks (a notebook's display name, `nickname`) can be renamed. A page is renamed by editing its title with `update_page_content`.
+- Q4: 5.3's file-name rule for every kind, notebook display names included, through 5.3's shared name-rule entry point. A name a sibling already uses is refused, and so is a notebook display name another open notebook already uses.
+- Q5: a reorder takes every child of the parent in the new order; anything else is refused.
+- Q6: subpages keep their level and must stay right after their parent page: a block moves as a whole.
+- Q7: no reordering of the notebook list in 5.4.
+- Q8: approved with these answers.
+
 ## Open Questions
+
+All closed by the answers above (2026-11-13). Kept for the record.
 
 1. **Tool shape.** AD-5 says about one tool per COM method, and the spine and epic 3 name the tool `update_hierarchy`; but 5.3 split `OpenHierarchy` into three tools (5.3 Q1), and epic 3's move tool takes IDs and a position and builds the XML in Core (epic 3 Q2, rejecting model-written XML).
    - (a) `update_hierarchy(xml, basis?)`: the model writes 2013 hierarchy XML; the server checks every element and attribute against an allowlist (only `ID`, `name`, `nickname`, child order).
