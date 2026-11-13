@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
+using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Server.Cli;
@@ -22,7 +23,7 @@ public sealed class GrantCommandTests : IDisposable
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private SettingsStore Store => new(temp.Combine("settings.json"));
+    private SettingsStore Store => new(temp.Combine("settings.json"), temp.Combine("journal"));
 
     public void Dispose()
     {
@@ -419,6 +420,173 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Contains("Nothing changed", output.ToString(), StringComparison.Ordinal);
         Assert.Equal("{ nope", File.ReadAllText(Store.Path));
     }
+
+    // --- grant --permanent-delete (story 5.6, plan Q1 c and Q2 b) -------------------------------------------------------
+
+    [Fact]
+    public void Usage_NamesThePermanentDeleteGrantAndItsRevoke()
+    {
+        Assert.Contains("grant --permanent-delete", GrantCommand.Usage, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --permanent-delete", GrantCommand.Usage, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--write", "--permanent-delete")]
+    [InlineData("--permanent-delete", "--read-section")]
+    public async Task PermanentDelete_WithAnotherKind_IsBadUsage(string first, string second) =>
+        Assert.Equal(2, await WriteCommand("yes\n").RunAsync([first, second], Ct));
+
+    [Fact]
+    public async Task PermanentDelete_WithoutAWriteGrant_IsRefused_AndNothingChanges()
+    {
+        Assert.Equal(1, await WriteCommand("yes\n").RunAsync(["--permanent-delete", "Notebook A"], Ct));
+
+        Assert.Contains("has no write grant", output.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public async Task PermanentDelete_ShowsThePath_AndIsMadeOnlyOnYes_BesideTheWriteGrant()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.Equal(0, await WriteCommand(" yes \n").RunAsync(["--permanent-delete", " notebook a "], Ct));
+
+        var text = output.ToString();
+        Assert.Contains(@"Path:     C:\notebooks\A", text, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --permanent-delete \"Notebook A\"", text, StringComparison.Ordinal);
+        var grant = Assert.Single(Store.Read().Notebooks.Values);
+        Assert.True(grant.Write && grant.PermanentDelete);
+    }
+
+    [Theory]
+    [InlineData("no\n")]
+    [InlineData("")]
+    public async Task PermanentDelete_NotConfirmedWithYes_ChangesNothing(string input)
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.Equal(1, await WriteCommand(input).RunAsync(["--permanent-delete", "Notebook A"], Ct));
+
+        Assert.False(Assert.Single(Store.Read().Notebooks.Values).PermanentDelete);
+    }
+
+    [Fact]
+    public async Task RevokePermanentDelete_RemovesOnlyIt_TheWriteGrantStays()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+        new SettingsWriter(Store, clock).SavePermanentDeleteGrant(@"C:\notebooks\A");
+
+        Assert.Equal(0, await WriteCommand(string.Empty).RunAsync(["--revoke", "--permanent-delete", "Notebook A"], Ct));
+
+        Assert.Contains("Revoked the permanent-delete grant for \"Notebook A\"", output.ToString(), StringComparison.Ordinal);
+        var grant = Assert.Single(Store.Read().Notebooks.Values);
+        Assert.True(grant.Write);
+        Assert.False(grant.PermanentDelete);
+    }
+
+    [Fact]
+    public async Task RevokePermanentDelete_WithNoneStored_ChangesNothing()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.Equal(1, await WriteCommand(string.Empty).RunAsync(["--revoke", "--permanent-delete", "Notebook A"], Ct));
+
+        Assert.True(Assert.Single(Store.Read().Notebooks.Values).Write);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_TakesThePermanentDeleteGrantWithIt_AndSaysSo()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+        new SettingsWriter(Store, clock).SavePermanentDeleteGrant(@"C:\notebooks\A");
+
+        Assert.Equal(0, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Notebook A"], Ct));
+
+        Assert.Contains("and its permanent-delete grant with it", output.ToString(), StringComparison.Ordinal);
+        Assert.Empty(Store.Read().Notebooks);
+    }
+
+    [Fact]
+    public void Writer_PermanentDeleteGrant_NeedsAWriteGrant_AndAWriteRegrantKeepsALiveOne()
+    {
+        var writer = new SettingsWriter(Store, clock);
+        Assert.Equal(ErrorCode.WriteNotGranted, Assert.Throws<OneNoteException>(() => writer.SavePermanentDeleteGrant(@"C:\notebooks\A")).Code);
+
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+        writer.SavePermanentDeleteGrant(@"c:\NOTEBOOKS\a");
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.True(Assert.Single(Store.Read().Notebooks.Values).PermanentDelete);
+        Assert.Equal(1, writer.RevokePermanentDeleteGrant(@"C:\notebooks\A"));
+        Assert.Equal(0, writer.RevokePermanentDeleteGrant(@"C:\notebooks\A"));
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_NamesWhatGoes_AndAsksForTheNameInAFreshField()
+    {
+        var field = ElicitationGrantPrompt.NewObjectNameField();
+        Assert.Matches("^objectName_[0-9a-f]{8}$", field);
+        Assert.NotEqual(field, ElicitationGrantPrompt.NewObjectNameField());
+
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{S}", "section", "Old notes", "Notebook A", "Old notes", @"C:\notebooks\A", PageCount: 3), field);
+
+        Assert.Contains(@"section ""Old notes"" (3 pages) of the OneNote notebook ""Notebook A"" (C:\notebooks\A)", request.Message, StringComparison.Ordinal);
+        Assert.Contains("permanently", request.Message, StringComparison.Ordinal);
+        Assert.Contains("grant --permanent-delete \"<notebook name>\"", request.Message, StringComparison.Ordinal);
+        Assert.Equal([field], request.RequestedSchema!.Required);
+        var typed = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties[field]);
+        Assert.Contains("Old notes", typed.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_ForAnUntitledPage_AsksForTheWordDelete()
+    {
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{P}", "page", string.Empty, "Notebook A", "delete", SectionName: "Ideas"), "objectName_00000000");
+
+        Assert.Contains("page (untitled) in the section \"Ideas\"", request.Message, StringComparison.Ordinal);
+        Assert.Contains("type \"delete\"", request.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_TheSuggestedCommand_NeverHoldsTheNotebooksName()
+    {
+        // A model can name a notebook $(...), which PowerShell would expand inside double quotes.
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{P}", "page", "x", "$(evil)", "x"), "objectName_00000000");
+
+        var command = request.Message!.Split('`')[1];
+        Assert.EndsWith("grant --permanent-delete \"<notebook name>\"", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("evil", command, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Plain", "Plain", "Plain")]
+    [InlineData("  a\u202Eb\u200Bc\r\n\u2028d\u2029\"e\"  ", "abcd'e'", "abcd'e'")]
+    [InlineData("", "", "")]
+    [InlineData(null, "", "")]
+    public void Shown_DropsControlFormatAndSeparatorCharacters_AndSwapsDoubleQuotes(string? text, string shown, string typed)
+    {
+        Assert.Equal(shown, PermanentDeleteDialog.Shown(text, out var expected));
+        Assert.Equal(typed, expected);
+    }
+
+    [Fact]
+    public void Shown_CutsALongNameTo80_WithAnEllipsis_NeverSplittingASurrogatePair()
+    {
+        var shown = PermanentDeleteDialog.Shown(new string('a', 78) + "\U0001F600" + "zzz", out var typed);
+
+        Assert.Equal(new string('a', 78) + "…", shown);
+        Assert.Equal(new string('a', 78), typed);
+    }
+
+    [Theory]
+    [InlineData("Old notes", "Old notes", true)]
+    [InlineData("  old NOTES ", "Old notes", true)]
+    [InlineData("Old", "Old notes", false)]
+    [InlineData("", "Old notes", false)]
+    [InlineData(null, "Old notes", false)]
+    public void PermanentDeleteDialog_MatchesTheTrimmedName_IgnoringCase(string? typed, string expected, bool matches) =>
+        Assert.Equal(matches, PermanentDeleteDialog.Matches(typed, expected));
 
     private GrantCommand WriteCommand(string input, bool interactive = true, string xml = NotebooksXml) =>
         new(new StringReader(input), output, interactive, _ =>

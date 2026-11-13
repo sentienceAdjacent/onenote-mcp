@@ -358,6 +358,38 @@ internal sealed class FakeGateway : IOneNoteGateway
         return Task.CompletedTask;
     }
 
+    /// <summary>Every <c>Publish</c> call, in order (story 5.6). It has no fixture: by default it writes <see cref="PublishedBytes"/> to the target.</summary>
+    public List<(string ObjectId, string TargetPath)> PublishCalls { get; } = [];
+
+    /// <summary>When set, <c>Publish</c> alone throws it, writing nothing.</summary>
+    public Exception? PublishFailure { get; set; }
+
+    /// <summary>What a successful <c>Publish</c> writes; null writes nothing (a file that never lands), empty an empty file.</summary>
+    public byte[]? PublishedBytes { get; set; } = [0x4F, 0x4E, 0x45, 0x21];
+
+    /// <summary>When set, runs instead of the default file write, with the call's arguments and token.</summary>
+    public Func<string, string, CancellationToken, Task>? OnPublish { get; set; }
+
+    public async Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    {
+        PublishCalls.Add((objectId, targetPath));
+        if ((Failure ?? PublishFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        if (OnPublish is { } hook)
+        {
+            await hook(objectId, targetPath, ct).ConfigureAwait(false);
+            return;
+        }
+
+        if (PublishedBytes is { } bytes)
+        {
+            await File.WriteAllBytesAsync(targetPath, bytes, ct).ConfigureAwait(false);
+        }
+    }
+
     public Task WaitForAbandonedWritesAsync(CancellationToken ct) =>
         AbandonedWrites is { } pending ? pending.Task.WaitAsync(ct) : Task.CompletedTask;
 

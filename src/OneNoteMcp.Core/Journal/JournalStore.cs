@@ -46,12 +46,31 @@ public sealed class JournalStore
     /// <see cref="ErrorCode.JournalFailed"/>; a temporary file left by a failure is removed when possible, and the pruner
     /// removes any it couldn't.
     /// </summary>
-    public JournalWritten Write(JournalEntry entry)
+    public JournalWritten Write(JournalEntry entry) => WriteTo(CurrentFolder(), entry);
+
+    /// <summary>The journal folder <c>journal.path</c> names now, re-read from <c>settings.json</c>.</summary>
+    public string CurrentFolder() => settings().Journal.Path;
+
+    /// <summary>
+    /// The file name <paramref name="entry"/> is stored under by this process: known before it is written, so a
+    /// <c>PermanentDelete</c> backup can be published under the same name first (AD-8, story 5.6).
+    /// </summary>
+    public static string EntryName(JournalEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
+        return JournalFiles.EntryName(entry.TakenAtUtc, Environment.ProcessId, entry.EntryId);
+    }
 
-        var folder = settings().Journal.Path;
-        var name = JournalFiles.EntryName(entry.TakenAtUtc, Environment.ProcessId, entry.EntryId);
+    /// <summary>
+    /// <see cref="Write"/> into <paramref name="folder"/>, read once by the caller with <see cref="CurrentFolder"/>, so an
+    /// entry and the backup published before it land in the same journal even if <c>journal.path</c> changes meanwhile.
+    /// </summary>
+    public JournalWritten WriteTo(string folder, JournalEntry entry)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(folder);
+        ArgumentNullException.ThrowIfNull(entry);
+
+        var name = EntryName(entry);
         var final = Path.Combine(folder, name);
         var temp = Path.Combine(folder, JournalFiles.TempName(name));
         var isProtected = entry.SectionKey is not null;

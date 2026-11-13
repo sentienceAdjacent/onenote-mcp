@@ -3,19 +3,41 @@ title: 'Permanent delete'
 type: 'feature'
 ticket: '6'
 created: '2026-11-13'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: 'a9da2f7d6de9136a52dd99f847e90b979ffff077'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick', 'security']
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      The write-grant dialog and the create_notebook location dialog suggest a grant command with the notebook's display name inside double quotes, which PowerShell expands, so a model-named notebook "$(...)" can plant a command the user may paste.
+    evidence: |-
+      Pre-existing (not this change): ElicitationGrantPrompt.cs ~l.221 (write dialog) and ElicitationNotebookLocationPrompt.cs ~l.70 build GrantCli.Run with the raw name in double quotes; SectionFileNames.Characters allows "$", "(" and ")". 5.6's own confirmation now uses the "<notebook name>" placeholder; the same fix applies to both.
+    location: >-
+      src/OneNoteMcp.Server/Grants/ElicitationGrantPrompt.cs:221; src/OneNoteMcp.Server/Grants/ElicitationNotebookLocationPrompt.cs:70
+    severity: high
+  - summary: >-
+      The section backup is accepted once non-empty and size-stable across two 250 ms polls, without proof OneNote has finished writing it.
+    evidence: |-
+      Unverified: whether OneNote ever pauses over 250 ms mid-write after Publish returns. Settle it at the sitting (P4, P9): check whether the file still refuses an exclusive open (FileShare.None) when the poll accepts it; if so, add that open as a further condition.
+    location: >-
+      src/OneNoteMcp.Core/Writes/SectionBackup.cs:115-139
+    severity: high (unverified)
+  - summary: >-
+      A permanentDeleteNotebook row in list_grants shows the notebook entry's grantedAt (the write grant's), not when the permanent-delete grant was given.
+    evidence: |-
+      SavePermanentDeleteGrant records no time of its own; recording one needs a new settings.json field (AD-10 shape), a spine change. grantedVia is now always "cli".
+    location: >-
+      src/OneNoteMcp.Core/UseCases/ListGrantsUseCase.cs:88-95
+    severity: low
 ---
 
 <intent-contract>
@@ -155,19 +177,19 @@ None runs in the build. Each is an opt-in test in `tests/OneNoteMcp.Integration/
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `IOneNoteGateway.cs`, `ComGateway.cs`, `FakeGateway.cs`, `FakeApplication.cs` -- `PublishAsync` with the publish timeout, never retried.
-- [ ] `SettingsWriter.cs`, `GrantCommand.cs`, `ListGrantsUseCase.cs` (+ tests) -- the second grant per Q1 and Q2.
-- [ ] `WriteAccess.cs`, `GrantPrompt.cs`, `ElicitationGrantPrompt.cs` -- the check and, per Q1, its dialog.
-- [ ] `WritePipeline.cs` -- the 600 s class deadline.
-- [ ] `JournalStore.cs`, `JournalFiles.cs`, `JournalEntry.cs`, `JournalPruner.cs`, `UninstallCommand.cs` (+ tests) -- named entries, `onenoteBackup`, backups pruned and purged.
-- [ ] `src/OneNoteMcp.Core/Writes/SectionBackup.cs` (new) -- folder, `Publish`, wait, `BackupFailed`.
-- [ ] `src/OneNoteMcp.Core/UseCases/PermanentDeleteUseCase.cs` (new) -- page, section and empty-group operations, step-1 refusals, Q3's entries.
-- [ ] `ToolErrors.cs`, `ToolMeta.cs`; new `PermanentlyDeleteHierarchyObjectTool.cs`; `ServerSetup.cs`.
-- [ ] `tests/OneNoteMcp.Tests/PermanentDeleteToolTests.cs` (new) -- every matrix row; no COM or entry on refusals; no dialog for a notebook or protected section; backup file present before the delete call; each backup failure kind refuses; hierarchy date sent for a page; counts only without a read grant.
-- [ ] Contract snapshot and binding tests.
-- [ ] `tests/OneNoteMcp.Integration/PermanentDeleteIntegrationTests.cs` (new, opt-in) -- P1-P11, written, not run.
-- [ ] `README.md` (l.79 row), `plugin/skills/guide/SKILL.md` -- tool and grant rows.
-- [ ] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync: tool name, Q1-Q4 and Q7 answers, step-1 refusals before dialogs, the backup wait, `meta.backupFile`, the 600 s class deadline, the Deleted Pages refusal; then P1, P2, P8, P9 and P10 results.
+- [x] `IOneNoteGateway.cs`, `ComGateway.cs`, `FakeGateway.cs`, `FakeApplication.cs` -- `PublishAsync` with the publish timeout, never retried.
+- [x] `SettingsWriter.cs`, `GrantCommand.cs`, `ListGrantsUseCase.cs` (+ tests) -- the second grant per Q1 and Q2.
+- [x] `WriteAccess.cs`, `GrantPrompt.cs`, `ElicitationGrantPrompt.cs` -- the check and, per Q1, its dialog.
+- [x] `WritePipeline.cs` -- the 600 s class deadline.
+- [x] `JournalStore.cs`, `JournalFiles.cs`, `JournalEntry.cs`, `JournalPruner.cs`, `UninstallCommand.cs` (+ tests) -- named entries, `onenoteBackup`, backups pruned and purged.
+- [x] `src/OneNoteMcp.Core/Writes/SectionBackup.cs` (new) -- folder, `Publish`, wait, `BackupFailed`.
+- [x] `src/OneNoteMcp.Core/UseCases/PermanentDeleteUseCase.cs` (new) -- page, section and empty-group operations, step-1 refusals, Q3's entries.
+- [x] `ToolErrors.cs`, `ToolMeta.cs`; new `PermanentlyDeleteHierarchyObjectTool.cs`; `ServerSetup.cs`.
+- [x] `tests/OneNoteMcp.Tests/PermanentDeleteToolTests.cs` (new) -- every matrix row; no COM or entry on refusals; no dialog for a notebook or protected section; backup file present before the delete call; each backup failure kind refuses; hierarchy date sent for a page; counts only without a read grant.
+- [x] Contract snapshot and binding tests.
+- [x] `tests/OneNoteMcp.Integration/PermanentDeleteIntegrationTests.cs` (new, opt-in) -- P1-P11, written, not run.
+- [x] `README.md` (l.79 row), `plugin/skills/guide/SKILL.md` -- tool and grant rows.
+- [x] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync: tool name, Q1-Q4 and Q7 answers, step-1 refusals before dialogs, the backup wait, `meta.backupFile`, the 600 s class deadline, the Deleted Pages refusal; then P1, P2, P8, P9 and P10 results.
 
 **Acceptance Criteria:**
 - Given a write grant without the permanent-delete grant, when the tool runs on a page, then `PermanentDeleteNotGranted` returns (after Q1's dialog, if any) and nothing is deleted or journaled.
@@ -178,9 +200,49 @@ None runs in the build. Each is an opt-in test in `tests/OneNoteMcp.Integration/
 
 ## Implementation Notes
 
+- **Built 2026-11-13, self-contained** (Plan Change Log): `DeleteHierarchyAsync` with 5.5's planned signature and `PublishAsync` on the port, each with a default body that throws `NotSupported`, so the 16 test doubles that never delete or publish needn't change (`ComGateway` and `FakeGateway` implement both). `Publish` runs under `timeouts.publishSeconds` through a `publish` flag on the gateway's run loop.
+- The target read is `HierarchyTarget` (Xml): kind, `lastModifiedTime`, `isRecycleBin` (or a group named `OneNote_RecycleBin`), `isInRecycleBin`, `isDeletedPages`, `encrypted`, `locked`, plus `ContainersBeneath`, `PageIds` and `Subpages` (by `pageLevel`). A page whose section is itself in the recycle bin counts as a recycled page.
+- Step 4's refusals run inside `ReadAsync` as soon as what each needs is read (a locked section's pages and page XML are never read), in AD-7's order; the subpage check is `Validate`, last.
+- The one-call confirmation is `PermanentDeleteUnconfirmed` + `PermanentDeleteDialog`, raised by the pipeline after the write-grant dialog (at most once each), with `IGrantPrompt.AskPermanentDeleteAsync` (default `Unsupported`). An untitled page is confirmed by typing `delete`.
+- `SectionBackup` fixes the entry name first (`JournalStore.EntryName`), reads the journal folder once (`CurrentFolder`, `WriteTo`), creates `backups`, publishes, polls, then writes the entry. The entry-write failure stays `JournalFailed`; folder, `Publish` and wait failures are `BackupFailed` with the HRESULT kept. A step-6 failure while the gateway reports an abandoned write (a timed-out `Publish`) keeps the lock until it settles.
+- Q2 b changed two existing tests: `SettingsDuplicateKeyTests` (a write revoke now removes the permanent-delete grant too) and `CreatePageToolTests` (a dialog write grant never revives `permanentDelete` held with `write: false`).
+- Verification: `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings, 0 errors; `dotnet test tests/OneNoteMcp.Tests` all pass (2561), contract snapshot updated (20 tools; every output schema's `meta` gains `backupFile` and `pageEntryIds`), `<Version>` unchanged. The integration probes compile and were not run.
+
 ## Plan Change Log
 
+- **2026-11-13, build start: 5.4 and 5.5 aren't built, so 5.6 is self-contained (coordinator's instruction).** The Intent assumes 5.5's `DeleteHierarchyAsync`, target read and refusals, and 5.4's `HierarchySnapshot` and node reader; none of them exists on this branch (base 68aa0cb is 5.5's plan only). So this build adds what it needs itself, additively, under names that line up with those plans so the later rebase onto 5.5 is a merge of like with like:
+  - `IOneNoteGateway.DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct)` with exactly 5.5's planned signature (`ComGateway`: `CallKind.Write`, never retried, date passed as given, `MinValue` never sent; `FakeGateway`/`FakeApplication` record calls). 5.6 only ever calls it with `permanent: true`. At the rebase, keep one copy.
+  - The target read (the node's kind, `lastModifiedTime`, `isRecycleBin`, `isDeletedPages`, `encrypted`, `locked`, `pageLevel` and its live children) and the step-4 refusals (recycle bin, Deleted Pages, recycled page, locked section, subpages) live in `PermanentDeleteUseCase.cs` or a small reader beside it in Xml (`HierarchyTarget.cs` or similar), not shared with a 5.5 use case that doesn't exist yet. **Share point:** at or after the rebase onto 5.5, the target read and the refusals common to both deletes (recycle bin, Deleted Pages, locked section, page with subpages, notebook, the walk's protected check) should move into one place both use cases call; 5.6 keeps only its own extras (recycled page, non-empty group, protected section, the backup and grant steps).
+  - The empty group's `hierarchy` entry: add `JournalEntry.HierarchyKind = "hierarchy"` and a minimal `HierarchySnapshot` in `src/OneNoteMcp.Core/Journal/HierarchySnapshot.cs` holding the group's `pages`-scope XML (never protected, since a group that holds anything is refused). **Share point:** 5.4 adds the same type; at the rebase keep 5.4's, adapted to this call.
+  - No other change to the Intent: the refusals, order, grant model, backup and results are as written.
+- **2026-11-13, review pass 1: conservative choices Phill hasn't made (assumptions, to confirm).** The quick and security lenses found gaps the Answers don't settle. The coordinator's rule for a decision only Phill can make is to take the conservative choice and mark it, so each of these is an **assumption**:
+  - **A1.** A page in a password-protected section, with no read grant and no stored permanent-delete grant, gets **no** confirmation dialog: it is `PermanentDeleteNotGranted`, and the `userAction` names the CLI grant (placeholder notebook name) or reading the page first. The dialog would otherwise show the page's title without a read grant (AD-21) and give the user nothing else to recognise it by.
+  - **A2.** A section is checked again after its backup, still under the lock: its `lastModifiedTime`, its page IDs in order and each page's `lastModifiedTime` must match step 3, or it is `StaleWrite`. Nothing is deleted, and the backup and entries stay. This applies Q5's "the server compares, under the lock, before every delete" to the end of the backup window, which can last up to `timeouts.publishSeconds`. **Risk:** if a real `Publish` moves the section's own date, every section delete fails `StaleWrite`. P4 shows whether it does.
+  - **A3.** The grants are read from `settings.json` again just before `DeleteHierarchy`. With no write grant the delete is `WriteNotGranted`. With no permanent-delete grant it is `PermanentDeleteNotGranted`, unless this call was confirmed in the dialog. A revoke during a long backup therefore stops the delete.
+  - **A4.** `restore_from_journal`'s `userAction` for an `onenoteBackup` entry is rewritten, though the Intent said to keep it, because it pointed at the wrong folder. It now says the file is in the `backups` folder inside the journal folder, and that the user should copy it out of the journal folder and open the copy, since pruning and `uninstall --purge` later delete the original.
+  - **A5.** The confirmation dialog cleans every name it shows: it drops control, format and bidi characters and line or paragraph separators, turns `"` into `'`, and caps the name at 80 characters. The text the user types is that cleaned name. The dialog also says where the object is: the notebook's path (the grant key), a page's section name, and a section's page count. Its CLI hint uses the `<notebook name>` placeholder, never the real name, because PowerShell expands `$(...)` inside double quotes.
+  - **A6.** Step 1 also refuses, before any dialog, everything step 4 can recognise cheaply: the recycle bin, Deleted Pages, a recycled page (one inside a recycled section included) and a non-empty group. Step 4 still checks each of them again under the lock.
+  - **From the build:** a page whose section is in the recycle bin counts as a recycled page (`NotSupported`). A failure writing the `onenoteBackup` entry after the file has landed is `JournalFailed`, not `BackupFailed`. A timed-out `Publish` keeps the write lock until the abandoned call settles.
+
 ## Review Triage Log
+
+### 2026-11-13 — Review pass
+- verdicts: 14 findings — high 2, medium 9, low 1, false 1, maybe-false 1
+- findings:
+  - `[medium]` `[patch]` (quick) `permanentDeleteNotebook` rows in `list_grants` copy the write grant's `grantedAt`/`grantedVia`, so a later dialog or `create_notebook` write grant relabels the row as "elicitation"/"created", which contradicts Q1 c. Fixed: the row is always `grantedVia: cli`. `grantedAt` stays the notebook entry's date; that part is deferred.
+  - `[medium]` `[patch]` (quick) Step 1 raised the write-grant dialog and the confirmation for the recycle bin, Deleted Pages, recycled pages and non-empty groups, which step 4 then refused. Fixed: step 1 refuses them before any dialog (A6), and step 4 re-checks them.
+  - `[medium]` `[patch]` (quick) The confirmation showed a protected page's title without a read grant (AD-21). Fixed under A1: no dialog in that case, `PermanentDeleteNotGranted`; the test checks that the title appears nowhere.
+  - `[medium]` `[patch]` (quick) AC 5 (`restore_from_journal` on a permanent-delete page entry) had no unit test. Fixed: two tests in `RestoreFromJournalToolTests`, a page entry and a section's page entry going to `Recovered`.
+  - `[low]` `[reject]` (quick) If the 600 s pipeline deadline expires during `Publish`, the result is `Timeout`, not `BackupFailed`. It is real but rare: the gateway's own 300 s publish timeout already maps to `BackupFailed`, so this needs the page snapshots plus the publish to pass 600 s. Nothing is deleted, `written: false` holds, and the fix would add a pipeline branch.
+  - `[false]` `[reject]` (quick) "`BackupFailed`'s userAction says retry while it is `retryable: no`". `retryable` means retrying unchanged; the text asks the user to fix the cause first ("Check that no dialog is open … then retry"), the same pattern as other non-retryable codes' userActions.
+  - `[medium]` `[patch]` (quick) `restore_from_journal`'s `onenoteBackup` userAction pointed at the journal folder, but the file is in `backups`. Grouped with the security lens's pruned-backup finding. Fixed under A4.
+  - `[high]` `[patch]` (security) The confirmation named the object only by model-writable text, inserted raw: quotes, bidi or control characters, any length. A model-chosen title could forge the sentence or disguise the target. Fixed under A5: names are cleaned and capped, and the dialog adds the notebook path, a page's section and a section's page count. Tests cover it.
+  - `[high]` `[patch]` (security) The confirmation's CLI hint put the notebook's display name inside double quotes, and PowerShell expands `$(...)` there; a model can create a notebook with that name. Fixed: `<notebook name>` placeholder, tested with a notebook named `$(evil)`. The same pattern in the write-grant dialog (`ElicitationGrantPrompt.cs` ~l.221) and `ElicitationNotebookLocationPrompt.cs` ~l.70 is pre-existing and deferred.
+  - `[medium]` `[patch]` (security) A section's staleness was checked before the page snapshots and the publish (up to 300 s), so pages added or edited during the backup would go with no copy. Fixed under A2, with tests for a page added, a page edited and the section's date moving during `Publish`.
+  - `[medium]` `[patch]` (security) The grants were checked only at step 1, so a revoke during a long backup didn't stop the delete. Fixed under A3, with tests.
+  - `[maybe-false]` `[defer]` (security) The backup counts as finished when it is non-empty and its size is stable across two 250 ms polls, without proof that OneNote has finished writing. A pause over 250 ms mid-write could accept a truncated backup. This follows the Intent's own wording. To settle it: P4/P9 live, watch whether the file is still open for write when the poll accepts it (an exclusive-open check, `FileShare.None`, would close it).
+  - `[medium]` `[patch]` (security) The `onenoteBackup` userAction told the user to open the backup in place, where the pruner and `uninstall --purge` later delete it along with any edits. Grouped with the quick lens's wrong-folder finding. Fixed under A4 (copy it out first).
+  - `[medium]` `[patch]` (security) The confirmation appeared for deletes the server then refuses (recycle bin, Deleted Pages, recycled page, non-empty group). Grouped with the quick lens's dialog-for-refused-targets finding. Fixed under A6.
 
 ## Design Notes
 
@@ -202,4 +264,65 @@ None runs in the build. Each is an opt-in test in `tests/OneNoteMcp.Integration/
 
 ## Auto Run Result
 
-Status: draft. Stopped after the plan step, as the coordinator asked: the Open Questions wait on Phill, and 5.5's answers are assumed (Intent).
+Status: built (2026-11-13). The Open Questions were answered by Phill on 2026-11-13. The build is self-contained (Plan Change Log) and takes assumptions A1–A6 from review pass 1.
+
+**Summary.** `permanently_delete_hierarchy_object` deletes a page, a section (live or recycled) or an empty section group with `DeleteHierarchy(permanent=true)` through the write pipeline as `PermanentDelete`, under a 600 s deadline.
+- **Grants (Q1 c, Q2 b).** The CLI stores the permanent-delete grant: `grant --permanent-delete` and `grant --revoke --permanent-delete`. Without a stored grant, each call raises a one-off typed-name confirmation, and nothing is stored. Revoking the write grant revokes both. `list_grants` shows a `permanentDeleteNotebook` row.
+- **Journal before the delete.**
+  - A page gets a page entry.
+  - An empty group gets a `hierarchy` entry.
+  - A section gets a page entry per page (Q3 b), then a `Publish` backup in `<journal>\backups`, which is waited on until it lands, then the `onenoteBackup` entry. Any backup failure is `BackupFailed`, and nothing is deleted.
+- **Refused.** A notebook, a protected section, a non-empty group, a recycled page, the recycle bin and Deleted Pages are refused before any dialog.
+- **Checked again before the delete.** The grants are re-read, and a section is re-compared after its backup.
+- **Journal housekeeping.** The pruner and `uninstall --purge` handle backups.
+
+**Files changed** (main ones; see the commit for the rest):
+- **Gateway**
+  - `src/OneNoteMcp.Core/IOneNoteGateway.cs` and `src/OneNoteMcp.Com/ComGateway.cs`: `DeleteHierarchyAsync` (5.5's signature) and `PublishAsync` (`pfOneNote`, publish timeout, local absolute paths only); neither is ever retried.
+  - `src/OneNoteMcp.Xml/HierarchyTarget.cs` (new): the target read, `ContainersBeneath`, `PageIds`, `PageDates` and `Subpages`.
+- **The delete and its backup**
+  - `src/OneNoteMcp.Core/UseCases/PermanentDeleteUseCase.cs` (new): the operation, steps 1–7, and the refusals.
+  - `src/OneNoteMcp.Core/Writes/SectionBackup.cs` (new): the `backups` folder, `Publish`, the wait, and `BackupFailed`.
+  - `src/OneNoteMcp.Core/Writes/WritePipeline.cs`: the per-class deadline and the confirmation; a step-6 abandoned write keeps the lock.
+- **Grants and the dialog**
+  - `src/OneNoteMcp.Core/Access/PermanentDeleteDialog.cs` (new): the confirmation and name cleaning.
+  - `WriteAccess.cs`: `CheckPermanentDeleteAsync` and `StoredGrants`.
+  - `GrantPrompt.cs`: `AskPermanentDeleteAsync`.
+  - `src/OneNoteMcp.Server/Grants/ElicitationGrantPrompt.cs`: the confirmation form.
+  - `src/OneNoteMcp.Core/Settings/SettingsWriter.cs`: save and revoke the second grant; revoking writes revokes both.
+  - `src/OneNoteMcp.Server/Cli/GrantCommand.cs`: `--permanent-delete` and `--revoke --permanent-delete`.
+  - `ListGrantsUseCase.cs`: the new row.
+- **Journal and housekeeping**
+  - `src/OneNoteMcp.Core/Journal/*`: `HierarchySnapshot` (new), the `hierarchy` and `onenoteBackup` kinds, entry names chosen first, and backups in the pruner.
+  - `UninstallCommand.cs`: purges backups.
+  - `RestoreFromJournalUseCase.cs`: the backup `userAction` (A4).
+- **Results and the tool**
+  - `ToolMeta.cs` and `ToolErrors.cs`: `meta.backupFile`, `meta.pageEntryIds`, and the `PermanentDeleteNotGranted` userAction.
+  - `src/OneNoteMcp.Server/Tools/PermanentlyDeleteHierarchyObjectTool.cs` (new), registered in `ServerSetup.cs`.
+- **Tests**
+  - `tests/OneNoteMcp.Tests/PermanentDeleteToolTests.cs` (new): every matrix row plus the review cases.
+  - Additions to the GrantCommand, WriteGrantListing, Journal, Uninstall, ComGatewayLifecycle and RestoreFromJournal tests; the contract snapshot is updated (20 tools).
+  - Test settings stores in the files this branch touches now get explicit temp journal folders.
+  - `tests/OneNoteMcp.Integration/PermanentDeleteIntegrationTests.cs` (new): P1–P11, opt-in, not run.
+- **Docs**: `README.md` and `plugin/skills/guide/SKILL.md` gain the tool row; `deferred-work.md` gains the 5.6 spine-sync rows, the Q7 deferral and the 5.4/5.5 share points.
+
+**Review findings.** Two lenses ran, the pinned quick lens and a security lens (the ticket's verify), for 14 findings:
+- **Patched** (11 rows, 8 entries after grouping): 2 high (dialog identity and injection; shell injection in the CLI hint) and 6 medium entries (the `list_grants` grantedVia, refusals before the dialog, protected-title leak, AC 5 tests, the stale window after the backup, revocation mid-call, and the backup `userAction`).
+- **Deferred:** the backup-completeness poll (maybe-false, high if true); the pre-existing shell-injection hint in the write-grant and notebook-location dialogs (high); and the `grantedAt` of the permanent-delete row (low).
+- **Rejected:**
+  - a deadline expiry during `Publish` reporting `Timeout` rather than `BackupFailed` (low: rare, nothing deleted, the fix adds a pipeline branch);
+  - "`BackupFailed` says retry" (false: the text says to fix the cause first).
+- **Matrix audit:** every row is covered by a test that ran. The recycled protected section was added during review.
+
+**Follow-up review recommended: true.** This first pass patched 2 high entries and more than two medium ones. The specific unverified risk is the patched confirmation dialog (name cleaning, location and placeholder) together with the new post-backup re-check (A2), which no fresh lens has read. A2 is also a live risk: if `Publish` moves the section's date, every section delete fails `StaleWrite`. P4 settles that.
+
+**Verification.**
+- `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors.
+- `dotnet test tests/OneNoteMcp.Tests`: 2585 passed, 0 failed, 0 skipped, after the review patches. It was 2561 before them, and the implementer saw one known flake, `ComGatewayLifecycleTests.AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked`, once in six runs.
+- The integration probes compile and were not run (no OneNote touched).
+
+**Residual risks.**
+- The live sitting is still to come: `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~PermanentDeleteIntegrationTests` on MCP Test (P1–P9, P11) and MCP Test Cloud (P10). P5's dialog variant and P7 need Phill's hands.
+- Assumptions A1–A6 wait on Phill.
+- The rebase onto 5.5/5.4 has to merge the share points.
+- `elementHashes` from `get_page_content`'s basis must be stripped by callers.

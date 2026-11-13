@@ -34,7 +34,7 @@ public sealed class WriteGrantListingTests : IDisposable
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private SettingsStore Store => new(temp.Combine("settings.json"));
+    private SettingsStore Store => new(temp.Combine("settings.json"), temp.Combine("journal"));
 
     public void Dispose() => temp.Dispose();
 
@@ -113,6 +113,40 @@ public sealed class WriteGrantListingTests : IDisposable
         Assert.Contains("none of the listed grants with lifetime hours or untilRevoked applies", warning.Message, StringComparison.Ordinal);
         Assert.Contains("grant --revoke --write \"<notebook name>\"", warning.UserAction!, StringComparison.Ordinal);
         Assert.DoesNotContain("--read-section", warning.UserAction!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APermanentDeleteGrant_IsItsOwnRow_AfterTheWriteRows_OnlyBesideAWriteGrant()
+    {
+        // Story 5.6 plan Q2: kind permanentDeleteNotebook. One held without a write grant (an older file) is inert and unlisted.
+        Save(@"C:\notebooks\A", "Notebook A");
+        new SettingsWriter(Store, clock).SavePermanentDeleteGrant(@"C:\notebooks\A");
+        Save(@"C:\notebooks\Gone", "Gone");
+        var json = File.ReadAllText(Store.Path).Replace(
+            "\"notebooks\": {",
+            "\"notebooks\": {\"C:\\\\notebooks\\\\Inert\": {\"name\": \"Inert\", \"idAtGrant\": \"i\", \"write\": false, \"permanentDelete\": true, \"grantedAt\": \"2026-11-07T12:00:00.000Z\", \"grantedVia\": \"cli\"},",
+            StringComparison.Ordinal);
+        File.WriteAllText(Store.Path, json);
+
+        var grants = (await ListAsync()).Meta.Grants!;
+
+        Assert.Equal(["writeNotebook", "writeNotebook", "permanentDeleteNotebook"], grants.Select(g => g.Kind));
+        var row = grants[^1];
+        Assert.Equal((@"C:\notebooks\A", "Notebook A", @"C:\notebooks\A", "untilRevoked", "active"), (row.Key, row.Name, row.NotebookKey, row.Lifetime, row.Status));
+    }
+
+    [Fact]
+    public async Task APermanentDeleteRow_IsAlwaysGrantedViaCli_WhateverRelabelledTheWriteGrant()
+    {
+        // Q1 c: only the CLI stores it; a later write grant from the dialog keeps it but relabels the entry.
+        Save(@"C:\notebooks\A", "Notebook A");
+        new SettingsWriter(Store, clock).SavePermanentDeleteGrant(@"C:\notebooks\A");
+        Save(@"C:\notebooks\A", "Notebook A", via: GrantedVia.Elicitation);
+
+        var grants = (await ListAsync()).Meta.Grants!;
+
+        Assert.Equal(GrantedVia.Elicitation, grants.Single(g => g.Kind == "writeNotebook").GrantedVia);
+        Assert.Equal(GrantedVia.Cli, grants.Single(g => g.Kind == "permanentDeleteNotebook").GrantedVia);
     }
 
     [Fact]

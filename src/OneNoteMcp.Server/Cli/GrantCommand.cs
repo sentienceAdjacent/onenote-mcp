@@ -15,9 +15,11 @@ namespace OneNoteMcp.Server.Cli;
 /// one. The match is shown with its path, and the grant is made only when the user types <c>yes</c>. It is keyed by the
 /// notebook's live <c>path</c> through <see cref="GrantKeys.NotebookKey"/> and keeps an existing permanent-delete
 /// grant.</item>
-/// <item><c>grant --revoke --write [name]</c>: removes a stored write grant, matched against the stored grants by the
-/// notebook's live displayed name when it is open, else its stored name. Several matches are listed with their paths;
-/// no <c>yes</c> is asked.</item>
+/// <item><c>grant --revoke --write [name]</c>: removes a stored write grant, and its permanent-delete grant with it (story
+/// 5.6, plan Q2 b), matched against the stored grants by the notebook's live displayed name when it is open, else its
+/// stored name. Several matches are listed with their paths; no <c>yes</c> is asked.</item>
+/// <item><c>grant --permanent-delete [name]</c>: matched like <c>--write</c>; refused for a notebook with no write grant;
+/// made only when the user types <c>yes</c>. <c>grant --revoke --permanent-delete [name]</c> removes only it.</item>
 /// <item><c>grant --read-section [name]</c>: the typed name is matched, trimmed and ignoring case, against the protected
 /// sections of the open notebooks. Several matches are listed with their notebook and section groups, and the user picks
 /// one. It offers <c>hours</c> (1 to 168, default 8) and <c>untilRevoked</c>; <c>once</c> exists only in the dialog.</item>
@@ -34,7 +36,9 @@ public sealed class GrantCommand
     public const string Usage =
         "Usage:\n"
         + "  OneNoteMcp grant --write [\"<notebook name>\"]                  allow writing to a notebook\n"
-        + "  OneNoteMcp grant --revoke --write [\"<notebook name>\"]         remove that permission\n"
+        + "  OneNoteMcp grant --revoke --write [\"<notebook name>\"]         remove that permission (and permanent deletes)\n"
+        + "  OneNoteMcp grant --permanent-delete [\"<notebook name>\"]       allow permanent deletes in a notebook you allow writing to\n"
+        + "  OneNoteMcp grant --revoke --permanent-delete [\"<notebook name>\"]  remove that permission only\n"
         + "  OneNoteMcp grant --read-section [\"<section name>\"]            allow reading a password-protected section\n"
         + "  OneNoteMcp grant --revoke --read-section [\"<section name>\"]   remove that permission\n"
         + "Run it yourself in a terminal: it asks you to confirm, and it refuses to run without an interactive terminal.";
@@ -75,6 +79,7 @@ public sealed class GrantCommand
         var revoke = false;
         var readSection = false;
         var write = false;
+        var permanentDelete = false;
         string? name = null;
         for (var i = 0; i < args.Count; i++)
         {
@@ -83,9 +88,10 @@ public sealed class GrantCommand
                 case "--revoke":
                     revoke = true;
                     break;
-                case "--read-section" or "--write":
+                case "--read-section" or "--write" or "--permanent-delete":
                     readSection |= args[i] == "--read-section";
                     write |= args[i] == "--write";
+                    permanentDelete |= args[i] == "--permanent-delete";
                     if (i + 1 < args.Count && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
                     {
                         name = args[++i];
@@ -99,27 +105,30 @@ public sealed class GrantCommand
             }
         }
 
-        if (readSection == write)
+        if ((readSection ? 1 : 0) + (write ? 1 : 0) + (permanentDelete ? 1 : 0) != 1)
         {
-            output.WriteLine("Give exactly one of --write or --read-section.");
+            output.WriteLine("Give exactly one of --write, --permanent-delete or --read-section.");
             output.WriteLine(Usage);
             return 2;
         }
 
-        name ??= Ask(write ? "Notebook name: " : "Section name: ");
+        var notebook = write || permanentDelete;
+        name ??= Ask(notebook ? "Notebook name: " : "Section name: ");
         if (string.IsNullOrWhiteSpace(name))
         {
-            output.WriteLine(write ? "No notebook name given; nothing changed." : "No section name given; nothing changed.");
+            output.WriteLine(notebook ? "No notebook name given; nothing changed." : "No section name given; nothing changed.");
             return 1;
         }
 
         try
         {
-            return (write, revoke) switch
+            return (write, permanentDelete, revoke) switch
             {
-                (true, true) => await RevokeWriteAsync(name.Trim(), ct).ConfigureAwait(false),
-                (true, false) => await GrantWriteAsync(name.Trim(), ct).ConfigureAwait(false),
-                (false, true) => await RevokeAsync(name.Trim(), ct).ConfigureAwait(false),
+                (true, _, true) => await RevokeWriteAsync(name.Trim(), ct).ConfigureAwait(false),
+                (true, _, false) => await GrantWriteAsync(name.Trim(), ct).ConfigureAwait(false),
+                (_, true, true) => await RevokePermanentDeleteAsync(name.Trim(), ct).ConfigureAwait(false),
+                (_, true, false) => await GrantPermanentDeleteAsync(name.Trim(), ct).ConfigureAwait(false),
+                (_, _, true) => await RevokeAsync(name.Trim(), ct).ConfigureAwait(false),
                 _ => await GrantAsync(name.Trim(), ct).ConfigureAwait(false),
             };
         }
@@ -279,7 +288,113 @@ public sealed class GrantCommand
 
         var removed = writer.RevokeWriteGrant(chosen.Grant.Key);
         output.WriteLine(removed > 0
-            ? $"Revoked the write grant for \"{chosen.Live?.DisplayName ?? chosen.Grant.Name}\". The next write to it asks again."
+            ? $"Revoked the write grant for \"{chosen.Live?.DisplayName ?? chosen.Grant.Name}\""
+                + (chosen.Grant.PermanentDelete ? ", and its permanent-delete grant with it" : string.Empty)
+                + ". The next write to it asks again."
+            : "That grant was already gone.");
+        return 0;
+    }
+
+    /// <summary>
+    /// <c>grant --permanent-delete</c> (AD-6; Phill, 2026-11-13, 5.6 plan Q1 c, Q2 b): the typed name is matched against
+    /// each open notebook's displayed name, as for <c>--write</c>. A notebook with no write grant is refused: the
+    /// permanent-delete grant counts only beside one. The match is shown with its path and what the grant allows, and the
+    /// grant is made only when the user types <c>yes</c>. No dialog ever stores this grant.
+    /// </summary>
+    private async Task<int> GrantPermanentDeleteAsync(string name, CancellationToken ct)
+    {
+        var notebooks = OpenNotebooks.Find(await readSections(ct).ConfigureAwait(false));
+        var matches = notebooks.Where(n => GrantKeys.NameMatches(name, n.DisplayName)).ToList();
+        if (matches.Count == 0)
+        {
+            output.WriteLine("No open notebook has that name. Check the name, and that the notebook is open in OneNote.");
+            return 1;
+        }
+
+        var notebook = Pick(matches, n => $"{n.DisplayName} ({n.Path})", "notebooks");
+        if (notebook is null)
+        {
+            output.WriteLine("Nothing changed.");
+            return 1;
+        }
+
+        if (notebook.Key.Length == 0)
+        {
+            output.WriteLine("OneNote reports no path for that notebook, so no grant can be made for it. Nothing changed.");
+            return 1;
+        }
+
+        var snapshot = writer.Store.Read();
+        if (!snapshot.Notebooks.TryGetValue(notebook.Key, out var grant) || !grant.Write)
+        {
+            output.WriteLine($"\"{notebook.DisplayName}\" has no write grant, and permanent deletes count only beside one. Grant writes first with: OneNoteMcp grant --write \"{notebook.DisplayName}\"");
+            output.WriteLine("Nothing changed.");
+            return 1;
+        }
+
+        if (grant.PermanentDelete)
+        {
+            output.WriteLine($"OneNoteMcp can already delete permanently in \"{notebook.DisplayName}\". Nothing changed.");
+            return 0;
+        }
+
+        output.WriteLine($"Notebook: {notebook.DisplayName}");
+        output.WriteLine($"Path:     {notebook.Path}");
+        output.WriteLine("Claude will be able to delete pages, sections and empty section groups in it permanently, skipping OneNote's recycle bin,");
+        output.WriteLine("without asking you each time. A copy of each is kept in OneNoteMcp's recovery journal for 30 days.");
+        if (!string.Equals(Ask("Type yes to allow it: ")?.Trim(), "yes", StringComparison.OrdinalIgnoreCase))
+        {
+            output.WriteLine("Nothing changed.");
+            return 1;
+        }
+
+        writer.SavePermanentDeleteGrant(notebook.Key);
+        output.WriteLine($"Granted: OneNoteMcp can now delete permanently in \"{notebook.DisplayName}\", until you revoke it with: OneNoteMcp grant --revoke --permanent-delete \"{notebook.DisplayName}\"");
+        return 0;
+    }
+
+    /// <summary>
+    /// <c>grant --revoke --permanent-delete</c> (5.6 plan Q2 b): removes only the permanent-delete grant, matched against the
+    /// stored grants that hold one as <c>--revoke --write</c> matches. The write grant stays. No <c>yes</c> is asked.
+    /// </summary>
+    private async Task<int> RevokePermanentDeleteAsync(string name, CancellationToken ct)
+    {
+        var snapshot = writer.Store.Read();
+        snapshot.EnsureWritable();
+
+        IReadOnlyList<OpenNotebook> open;
+        try
+        {
+            open = OpenNotebooks.Find(await readSections(ct).ConfigureAwait(false));
+        }
+        catch (OneNoteException ex)
+        {
+            output.WriteLine($"Couldn't read the open notebooks ({ex.Message}); matching stored names only.");
+            open = [];
+        }
+
+        var candidates = snapshot.NotebookEntries
+            .Where(g => g.PermanentDelete)
+            .GroupBy(g => g.Key, GrantKeys.Comparer)
+            .Select(g => (Grant: g.First(), Live: open.FirstOrDefault(n => n.Key.Length > 0 && GrantKeys.Comparer.Equals(n.Key, g.Key))))
+            .Where(c => GrantKeys.NameMatches(name, c.Live?.DisplayName) || GrantKeys.NameMatches(name, c.Grant.Name))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            output.WriteLine("No stored permanent-delete grant matches that notebook name. Nothing changed.");
+            return 1;
+        }
+
+        var chosen = Pick(candidates, c => c.Live is { } live ? $"{live.DisplayName} ({live.Path})" : $"{c.Grant.Name} (not open; {c.Grant.Key})", "notebooks");
+        if (chosen.Grant is null)
+        {
+            output.WriteLine("Nothing changed.");
+            return 1;
+        }
+
+        var revoked = writer.RevokePermanentDeleteGrant(chosen.Grant.Key);
+        output.WriteLine(revoked > 0
+            ? $"Revoked the permanent-delete grant for \"{chosen.Live?.DisplayName ?? chosen.Grant.Name}\". Writes to it are still allowed; each permanent delete asks you again."
             : "That grant was already gone.");
         return 0;
     }
