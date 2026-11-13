@@ -211,6 +211,9 @@ The Quick lens was launched as a subagent, but on the coordinator's instruction 
   - `[low]` `[reject]` With a client that lacks elicitation, `create_notebook` still reads OneNote's default notebook folder (one COM read) before the dialog reports itself unsupported — `CreateHierarchyUseCase.cs:134-135`; harmless (a read, no write, result `NotSupported` as decided), and avoiding it needs a new capability query on the prompt port.
   - `[low]` `[reject]` The location dialog accepts the model-proposed folder with one click (no typed confirmation as the grant dialog has) — Phill's 2026-11-13 decision is an editable, prefilled field; the dialog states the grant and how to revoke it, and every folder rule runs on the answer. Not a defect against the plan.
 
+### 2026-11-13 — Shell injection in suggested grant commands
+- `[high]` `[patch]` Security review of 5.6 found it; pre-existing (the write dialog and grant CLI, fixed on 2.11 in fc07d1b). 5.3's location dialog copied the pattern: its revoke hint put the model-chosen notebook name inside a double-quoted command, where `$(...)` would run in PowerShell when the user pasted it. It now holds `"<notebook name>"`; the prose still names the notebook. Test with a `$(evil)` name, watched failing first.
+
 ## Design Notes
 
 OneMore (checked 2026-11-12) creates sections and top-level groups with `UpdateHierarchy` (a new nameless-ID element, then a re-read to find the new ID) and compares names with `CurrentCultureIgnoreCase` across sections and groups together; it never creates a notebook (`OpenHierarchy` `cftNotebook` only opens an existing folder). We keep AD-7's `OpenHierarchy` create, which spike 5.1 measured, and take OneMore's shared name space as Q4's recommendation. OneMore's comment that omitting a sibling from `UpdateHierarchy` deletes it contradicts spike 5.1 constraint 4 ("children left out are kept"); that matters to entry 4, not here, and is noted for it.

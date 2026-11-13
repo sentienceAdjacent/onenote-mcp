@@ -67,7 +67,8 @@ public sealed class ElicitationNotebookLocationPrompt(McpServer server) : INoteb
             Message =
                 $"Claude wants to create a new OneNote notebook named \"{question.NotebookName}\". Choose where it goes: "
                 + $"it is created in a new folder named \"{question.NotebookName}\" inside the folder you enter, which must exist and must not be inside another notebook. "
-                + "Claude will be able to write to this notebook until you revoke it with " + GrantCli.Run($"--revoke --write \"{question.NotebookName}\"") + ". "
+                // A placeholder, never the name: the model chose it, and $(...) would run in PowerShell inside double quotes.
+                + "Claude will be able to write to this notebook until you revoke it with " + GrantCli.Run("--revoke --write \"<notebook name>\"") + ". "
                 + "Decline to create nothing. Only you choose the location: the model can't.",
             RequestedSchema = new ElicitRequestParams.RequestSchema
             {

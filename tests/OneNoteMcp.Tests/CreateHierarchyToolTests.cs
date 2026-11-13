@@ -1032,6 +1032,17 @@ public sealed class CreateHierarchyToolTests : IDisposable
     }
 
     [Fact]
+    public void LocationDialog_TheSuggestedCommand_NeverHoldsTheNotebooksName()
+    {
+        // The model names the new notebook, and $(...) would run in PowerShell inside double quotes.
+        var request = ElicitationNotebookLocationPrompt.Request(new NotebookLocationQuestion("$(evil)", @"C:\Users\x\Notebooks", OfferOneDrive: false));
+
+        var command = request.Message!.Split('`')[1];
+        Assert.EndsWith("grant --revoke --write \"<notebook name>\"", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("evil", command, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LocationDialog_OffersOneDrive_OnlyWhenAsked()
     {
         var request = ElicitationNotebookLocationPrompt.Request(new NotebookLocationQuestion("Notebook A", null, OfferOneDrive: true));
