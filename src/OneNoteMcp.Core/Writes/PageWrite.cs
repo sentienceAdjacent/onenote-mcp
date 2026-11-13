@@ -547,20 +547,35 @@ public sealed class UpdatePageContentWrite : PageWrite
     /// </summary>
     private void CheckHtml(string? readXml)
     {
-        var (blocks, refused) = PageWriteScan.HtmlProblems(xml, readXml);
+        if (HtmlRefusal(xml, readXml, $"The XML for page {PageId}") is { } refusal)
+        {
+            throw refusal;
+        }
+    }
+
+    /// <summary>
+    /// The HTML stopgap's refusal for <paramref name="sentXml"/>, or null when it passes (see <see cref="PageWriteScan.HtmlProblems"/>).
+    /// <paramref name="subject"/> opens the message, such as "The XML for page {ID}". Shared with <c>restore_from_journal</c>
+    /// (Phill, 2026-11-13), so a journal entry is refused with the same code, message and user action as a page write.
+    /// </summary>
+    public static OneNoteException? HtmlRefusal(string sentXml, string? readXml, string subject)
+    {
+        var (blocks, refused) = PageWriteScan.HtmlProblems(sentXml, readXml);
         if (blocks > 0)
         {
-            throw Invalid(
-                string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} sends {blocks} new or changed one:HTMLBlock element(s), which page writes don't accept yet, so nothing was written."),
+            return Invalid(
+                string.Create(CultureInfo.InvariantCulture, $"{subject} sends {blocks} new or changed one:HTMLBlock element(s), which page writes don't accept yet, so nothing was written."),
                 HtmlBlockUserAction);
         }
 
         if (refused > 0)
         {
-            throw Invalid(
-                string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} has {refused} new or changed text(s) whose HTML page writes don't accept yet (a tag, attribute or comment outside the formatting OneNote uses, a link that isn't an absolute web or mail URL or an allowed onenote: link, or CSS that could load something), so nothing was written."),
+            return Invalid(
+                string.Create(CultureInfo.InvariantCulture, $"{subject} has {refused} new or changed text(s) whose HTML page writes don't accept yet (a tag, attribute or comment outside the formatting OneNote uses, a link that isn't an absolute web or mail URL or an allowed onenote: link, or CSS that could load something), so nothing was written."),
                 RefusedHtmlUserAction);
         }
+
+        return null;
     }
 
     /// <summary>The canonical forms of the new paths not yet confirmed in this call; a network, device or relative path is refused.</summary>

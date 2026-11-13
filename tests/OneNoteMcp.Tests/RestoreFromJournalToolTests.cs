@@ -470,6 +470,38 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         Assert.Empty(SchemaValidation.Problems(sent));
     }
 
+    [Theory]
+    [InlineData("<link rel=\"stylesheet\" href=\"file:///C:/x.css\">")]
+    [InlineData("<img src=\"file:///C:/secret.png\">")]
+    public async Task TextWithRefusedHtml_IsRefusedLikeAPageWrite_BeforeAnyPageIsCreated(string html)
+    {
+        // Phill, 2026-11-13: restore runs the page-write HTML check on text runs too.
+        XNamespace one = OneNoteXml.Namespace2013;
+        var entryId = WriteEntry(Plain() with { Xml = After(p => p.Descendants(one + "T").First().Value = html) });
+
+        var ex = Error(await Tool().RestoreFromJournal(entryId, Ct), "InvalidArgument");
+
+        Assert.Contains("whose HTML page writes don't accept yet", ex.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal(UpdatePageContentWrite.RefusedHtmlUserAction, ex.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateCalls);
+        Assert.Empty(gateway.CreateCalls);
+    }
+
+    [Fact]
+    public async Task TextWithAllowedHtml_Restores()
+    {
+        XNamespace one = OneNoteXml.Namespace2013;
+        var entryId = WriteEntry(Plain() with
+        {
+            Xml = After(p => p.Descendants(one + "T").First().Value =
+                "<span style=\"font-weight:bold\">a</span> <a href=\"https://example.com/\">b</a> <b>c</b>"),
+        });
+
+        Ok(await Tool().RestoreFromJournal(entryId, Ct));
+
+        Assert.Contains("example.com", Assert.Single(gateway.UpdateCalls).PageXml, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task AnHtmlBlock_IsDroppedAndCountedAsOther_EvenWithInlineData_AndNestedInAnOE()
     {

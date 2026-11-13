@@ -276,7 +276,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
             Gate(Build(standIn, keepFiles: false));
         }
 
-        /// <summary>The AD-16 gate on XML about to be sent: a schema problem is <see cref="ErrorCode.InvalidXml"/>, naming positions and element names only.</summary>
+        /// <summary>The AD-16 gate on XML about to be sent: a schema problem is <see cref="ErrorCode.InvalidXml"/>, naming positions and element names only; HTML a page write refuses is <see cref="ErrorCode.InvalidArgument"/>, as for a page write.</summary>
         private void Gate(RestoredPageXml built)
         {
             var problems = SchemaValidation.Problems(built.Xml);
@@ -286,6 +286,13 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                     ErrorCode.InvalidXml,
                     string.Create(CultureInfo.InvariantCulture, $"The page in journal entry {entryId:D} ({entryFile}) doesn't match the OneNote 2013 schema at {problems.Count} place(s) (first: line {problems[0].Line}, position {problems[0].Position}{(problems[0].DisplayName is { } name ? ", " + name : string.Empty)}), so it wasn't written."),
                     userAction: $"The entry file {entryFile} stays in the journal folder (journal.path in settings.json) for its 30 days.");
+            }
+
+            // Phill, 2026-11-13: the page-write HTML check on the text runs too, with no read to compare against, so a
+            // forged entry never carries what a page write refuses. Runs in step 3, before the page is created.
+            if (UpdatePageContentWrite.HtmlRefusal(built.Xml, null, $"The page in journal entry {entryId:D} ({entryFile})") is { } refusal)
+            {
+                throw refusal;
             }
         }
 
