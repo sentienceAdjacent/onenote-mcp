@@ -85,7 +85,7 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (fifteen since story 2.10 added delete_page_content), each
+    // Startup check, before any read: exactly the contract tools (sixteen since story 2.11 added restore_from_journal), each
     // readOnlyHint: true except navigate_to, the one user-visible tool, and the write tools, none of which the harness
     // ever calls (ToolClient refuses them).
     var listed = await client.ListToolsAsync();

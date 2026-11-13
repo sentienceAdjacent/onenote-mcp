@@ -384,3 +384,57 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: epic-safe-writes/story-delete-page-content-plan.md
   summary: Cloud steps D4c/d (date-only-basis deletes on displayed and undisplayed MCP Test Cloud pages, Sync Now before and after) not run: MCP Test Cloud hadn't synced since 6:21 PM (0xE01901F7 "can't sync right now", Probes 0xE000145C "server busy"), during a Microsoft outage, hours before any cloud call. Run them in the next sitting once it syncs. At that sitting's start, check `list_grants`: if Phill's D3b Ballast Vault read grant has a lasting lifetime, revoke it before any "no read grant" check.
   evidence: sitting D4; Phill's View Sync Status screenshot, 21:15.
+
+## Story 2.11 restore_from_journal (2026-11-12)
+
+- source_plan: epic-safe-writes/story-restore-from-journal-plan.md
+  summary: Spine sync (AD-8), not edited here: `restore_from_journal` sends only `pathCache`, never `pathSource`, and keeps an attachment or media file only when its canonical `pathCache` is a `{GUID}.bin` file directly in the current user's temp folder that exists now; anything else is dropped and counted (Q2). Images and ink keep inline `one:Data`; any object whose binary is a `one:File@path` or `one:CallbackID` is dropped and counted.
+  evidence: plan Decisions Q2; `RestoreAttachments.Keeps`, `RestoredPage.Build`.
+- source_plan: same
+  summary: Spine sync (AD-8, and the AD-7/AD-17 "never auto-retry writes" stance): when a content write that carried kept attachments fails with a definite code other than `ModalDialogOpen`, `ComBusy`, `SectionLocked` or `StaleWrite`, the server re-reads the page it just created and, only if it holds no top-level content object, sends it once more without attachments and media (`binaryMissing` says OneNote refused them). One retry of the server's own payload into its own empty page, not of a caller's write. Flag it when AD-8 is amended.
+  evidence: plan Decisions Q2 (retry guardrail); `RestoreFromJournalUseCase` step 7.
+- source_plan: same
+  summary: Spine sync (AD-8): a content write that fails after `CreateNewPage` fails with that step's code and retry rule, its message naming the (possibly empty) new page and its `userAction` saying to delete it before retrying; `outcomeUnknown` only for AD-9's ambiguous codes (Q3). The new page's top-level template objects are deleted with `DeletePageContent` before the write, which uses the new page's own date with `force: false` (Q4). An unprotected entry's chosen section that is locked is `SectionLocked`, with no fall-through (Q6).
+  evidence: plan Decisions Q3, Q4, Q6.
+- source_plan: same
+  summary: Spine sync (AD-9): warnings gain `binaryMissing` (counts by kind: image, ink, attachment, media, other) and `restoredElsewhere` (says `parentNamePath` or `Recovered`, never the path); success `meta` of `update_page_content` and `delete_page_content` gains `journalEntryId` (Q1 (a)), and a failure after their snapshot names the entry in its message (error `meta` stays `{correlationId}`). `restore_from_journal` returns `meta.pageId` and `meta.parentId`.
+  evidence: plan Decisions Q1; `ToolMeta.JournalEntryId`, `ToolWarnings`.
+- source_plan: same
+  summary: Spine sync (AD-7 `Create` row; epic 5 entry 3): the gateway now has `CreateSectionAsync(parentId, sectionFileName)`, `OpenHierarchy` with `cftSection` by parent ID only, its relative name checked before COM (`SectionFileNames.Problem`: ends `.one`, no `..`, `\`, `/`, invalid characters or reserved device names). Epic 5 adds section-group and notebook siblings.
+  evidence: plan Decisions Q5; `IOneNoteGateway.CreateSectionAsync`.
+- source_plan: same
+  summary: Not decided by the plan, chosen in the build: a snapshot that doesn't parse, has a DOCTYPE or isn't a `one:Page` is `JournalFailed`; one that parses but fails the AD-16 schema gate is `InvalidXml` (positions and element names only). The new page is created `blankPageWithTitle` when the snapshot has a `one:Title`, else `blankPageNoTitle`. A `parentNamePath` matching more than one live section falls through to `Recovered`. Confirm or amend with the spine sync.
+  evidence: `RestoreFromJournalUseCase.Validate`, `CallAsync`, `Target`.
+- source_plan: same
+  summary: Later-session lookup (Q1 (a)): a journal listing tool, so a caller that lost `meta.journalEntryId` (another session, a client restart) can find an entry by page or time. Out of scope for 2.11.
+  evidence: plan Decisions Q1.
+- source_plan: same
+  summary: Live probe pending: `RestoreAttachmentProbe` (`ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter RestoreAttachmentProbe`) records `RESULT restore-attachment: kept|dropped|error <hex>`: whether OneNote accepts an `InsertedFile` with only `pathCache`. Also unchecked live: whether `Path.GetTempPath()` and OneNote's `pathCache` agree in form (an 8.3 short temp path would make the Q2 rule drop every attachment; safe, but worth seeing), and the template-deletion step on a section with a page template.
+  evidence: plan Verification, manual checks.
+
+## Story 5.3 create section, section group and notebook (2026-11-13)
+
+- source_plan: epic-hierarchy-writes-and-deletes/story-create-section-section-group-and-notebook-plan.md
+  summary: Spine sync (AD-7 `Create` row and "`Create` validation for `OpenHierarchy` create"), not edited here: the gateway now has `CreateSectionGroupAsync(parentId, groupName)` (`OpenHierarchy` `cftFolder`, by parent ID only) and `CreateNotebookAsync(folderPath)` (`cftNotebook`, no parent ID, a fully qualified local path only), beside 2.11's `CreateSectionAsync`. The tools are `create_section`, `create_section_group` and `create_notebook` (Q1).
+  evidence: plan Answers Q1; `IOneNoteGateway`, `ComGateway`.
+- source_plan: same
+  summary: Spine sync (AD-7, closes the open point of PR #43): one name rule for all three kinds, checked before COM with `InvalidArgument` and a message that never quotes the name: one file-system name; no `..`, `\`, `/`, control or `< > : " | ? *` characters; no reserved device name (also with an extension, or with spaces before one); no leading or trailing space or dot; `OneNote_RecycleBin` and `OneNote_DeletedPages` refused ignoring case, with or without `.one`. Reason: a group and a notebook are folders, so Windows has the same limits. Only a section gets `.one`, added unless the name already ends with it ignoring case (Q2). A live child of the same kind and name (ignoring case) is returned with `alreadyExisted` and no COM call; one of the other kind is `InvalidArgument` (Q4).
+  evidence: plan Build Directions (name rule); `SectionFileNames.NameProblem`, `ToSectionFileName`; `CreateHierarchyUseCase.CreateInParent`.
+- source_plan: same
+  summary: Spine sync (AD-7 notebook create, AD-6 "how a grant is created"): `create_notebook(name, folder?)` asks the user where the notebook goes in an elicitation dialog (a new Core port, `INotebookLocationPrompt`, adapted by `ElicitationNotebookLocationPrompt`), prefilled with `folder` or OneNote's `DefaultNotebookFolder` when local. The notebook goes in `<chosen folder>\<name>`, made canonical; the chosen folder must exist. Under the lock, against a live `GetHierarchy` of open notebooks: an open notebook's own folder, or a folder that isn't empty (hidden entries count; one that can't be listed counts as not empty) or is a file, is `FileExists`; a folder inside or around an open notebook's, or inside OneNoteMcp's own folders (the settings folder, the journal folder, the default roaming and local OneNoteMcp folders, each also in canonical form) is `InvalidArgument`; a UNC, mapped-network, device or relative path is `InvalidArgument`; a URL is `NotSupported` (cloud seam). AD-7's step list doesn't mention the location dialog: it runs in step 1, after the name and settings checks, before the pipeline and outside its deadline.
+  evidence: plan Answers Q3, Build Directions; `CreateHierarchyUseCase.CreateNotebookAsync`, `NotebookFolders`.
+- source_plan: same
+  summary: Spine sync (AD-6 `grantedVia: created`, AD-7 step between 7 and 8): the auto-grant is written only when the read-back `path`'s `NotebookKey` equals the checked folder's key and the returned ID wasn't open before the call (a tightening of "keyed by the path read back"); otherwise, or when the read-back or the settings write fails, `ok: true` with `createdNotGranted`, whose `userAction` names the grant CLI. Like every grant writer, `SaveWriteGrant` keeps an existing `permanentDelete: true` at that key (AD-6 Limits: a grant follows its path). A step-7 `Timeout`, `ComUnavailable`, `Cancelled` or `0x800706BE` stays `outcomeUnknown`, its message adding that a notebook made this way has no grant yet.
+  evidence: plan Design Notes; `CreateHierarchyUseCase.CreateNotebook.AfterCallAsync`.
+- source_plan: same
+  summary: Spine sync (AD-9): warnings gain `alreadyExisted` and `createdNotGranted`; success `meta` gains `objectId` (the node made or found), with `parentId` for a section or group and `path` (read back) for a notebook (Q5). Build assumptions, for Phill to confirm: a client without elicitation gets `NotSupported` from `create_notebook` and nothing is created (the no-dialog grant is safe only because the user picked the location); a declined or dismissed location dialog is `Cancelled`, `retryable: false`, never `outcomeUnknown`.
+  evidence: plan Build Directions (assumption); `ToolMeta.ObjectId`, `ToolWarnings`.
+- source_plan: same
+  summary: SEAM(5.3 cloud probe): creating a notebook at a OneDrive URL is closed (`CloudNotebookCreate.Enabled` is false; the dialog offers a local folder only, and a URL or `oneDrive` answer is `NotSupported`). The opt-in `CreateHierarchyIntegrationTests.CloudNotebookProbe_…` records what `OpenHierarchy(url, "", cftNotebook)` does under MCP Test Cloud's parent URL; open the seam only on its evidence (ID returned, read-back path keys to the URL sent, the notebook syncs, an existing name's behaviour), and settle where the OneDrive base URL comes from.
+  evidence: plan Answers Q3, Build Directions; `CloudNotebookCreate`.
+- source_plan: same
+  summary: Still unprobed: a section group's existing name (spike 5.1 created only sections twice). The server never sends one: step 4 returns the existing group with `alreadyExisted` before COM. Also unprobed: whether `OpenHierarchy` `cftNotebook` creates missing parent folders; the server requires the chosen folder to exist, so it never asks.
+  evidence: AD-7 `OpenHierarchy` create validation; `CreateHierarchyUseCase`.
+- source_plan: same
+  summary: Live sitting pending (never run in the build): `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter CreateHierarchy` on MCP Test makes a section and a section group (then soft-deletes them) and a throwaway notebook `MCP Test Throwaway …` under the throwaway root with a test `settings.json`, checking `list_grants` shows `grantedVia: created`; Phill closes and deletes the notebook it names (Q6). The cloud probe runs at the same sitting.
+  evidence: plan Answers Q6, Verification.

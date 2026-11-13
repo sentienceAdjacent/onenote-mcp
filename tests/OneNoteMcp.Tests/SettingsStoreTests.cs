@@ -126,7 +126,8 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(300), Timeouts.Default.Publish);
         Assert.Equal(TimeSpan.FromSeconds(10), Timeouts.Default.Activation);
         Assert.Equal(TimeSpan.FromSeconds(300), Timeouts.Default.IdleRelease);
-        Assert.Equal(new JournalSettings(Path.Combine(local, "OneNoteMcp", "journal"), 30, 2048), JournalSettings.Default());
+        // With no override set (the test process sets one; TestEnvironment).
+        Assert.Equal(new JournalSettings(Path.Combine(local, "OneNoteMcp", "journal"), 30, 2048), JournalSettings.Default(OneNoteMcp.Core.Journal.JournalFiles.DefaultFolder(_ => null)));
         Assert.Equal([Path.Combine(documents, "OneNote Exports")], ExportRoots.Default().Paths);
     }
 

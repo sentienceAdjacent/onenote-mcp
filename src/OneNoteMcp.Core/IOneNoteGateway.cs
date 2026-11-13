@@ -4,7 +4,8 @@ namespace OneNoteMcp.Core;
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
 /// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and the writes only the write pipeline makes (AD-7):
-/// <see cref="CreateNewPageAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
+/// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
+/// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
 /// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
 /// IDs are opaque strings, passed through unchanged.
 /// </summary>
@@ -50,6 +51,39 @@ public interface IOneNoteGateway
     /// check and under the write lock (AD-18).
     /// </summary>
     Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>Create</c>, AD-7): <c>OpenHierarchy</c> with <c>cftSection</c>, creating the section
+    /// <paramref name="sectionFileName"/> (a relative file name ending <c>.one</c>) under the object
+    /// <paramref name="parentId"/>, and returns its ID. Only by parent ID, never by an absolute path. A name that fails
+    /// <see cref="SectionFileNames.Problem"/> (or an empty parent ID) is refused with <see cref="ErrorCode.InvalidArgument"/>
+    /// before COM. When a section of that name already exists there, OneNote returns its ID (spike 5.1 constraint 5).
+    /// Never retried after a disconnect (AD-3). Only the write pipeline calls it, after the access check and under the
+    /// write lock (AD-18): <c>create_section</c> (story 5.3), and <c>restore_from_journal</c> for its <c>Recovered</c> section.
+    /// </summary>
+    Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>Create</c>, AD-7; story 5.3): <c>OpenHierarchy</c> with <c>cftFolder</c>, creating the section group
+    /// <paramref name="groupName"/> (one relative folder name) under the notebook or section group
+    /// <paramref name="parentId"/>, and returns its ID. Only by parent ID, never by an absolute path. A name that fails
+    /// <see cref="SectionFileNames.NameProblem"/> (or an empty parent ID) is refused with
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. What OneNote does for an existing group's name is unprobed (spike
+    /// 5.1), so <c>create_section_group</c> never sends one. Never retried after a disconnect (AD-3). Only the write
+    /// pipeline calls it, after the access check and under the write lock (AD-18).
+    /// </summary>
+    Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>Create</c>, AD-7; story 5.3): <c>OpenHierarchy</c> with <c>cftNotebook</c>, creating a notebook in the
+    /// local folder <paramref name="folderPath"/> and opening it, and returns its ID. The path must be a fully qualified
+    /// local path (<c>C:\…</c>) whose last segment passes <see cref="SectionFileNames.NameProblem"/>; anything else, a URL,
+    /// a UNC or device path included, is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. The caller checks
+    /// the folder is absent or empty first: OneNote creates a notebook in a non-empty folder too, and at an open notebook's
+    /// path returns that notebook's ID. Never retried after a disconnect (AD-3). Only the write pipeline calls it, after
+    /// the access check and under the write lock (AD-18).
+    /// </summary>
+    Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct);
 
     /// <summary>
     /// A write (<c>PageWrite</c>, AD-7): applies <paramref name="pageXml"/>, a 2013-schema page document, with

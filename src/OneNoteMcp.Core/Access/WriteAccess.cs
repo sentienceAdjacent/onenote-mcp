@@ -1,4 +1,5 @@
 using OneNoteMcp.Core.Settings;
+using OneNoteMcp.Xml;
 
 namespace OneNoteMcp.Core.Access;
 
@@ -17,6 +18,7 @@ public sealed record WriteTarget(string NotebookId, string NotebookKey);
 /// </summary>
 public sealed class WriteAccess
 {
+    private readonly IOneNoteGateway gateway;
     private readonly Func<SettingsSnapshot> settings;
     private readonly HierarchyWalk walk;
 
@@ -26,6 +28,7 @@ public sealed class WriteAccess
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(settings);
+        this.gateway = gateway;
         this.settings = settings;
         walk = new HierarchyWalk(gateway);
     }
@@ -52,21 +55,63 @@ public sealed class WriteAccess
         snapshot.EnsureWritable();
 
         var notebook = await walk.OwningNotebookAsync(objectId ?? string.Empty, ct).ConfigureAwait(false) ?? throw notInsideANotebook();
-        if (notebook.Path.Length == 0)
+        return Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path);
+    }
+
+    /// <summary>
+    /// Step 1 for a write under <paramref name="parentId"/>, a parent that may be the notebook itself (story 5.3: a new
+    /// section or section group's parent), with <see cref="CheckAsync"/>'s rules and errors. The grant is the owning
+    /// notebook's, found by the parent walk; when the walk ends at once (the parent has no parent), the parent itself is
+    /// read at <c>self</c>, and it is the notebook when it is a <c>one:Notebook</c>. Anything else is
+    /// <paramref name="notInsideANotebook"/>. Whether the parent is the right kind is AD-7 step 4's to decide.
+    /// </summary>
+    public async Task<WriteTarget> CheckContainerAsync(string parentId, Func<OneNoteException> notInsideANotebook, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(notInsideANotebook);
+        var snapshot = settings();
+        snapshot.EnsureWritable();
+
+        var id = parentId ?? string.Empty;
+        var notebook = await walk.OwningNotebookAsync(id, ct).ConfigureAwait(false);
+        if (notebook is null)
+        {
+            var xml = await gateway.GetHierarchyAsync(id, HierarchyScope.Self, ct).ConfigureAwait(false);
+            var self = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
+            notebook = self.Kind == HierarchyKind.Notebook ? self : throw notInsideANotebook();
+        }
+
+        return Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path);
+    }
+
+    /// <summary>
+    /// Step 1 for a write to an open notebook already found by its key (<c>restore_from_journal</c>, story 2.11), with
+    /// <see cref="CheckAsync"/>'s rules and errors: settings writable, a path, a write grant on that path's key. No walk.
+    /// </summary>
+    public WriteTarget CheckNotebook(OpenNotebook notebook)
+    {
+        ArgumentNullException.ThrowIfNull(notebook);
+        var snapshot = settings();
+        snapshot.EnsureWritable();
+        return Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path);
+    }
+
+    private static WriteTarget Granted(SettingsSnapshot snapshot, string notebookId, string displayName, string path)
+    {
+        if (path.Length == 0)
         {
             throw new OneNoteException(
                 ErrorCode.WriteNotGranted,
-                $"OneNote reports no path for notebook {notebook.Id}, so it can't hold a write grant.",
+                $"OneNote reports no path for notebook {notebookId}, so it can't hold a write grant.",
                 userAction: NotGrantedUserAction);
         }
 
-        var key = GrantKeys.NotebookKey(notebook.Path);
+        var key = GrantKeys.NotebookKey(path);
         if (!snapshot.Notebooks.TryGetValue(key, out var grant) || !grant.Write)
         {
-            throw new WriteGrantMissing(notebook.Id, notebook.DisplayName, notebook.Path, key);
+            throw new WriteGrantMissing(notebookId, displayName, path, key);
         }
 
-        return new WriteTarget(notebook.Id, key);
+        return new WriteTarget(notebookId, key);
     }
 
     /// <summary>

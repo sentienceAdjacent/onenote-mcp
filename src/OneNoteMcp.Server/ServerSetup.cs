@@ -138,6 +138,24 @@ public static class ServerSetup
         services.AddSingleton<UpdatePageContentUseCase>();
         services.AddSingleton<DeletePageContentUseCase>();
 
+        // restore_from_journal (AD-8): a Create that reads one entry from the journal folder settings.json names, re-read
+        // at every call.
+        services.AddSingleton(sp => new RestoreFromJournalUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<WritePipeline>(),
+            sp.GetRequiredService<SettingsStore>().Read));
+
+        // Story 5.3: section, section-group and notebook creates (AD-7 Create). A notebook create writes its automatic
+        // grant (AD-6 grantedVia: created) through the settings writer, inside the write lock.
+        services.AddSingleton(sp => new CreateHierarchyUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<WritePipeline>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            sp.GetRequiredService<SettingsWriter>(),
+            TimeProvider.System));
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -154,7 +172,11 @@ public static class ServerSetup
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
             .WithTools<CreatePageTool>(EnvelopeJson.Options)
             .WithTools<UpdatePageContentTool>(EnvelopeJson.Options)
-            .WithTools<DeletePageContentTool>(EnvelopeJson.Options);
+            .WithTools<DeletePageContentTool>(EnvelopeJson.Options)
+            .WithTools<RestoreFromJournalTool>(EnvelopeJson.Options)
+            .WithTools<CreateSectionTool>(EnvelopeJson.Options)
+            .WithTools<CreateSectionGroupTool>(EnvelopeJson.Options)
+            .WithTools<CreateNotebookTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.

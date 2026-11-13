@@ -65,4 +65,31 @@ public static class ToolWarnings
 
     /// <summary>The page couldn't be re-read after a write that succeeded, so what OneNote kept wasn't checked (AD-7).</summary>
     public const string ReadBackFailed = "readBackFailed";
+
+    /// <summary>
+    /// <c>restore_from_journal</c> restored the page without some of its binaries: images the snapshot lacked, and each
+    /// attachment, media file or other object it couldn't send (no temporary copy left, a path outside the temp folder,
+    /// or refused by OneNote) (AD-8; 2.11 plan Q2). Counts by kind only, never IDs or content.
+    /// </summary>
+    public const string BinaryMissing = "binaryMissing";
+
+    /// <summary>
+    /// <c>restore_from_journal</c> couldn't use the entry's <c>parentId</c>, so it restored the page into the section at
+    /// the entry's <c>parentNamePath</c>, or into the notebook's <c>Recovered</c> section (AD-8). Names which, never the
+    /// path itself; <c>meta.parentId</c> is the section used.
+    /// </summary>
+    public const string RestoredElsewhere = "restoredElsewhere";
+
+    /// <summary>
+    /// A create found a live section or section group of the same kind and name (ignoring case) already under the parent,
+    /// so it made nothing and returned that object's ID in <c>meta.objectId</c> (AD-7 <c>Create</c>). Names the ID only.
+    /// </summary>
+    public const string AlreadyExisted = "alreadyExisted";
+
+    /// <summary>
+    /// <c>create_notebook</c> made the notebook, but couldn't give it its automatic write grant (AD-6 <c>grantedVia:
+    /// created</c>): the notebook couldn't be read back, OneNote put it somewhere other than the folder the server checked,
+    /// or <c>settings.json</c> couldn't be written. The create stands. Its userAction says how the user grants writes.
+    /// </summary>
+    public const string CreatedNotGranted = "createdNotGranted";
 }

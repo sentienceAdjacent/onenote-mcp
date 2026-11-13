@@ -532,6 +532,159 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task CreateSection_OpensTheRelativeNameUnderTheParentId_WithCftSection_AndReturnsTheNewId()
+    {
+        var app = new FakeApplication { OnCall = _ => "{section}" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal("{section}", await gateway.CreateSectionAsync("{nb}", "Recovered.one", Ct));
+
+        // OpenHierarchy(bstrPath, bstrRelativeToObjectID, ..., cftSection): a relative name by parent ID, never an absolute path (AD-7).
+        Assert.Equal([["Recovered.one", "{nb}", Com.Interop.CreateFileType.cftSection]], app.Calls.Where(c => c.Method == "OpenHierarchy").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Recovered")]
+    [InlineData("..\\Recovered.one")]
+    [InlineData("a/Recovered.one")]
+    [InlineData("C:\\x\\Recovered.one")]
+    [InlineData("Re:covered.one")]
+    [InlineData("Re*covered.one")]
+    [InlineData("Recovered..one")]
+    [InlineData(".one")]
+    [InlineData("NUL.one")]
+    [InlineData("Recovered .one")]
+    public async Task CreateSection_RefusesABadName_WithInvalidArgument_BeforeCom(string name)
+    {
+        var app = new FakeApplication { OnCall = _ => "{section}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionAsync("{nb}", name, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateSection_RefusesAnEmptyParent_BeforeCom()
+    {
+        var app = new FakeApplication { OnCall = _ => "{section}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionAsync(string.Empty, "Recovered.one", Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateSection_IsNotRetriedAfterADisconnect()
+    {
+        // A write: a disconnect that reached COM is never repeated (AD-3); the pipeline then reports outcomeUnknown.
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionAsync("{nb}", "Recovered.one", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateSectionGroup_OpensTheNameUnderTheParentId_WithCftFolder_AndReturnsTheNewId()
+    {
+        var app = new FakeApplication { OnCall = _ => "{group}" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal("{group}", await gateway.CreateSectionGroupAsync("{nb}", "Archive", Ct));
+
+        // A relative folder name by parent ID, never an absolute path (AD-7), and no extension.
+        Assert.Equal([["Archive", "{nb}", Com.Interop.CreateFileType.cftFolder]], app.Calls.Where(c => c.Method == "OpenHierarchy").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("..")]
+    [InlineData("..\\Archive")]
+    [InlineData("a/Archive")]
+    [InlineData("C:\\x\\Archive")]
+    [InlineData("Arch*ive")]
+    [InlineData("Archive.")]
+    [InlineData("CON")]
+    [InlineData("OneNote_RecycleBin")]
+    public async Task CreateSectionGroup_RefusesABadName_WithInvalidArgument_BeforeCom(string name)
+    {
+        var app = new FakeApplication { OnCall = _ => "{group}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionGroupAsync("{nb}", name, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateSectionGroup_RefusesAnEmptyParent_BeforeCom_AndIsNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionGroupAsync(string.Empty, "Archive", Ct))).Code);
+        Assert.Empty(app.Calls);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionGroupAsync("{nb}", "Archive", Ct));
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateNotebook_OpensTheFolder_WithNoParent_AndCftNotebook()
+    {
+        var app = new FakeApplication { OnCall = _ => "{notebook}" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal("{notebook}", await gateway.CreateNotebookAsync(@"C:\Notebooks\Notebook A", Ct));
+
+        Assert.Equal([[@"C:\Notebooks\Notebook A", string.Empty, Com.Interop.CreateFileType.cftNotebook]], app.Calls.Where(c => c.Method == "OpenHierarchy").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Notebook A")]
+    [InlineData(@"Notebooks\Notebook A")]
+    [InlineData(@"C:Notebook A")]
+    [InlineData(@"\\server\share\Notebook A")]
+    [InlineData(@"\\?\C:\Notebook A")]
+    [InlineData(@"\\.\C:\Notebook A")]
+    [InlineData("https://d.docs.live.net/0123/Documents/Notebook A")]
+    [InlineData(@"C:\Notebooks\CON")]
+    [InlineData(@"C:\Notebooks\Notebook A.")]
+    [InlineData(@"C:\")]
+    public async Task CreateNotebook_RefusesAnythingButALocalFolderWithAValidName_BeforeCom(string path)
+    {
+        var app = new FakeApplication { OnCall = _ => "{notebook}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateNotebookAsync(path, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateNotebook_IsNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateNotebookAsync(@"C:\Notebooks\Notebook A", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+    }
+
+    [Fact]
     public async Task GetHierarchy_PassesStartScopeAndXs2013()
     {
         var app = new FakeApplication { OnCall = _ => "<ok/>" };

@@ -110,6 +110,7 @@ public sealed class UpdatePageContentToolTests : IDisposable
         Assert.Equal("update_page_content", entry.Operation);
         Assert.Equal(nameof(OperationClass.PageWrite), entry.OperationClass);
         Assert.Equal(root.GetProperty("meta").GetProperty("correlationId").GetString(), entry.CorrelationId);
+        Assert.Equal(entry.EntryId.ToString("D"), root.GetProperty("meta").GetProperty("journalEntryId").GetString()); // 2.11 Q1
         Assert.False(cache.TryGet(PageId, DateTimeOffset.UnixEpoch, out _));
         Assert.Equal(root.GetProperty("meta").GetProperty("correlationId").GetString(), Assert.Single(holds).CorrelationId);
         await AssertLockFreeAsync();
@@ -735,7 +736,29 @@ public sealed class UpdatePageContentToolTests : IDisposable
 
         Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
         Assert.Equal([(PageId, PageInfo.Basic), (PageId, PageInfo.BinaryData)], gateway.PageCalls);
-        Assert.Single(Directory.GetFiles(Folder));
+        var entry = JournalStore.Read(Assert.Single(Directory.GetFiles(Folder)));
+
+        // 2.11 Q1: a failure after the snapshot names the entry; the error's meta stays {correlationId} (AD-9).
+        Assert.Contains(entry.EntryId.ToString("D"), error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task AClientCancelDuringTheComCall_IsOutcomeUnknown_AndNamesTheJournalEntry()
+    {
+        // 2.11: the pipeline's own step-7 cancel message carries the operation's note (Q1's entry ID).
+        using var cts = new CancellationTokenSource();
+        gateway.OnUpdateCall = async ct =>
+        {
+            await cts.CancelAsync();
+            ct.ThrowIfCancellationRequested();
+        };
+
+        var error = Error(await Tool().UpdatePageContent(PageId, Sent(EditedOutlineB()), BasisArgument(), cancellationToken: cts.Token), "Cancelled");
+
+        Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
+        var entry = JournalStore.Read(Assert.Single(Directory.GetFiles(Folder)));
+        Assert.Contains(entry.EntryId.ToString("D"), error.GetProperty("message").GetString(), StringComparison.Ordinal);
         await AssertLockFreeAsync();
     }
 
@@ -1014,6 +1037,12 @@ public sealed class UpdatePageContentToolTests : IDisposable
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => inner.NavigateToAsync(hierarchyId, objectId, ct);
 
         public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => inner.CreateNewPageAsync(sectionId, style, ct);
+
+        public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => inner.CreateSectionAsync(parentId, sectionFileName, ct);
+
+        public Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct) => inner.CreateSectionGroupAsync(parentId, groupName, ct);
+
+        public Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct) => inner.CreateNotebookAsync(folderPath, ct);
 
         public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => inner.UpdatePageContentAsync(pageXml, expectedLastModified, ct);
 
