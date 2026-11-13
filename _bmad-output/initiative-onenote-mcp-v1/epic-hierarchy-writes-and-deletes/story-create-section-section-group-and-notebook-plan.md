@@ -3,7 +3,7 @@ title: 'Create: section, section group and notebook'
 type: 'feature'
 ticket: '3'
 created: '2026-11-12'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -60,6 +60,16 @@ deferred: []
 | COM timeout | any | `outcomeUnknown: true` | no retry |
 
 </intent-contract>
+
+## Answers (Phill, 2026-11-13, Inbox thread "5.3 create hierarchy")
+
+- Q1: three tools, `create_section`, `create_section_group` and `create_notebook`. A `kind` argument would only shorten the tool list, at the cost of conditional arguments.
+- Q2: add `.one` to a section name unless the name already ends with it.
+- Q3: `create_notebook` asks the user where the notebook goes, in a dialog that offers the user's OneDrive (a cloud notebook, created by URL) or a local folder. The user picks the location, so the new notebook's no-dialog write grant is safe. Cloud is the common case. **It needs a live probe** at the sitting: can COM create a notebook at a OneDrive URL? If it can't, the dialog falls back to local folders only.
+- Q4: a section and a section group with the same name under one parent are refused with `InvalidArgument`.
+- Q5: a create returns `meta.objectId`, plus `meta.parentId` (section, group) or `meta.path` (notebook).
+- Q6: live notebook creation runs in an opt-in integration test that makes a throwaway notebook under the test folder; Phill closes and deletes it afterwards.
+- Q7: approved with these answers.
 
 ## Open Questions
 
