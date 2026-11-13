@@ -163,6 +163,9 @@ deferred:
   - `[low]` `[patch]` README status sentence and the "(planned)" Undo row contradicted the new tool row — `restore_from_journal` added to the status sentence; "(planned)" dropped.
   - `[low]` `[patch]` An entry file found by name wasn't checked to hold the requested entry — `JournalFailed` when `EntryId` differs; one test.
 
+### 2026-11-13 — Shell injection in suggested grant commands
+- `[high]` `[patch]` Security review of 5.6 found it; pre-existing (not 2.11's code); fixed here, at the bottom of the stack. The write dialog's revoke hint (`ElicitationGrantPrompt.WriteRequest`) and the `grant --write` / `grant --read-section` CLI success lines put the live notebook or section name inside a double-quoted command; a name like `$(evil)` (a shared notebook's, or later a model-created one) would run in PowerShell when the user pasted it. The commands now hold `"<notebook name>"` / `"<section name>"`; the prose still names the object. Tests with a `$(evil)` name for each, watched failing first.
+
 ## Design Notes
 
 - **Step 7, in order** (Q4 (a) assumed): `CreateSectionAsync(notebookId, "Recovered.one")` only when step 3 found no `Recovered`; `CreateNewPageAsync(section)`; `GetPageContentAsync(new, Basic)`; `DeletePageContentAsync` for each template object, then one more read for the date; `UpdatePageContentAsync(built XML, that date)`. The date comes from the new page, so `force: false` and the gateway's date rule hold. If that write carried kept attachments and fails with a definite code, the Decisions' one empty-page retry without them follows.
