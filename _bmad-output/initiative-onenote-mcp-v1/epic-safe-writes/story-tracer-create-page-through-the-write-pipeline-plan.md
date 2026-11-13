@@ -3,7 +3,7 @@ title: 'Tracer: create_page through the write pipeline'
 type: 'feature'
 ticket: '4'
 created: '2026-11-10'
-status: 'built'
+status: done
 baseline_revision: '9ccedd691f7d2edcb126f9792928a3efd01a5c80'
 route: 'full'
 route_source: 'auto'

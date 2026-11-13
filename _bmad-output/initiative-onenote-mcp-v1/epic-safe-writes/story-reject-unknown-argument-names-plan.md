@@ -3,7 +3,7 @@ title: 'Reject unknown argument names'
 type: 'feature'
 ticket: '5'
 created: '2026-11-11'
-status: 'built'
+status: done
 baseline_revision: 'c427af09c7645615e4f2b9d9ccd2b64537c40ef7'
 route: 'full'
 route_source: 'auto'
