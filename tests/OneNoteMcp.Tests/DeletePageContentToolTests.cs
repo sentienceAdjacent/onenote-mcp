@@ -110,8 +110,25 @@ public sealed class DeletePageContentToolTests : IDisposable
         Assert.Equal("delete_page_content", entry.Operation);
         Assert.Equal(nameof(OperationClass.PageWrite), entry.OperationClass);
         Assert.Equal(root.GetProperty("meta").GetProperty("correlationId").GetString(), entry.CorrelationId);
+        Assert.Equal(entry.EntryId.ToString("D"), root.GetProperty("meta").GetProperty("journalEntryId").GetString()); // 2.11 Q1
         Assert.False(cache.TryGet(PageId, DateTimeOffset.UnixEpoch, out _));
         Assert.Equal(root.GetProperty("meta").GetProperty("correlationId").GetString(), Assert.Single(holds).CorrelationId);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task AFailedComDelete_NamesTheJournalEntry_InItsMessage()
+    {
+        // 2.11 Q1: a failure after the snapshot names the entry, so the caller can restore it; error meta stays {correlationId}.
+        gateway.DeleteFailure = new OneNoteException(ErrorCode.ModalDialogOpen, "DeletePageContent failed: hrModalDialogOpen.", unchecked((int)0x80042030));
+
+        var result = await Tool().DeletePageContent(PageId, G(40), BasisArgument(), Ct);
+
+        var error = Error(result, "ModalDialogOpen");
+        var entry = JournalStore.Read(Assert.Single(Directory.GetFiles(Folder)));
+        Assert.Contains(entry.EntryId.ToString("D"), error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.False(result.StructuredContent!.Value.GetProperty("meta").TryGetProperty("journalEntryId", out _));
         await AssertLockFreeAsync();
     }
 
@@ -595,6 +612,8 @@ public sealed class DeletePageContentToolTests : IDisposable
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => inner.NavigateToAsync(hierarchyId, objectId, ct);
 
         public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => inner.CreateNewPageAsync(sectionId, style, ct);
+
+        public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => inner.CreateSectionAsync(parentId, sectionFileName, ct);
 
         public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => inner.UpdatePageContentAsync(pageXml, expectedLastModified, ct);
 

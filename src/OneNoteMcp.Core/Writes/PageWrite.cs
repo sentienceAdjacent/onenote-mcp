@@ -154,8 +154,47 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
         return (owner is null || Services.ReadAccess.HoldsReadGrant(owner, callStart), owner?.Id);
     }
 
-    public override Task SnapshotAsync(CancellationToken ct) =>
-        Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, OperationClass.PageWrite, PageId, BasicXml), ct);
+    /// <summary>
+    /// The journal entry step 6 stored, for <c>meta.journalEntryId</c> and for the message of a step-7 failure (Phill,
+    /// 2026-11-12, 2.11 plan Q1); null until the snapshot is taken.
+    /// </summary>
+    public Guid? JournalEntryId { get; private set; }
+
+    /// <summary>The journal entry sentence (2.11 Q1), for step-7 failures the operation or the pipeline reports.</summary>
+    public override string? FailureNote => JournalEntryId is { } entryId
+        ? string.Create(CultureInfo.InvariantCulture, $"The page as it was before this write is in journal entry {entryId:D} (restore_from_journal).")
+        : null;
+
+    public override async Task SnapshotAsync(CancellationToken ct)
+    {
+        var written = await Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, OperationClass.PageWrite, PageId, BasicXml), ct).ConfigureAwait(false);
+        JournalEntryId = written.EntryId;
+    }
+
+    /// <summary>
+    /// Runs step 7's COM <paramref name="call"/>; a <see cref="OneNoteException"/> it throws comes back with the same code,
+    /// HRESULT, flags and userAction, and a message that also names the journal entry step 6 stored (2.11 plan Q1), so the
+    /// caller can restore it with <c>restore_from_journal</c>. The pipeline still decides <c>outcomeUnknown</c> (AD-9).
+    /// </summary>
+    protected async Task CallNamingEntryAsync(Func<Task> call)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        try
+        {
+            await call().ConfigureAwait(false);
+        }
+        catch (OneNoteException ex) when (FailureNote is { } note)
+        {
+            throw new OneNoteException(
+                ex.Code,
+                $"{ex.Message} {note}",
+                ex.ComHResult,
+                ex,
+                ex.OutcomeUnknown,
+                ex.UserAction,
+                ex.Retryable);
+        }
+    }
 
     /// <summary>
     /// The read-back threw (its deadline or a cancel included): the write stands, with the warning
@@ -560,7 +599,7 @@ public sealed class UpdatePageContentWrite : PageWrite
 
     public override async Task<PageWriteResult> CallAsync(CancellationToken ct)
     {
-        await Services.Gateway.UpdatePageContentAsync(xml, expectedLastModified ?? string.Empty, ct).ConfigureAwait(false);
+        await CallNamingEntryAsync(() => Services.Gateway.UpdatePageContentAsync(xml, expectedLastModified ?? string.Empty, ct)).ConfigureAwait(false);
         return new PageWriteResult(null, [.. Warnings]);
     }
 
@@ -815,7 +854,7 @@ public sealed class DeletePageContentWrite : PageWrite
 
     public override async Task<PageWriteResult> CallAsync(CancellationToken ct)
     {
-        await Services.Gateway.DeletePageContentAsync(PageId, objectId, expectedLastModified ?? string.Empty, ct).ConfigureAwait(false);
+        await CallNamingEntryAsync(() => Services.Gateway.DeletePageContentAsync(PageId, objectId, expectedLastModified ?? string.Empty, ct)).ConfigureAwait(false);
         return new PageWriteResult(null, [.. Warnings]);
     }
 

@@ -43,6 +43,13 @@ public abstract class WriteOperation<TResult>
     /// <summary>The result to report when <see cref="AfterCallAsync"/> threw <paramref name="exception"/>; by default <paramref name="result"/> unchanged.</summary>
     public virtual TResult AfterCallFailed(TResult result, Exception exception) => result;
 
+    /// <summary>
+    /// A sentence the runner appends to the message of a step-7 cancel or deadline it reports itself, so those failures
+    /// carry what the operation's own step-7 errors do (a page write's journal entry, a restore's created page; story
+    /// 2.11). IDs only, never content (AD-9). None by default.
+    /// </summary>
+    public virtual string? FailureNote => null;
+
     /// <summary>The pages this write wrote or may have written, dropped from the search page-text cache whatever the outcome (AD-7, AD-12).</summary>
     public virtual IReadOnlyCollection<string> WrittenPageIds => [];
 }

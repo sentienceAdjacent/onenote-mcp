@@ -13,7 +13,7 @@ namespace OneNoteMcp.Tests;
 /// The story-3 scripting stays: <see cref="HierarchyXml"/>, when set, answers every <c>GetHierarchy</c>;
 /// <see cref="Failure"/>, when set, is thrown by every method; <see cref="Calls"/> records <c>GetHierarchy</c> calls.
 /// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21), and <see cref="CreateCalls"/> records
-/// <c>CreateNewPage</c> calls (story 2.4); <see cref="UpdateCalls"/> and <see cref="DeleteCalls"/> record the page
+/// <c>CreateNewPage</c> calls (story 2.4) and <see cref="CreateSectionCalls"/> section creates (story 2.11); <see cref="UpdateCalls"/> and <see cref="DeleteCalls"/> record the page
 /// writes (story 2.7), and <see cref="AbandonedWrites"/> scripts an outstanding abandoned write. None has a fixture.
 /// <para>
 /// Story 1.20's access check resolves a page's section (<c>GetHierarchyParent</c>, then <c>GetHierarchy</c> of the
@@ -166,7 +166,38 @@ internal sealed class FakeGateway : IOneNoteGateway
             throw failure;
         }
 
-        return CreatedPageId(CreateCalls.Count);
+        var created = CreatedPageId(CreateCalls.Count);
+        OnCreated?.Invoke(sectionId, created);
+        return created;
+    }
+
+    /// <summary>Runs with the section and the new page's ID after each <c>CreateNewPage</c> call that succeeds (story 2.11), so a test can serve the new page.</summary>
+    public Action<string, string>? OnCreated { get; set; }
+
+    /// <summary>Every <c>OpenHierarchy</c> section create, in order (story 2.11). It has no fixture: it records and returns <see cref="CreatedSectionId"/>.</summary>
+    public List<(string ParentId, string SectionFileName)> CreateSectionCalls { get; } = [];
+
+    /// <summary>When set, the section create alone throws it.</summary>
+    public Exception? CreateSectionFailure { get; set; }
+
+    /// <summary>Runs with the parent, the file name and the new section's ID after each section create that succeeds.</summary>
+    public Action<string, string, string>? OnCreateSection { get; set; }
+
+    /// <summary>The synthetic ID the <paramref name="n"/>th section create (from 1) returns.</summary>
+    public static string CreatedSectionId(int n) =>
+        string.Create(CultureInfo.InvariantCulture, $"{{5EC7C4EA-0000-4000-8000-{n:D12}}}{{1}}{{B0}}");
+
+    public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct)
+    {
+        CreateSectionCalls.Add((parentId, sectionFileName));
+        if ((Failure ?? CreateSectionFailure) is { } failure)
+        {
+            return Task.FromException<string>(failure);
+        }
+
+        var created = CreatedSectionId(CreateSectionCalls.Count);
+        OnCreateSection?.Invoke(parentId, sectionFileName, created);
+        return Task.FromResult(created);
     }
 
     /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
@@ -174,6 +205,9 @@ internal sealed class FakeGateway : IOneNoteGateway
 
     /// <summary>When set, <c>UpdatePageContent</c> alone throws it.</summary>
     public Exception? UpdateFailure { get; set; }
+
+    /// <summary>Failures for the next <c>UpdatePageContent</c> calls, one per call, before <see cref="UpdateFailure"/> (story 2.11).</summary>
+    public Queue<Exception> UpdateFailures { get; } = new();
 
     /// <summary>Every <c>DeletePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
     public List<(string PageId, string ObjectId, string ExpectedLastModified)> DeleteCalls { get; } = [];
@@ -187,16 +221,28 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// </summary>
     public TaskCompletionSource? AbandonedWrites { get; set; }
 
-    public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
+    /// <summary>When set, runs inside <c>UpdatePageContent</c> before it answers, with the call's token (story 2.11: a hook to cancel during the call).</summary>
+    public Func<CancellationToken, Task>? OnUpdateCall { get; set; }
+
+    public async Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
     {
         UpdateCalls.Add((pageXml, expectedLastModified));
+        if (OnUpdateCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if (Failure is null && UpdateFailures.TryDequeue(out var next))
+        {
+            throw next;
+        }
+
         if ((Failure ?? UpdateFailure) is { } failure)
         {
-            return Task.FromException(failure);
+            throw failure;
         }
 
         OnUpdate?.Invoke(pageXml);
-        return Task.CompletedTask;
     }
 
     public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct)

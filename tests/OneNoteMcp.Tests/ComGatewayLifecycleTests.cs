@@ -532,6 +532,66 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task CreateSection_OpensTheRelativeNameUnderTheParentId_WithCftSection_AndReturnsTheNewId()
+    {
+        var app = new FakeApplication { OnCall = _ => "{section}" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal("{section}", await gateway.CreateSectionAsync("{nb}", "Recovered.one", Ct));
+
+        // OpenHierarchy(bstrPath, bstrRelativeToObjectID, ..., cftSection): a relative name by parent ID, never an absolute path (AD-7).
+        Assert.Equal([["Recovered.one", "{nb}", Com.Interop.CreateFileType.cftSection]], app.Calls.Where(c => c.Method == "OpenHierarchy").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Recovered")]
+    [InlineData("..\\Recovered.one")]
+    [InlineData("a/Recovered.one")]
+    [InlineData("C:\\x\\Recovered.one")]
+    [InlineData("Re:covered.one")]
+    [InlineData("Re*covered.one")]
+    [InlineData("Recovered..one")]
+    [InlineData(".one")]
+    [InlineData("NUL.one")]
+    [InlineData("Recovered .one")]
+    public async Task CreateSection_RefusesABadName_WithInvalidArgument_BeforeCom(string name)
+    {
+        var app = new FakeApplication { OnCall = _ => "{section}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionAsync("{nb}", name, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateSection_RefusesAnEmptyParent_BeforeCom()
+    {
+        var app = new FakeApplication { OnCall = _ => "{section}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionAsync(string.Empty, "Recovered.one", Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task CreateSection_IsNotRetriedAfterADisconnect()
+    {
+        // A write: a disconnect that reached COM is never repeated (AD-3); the pipeline then reports outcomeUnknown.
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionAsync("{nb}", "Recovered.one", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+    }
+
+    [Fact]
     public async Task GetHierarchy_PassesStartScopeAndXs2013()
     {
         var app = new FakeApplication { OnCall = _ => "<ok/>" };
