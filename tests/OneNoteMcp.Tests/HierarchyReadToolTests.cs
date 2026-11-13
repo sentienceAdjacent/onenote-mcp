@@ -358,6 +358,9 @@ public sealed class HierarchyReadToolTests
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
 
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw new NotSupportedException();
+
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
 
         public Task<string> GetPageContentAsync(string pageId, PageInfo pageInfo, CancellationToken ct) => throw new NotSupportedException();

@@ -39,7 +39,7 @@ public static class HierarchyChildren
         return new HierarchyParent(KindOf(root), (string?)root.Attribute("ID") ?? string.Empty, IsRecycleBin(root), InRecycleBin(root), children);
     }
 
-    private static HierarchyKind KindOf(XElement element) =>
+    internal static HierarchyKind KindOf(XElement element) =>
         element.Name.Namespace != OneNoteXml.One
             ? HierarchyKind.Other
             : element.Name.LocalName switch
@@ -51,11 +51,11 @@ public static class HierarchyChildren
                 _ => HierarchyKind.Other,
             };
 
-    private static bool IsRecycleBin(XElement element) =>
+    internal static bool IsRecycleBin(XElement element) =>
         OneNoteXml.IsTrue((string?)element.Attribute("isRecycleBin"))
         || (KindOf(element) == HierarchyKind.SectionGroup
             && string.Equals((string?)element.Attribute("name"), NotebookSections.RecycleBinName, StringComparison.Ordinal));
 
-    private static bool InRecycleBin(XElement element) =>
+    internal static bool InRecycleBin(XElement element) =>
         OneNoteXml.IsTrue((string?)element.Attribute("isInRecycleBin")) || OneNoteXml.IsTrue((string?)element.Attribute("isDeletedPages"));
 }

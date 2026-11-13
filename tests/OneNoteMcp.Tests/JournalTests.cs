@@ -139,6 +139,75 @@ public sealed class JournalTests : IDisposable
         Assert.Null(read.Protected);
     }
 
+    // --- Hierarchy snapshots (story 5.4) --------------------------------------------------------------------------
+
+    private const string HierarchyNs = "xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\"";
+
+    [Fact]
+    public async Task HierarchySnapshot_OfASectionInAGroup_IsAHierarchyEntry_PlacedByTheWalk()
+    {
+        var gateway = new FakeGateway();
+        gateway.Parents["{S}"] = "{G}";
+        gateway.Parents["{G}"] = "{N}";
+        gateway.Parents["{N}"] = string.Empty;
+        gateway.Hierarchies[("{G}", HierarchyScope.Self)] = $"<one:SectionGroup {HierarchyNs} name=\"Group\" ID=\"{{G}}\" />";
+        gateway.Hierarchies[("{N}", HierarchyScope.Self)] = $"<one:Notebook {HierarchyNs} name=\"N\" nickname=\"Shown\" ID=\"{{N}}\" path=\"C:\\n\\N\\\" />";
+        var xml = $"<one:Section {HierarchyNs} name=\"Ideas\" ID=\"{{S}}\" path=\"C:\\n\\N\\Group\\Ideas.one\" />";
+
+        var written = await new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock())
+            .TakeAsync(new HierarchySnapshotRequest("c", "rename_hierarchy_object", OperationClass.HierarchyWrite, "{S}", xml), TestContext.Current.CancellationToken);
+
+        var entry = JournalStore.Read(written.Path);
+        Assert.False(written.Protected);
+        Assert.Equal(JournalEntry.HierarchyKind, entry.SnapshotKind);
+        Assert.Equal("HierarchyWrite", entry.OperationClass);
+        Assert.Equal("{S}", entry.ObjectId);
+        Assert.Equal("{N}", entry.NotebookId);
+        Assert.Equal(@"C:\n\N", entry.NotebookPath);
+        Assert.Equal("Shown", entry.NotebookName);
+        Assert.Equal("{G}", entry.ParentId);
+        Assert.Equal("Group", entry.ParentNamePath);
+        Assert.Equal("Ideas", entry.Title);
+        Assert.Equal(xml, entry.Xml);
+        Assert.True(entry.BinaryComplete);
+    }
+
+    [Fact]
+    public async Task HierarchySnapshot_RootedAtAProtectedSection_IsProtected_ByItsPreWriteSectionKey()
+    {
+        var gateway = new FakeGateway();
+        gateway.Parents["{S}"] = "{N}";
+        gateway.Parents["{N}"] = string.Empty;
+        gateway.Hierarchies[("{N}", HierarchyScope.Self)] = $"<one:Notebook {HierarchyNs} name=\"N\" ID=\"{{N}}\" path=\"C:\\n\\N\" />";
+        var xml = $"<one:Section {HierarchyNs} name=\"Vault\" ID=\"{{S}}\" path=\"C:\\n\\N\\Vault.one\" encrypted=\"true\"><one:Page ID=\"{{P}}\" name=\"Secret title\" /></one:Section>";
+
+        var written = await new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock())
+            .TakeAsync(new HierarchySnapshotRequest("c", "reorder_hierarchy_children", OperationClass.HierarchyWrite, "{S}", xml), TestContext.Current.CancellationToken);
+
+        Assert.True(written.Protected);
+        Assert.DoesNotContain("Secret title", Raw(written.Path).ToJsonString(), StringComparison.Ordinal);
+        var entry = JournalStore.Read(written.Path);
+        Assert.Equal(@"C:\n\N\Vault.one", entry.SectionKey);
+        Assert.Equal(xml, entry.Xml);
+    }
+
+    [Fact]
+    public async Task HierarchySnapshot_OfUnreadableXml_OrAnUnplacedNode_IsJournalFailed()
+    {
+        var gateway = new FakeGateway();
+        gateway.Parents["{S}"] = string.Empty;
+        var snapshot = new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock());
+
+        var unreadable = await Assert.ThrowsAsync<OneNoteException>(() => snapshot.TakeAsync(
+            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", "<one:Section"), TestContext.Current.CancellationToken));
+        var unplaced = await Assert.ThrowsAsync<OneNoteException>(() => snapshot.TakeAsync(
+            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", $"<one:Section {HierarchyNs} name=\"S\" ID=\"{{S}}\" />"), TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.JournalFailed, unreadable.Code);
+        Assert.Equal(ErrorCode.JournalFailed, unplaced.Code);
+        Assert.False(Directory.Exists(Folder) && Directory.GetFiles(Folder).Length > 0);
+    }
+
     [Fact]
     public void Write_TheFile_IsAd10sFormat_NullsLeftOut_DatesUtcIso()
     {

@@ -177,6 +177,9 @@ internal sealed class VaultGateway : IOneNoteGateway
 
     public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
 
+
+    public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw new NotSupportedException();
+
     public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
 
     private static XElement Section(string name, string id, string path, bool encrypted, params XElement[] pages)

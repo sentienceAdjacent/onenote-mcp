@@ -3,14 +3,15 @@ title: 'Rename and reorder: update_hierarchy'
 type: 'feature'
 ticket: '4'
 created: '2026-11-13'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '7f762657fab50c8c8b80f6ec1a27629aad0e5de6'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -79,6 +80,23 @@ Tool names are Q1 (b)'s; under (a) or (c) the rows hold, with the arguments carr
 - Q6: subpages keep their level and must stay right after their parent page: a block moves as a whole.
 - Q7: no reordering of the notebook list in 5.4.
 - Q8: approved with these answers.
+
+## Build Directions (unattended build, 2026-11-13)
+
+These settle what the answers leave to the build. They are binding for this build and sit beside the Answers; where the intent contract above predates an answer, the answer and these directions win. Items marked **Assumption** are conservative choices made without Phill; each is listed in the Auto Run Result for him to confirm.
+
+- **Where to work.** `{project-root}` for this build is the git worktree that holds this plan: `D:\Development\OneNote COM MCP\.claude\worktrees\agent-adaa7d2a980117146` (branch `story/5.4-update-hierarchy`). Read, edit, build and test only there, with absolute paths; never touch `D:\Development\OneNote COM MCP` itself or any other worktree.
+
+- **One name-rule entry point.** Every rename name check goes through 5.3's shared entry point, `SectionFileNames.NameProblem` (and `SectionFileNames.SectionName` to drop a trailing `.one` from a section name), the same call `CreateHierarchyUseCase` makes. Write no parallel validator and no extra character rules in 5.4: 5.3 is being extended on its own branch with name hygiene (control, bidi, zero-width and line-separator characters, names over 128 characters) inside that entry point, and 5.4 inherits it by rebase. Share the sibling-name and recycle-bin checks with `CreateHierarchyUseCase` by pulling them into a helper both use, not by copying.
+- **Notebook display-name clash. Assumption.** "Another open notebook already uses" the name means another open notebook's `nickname` or `name`, ignoring case (refuses more; cheap to relax). The renamed notebook's own names don't count.
+- **Section `.one`.** A section rename strips one trailing `.one` (ignoring case) with `SectionFileNames.SectionName`, then checks the stem with `NameProblem`, and sends the stem as `name`. Read-back compares the read `name` with the sent stem.
+- **Tool names and arguments (Q1).** `rename_hierarchy_object(objectId, name, basis?)` and `reorder_hierarchy_children(parentId, childIds, basis?)`, `basis` taking the same shape as the existing write tools' basis argument restricted to `lastModifiedTime` (anything else is `InvalidArgument`).
+- **Subpage blocks (Q6).** A page block is a page plus the contiguous run of pages after it with a higher `pageLevel`, as read in step 3. The submitted order must be a permutation of whole blocks at every level: each page's level is unchanged, and every page with level > 1 must come after its block's parent with only that parent's block between them. Anything else is `InvalidArgument`. **Assumption:** a page whose `pageLevel` already jumps by more than one (an irregular level read from OneNote) is treated as belonging to the nearest preceding page with a lower level.
+- **Notebook as reorder parent.** A notebook reorders its sections and section groups (sections first). The `Notebooks` root (Q7) is never a parent: an ID that isn't a notebook, section group or section is `InvalidArgument`.
+- **This build never touches OneNote.** No integration tests run, no COM against a real OneNote, no starting, closing or killing OneNote, no `ONENOTE_MCP_INTEGRATION`, no server exe, no `NavigateTo`. Don't read or touch `%APPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp`; don't edit settings, `CLAUDE.md` or config files. Only `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`. The L1-L9 probes are written in `tests/OneNoteMcp.Integration/UpdateHierarchyIntegrationTests.cs` behind the opt-in skip and `TestNotebookGuard`, on throwaway nodes in MCP Test (MCP Test Cloud for L7) only, and are not run.
+- **Known flaky test.** `ComGatewayLifecycleTests.AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked` can fail on timing; rerun once and note it.
+- **Privacy.** No real notebook, employer or person names in code, tests, fixtures or docs; use "notebook A/B/C", "MCP Test" and "MCP Test Cloud".
+- **No commits by the implementer.** Leave changes in the working tree; the build session commits.
 
 ## Open Questions
 
@@ -152,18 +170,18 @@ None runs in the build; each is an opt-in test in `tests/OneNoteMcp.Integration/
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Com/HResultMap.cs`, `tests/OneNoteMcp.Tests/HResultMapTests.cs`, `CreatePageToolTests.cs` -- the three remaps.
-- [ ] `src/OneNoteMcp.Xml/` -- target/parent reader and the rename and reorder XML builders (+ fixture tests, XSD pass).
-- [ ] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs`, `FakeApplication.cs` (+ `ComGatewayLifecycleTests`) -- `UpdateHierarchyAsync`, never retried.
-- [ ] `src/OneNoteMcp.Core/Journal/HierarchySnapshot.cs` (new), `JournalEntry.cs` (+ `JournalTests`) -- the `hierarchy` entry, protected when rooted at a protected section.
-- [ ] `src/OneNoteMcp.Core/UseCases/UpdateHierarchyUseCase.cs` (new) -- rename and reorder `HierarchyWrite` operations; shared name checks pulled out of `CreateHierarchyUseCase`.
-- [ ] `src/OneNoteMcp.Core/Results/ToolWarnings.cs` -- `unchanged`.
-- [ ] `src/OneNoteMcp.Server/Tools/` new tools per Q1, `ServerSetup.cs` registration.
-- [ ] `tests/OneNoteMcp.Tests/UpdateHierarchyToolTests.cs` (new) -- every I/O matrix row, no COM and no journal on refusals and `unchanged`, counts-only messages without a read grant, snapshot before call, read-back warnings.
-- [ ] `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs` -- contract.
-- [ ] `tests/OneNoteMcp.Integration/UpdateHierarchyIntegrationTests.cs` (new, opt-in) -- L1-L9, written, not run.
-- [ ] `README.md`, `plugin/skills/guide/SKILL.md` -- tool rows.
-- [ ] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync: tool names (Q1), add dropped (Q2), the XSD hard gate for `UpdateHierarchy` (AD-16), rename and reorder rules, `unchanged`, the three rows done.
+- [x] `src/OneNoteMcp.Com/HResultMap.cs`, `tests/OneNoteMcp.Tests/HResultMapTests.cs`, `CreatePageToolTests.cs` -- the three remaps.
+- [x] `src/OneNoteMcp.Xml/` -- target/parent reader and the rename and reorder XML builders (+ fixture tests, XSD pass).
+- [x] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs`, `FakeApplication.cs` (+ `ComGatewayLifecycleTests`) -- `UpdateHierarchyAsync`, never retried.
+- [x] `src/OneNoteMcp.Core/Journal/HierarchySnapshot.cs` (new), `JournalEntry.cs` (+ `JournalTests`) -- the `hierarchy` entry, protected when rooted at a protected section.
+- [x] `src/OneNoteMcp.Core/UseCases/UpdateHierarchyUseCase.cs` (new) -- rename and reorder `HierarchyWrite` operations; shared name checks pulled out of `CreateHierarchyUseCase`.
+- [x] `src/OneNoteMcp.Core/Results/ToolWarnings.cs` -- `unchanged`.
+- [x] `src/OneNoteMcp.Server/Tools/` new tools per Q1, `ServerSetup.cs` registration.
+- [x] `tests/OneNoteMcp.Tests/UpdateHierarchyToolTests.cs` (new) -- every I/O matrix row, no COM and no journal on refusals and `unchanged`, counts-only messages without a read grant, snapshot before call, read-back warnings.
+- [x] `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs` -- contract.
+- [x] `tests/OneNoteMcp.Integration/UpdateHierarchyIntegrationTests.cs` (new, opt-in) -- L1-L9, written, not run.
+- [x] `README.md`, `plugin/skills/guide/SKILL.md` -- tool rows.
+- [x] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync: tool names (Q1), add dropped (Q2), the XSD hard gate for `UpdateHierarchy` (AD-16), rename and reorder rules, `unchanged`, the three rows done.
 
 **Acceptance Criteria:**
 - Given a granted notebook, when a section in it is renamed, then the hierarchy shows the new name under the same ID and the journal holds a `hierarchy` entry with the old name.
@@ -174,9 +192,35 @@ None runs in the build; each is an opt-in test in `tests/OneNoteMcp.Integration/
 
 ## Implementation Notes
 
+Implemented in one pass by the step-03 subagent (2026-11-13); build 0 warnings, `dotnet test tests/OneNoteMcp.Tests` 2570 passed.
+
+- **Shape.** `Writes/HierarchyWrite.cs` holds the shared `HierarchyWrite` base (steps 1, 3-8) and `RenameHierarchyWrite` / `ReorderHierarchyWrite`; `UseCases/UpdateHierarchyUseCase.cs` drives both; `UseCases/HierarchyRules.cs` holds the recycle-bin and sibling-name checks now shared with `CreateHierarchyUseCase` (whose step 4 now checks the recycle bin before the kind; same error codes). The name check is `SectionFileNames.NameProblem` only, as directed.
+- **Xml.** `HierarchyUpdate.cs`: `HierarchyTarget.Read` (kind, name, nickname, path, date, recycle-bin flags, encrypted, locked, live children with `pageLevel`) and the `Rename`/`Reorder` builders. `HierarchyChildren.KindOf`, `IsRecycleBin`, `InRecycleBin` became `internal` to share them.
+- **Judgment calls (implementer), for Phill to confirm:**
+  1. Results also carry `meta.journalEntryId` (absent when unchanged), and a step-7 failure's message names the journal entry, as page writes do (2.11 Q1). The plan listed only `meta.objectId`.
+  2. When nothing would change (`unchanged`), the basis isn't checked, so `unchanged` is the only warning.
+  3. A `basis` object with no date, or a node OneNote reports no `lastModifiedTime` for, gives `partialBasis` rather than `StaleWrite`.
+  4. An empty `childIds` is `InvalidArgument`; duplicate and empty IDs are reported as counts only in step 1 (the read grant isn't known yet).
+  5. A section rename checks the full name in step 1 and the name without `.one` in step 4, once the target is known to be a section.
+- **Incident.** The first run of the new `UpdateHierarchyToolTests` built `SettingsStore(path)` without a journal folder, which falls back to the real default, and wrote 48 test entries into the real `%LOCALAPPDATA%\OneNoteMcp\journal`. The implementer fixed the test (its own temp journal folder) and deleted exactly those 48 files (recent, `snapshotKind` `hierarchy`, synthetic test notebook IDs only; no content printed); other files there were left alone, and later runs left 0 test entries there. 5.3's `CreateHierarchyToolTests` and its integration tests also build `SettingsStore(path)` without a journal folder, harmless today only because creates don't journal.
+- **Integration probes (written, not run).** `tests/OneNoteMcp.Integration/UpdateHierarchyIntegrationTests.cs` L1-L9, every `UpdateHierarchy` through 5.1's `TestNotebook.UpdateHierarchyAsync` guard, settings and journal in a temp folder. L5 needs two sections Phill prepares in MCP Test, "Probe 5.4 Protected" (protected, unlocked) and "Probe 5.4 Locked" (protected, locked), and skips without them; L9 needs `ONENOTE_MCP_PROBE_MODAL=1` and File > Options open; L8 makes a throwaway notebook Phill closes and deletes afterwards.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-11-13 — Review pass
+- verdicts: 9 findings — high 0, medium 3, low 5, false 1, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` Guide skill line 18 still told the model to refuse renames, contradicting the new tool rows — reworded to cover only move and delete, naming `rename_hierarchy_object` and a page's title edit.
+  - `[low]` `[patch]` Guide frontmatter description claimed notebook reorders and page renames — reworded to "rename sections, section groups and notebooks, and reorder sections, section groups and pages".
+  - `[medium]` `[patch]` Probe L5 renamed the locked section only through the tool, which refuses `SectionLocked` before COM, so it could never show what OneNote does — L5 keeps the tool call and adds a raw guarded `TestNotebook.UpdateHierarchyAsync` rename of the locked section, recording the outcome.
+  - `[low]` `[patch]` L5 had no try/finally around the rename-back, so a failure could leave Phill's prepared sections renamed — rename-back moved to a `finally` (`RestoreNameAsync`, guarded raw rename, logs instead of throwing).
+  - `[low]` `[patch]` Rename docs said only a protected section's own rename ends its read grant; a local section group's rename changes the path of protected sections inside it too — tool description and README row now say so (the contract snapshot strips descriptions, so it is unchanged).
+  - `[medium]` `[patch]` `McpSdkBindingTests` built `SettingsStore` with no journal folder, so its host's `JournalStore` pointed at the real journal while it now registers two journaling tools (the same cause as the build's incident) — it now passes a temp journal folder.
+  - `[low]` `[patch]` An empty `childIds` was always refused, so an empty parent could never answer `unchanged` — the empty-list refusal was deleted; an empty list is `unchanged` for an empty parent and the existing "missing" `InvalidArgument` otherwise (new test).
+  - `[low]` `[reject]` Both tools reuse `PageBasisArgument`, so the schema shows `pageHash`/`elementHashes` that step 1 always refuses — follows Build Directions ("the same shape ... restricted to lastModifiedTime"); the description says "Nothing else", a stray hash gets a clear `InvalidArgument`, and the fix adds a new public type.
+  - `[false]` `[reject]` A cloud section group renamed to its own name returns `NotSupported`, not `unchanged` — every step-4 refusal (recycle bin, locked, OneDrive group) precedes the unchanged check by design, and the matrix ranks none of them over `unchanged`; nothing is sent either way.
 
 ## Design Notes
 
@@ -190,3 +234,31 @@ OneMore (checked 2026-11-13) renames and reorders through `UpdateHierarchy` with
 
 **Manual checks (if no CLI):**
 - Phill's live sitting: `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter UpdateHierarchy` on MCP Test (L1-L9), with Sync Now and an OneNote-for-the-web check for L7.
+
+## Auto Run Result
+
+**Status:** built (2026-11-13, bmad-build-auto, route full, review quick).
+
+**Summary.** Two MCP tools rename and reorder through `UpdateHierarchy` as AD-7 `HierarchyWrite`: `rename_hierarchy_object(objectId, name, basis?)` (section, section group, notebook `nickname`; 5.3's `SectionFileNames.NameProblem`; a sibling or other-notebook name clash refused; case-only rename allowed; locked section `SectionLocked`; OneDrive section group `NotSupported`) and `reorder_hierarchy_children(parentId, childIds, basis?)` (every live child exactly once, sections before groups, subpage blocks whole with levels kept, recycle bin never listed or sent). Core builds minimal XML, the 2013 XSD is a hard gate (AD-16), the `lastModifiedTime` basis is compared under the lock (AD-17), one `hierarchy` journal entry is written in step 6 (DPAPI-protected when rooted at a protected section), and the node is re-read afterwards. No change is `ok` + `unchanged` with no COM and no entry. `HResultMap` remaps `0x80042017` to `InvalidArgument`, `0x80042024` to `ComBusy` (retryable), `0x8004202E` to `ObjectNotFound`.
+
+**Files changed.**
+- `src/OneNoteMcp.Core/Writes/HierarchyWrite.cs` (new) — shared `HierarchyWrite` steps, `RenameHierarchyWrite`, `ReorderHierarchyWrite`.
+- `src/OneNoteMcp.Core/UseCases/UpdateHierarchyUseCase.cs`, `HierarchyRules.cs` (new) — the use case; recycle-bin and sibling-name checks shared with `CreateHierarchyUseCase` (edited to use them).
+- `src/OneNoteMcp.Core/Journal/HierarchySnapshot.cs` (new), `JournalEntry.cs` — the `hierarchy` entry.
+- `src/OneNoteMcp.Core/Access/HierarchyWalk.cs`, `IOneNoteGateway.cs`, `Results/ToolWarnings.cs` — container location walk, `UpdateHierarchyAsync`, `unchanged`.
+- `src/OneNoteMcp.Xml/HierarchyUpdate.cs` (new), `HierarchyChildren.cs` — target/parent reader and the rename/reorder XML builders.
+- `src/OneNoteMcp.Com/ComGateway.cs`, `HResultMap.cs` — the never-retried `UpdateHierarchy` call; the three remaps.
+- `src/OneNoteMcp.Server/Tools/RenameHierarchyObjectTool.cs`, `ReorderHierarchyChildrenTool.cs` (new), `ServerSetup.cs` — tools and registration.
+- `tests/OneNoteMcp.Tests/UpdateHierarchyToolTests.cs`, `HierarchyUpdateXmlTests.cs` (new), and edits to `JournalTests`, `ComGatewayLifecycleTests`, `HResultMapTests`, `CreatePageToolTests`, the fakes, the test-gateway decorators, `McpSdkBindingTests`, `ToolContractTests`, `NavigateToToolTests` and `Contract/tool-contract.json`.
+- `tests/OneNoteMcp.Integration/UpdateHierarchyIntegrationTests.cs` (new) — L1-L9, opt-in, written and not run.
+- `README.md`, `plugin/skills/guide/SKILL.md`, `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` — tool rows, guide wording, spine-sync entries.
+
+**Review findings.** 9 from the quick lens: 7 patched (3 medium, 4 low), 0 deferred, 2 rejected (a low: the shared basis schema shows hash fields step 1 refuses, kept per Build Directions; a false: refusals precede `unchanged` by design). See the triage log.
+
+**Follow-up review recommended: true** (3 medium patched on a first pass). The named unverified risk: the patched probe L5 now sends a raw guarded `UpdateHierarchy` rename to a section Phill prepared (locked) and renames both prepared sections back in a `finally`; whether `TestNotebook`'s guard accepts those IDs and the rename-back restores them is unexercised until the sitting.
+
+**Verification.** `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2570 passed, 0 failed, after the patches. Matrix audit: every I/O matrix row has a passing test in `UpdateHierarchyToolTests` (the grant-dialog half of the "Ungranted" row runs through the shared `WriteAccess.CheckContainerAsync` path, covered by earlier stories' tests). No integration test ran; nothing touched OneNote.
+
+**Assumptions for Phill to confirm.** Build Directions: a notebook name clash counts another open notebook's `nickname` or `name`; an irregular `pageLevel` jump belongs to the nearest earlier lower-level page. Implementer: `meta.journalEntryId` in results; `unchanged` skips the basis check; a dateless basis is `partialBasis`; the empty-list rule (now `unchanged` for an empty parent); a section's full name checked in step 1 and its stem in step 4.
+
+**Residual risks.** Nothing ran against OneNote: L1-L9 answer the open behaviour (case-only rename, protected and locked renames, group reorders, page levels kept, cloud sync, notebook nickname). The build broke its own "don't touch" rule: a first test run wrote 48 entries into the real `%LOCALAPPDATA%\OneNoteMcp\journal`; the implementer deleted exactly those and later re-read the folder to check (Implementation Notes). 5.3's `CreateHierarchyToolTests` and its integration tests still build `SettingsStore` without a journal folder. A security review of the diff before merge isn't in this ticket's Verify but would suit a write path.
