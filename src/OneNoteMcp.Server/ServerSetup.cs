@@ -82,7 +82,8 @@ public static class ServerSetup
         services.AddSingleton<GetSpecialLocationUseCase>();
         services.AddSingleton<GetHyperlinkToObjectUseCase>();
         services.AddSingleton<GetWebHyperlinkToObjectUseCase>();
-        services.AddSingleton<GetPageContentUseCase>();
+        services.AddSingleton<IssuedPathCaches>();
+        services.AddSingleton(sp => new GetPageContentUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<ReadAccess>(), sp.GetRequiredService<IssuedPathCaches>()));
         services.AddSingleton<GetBinaryPageContentUseCase>();
         // find_pages' page-text cache (AD-12) is in this process's memory only, and re-reads search{} once per call.
         services.AddSingleton(sp =>
@@ -132,7 +133,8 @@ public static class ServerSetup
             sp.GetRequiredService<IOneNoteGateway>(),
             sp.GetRequiredService<WriteAccess>(),
             sp.GetRequiredService<ReadAccess>(),
-            sp.GetRequiredService<PageSnapshot>()));
+            sp.GetRequiredService<PageSnapshot>(),
+            sp.GetRequiredService<IssuedPathCaches>()));
         services.AddSingleton<UpdatePageContentUseCase>();
 
         var builder = services

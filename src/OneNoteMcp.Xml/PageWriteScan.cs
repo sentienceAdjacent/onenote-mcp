@@ -28,6 +28,8 @@ public static class PageWriteScan
     /// <summary>On these elements <c>pathCache</c> names a file too, so it is gated like <c>pathSource</c>.</summary>
     private static readonly HashSet<string> FileElements = new(StringComparer.Ordinal) { "InsertedFile", "MediaFile" };
 
+    private const string PathCache = "pathCache";
+
     /// <summary>
     /// The first check of a page write's step 1 (AD-16): null when <paramref name="xml"/> parses with DTD processing
     /// prohibited; otherwise the problem, as the schema gate reports it: a DOCTYPE, or the position where the XML stops
@@ -72,7 +74,7 @@ public static class PageWriteScan
                 if (attribute.IsNamespaceDeclaration
                     || attribute.Name.Namespace != XNamespace.None
                     || attribute.Value.Length == 0
-                    || !(PathAttributes.Contains(attribute.Name.LocalName) || (fileElement && attribute.Name.LocalName == "pathCache")))
+                    || !(PathAttributes.Contains(attribute.Name.LocalName) || (fileElement && attribute.Name.LocalName == PathCache)))
                 {
                     continue;
                 }
@@ -90,7 +92,13 @@ public static class PageWriteScan
     /// <paramref name="readXml"/>. A path on an element without an <c>objectID</c> is always new, even when the same value
     /// is elsewhere on the page. With <paramref name="readXml"/> null (no read grant), every path is new.
     /// </summary>
-    public static IReadOnlyList<SentFilePath> NewFilePaths(string sentXml, string? readXml)
+    /// <param name="issued">
+    /// True for a <c>pathCache</c> an earlier read by this server returned for that owner and element (Phill, 2026-11-12,
+    /// after the live sitting's B3): OneNote names a new temp copy on every read, so the write's own read never matches
+    /// what the caller read. Such a value isn't new while the same owner still holds the same kind of file element in
+    /// <paramref name="readXml"/>. It is never asked about a <c>path</c> or <c>pathSource</c>.
+    /// </param>
+    public static IReadOnlyList<SentFilePath> NewFilePaths(string sentXml, string? readXml, Func<SentFilePath, bool>? issued = null)
     {
         var sent = FilePaths(sentXml);
         if (readXml is null)
@@ -98,12 +106,16 @@ public static class PageWriteScan
             return sent;
         }
 
-        var onPage = FilePaths(readXml)
-            .Where(p => p.OwnerObjectId is not null)
-            .Select(Key)
-            .ToHashSet(StringComparer.Ordinal);
-        return [.. sent.Where(p => p.OwnerObjectId is null || !onPage.Contains(Key(p)))];
+        var read = FilePaths(readXml).Where(p => p.OwnerObjectId is not null).ToList();
+        var onPage = read.Select(Key).ToHashSet(StringComparer.Ordinal);
+        var cacheHolders = read.Where(p => p.Attribute == PathCache).Select(Holder).ToHashSet(StringComparer.Ordinal);
+        return [.. sent.Where(p => p.OwnerObjectId is null || !(onPage.Contains(Key(p)) || IsIssuedCache(p)))];
+
+        bool IsIssuedCache(SentFilePath p) =>
+            issued is not null && p.Attribute == PathCache && cacheHolders.Contains(Holder(p)) && issued(p);
     }
+
+    private static string Holder(SentFilePath path) => string.Join('\n', path.OwnerObjectId, path.Element);
 
     private static string Key(SentFilePath path) => string.Join('\n', path.OwnerObjectId, path.Element, path.Attribute, path.Value);
 
@@ -151,9 +163,22 @@ public static class PageWriteScan
     private static string? NearestObjectId(XElement element) =>
         element.Ancestors().Select(a => (string?)a.Attribute("objectID")).FirstOrDefault(id => !string.IsNullOrEmpty(id));
 
+    /// <summary>
+    /// The element's own <c>objectID</c>; for a <c>one:File</c>, its parent object's. A <c>one:InsertedFile</c> or
+    /// <c>one:MediaFile</c> without one (as OneNote writes them: live sitting, 2026-11-12) belongs to the OE holding it.
+    /// </summary>
     private static string? Owner(XElement element)
     {
-        var holder = element.Name == File ? element.Parent : element;
-        return (string?)holder?.Attribute("objectID") is { Length: > 0 } id ? id : null;
+        if (element.Name == File)
+        {
+            return ObjectId(element.Parent);
+        }
+
+        return ObjectId(element)
+            ?? (element.Name.Namespace == OneNoteXml.One && FileElements.Contains(element.Name.LocalName) && element.Parent?.Name == OneNoteXml.One + "OE"
+                ? ObjectId(element.Parent)
+                : null);
     }
+
+    private static string? ObjectId(XElement? element) => (string?)element?.Attribute("objectID") is { Length: > 0 } id ? id : null;
 }

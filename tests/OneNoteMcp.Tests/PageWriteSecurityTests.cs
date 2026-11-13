@@ -100,6 +100,44 @@ public sealed class PageWriteSecurityTests : IDisposable
         Assert.Single(PageWriteScan.NewFilePaths(Page(File(X, "pathSource", @"C:\a.txt")), null)); // no read grant: always new
     }
 
+    /// <summary>An attachment as OneNote writes it (live sitting, 2026-11-12): no objectID of its own, held by an OE.</summary>
+    private static string InOe(string? oeId, string fileElement, string attributes) =>
+        Page($"<one:OE{(oeId is null ? string.Empty : $" objectID=\"{oeId}\"")}><one:{fileElement} {attributes} /></one:OE>");
+
+    [Theory]
+    [InlineData("InsertedFile")]
+    [InlineData("MediaFile")]
+    public void AFileElementWithoutObjectId_BelongsToTheOeHoldingIt(string element)
+    {
+        var read = InOe(X, element, "pathSource=\"C:\\a.txt\" pathCache=\"C:\\t\\{1}.bin\"");
+
+        Assert.Equal(
+            [new SentFilePath(@"C:\a.txt", X, element, "pathSource"), new SentFilePath(@"C:\t\{1}.bin", X, element, "pathCache")],
+            PageWriteScan.FilePaths(read));
+        Assert.Empty(PageWriteScan.NewFilePaths(read, read)); // sent unchanged on the same OE
+        Assert.Single(PageWriteScan.NewFilePaths(InOe(Y, element, "pathSource=\"C:\\a.txt\""), read)); // another OE
+        Assert.Single(PageWriteScan.NewFilePaths(InOe(null, element, "pathSource=\"C:\\a.txt\""), read)); // a new OE
+        Assert.Single(PageWriteScan.NewFilePaths(InOe(X, element, "pathSource=\"C:\\b.txt\""), read)); // changed
+    }
+
+    [Fact]
+    public void APathCacheTheServerIssued_IsNotNew_OnlyOnTheSameOeThatStillHoldsTheFile()
+    {
+        // OneNote names a new temp copy on every read (live sitting B3), so the read the write makes never matches.
+        var read = InOe(X, "InsertedFile", "pathSource=\"C:\\a.txt\" pathCache=\"C:\\t\\{2}.bin\"");
+        var sent = InOe(X, "InsertedFile", "pathSource=\"C:\\a.txt\" pathCache=\"C:\\t\\{1}.bin\"");
+        bool Issued(SentFilePath p) => p is { Value: @"C:\t\{1}.bin", OwnerObjectId: X, Element: "InsertedFile", Attribute: "pathCache" };
+
+        Assert.Single(PageWriteScan.NewFilePaths(sent, read)); // without the memory: new
+        Assert.Empty(PageWriteScan.NewFilePaths(sent, read, Issued));
+
+        int NewCaches(string? against) => PageWriteScan.NewFilePaths(sent, against, Issued).Count(p => p.Attribute == "pathCache");
+        Assert.Equal(1, NewCaches(Page(string.Empty))); // the OE no longer holds a file
+        Assert.Equal(1, NewCaches(InOe(X, "MediaFile", "pathCache=\"C:\\t\\{2}.bin\""))); // another kind of file
+        Assert.Equal(1, NewCaches(null)); // no read grant: always new
+        Assert.Single(PageWriteScan.NewFilePaths(InOe(X, "InsertedFile", "pathSource=\"C:\\t\\{1}.bin\""), read, p => true)); // only pathCache is remembered
+    }
+
     /// <summary>Every parent the 2013 XSD gives <c>one:File</c> (xsd lines 337, 441, 805, 1034, 1096).</summary>
     public static TheoryData<string> FileParents => ["Image", "InkDrawing", "InkWord", "XPSFile", "HTMLBlock"];
 

@@ -479,6 +479,37 @@ public sealed class UpdatePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AnAttachmentResentAsAReadReturnedIt_NeedsNoDialog_ThoughOneNoteRenamedItsTempCopy()
+    {
+        // Live sitting B3 (2026-11-12): every read names a new temp copy, and OneNote's InsertedFile has no objectID.
+        var source = temp.Combine("kept.txt");
+        var issued = new IssuedPathCaches();
+        gateway.Pages[PageId] = WithAttachment(Read, source, temp.Combine("{1}.bin"));
+        var read = await new GetPageContentUseCase(gateway, Services(gateway).ReadAccess, issued).ExecuteAsync(new ToolCallContext("r"), PageId, false, Ct);
+        gateway.Pages[PageId] = WithAttachment(Read, source, temp.Combine("{2}.bin"));
+        var prompt = new FakePrompt();
+
+        await UseCase(issued: issued).ExecuteAsync(new ToolCallContext("c", Prompt: prompt), PageId, Sent(OutlineOf(read.Xml!, 40)), null, null, Ct);
+
+        Assert.Empty(prompt.Order);
+        Assert.Single(gateway.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task AnAttachmentWithATempNameNoReadReturned_StillAsks()
+    {
+        var source = temp.Combine("kept.txt");
+        gateway.Pages[PageId] = WithAttachment(Read, source, temp.Combine("{2}.bin"));
+        var prompt = new FakePrompt();
+
+        await Assert.ThrowsAsync<FilePathsUnconfirmed>(() => UseCase(issued: new IssuedPathCaches()).ExecuteAsync(
+            new ToolCallContext("c", Prompt: prompt), PageId, Sent(OutlineOf(WithAttachment(Read, source, temp.Combine("{1}.bin")), 40)), null, null, Ct));
+
+        Assert.Single(prompt.FileQuestions);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task APathUnchangedOnTheSameExistingElement_NeedsNoDialog()
     {
         var path = temp.Combine("kept.txt");
@@ -855,17 +886,31 @@ public sealed class UpdatePageContentToolTests : IDisposable
         return new PageBasisArgument(date ?? basis.LastModifiedTime, basis.PageHash, hashes);
     }
 
-    private PageWriteServices Services(IOneNoteGateway g) => new(
+    private PageWriteServices Services(IOneNoteGateway g, IssuedPathCaches? issued = null) => new(
         g,
         new WriteAccess(g, Store.Read),
         new ReadAccess(g, Store.Read, new SettingsWriter(Store, clock), clock),
-        new PageSnapshot(g, new JournalStore(Store.Read), clock));
+        new PageSnapshot(g, new JournalStore(Store.Read), clock),
+        issued);
 
-    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null, bool withDialog = false)
+    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null, bool withDialog = false, IssuedPathCaches? issued = null)
     {
         var g = over ?? gateway;
         var dialog = withDialog ? new WriteGrantDialog(g, new SettingsWriter(Store, clock), clock) : null;
-        return new UpdatePageContentUseCase(Services(g), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, dialog: dialog));
+        return new UpdatePageContentUseCase(Services(g, issued), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, dialog: dialog));
+    }
+
+    /// <summary>
+    /// <paramref name="page"/> with a new OE <c>96</c> in Outline <c>40</c> holding an attachment as OneNote writes it: an
+    /// InsertedFile with no objectID, its source at <paramref name="source"/> and its temp copy at <paramref name="cache"/>.
+    /// </summary>
+    private static string WithAttachment(string page, string source, string cache)
+    {
+        var root = XDocument.Parse(page);
+        var outline = root.Descendants(One + "Outline").Single(o => (string?)o.Attribute("objectID") == G(40));
+        outline.Element(One + "OEChildren")!.Add(new XElement(One + "OE", new XAttribute("objectID", G(96)),
+            new XElement(One + "InsertedFile", new XAttribute("pathCache", cache), new XAttribute("pathSource", source), new XAttribute("preferredName", "kept.txt"))));
+        return root.ToString();
     }
 
     /// <summary>A new Outline (no objectIDs) holding one OE with <paramref name="oeAttributes"/>.</summary>

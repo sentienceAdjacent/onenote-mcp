@@ -21,7 +21,7 @@ public sealed record PageWriteResult(PageBasisResult? Basis, IReadOnlyList<ToolW
 
 /// <summary>What every <see cref="PageWrite"/> uses: the gateway, both access checks and step 6's snapshot.</summary>
 [SupportedOSPlatform("windows")]
-public sealed record PageWriteServices(IOneNoteGateway Gateway, WriteAccess WriteAccess, ReadAccess ReadAccess, PageSnapshot Snapshot);
+public sealed record PageWriteServices(IOneNoteGateway Gateway, WriteAccess WriteAccess, ReadAccess ReadAccess, PageSnapshot Snapshot, IssuedPathCaches? IssuedPathCaches = null);
 
 /// <summary>
 /// The <c>PageWrite</c> class's shared steps (AD-7), for <c>UpdatePageContent</c> here and <c>DeletePageContent</c> (story
@@ -245,7 +245,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         + "Without that grant, a write here may carry only basis.lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds.";
 
     public const string PathUserAction =
-        "Name a file by its full local path (such as C:\\folder\\file.png), never a network, device or relative path; or send the image as inline one:Data (base64).";
+        "Name a file by its full local path (such as C:\\folder\\file.png), never a network, device or relative path; or, for an image, send it as inline one:Data (base64).";
 
     public const string HtmlBlockUserAction =
         "HTML blocks can't be written yet; send the content as text (one:T) or an inline image (one:Data).";
@@ -358,7 +358,7 @@ public sealed class UpdatePageContentWrite : PageWrite
             throw new OneNoteException(
                 ErrorCode.WriteNotGranted,
                 string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} names {unconfirmed.Count} new file path(s) the user didn't confirm in this call, so nothing was written."),
-                userAction: "Re-read the page and retry: the user is asked to confirm each new file path. Or send the image as inline one:Data (base64) instead.",
+                userAction: "Re-read the page and retry: the user is asked to confirm each new file path. Or, for an image, send it as inline one:Data (base64) instead.",
                 retryable: true);
         }
 
@@ -412,7 +412,8 @@ public sealed class UpdatePageContentWrite : PageWrite
     private List<string> Unconfirmed(string? readXml)
     {
         var unconfirmed = new List<string>();
-        foreach (var path in PageWriteScan.NewFilePaths(xml, readXml))
+        var issued = Services.IssuedPathCaches is { } memory ? p => memory.Issued(PageId, p) : (Func<SentFilePath, bool>?)null;
+        foreach (var path in PageWriteScan.NewFilePaths(xml, readXml, issued))
         {
             var canonical = FilePathGate.Canonical(path.Value, out var refusal) ?? throw Invalid(
                 $"The XML for page {PageId} names a file path that is {Describe(refusal)}, which page writes never read, so nothing was written.",
@@ -499,7 +500,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         if (missing.Count > 0)
         {
             filled.Add(NamesIds
-                ? $"it has no hash for {IdList(missing)}, so their check was skipped"
+                ? $"it has no hash for {IdList(missing)}, so {(missing.Count == 1 ? "its" : "their")} check was skipped"
                 : string.Create(CultureInfo.InvariantCulture, $"it has no hash for {missing.Count} sent element(s), so their check was skipped"));
         }
 
