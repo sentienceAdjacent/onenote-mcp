@@ -20,7 +20,7 @@ deferred:
   - summary: >-
       A page in a locked section might return ObjectNotFound instead of SectionLocked, because step 1's self read of the page runs before PageWrite's section-first read.
     evidence: |-
-      Unverified (maybe-false): PageWrite reads the section first because OneNote may not list a locked section's pages (PageWrite.cs ReadAsync comment; story 2.9's plan flags it as unverified live). SoftDeleteUseCase.ExecuteAsync reads GetHierarchy(pageId, self) before the pipeline. Settle it with a live check at the sitting: what GetHierarchy at self returns for a page in a locked section. If it fails with 0x80042014, fall back to the page path on ObjectNotFound in step 1.
+      Unverified (maybe-false): PageWrite reads the section first because OneNote may not list a locked section's pages (PageWrite.cs ReadAsync comment; story 2.9's plan flags it as unverified live). SoftDeleteUseCase.ExecuteAsync reads GetHierarchy(pageId, self) before the pipeline. Settle it with a live check at the sitting: what GetHierarchy at self returns for a page in a locked section. If it fails with 0x80042014, fall back to the page path on ObjectNotFound in step 1. The risk may not be 5.5's alone (rebase review, 2026-11-13): PageWrite's own section-first read, HierarchyWalk.OwningSectionAsync, also starts with GetHierarchyParent(pageId), so update_page_content (and delete_page_content) may return ObjectNotFound for a page in a locked section too; the live check should cover both the delete and a page-content write.
     location: >-
       src/OneNoteMcp.Core/UseCases/SoftDeleteUseCase.cs:101
     severity: medium (unverified)
@@ -209,6 +209,13 @@ None runs in the build; each is an opt-in test in `tests/OneNoteMcp.Integration/
 - **Verification.** `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2539 passed. Nothing touched OneNote.
 
 ## Plan Change Log
+
+### 2026-11-13 — Rebase onto 5.4 (origin/story/5.4-update-hierarchy 889c5dc, on 5.3 92b07d3)
+
+- **Trigger:** 5.4's code landed, so 5.5's stand-ins for it (Build Directions, first item) are replaced by the real pieces. No change inside `<intent-contract>`.
+- **Resolved:** `HierarchySnapshot` is 5.4's (notebook roots allowed, `HierarchyWalk.ContainerLocationAsync`, `HierarchyNode.Root`, `DisplayName` as the title, an empty `ParentId` for a notebook root) plus 5.5's rule: unless the root is a password-protected section (kept whole, DPAPI), the stored XML drops every protected section's `one:Page` elements (`DeleteTargets.WithoutProtectedPages`), so a section group's entry never holds a protected page's ID or title. 5.5's `HierarchyWalk.NodeLocationAsync`/`NodeLocation` are dropped. `JournalEntry` keeps 5.4's `HierarchyKind` wording and adds 5.5's `RecycleBinId`; `ToolWarnings` keeps both `Unchanged` and `RecycleBinIdMissing`. `IOneNoteGateway`, `ComGateway`, `ServerSetup`, the fakes and every test gateway carry both `UpdateHierarchyAsync` and `DeleteHierarchyAsync`; 5.4's integration `GuardedGateway` gained a `DeleteHierarchyAsync` that throws. Counts: 22 tools, 19 gateway methods, 21 tools with arguments and 51 properties. `tool-contract.json` regenerated from the test's output, not hand-merged. README and the guide skill keep 5.4's text with 5.5's rows and sentences added (the skill now says "ten write tools"; its description is 1253 characters).
+- **Kept unchanged:** `SoftDeleteUseCase`, `DeleteTargets`, `RecycleBin`, `SoftDeleteToolTests` (including `Group_IsSoftDeleted_ItsEntryHoldsItsLayout_WithoutAProtectedSectionsPages`) and the integration probes.
+- **Verified:** `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2730 passed.
 
 ## Review Triage Log
 
