@@ -138,3 +138,11 @@ context:
 - Spine Deferred row: delete an Outline with the page XML's date on MCP Test and MCP Test Cloud, on a displayed and an undisplayed page in each (sync-check every cloud step); record whether OneNote accepts the date.
 - From Claude Code: Phill asks to remove one block of an MCP Test page; it goes, and an OE ID gives `InvalidArgument` with the `removeObjectIds` hint.
 - MCP Test's protected section with the write grant only: `ReadNotGranted`, no dialog, nothing deleted; with a read grant: the delete goes through.
+
+**Joint 2.9 + 2.10 live sitting (2026-11-12 evening, the build at `b4e5a7c`): all MCP Test checks passed; the MCP Test Cloud steps were deferred.**
+- `ONENOTE_MCP_INTEGRATION=1` `DeletePageContentIntegrationTests` with `UpdatePageContentIntegrationTests` on MCP Test: 5/5 passed.
+- D1: delete of an Outline (it held an attachment) with a fresh full basis is ok, and the new `meta.basis` drops the Outline and its OE. Its journal entry (`0512009f`) is a page snapshot with `binaryComplete: false` and the attachment in `missingBinary`, as 2.8's Q4 decided.
+- D2: an OE's ID is `InvalidArgument` with the `removeObjectIds` hint, nothing deleted.
+- D3 (Ballast Vault): with no read grant, a delete is `ReadNotGranted` with no dialog (D3a). Phill then granted read through the dialog on a `get_page_content` (D3b), and the delete was ok (D3c), with a DPAPI-sealed journal entry (`b8d52502`, `protected: true`).
+- D4, date-only basis (the spine's Deferred row), MCP Test: on a displayed page (D4a) and an undisplayed one (D4b), the delete was ok with `partialBasis` and no 0x80042010; `lastModifiedTime` advanced on the displayed page and stayed frozen on the undisplayed one. A date one minute stale on the displayed page was `StaleWrite` from the server's own date check, before OneNote was called (`retryable: false`), so OneNote's own 0x80042010 path stays unexercised.
+- D4c/d on MCP Test Cloud: not run. The notebook hadn't synced since 6:21 PM (0xE01901F7; Probes 0xE000145C "server busy") during a Microsoft outage, before any cloud call. They move to the next sitting (deferred-work), which also starts by checking `list_grants` for D3b's Ballast Vault read grant.
