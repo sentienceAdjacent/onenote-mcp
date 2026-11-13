@@ -43,6 +43,8 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     private const string SubId = "{A8000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string DeletedPagesId = "{A9000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string BinnedId = "{AA000000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string DeepId = "{AB000000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string GoneId = "{AC000000-0000-4000-8000-000000000001}{1}{B0}";
 
     private const string P1 = "{A1000000-0000-4000-8000-000000000001}{1}{E11}";
     private const string P1a = "{A1000000-0000-4000-8000-000000000001}{1}{E12}";
@@ -76,11 +78,13 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     private readonly FakeGateway gateway = new();
     private readonly ConcurrentQueue<WriteLockHeld> holds = new();
     private readonly WriteLock writeLock;
+    private readonly ReadAccess readAccess;
     private readonly PageTextCache cache = PageTextCache.WithDefaults();
 
     public UpdateHierarchyToolTests()
     {
         writeLock = new WriteLock($@"Local\OneNoteMcp.Test.{Guid.NewGuid():N}", holds.Enqueue);
+        readAccess = new ReadAccess(gateway, Store.Read, new SettingsWriter(Store, clock), clock);
         Directory.CreateDirectory(temp.Combine("cfg"));
 
         Parent(NotebookId, string.Empty);
@@ -95,6 +99,8 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         }
 
         Parent(DeletedPagesId, BinId);
+        Parent(DeepId, SubId);
+        Parent(GoneId, NotebookId);
         Parent(BinnedId, BinId);
         foreach (var id in new[] { P1, P1a, P1b, P2, P2a, P3 })
         {
@@ -136,6 +142,11 @@ public sealed class UpdateHierarchyToolTests : IDisposable
 
         Children(NotebookId, $"<one:Notebook {Ns} {notebook}><one:Section {ideas} /><one:Section {vault} /><one:Section {locked} /><one:SectionGroup {archive} /><one:SectionGroup {bin} /></one:Notebook>");
         Children(ArchiveId, $"<one:SectionGroup {Ns} {archive}><one:Section {plans} /><one:Section {notes} /><one:SectionGroup {sub} /></one:SectionGroup>");
+        const string deep = $"name=\"Deep\" ID=\"{DeepId}\" path=\"C:\\notebooks\\A\\Archive\\Sub\\Deep.one\" encrypted=\"true\" lastModifiedTime=\"{Lmt}\"";
+        Sections(ArchiveId, $"<one:SectionGroup {Ns} {archive}><one:Section {plans} /><one:Section {notes} /><one:SectionGroup {sub}><one:Section {deep} /></one:SectionGroup></one:SectionGroup>");
+        Sections(SubId, $"<one:SectionGroup {Ns} {sub}><one:Section {deep} /></one:SectionGroup>");
+        Sections(BinId, $"<one:SectionGroup {Ns} {bin}><one:Section {deleted} /><one:Section {binned} /></one:SectionGroup>");
+        Sections(CloudGroupId, $"<one:SectionGroup {Ns} name=\"Shared\" ID=\"{CloudGroupId}\" path=\"{CloudPath}Shared\" lastModifiedTime=\"{Lmt}\" />");
         Children(BinId, $"<one:SectionGroup {Ns} {bin}><one:Section {deleted} /><one:Section {binned} /></one:SectionGroup>");
         Children(DeletedPagesId, $"<one:Section {Ns} {deleted} />");
         Children(LockedId, $"<one:Section {Ns} {locked} />");
@@ -414,6 +425,179 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         Assert.Equal(GrantKeys.SectionKey(@"C:\notebooks\A\Vault.one"), entry.SectionKey);
         Assert.Equal("Vault", entry.Title);
         Assert.Equal(root.GetProperty("meta").GetProperty("journalEntryId").GetString(), entry.EntryId.ToString("D"));
+    }
+
+    // --- Renames never re-bind a read grant (security review, 2026-11-13; AD-21) ------------------------------------
+
+    /// <summary>A location no live section has: where a granted section was before it was renamed away.</summary>
+    private const string FreedKey = @"C:\notebooks\A\Gone2.one";
+
+    private void ReadGrantAt(string key, DateTimeOffset? expiresAt = null) =>
+        new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(
+            GrantKeys.SectionKey(key), "Gone2", GrantKeys.NotebookKey(NotebookPath), GoneId, clock.GetUtcNow(), GrantedVia.Cli, expiresAt));
+
+    private static void AssertNamesNothingProtected(JsonElement error)
+    {
+        var text = error.GetProperty("message").GetString() + " " + error.GetProperty("userAction").GetString();
+        foreach (var name in new[] { "Gone2", "Vault", "Deep", "Plans", "Notes", @"C:\" })
+        {
+            Assert.DoesNotContain(name, text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Theory]
+    [InlineData(VaultId)] // a protected section: it would take over the grant held at its new location
+    [InlineData(IdeasId)] // an unprotected one too: protecting it later would hand it the grant
+    public async Task RenameASection_ToALocationThatHoldsAStoredReadGrant_IsInvalidArgument_BeforeCom(string id)
+    {
+        Grant();
+        ReadGrantAt(FreedKey);
+
+        var error = Error(await RenameTool().RenameHierarchyObject(id, "Gone2", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("revoke", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task RenameASection_ToALocationThatHoldsAnHoursReadGrant_IsRefused_ButAnExpiredOneIsNot()
+    {
+        Grant();
+        ReadGrantAt(FreedKey, clock.GetUtcNow().AddHours(2));
+
+        Error(await RenameTool().RenameHierarchyObject(VaultId, "Gone2", Basis(Lmt), Ct), "InvalidArgument");
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+
+        // An expired grant reads nothing, so there is nothing to re-bind.
+        clock.Advance(TimeSpan.FromHours(3));
+        Ok(await RenameTool().RenameHierarchyObject(VaultId, "Gone2", Basis(Lmt), Ct));
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task RenameASection_ToALocationWithAnOpenOnceWindow_IsInvalidArgument()
+    {
+        Grant();
+        // The once window a read of a section at that location opened (the section was then renamed away).
+        Self(GoneId, $"<one:Section {Ns} name=\"Gone2\" ID=\"{GoneId}\" path=\"{FreedKey}\" encrypted=\"true\" lastModifiedTime=\"{Lmt}\" />");
+        var gone = HierarchyNode.Root(gateway.Hierarchies[(GoneId, HierarchyScope.Self)]);
+        await readAccess.CheckSectionAsync(new ToolCallContext("read", Prompt: new FakePrompt(FakePrompt.Accept("Gone2", ReadGrantLifetime.Once))), gone, Ct);
+        Assert.Single(readAccess.OnceGrants());
+
+        var error = Error(await RenameTool().RenameHierarchyObject(VaultId, "Gone2", Basis(Lmt), Ct), "InvalidArgument");
+
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task RenameASection_ToALocationThatHoldsAReadGrant_IsRefusedUnderTheLock_WhenTheGrantAppearsAfterStepOne()
+    {
+        Grant();
+        // Step 3 reads the section's siblings under the lock; step 1 never does. The grant appears there.
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            if (id == NotebookId && scope == HierarchyScope.Children)
+            {
+                ReadGrantAt(FreedKey);
+            }
+        };
+
+        var error = Error(await RenameTool().RenameHierarchyObject(VaultId, "Gone2", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Single(holds); // step 1 passed and the lock was taken; step 4 refused against the fresh read
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task RenameASection_ItsOwnGrant_NeverBlocksACaseOnlyRename_OrAMoveAwayFromIt()
+    {
+        Grant();
+        ReadGrantAt(@"C:\notebooks\A\Vault.one");
+
+        Ok(await RenameTool().RenameHierarchyObject(VaultId, "VAULT", Basis(Lmt), Ct));
+        Ok(await RenameTool().RenameHierarchyObject(VaultId, "Elsewhere", Basis(Lmt), Ct));
+
+        Assert.Equal(2, gateway.UpdateHierarchyCalls.Count);
+    }
+
+    [Theory]
+    [InlineData(@"C:\notebooks\A\Moved\Plans.one")] // a section directly inside the group
+    [InlineData(@"C:\notebooks\A\Moved\Sub\Deep.one")] // a protected section nested deeper
+    public async Task RenameASectionGroup_WhenASectionInsideWouldTakeOverAReadGrant_IsInvalidArgument_CountsOnly(string grantedKey)
+    {
+        Grant();
+        ReadGrantAt(grantedKey);
+
+        var error = Error(await RenameTool().RenameHierarchyObject(ArchiveId, "Moved", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("1 section", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(PlansId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(DeepId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
+    [Fact]
+    public async Task RenameASectionGroup_WhoseSectionsArentInsideItsFolder_IsNotSupported_BeforeCom()
+    {
+        // The server can't tell where those sections would go, so it can't check the rename against read grants.
+        Grant();
+        const string archive = $"name=\"Archive\" ID=\"{ArchiveId}\" path=\"C:\\notebooks\\A\\Archive\" lastModifiedTime=\"{Lmt}\"";
+        Sections(ArchiveId, $"<one:SectionGroup {Ns} {archive}><one:Section name=\"Plans\" ID=\"{PlansId}\" path=\"D:\\elsewhere\\Plans.one\" /></one:SectionGroup>");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(ArchiveId, "Moved", Basis(Lmt), Ct), "NotSupported");
+
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task RenameASectionGroup_WithNoGrantAtItsSectionsNewLocations_IsRenamed()
+    {
+        Grant();
+        ReadGrantAt(@"C:\notebooks\A\Archive\Sub\Deep.one"); // Deep's own grant, at its current location
+        ReadGrantAt(FreedKey);
+
+        Ok(await RenameTool().RenameHierarchyObject(ArchiveId, "Moved", Basis(Lmt), Ct));
+
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task RenameANotebook_NeverMovesASection_SoGrantsDontBlockIt()
+    {
+        Grant();
+        ReadGrantAt(FreedKey);
+        ReadGrantAt(@"C:\notebooks\A\Vault.one");
+
+        Ok(await RenameTool().RenameHierarchyObject(NotebookId, "Gone2", Basis(Lmt), Ct));
+
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task Reorder_NeverChangesAPath_SoReadGrantsNeverBlockIt()
+    {
+        Grant();
+        ReadGrantAt(FreedKey);
+        ReadGrantAt(@"C:\notebooks\A\Archive\Plans.one");
+        ReadGrantAt(@"C:\notebooks\A\Vault.one");
+
+        Ok(await ReorderTool().ReorderHierarchyChildren(ArchiveId, [NotesId, PlansId, SubId], Basis(Lmt), Ct));
+        Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1], Basis(Lmt), Ct));
+
+        Assert.Equal(2, gateway.UpdateHierarchyCalls.Count);
     }
 
     // --- Reorders ---------------------------------------------------------------------------------------------------
@@ -839,6 +1023,9 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     private void Self(string id, string xml) =>
         gateway.Hierarchies[(id, HierarchyScope.Self)] = "<?xml version=\"1.0\"?>\n" + xml;
 
+    private void Sections(string id, string xml) =>
+        gateway.Hierarchies[(id, HierarchyScope.Sections)] = "<?xml version=\"1.0\"?>\n" + xml;
+
     private void Children(string id, string xml) =>
         gateway.Hierarchies[(id, HierarchyScope.Children)] = "<?xml version=\"1.0\"?>\n" + xml;
 
@@ -894,7 +1081,7 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         var services = new HierarchyWriteServices(
             gateway,
             new WriteAccess(gateway, Store.Read),
-            new ReadAccess(gateway, Store.Read, new SettingsWriter(Store, clock), clock),
+            readAccess,
             new HierarchySnapshot(gateway, new JournalStore(Store.Read), clock));
         return new UpdateHierarchyUseCase(services, new WritePipeline(writeLock, gateway, cache, Store.Read, TimeProvider.System));
     }

@@ -105,7 +105,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
     /// <summary>The scope step 3 reads the node at: <c>self</c> for a rename, <c>children</c> for a reorder.</summary>
     protected abstract HierarchyScope ReadScope { get; }
 
-    public override Task AuthorizeAsync(CancellationToken ct)
+    public override async Task AuthorizeAsync(CancellationToken ct)
     {
         // Step 1, before the lock and before any grant check: the arguments (AD-7).
         CheckArguments();
@@ -124,11 +124,18 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
             }
         }
 
-        return Services.WriteAccess.CheckContainerAsync(TargetId, () => NotFound("isn't inside a notebook"), ct);
+        await Services.WriteAccess.CheckContainerAsync(TargetId, () => NotFound("isn't inside a notebook"), ct).ConfigureAwait(false);
+        await PreCheckAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>Step 1's own argument checks, before the grant (AD-7).</summary>
     protected abstract void CheckArguments();
+
+    /// <summary>
+    /// Step 1's last check, after the write grant and before the lock: a refusal that can be told from a read now, so
+    /// the lock is never taken for it. Step 4 checks again against step 3's fresh read.
+    /// </summary>
+    protected virtual Task PreCheckAsync(CancellationToken ct) => Task.CompletedTask;
 
     public override async Task ReadAsync(CancellationToken ct)
     {
@@ -377,8 +384,17 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
     public const string CloudGroupUserAction =
         "Ask the user to rename the section group in OneNote: renamed through this server, a section group in a notebook stored on OneDrive keeps its old name on OneDrive.";
 
+    /// <summary>What to do when a rename would move a section onto a location that holds a read grant (AD-21).</summary>
+    public const string GrantLocationUserAction =
+        "Choose another name. A read grant belongs to a section's location, so this rename would let a section take over the read grant held at its new location. If that grant is no longer needed, ask the user to revoke it first (list_grants shows it; a once grant ends by itself when its window closes), then retry.";
+
+    /// <summary>What to do when the server can't tell where a rename would move sections.</summary>
+    public const string UnpredictableUserAction =
+        "Ask the user to rename it in OneNote: the server can't check this rename against the user's read grants.";
+
     private readonly string name = name ?? string.Empty;
     private string sent = string.Empty;
+    private IReadOnlyList<string> sectionsBelow = [];
     private string parentId = string.Empty;
     private HierarchyParent? siblings;
     private IReadOnlyList<HierarchyNode> notebooks = [];
@@ -407,6 +423,79 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
 
     protected override bool Accepts(HierarchyKind kind) => kind is HierarchyKind.Notebook or HierarchyKind.SectionGroup or HierarchyKind.Section;
 
+    /// <summary>
+    /// Step 1's grant-location check (AD-21; story 5.4 security review): a rename that would move a section onto a
+    /// location holding a read grant is refused before the lock. Anything else (the wrong kind, the recycle bin, a path
+    /// the server can't follow) is left to step 4, which checks again against its fresh read.
+    /// </summary>
+    protected override async Task PreCheckAsync(CancellationToken ct)
+    {
+        var xml = await Services.Gateway.GetHierarchyAsync(TargetId, HierarchyScope.Self, ct).ConfigureAwait(false);
+        var node = XmlReads.Readable(() => HierarchyTarget.Read(xml), "GetHierarchy");
+        if (node.Kind is not (HierarchyKind.Section or HierarchyKind.SectionGroup) || node.IsRecycleBin || node.InRecycleBin)
+        {
+            return;
+        }
+
+        var below = node.Kind == HierarchyKind.SectionGroup ? await SectionsBelowAsync(ct).ConfigureAwait(false) : [];
+        if (GrantLocationRefusal(node, below, NewName(node.Kind), strict: false) is { } refusal)
+        {
+            throw refusal;
+        }
+    }
+
+    /// <summary>The name sent for a node of <paramref name="kind"/>: a section's without one trailing <c>.one</c>.</summary>
+    private string NewName(HierarchyKind kind) => kind == HierarchyKind.Section ? SectionFileNames.SectionName(name) : name;
+
+    private async Task<IReadOnlyList<string>> SectionsBelowAsync(CancellationToken ct)
+    {
+        var xml = await Services.Gateway.GetHierarchyAsync(TargetId, HierarchyScope.Sections, ct).ConfigureAwait(false);
+        return XmlReads.Readable(() => HierarchyTarget.SectionPathsBelow(xml), "GetHierarchy");
+    }
+
+    /// <summary>
+    /// The refusal for a rename of <paramref name="node"/> to <paramref name="newName"/> that would move a section (the
+    /// node itself, or one of <paramref name="below"/> under a section group) onto a location whose key holds a stored
+    /// read grant or a live <c>once</c> window, which the section would then inherit (AD-21: a grant follows its path,
+    /// and our own write must not re-bind one). A section staying at its own key (a case-only rename) never counts.
+    /// When the server can't tell where a section would go, <paramref name="strict"/> refuses with
+    /// <see cref="ErrorCode.NotSupported"/>; otherwise that is left to the strict check. Messages carry IDs and counts
+    /// only, never a name or path (AD-21).
+    /// </summary>
+    private OneNoteException? GrantLocationRefusal(HierarchyTarget node, IReadOnlyList<string> below, string newName, bool strict)
+    {
+        IReadOnlyList<(string Before, string After)>? moved = node.Kind switch
+        {
+            HierarchyKind.Section => RenamedLocations.Section(node.Path, newName) is { } after ? [(node.Path, after)] : null,
+            HierarchyKind.SectionGroup => RenamedLocations.SectionsInGroup(node.Path, newName, below),
+            _ => [],
+        };
+        if (moved is null)
+        {
+            return strict
+                ? new OneNoteException(
+                    ErrorCode.NotSupported,
+                    $"The server can't tell where renaming {HierarchyRules.Noun(node.Kind)} {TargetId} would move its sections, so it can't check the rename against read grants, and nothing was renamed.",
+                    userAction: UnpredictableUserAction,
+                    retryable: false)
+                : null;
+        }
+
+        var now = Services.ReadAccess.Now();
+        var taken = moved.Count(m =>
+            !GrantKeys.Comparer.Equals(GrantKeys.SectionKey(m.Before), GrantKeys.SectionKey(m.After))
+            && Services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(m.After), now));
+        if (taken == 0)
+        {
+            return null;
+        }
+
+        var message = node.Kind == HierarchyKind.Section
+            ? $"Renaming section {TargetId} would move it to a location that holds a read grant, so nothing was renamed."
+            : string.Create(CultureInfo.InvariantCulture, $"Renaming section group {TargetId} would move {taken} section(s) inside it to locations that hold a read grant, so nothing was renamed.");
+        return Invalid(message, GrantLocationUserAction);
+    }
+
     protected override async Task ReadMoreAsync(string xml, CancellationToken ct)
     {
         if (Target.Kind == HierarchyKind.Notebook)
@@ -424,6 +513,9 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
 
         if (Target.Kind == HierarchyKind.SectionGroup)
         {
+            // AD-21: every section beneath moves with the group, for step 4's grant-location check.
+            sectionsBelow = await SectionsBelowAsync(ct).ConfigureAwait(false);
+
             // AD-7: the notebook's path says whether it is stored on OneDrive.
             var notebook = await new HierarchyWalk(Services.Gateway).OwningNotebookAsync(TargetId, ct).ConfigureAwait(false);
             notebookPath = notebook?.Path ?? string.Empty;
@@ -447,7 +539,7 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
         }
 
         // A section's name is sent without .one (as 5.3 Q2 adds it); the stem is what must be a valid name.
-        sent = node.Kind == HierarchyKind.Section ? SectionFileNames.SectionName(name) : name;
+        sent = NewName(node.Kind);
         if (node.Kind == HierarchyKind.Section && SectionFileNames.NameProblem(sent) is { } problem)
         {
             throw Invalid($"The new name, without .one, {problem}, so nothing was renamed.", NameUserAction);
@@ -474,6 +566,12 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
             throw Invalid(
                 $"A {HierarchyRules.Noun(clash.Kind)} with this name ({clash.Id}) already exists under {parentId}, so {HierarchyRules.Noun(node.Kind)} {TargetId} wasn't renamed.",
                 TakenUserAction);
+        }
+
+        // AD-21 (story 5.4 security review): never hand a read grant to another section by moving it onto the grant's key.
+        if (GrantLocationRefusal(node, sectionsBelow, sent, strict: true) is { } refusal)
+        {
+            throw refusal;
         }
 
         return HierarchyUpdate.Rename(node.Kind, node.Id, sent);
