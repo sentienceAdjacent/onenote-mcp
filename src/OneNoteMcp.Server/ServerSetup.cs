@@ -136,6 +136,7 @@ public static class ServerSetup
             sp.GetRequiredService<PageSnapshot>(),
             sp.GetRequiredService<IssuedPathCaches>()));
         services.AddSingleton<UpdatePageContentUseCase>();
+        services.AddSingleton<DeletePageContentUseCase>();
 
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
@@ -152,7 +153,8 @@ public static class ServerSetup
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
             .WithTools<CreatePageTool>(EnvelopeJson.Options)
-            .WithTools<UpdatePageContentTool>(EnvelopeJson.Options);
+            .WithTools<UpdatePageContentTool>(EnvelopeJson.Options)
+            .WithTools<DeletePageContentTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.

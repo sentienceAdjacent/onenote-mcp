@@ -202,8 +202,17 @@ internal sealed class FakeGateway : IOneNoteGateway
     public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct)
     {
         DeleteCalls.Add((pageId, objectId, expectedLastModified));
-        return (Failure ?? DeleteFailure) is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+        if ((Failure ?? DeleteFailure) is { } failure)
+        {
+            return Task.FromException(failure);
+        }
+
+        OnDelete?.Invoke(pageId, objectId);
+        return Task.CompletedTask;
     }
+
+    /// <summary>Runs with the page and object IDs after each <c>DeletePageContent</c> call that succeeds (story 2.10).</summary>
+    public Action<string, string>? OnDelete { get; set; }
 
     public Task WaitForAbandonedWritesAsync(CancellationToken ct) =>
         AbandonedWrites is { } pending ? pending.Task.WaitAsync(ct) : Task.CompletedTask;

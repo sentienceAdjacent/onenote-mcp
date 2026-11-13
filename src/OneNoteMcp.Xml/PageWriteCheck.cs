@@ -63,6 +63,19 @@ public enum ReadBackDiffKind
     ImageLost,
 }
 
+/// <summary>What a <c>delete_page_content</c> target is on step 3's read (<see cref="PageWriteCheck.DeleteTarget"/>).</summary>
+public enum DeleteTargetKind
+{
+    /// <summary>A <c>one:Outline</c> on the page: the only target v1 deletes (AD-7).</summary>
+    Outline,
+
+    /// <summary>On the page, but not a <c>one:Outline</c>: an OE, the title's OE, an image, ink, a table and so on.</summary>
+    NotAnOutline,
+
+    /// <summary>No element on the page has that <c>objectID</c>.</summary>
+    Unknown,
+}
+
 /// <summary>One read-back finding: IDs, attribute names and counts only, never content (AD-9).</summary>
 public sealed record ReadBackDiff(
     ReadBackDiffKind Kind,
@@ -194,6 +207,35 @@ public static class PageWriteCheck
             .Distinct(StringComparer.Ordinal)
             .ToList();
         return new PageWriteValidation(null, targets);
+    }
+
+    /// <summary>
+    /// Step 4 for <c>DeletePageContent</c> (AD-7, story 2.10): what <paramref name="objectId"/> is on step 3's piBasic read
+    /// <paramref name="readXml"/>. Only a <c>one:Outline</c> may be deleted in v1; any other element with that
+    /// <c>objectID</c> (an OE, the title's OE, an image, ink, a table) is <see cref="DeleteTargetKind.NotAnOutline"/>. No
+    /// schema gate: nothing is sent. Throws <see cref="OneNoteXmlException"/> only when <paramref name="readXml"/> can't be
+    /// read.
+    /// </summary>
+    public static DeleteTargetKind DeleteTarget(string readXml, string objectId)
+    {
+        ArgumentNullException.ThrowIfNull(readXml);
+        ArgumentNullException.ThrowIfNull(objectId);
+        var read = OneNoteXml.RequireRoot(OneNoteXml.Parse(readXml), "Page");
+        return !ById(read).TryGetValue(objectId, out var element) ? DeleteTargetKind.Unknown
+            : element.Name == Outline ? DeleteTargetKind.Outline
+            : DeleteTargetKind.NotAnOutline;
+    }
+
+    /// <summary>
+    /// The <c>DeletePageContent</c> read-back (AD-7): true when <paramref name="afterXml"/>, the piBasic re-read after a
+    /// successful delete, still has an element with the deleted <paramref name="objectId"/>. Throws
+    /// <see cref="OneNoteXmlException"/> when <paramref name="afterXml"/> can't be read.
+    /// </summary>
+    public static bool StillPresent(string afterXml, string objectId)
+    {
+        ArgumentNullException.ThrowIfNull(afterXml);
+        ArgumentNullException.ThrowIfNull(objectId);
+        return ById(OneNoteXml.RequireRoot(OneNoteXml.Parse(afterXml), "Page")).ContainsKey(objectId);
     }
 
     /// <summary>

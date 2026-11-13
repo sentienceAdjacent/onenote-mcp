@@ -2,7 +2,7 @@
 
 A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and other MCP clients, read and manage the notebooks in your **OneNote desktop app** on Windows. It talks to OneNote through its COM automation API on your own machine. No cloud account, Microsoft Graph or sign-in is involved.
 
-> **Status: early preview.** The read-only tools work, and preview builds are published as GitHub prereleases. The first write tools, `create_page` and `update_page_content`, are in preview; other writes, exports and the safety features that come with them are planned, not built yet. Items marked *(planned)* below don't exist yet.
+> **Status: early preview.** The read-only tools work, and preview builds are published as GitHub prereleases. The first write tools, `create_page`, `update_page_content` and `delete_page_content`, are in preview; other writes, exports and the safety features that come with them are planned, not built yet. Items marked *(planned)* below don't exist yet.
 
 ## What it does
 
@@ -33,6 +33,7 @@ A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and
 |---|---|
 | `create_page` | adds an empty page at the end of a section, and returns its ID. It works only in a notebook you've granted: in Claude Code, the first write to a notebook raises a dialog where you type the notebook's name, or you grant it with `OneNoteMcp grant --write "Notebook name"` (below); otherwise it fails with `WriteNotGranted`. In a password-protected section it needs only that write grant, never a read grant |
 | `update_page_content` | changes a page with OneNote's own page XML, checked against the version Claude last read: if the page changed since, it fails with `StaleWrite` and nothing is written. Outlines it doesn't send are kept; an OE can be deleted only by naming it. Each write first saves the page to the recovery journal, then re-reads it and warns about any change OneNote didn't apply. Claude calls it only when you ask to change a page. It needs the same write grant as `create_page`. |
+| `delete_page_content` | removes one Outline (a block of content) from a page, checked against the version Claude last read: if that Outline changed since, it fails with `StaleWrite` and nothing is deleted. It deletes whole Outlines only; single paragraphs (OEs) are removed with `update_page_content`, and images and ink can't be deleted yet. Each delete first saves the page to the recovery journal, then re-reads it to check the Outline is gone. Claude calls it only when you ask to remove a block of a page. It needs the same write grant as `create_page`, and in a password-protected section also your read grant for that section (Claude reads the page first, which asks). |
 
 Results are always OneNote's own XML, so tables, tags, ink, images and attachments survive the trip. The server never edits it: it only leaves out whole pages, such as recycle-bin pages in search results and pages of a password-protected section you haven't granted, and the result names the pages it filtered or the sections it withheld. When something is degraded, such as a cloud image that isn't on this PC, a locked section or search results that may be incomplete, the result says so in `warnings` instead of failing.
 

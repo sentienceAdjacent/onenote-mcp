@@ -414,4 +414,47 @@ public sealed class PageWriteCheckTests
             [new ReadBackDiff(ReadBackDiffKind.AttributeDiffers, G(10), "alignment")],
             PageWriteCheck.CompareReadBack(Sent(Text(title)), Read));
     }
+
+    // --- delete_page_content (story 2.10) ---------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(20)]
+    [InlineData(40)]
+    public void DeleteTarget_AnOutline_IsOutline(int n) =>
+        Assert.Equal(DeleteTargetKind.Outline, PageWriteCheck.DeleteTarget(Read, G(n)));
+
+    [Theory]
+    [InlineData(10)] // the title's OE
+    [InlineData(21)] // an OE
+    [InlineData(24)] // a table
+    [InlineData(26)] // a cell
+    [InlineData(27)] // an OE in a cell
+    public void DeleteTarget_AnythingElseOnThePage_IsNotAnOutline(int n) =>
+        Assert.Equal(DeleteTargetKind.NotAnOutline, PageWriteCheck.DeleteTarget(Read, G(n)));
+
+    [Fact]
+    public void DeleteTarget_AnImageOrInkWithAnObjectId_IsNotAnOutline()
+    {
+        var page = After(p => p.Descendants(One + "Image").Single().SetAttributeValue("objectID", G(90)));
+
+        Assert.Equal(DeleteTargetKind.NotAnOutline, PageWriteCheck.DeleteTarget(page, G(90)));
+    }
+
+    [Theory]
+    [InlineData("{5E900000-0000-4000-8000-000000000001}{99}{B0}")]
+    [InlineData(PageId)] // the page's own ID is an ID attribute, not an objectID
+    public void DeleteTarget_NotOnThePage_IsUnknown(string id) =>
+        Assert.Equal(DeleteTargetKind.Unknown, PageWriteCheck.DeleteTarget(Read, id));
+
+    [Fact]
+    public void DeleteTarget_AnUnreadablePage_Throws() =>
+        Assert.Throws<OneNoteXmlException>(() => PageWriteCheck.DeleteTarget("<not xml", G(20)));
+
+    [Fact]
+    public void StillPresent_IsTrueOnlyWhileTheOutlineIsOnThePage()
+    {
+        Assert.True(PageWriteCheck.StillPresent(Read, G(40)));
+        Assert.False(PageWriteCheck.StillPresent(After(p => Drop(p, 40)), G(40)));
+        Assert.True(PageWriteCheck.StillPresent(After(p => Drop(p, 40)), G(20)));
+    }
 }
