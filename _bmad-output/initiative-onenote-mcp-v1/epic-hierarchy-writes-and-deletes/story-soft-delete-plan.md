@@ -3,19 +3,27 @@ title: 'Soft delete'
 type: 'feature'
 ticket: '5'
 created: '2026-11-13'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '47224c5489ce8ae6d97e6af2596138396bdf61b8'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      A page in a locked section might return ObjectNotFound instead of SectionLocked, because step 1's self read of the page runs before PageWrite's section-first read.
+    evidence: |-
+      Unverified (maybe-false): PageWrite reads the section first because OneNote may not list a locked section's pages (PageWrite.cs ReadAsync comment; story 2.9's plan flags it as unverified live). SoftDeleteUseCase.ExecuteAsync reads GetHierarchy(pageId, self) before the pipeline. Settle it with a live check at the sitting: what GetHierarchy at self returns for a page in a locked section. If it fails with 0x80042014, fall back to the page path on ObjectNotFound in step 1.
+    location: >-
+      src/OneNoteMcp.Core/UseCases/SoftDeleteUseCase.cs:101
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -81,6 +89,19 @@ He took the recommendation on every question.
 - Q6 (a): a delete returns the object's ID, the journal entry's ID, and, for a page, its new ID in the recycle bin.
 - Q7 (a): an empty section group and a nested section group (not yet tested live) are allowed in the build; opt-in integration probes for them (L5, L6) run at the sitting before merge.
 - Q8: approved with these answers.
+
+## Build Directions (unattended build, 2026-11-13)
+
+These settle what the answers leave to the build. They are binding for this build and sit beside the Answers; where the intent contract above predates an answer, the answer and these directions win. Items marked **Assumption** are the build's conservative choice on something only Phill can decide; each is listed in the Auto Run Result.
+
+- **5.4's code is not on this base.** This branch sits on 5.4's plan commit (b1f8afc) only; 5.4 (rename and reorder) is being built in parallel on `story/5.4-update-hierarchy`, and 5.3's branch is getting security fixes in parallel too. So the pieces the intent contract borrows from 5.4 (`HierarchySnapshot`, `JournalEntry.HierarchyKind`, a node reader with `lastModifiedTime`, `isRecycleBin`, `isDeletedPages`, `pageLevel`, a date-only basis check) do not exist yet. **Assumption:** build the minimum of them that 5.5 needs here, each in its own small file or as a small additive member, with the names the plan uses (`JournalEntry.HierarchyKind = "hierarchy"`, `HierarchySnapshot`), so that the rebase onto 5.4 later unifies two near-identical pieces rather than untangling an edit. Don't build anything for 5.4's own use (no `UpdateHierarchy`).
+- **Keep it additive and separate.** Own use case (`SoftDeleteUseCase.cs`), own tool file (`DeleteHierarchyObjectTool.cs`), own tests file, own integration tests file. Touch shared files (`PageWrite.cs`, `JournalEntry.cs`, `JournalStore.cs`, `IOneNoteGateway.cs`, `ComGateway.cs`, `ServerSetup.cs`, `ToolWarnings.cs`, `ToolMeta.cs`, `RestoreFromJournalUseCase.cs`, the fakes) only where the plan needs it, with small, local edits; prefer adding a member to reshaping an existing one. Don't touch 5.3's create-hierarchy files beyond what sharing requires.
+- **Q2's error code.** A page with subpages is refused with `InvalidArgument` before COM: the message gives the subpage count, the `userAction` says to delete the subpages first (deepest first) or move them out. In a protected section without a read grant the message gives the count only (it is a count already).
+- **Q7's probes.** L5 (empty group) and L6 (nested group) are allowed through the tool in the build; the opt-in integration tests for them are written, and run at the sitting before merge.
+- **This build never touches OneNote.** No integration tests run, no COM, no starting, closing or killing OneNote, no `ONENOTE_MCP_INTEGRATION`, no server exe, never `NavigateTo`. Don't read or touch `%APPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp`; don't edit settings, `CLAUDE.md` or config files. Only `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`. The integration tests (`tests/OneNoteMcp.Integration/SoftDeleteIntegrationTests.cs`) use `TestNotebook`'s guard and the MCP Test notebooks only, and are written, not run.
+- **Known flaky unit test.** `ComGatewayLifecycleTests.AWriteStillQueuedAtItsOwnDeadline_NeverRan_AndIsNotTracked` can fail on timing; rerun once before treating it as a failure.
+- **Privacy.** No real notebook, employer or person names in code, tests, fixtures or docs; use "notebook A/B/C", "MCP Test" and "MCP Test Cloud".
+- **Don't commit.** Leave the changes in the working tree; the build session commits after review.
 
 ## Open Questions
 
@@ -155,19 +176,19 @@ None runs in the build; each is an opt-in test in `tests/OneNoteMcp.Integration/
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Xml/` -- Deleted Pages reader, locked-beneath-a-group reader, subpage check (+ fixture tests).
-- [ ] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs`, `FakeApplication.cs` (+ `ComGatewayLifecycleTests`) -- `DeleteHierarchyAsync`, date guard, never retried.
-- [ ] `src/OneNoteMcp.Core/Journal/JournalEntry.cs`, `JournalStore.cs` (+ `JournalTests`) -- `recycleBinId` and the one-time rewrite, protected blob untouched, a missing file reported, not thrown.
-- [ ] `src/OneNoteMcp.Core/Writes/PageWrite.cs` -- share the page read, basis check and entry naming with the soft delete; snapshot class as a parameter.
-- [ ] `src/OneNoteMcp.Core/UseCases/SoftDeleteUseCase.cs` (new) -- page, section and group `SoftDelete` operations, the step-1 notebook refusal, the read-back and rewrite.
-- [ ] `src/OneNoteMcp.Core/UseCases/RestoreFromJournalUseCase.cs` -- Q4's `userAction`.
-- [ ] `src/OneNoteMcp.Core/Results/ToolWarnings.cs`, `ToolMeta.cs` -- warning and meta.
-- [ ] `src/OneNoteMcp.Server/Tools/` new tool per Q1, `ServerSetup.cs` registration.
-- [ ] `tests/OneNoteMcp.Tests/SoftDeleteToolTests.cs` (new) -- every I/O matrix row; no COM and no entry on refusals; snapshot before the call; hierarchy date sent for a page; `MinValue` never sent; counts only without a read grant; `recycleBinIdMissing` on an ambiguous diff and on a failed rewrite.
-- [ ] `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs` -- contract.
-- [ ] `tests/OneNoteMcp.Integration/SoftDeleteIntegrationTests.cs` (new, opt-in) -- L1-L12, written, not run.
-- [ ] `README.md`, `plugin/skills/guide/SKILL.md` -- tool rows.
-- [ ] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync: tool names (Q1), the subpage rule (Q2), the ID pick (Q3), restore's `userAction` (Q4), `meta.recycleBinId` and `journalEntryId` (Q6), a locked section beneath a group, the step-1 notebook refusal, `recycleBinIdMissing`; then the probe results for the Deferred rows.
+- [x] `src/OneNoteMcp.Xml/` -- Deleted Pages reader, locked-beneath-a-group reader, subpage check (+ fixture tests).
+- [x] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs`, `FakeApplication.cs` (+ `ComGatewayLifecycleTests`) -- `DeleteHierarchyAsync`, date guard, never retried.
+- [x] `src/OneNoteMcp.Core/Journal/JournalEntry.cs`, `JournalStore.cs` (+ `JournalTests`) -- `recycleBinId` and the one-time rewrite, protected blob untouched, a missing file reported, not thrown.
+- [x] `src/OneNoteMcp.Core/Writes/PageWrite.cs` -- share the page read, basis check and entry naming with the soft delete; snapshot class as a parameter.
+- [x] `src/OneNoteMcp.Core/UseCases/SoftDeleteUseCase.cs` (new) -- page, section and group `SoftDelete` operations, the step-1 notebook refusal, the read-back and rewrite.
+- [x] `src/OneNoteMcp.Core/UseCases/RestoreFromJournalUseCase.cs` -- Q4's `userAction`.
+- [x] `src/OneNoteMcp.Core/Results/ToolWarnings.cs`, `ToolMeta.cs` -- warning and meta.
+- [x] `src/OneNoteMcp.Server/Tools/` new tool per Q1, `ServerSetup.cs` registration.
+- [x] `tests/OneNoteMcp.Tests/SoftDeleteToolTests.cs` (new) -- every I/O matrix row; no COM and no entry on refusals; snapshot before the call; hierarchy date sent for a page; `MinValue` never sent; counts only without a read grant; `recycleBinIdMissing` on an ambiguous diff and on a failed rewrite.
+- [x] `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs` -- contract.
+- [x] `tests/OneNoteMcp.Integration/SoftDeleteIntegrationTests.cs` (new, opt-in) -- L1-L12, written, not run.
+- [x] `README.md`, `plugin/skills/guide/SKILL.md` -- tool rows.
+- [x] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- spine sync: tool names (Q1), the subpage rule (Q2), the ID pick (Q3), restore's `userAction` (Q4), `meta.recycleBinId` and `journalEntryId` (Q6), a locked section beneath a group, the step-1 notebook refusal, `recycleBinIdMissing`; then the probe results for the Deferred rows.
 
 **Acceptance Criteria:**
 - Given a granted notebook, when a page in it is soft-deleted, then the page is in Deleted Pages, the result carries `meta.recycleBinId`, and the journal entry holds the same ID.
@@ -178,9 +199,27 @@ None runs in the build; each is an opt-in test in `tests/OneNoteMcp.Integration/
 
 ## Implementation Notes
 
+- **5.4's pieces, built here (Build Directions assumption).** `JournalEntry.HierarchyKind`, `Journal/HierarchySnapshot.cs`, `Xml/DeleteTargets.cs` (the node reader: kind, `lastModifiedTime`, `isRecycleBin`, `isInRecycleBin`, `locked`, `encrypted`, subpage count, page IDs, protected-page stripping) and a date-only check inside `SoftDeleteNode`. The rebase onto 5.4 merges them with 5.4's versions.
+- **Step 1's kind check is a `self` read in the use case, before the pipeline** (an assumption: the plan's Code Map hints at detecting a notebook through the grant walk). It reads only the object's own element, before any grant dialog and before the lock; its messages carry the ID only.
+- **A page or node whose hierarchy has no usable `lastModifiedTime`** is refused as `Internal` before the snapshot, so `MinValue` is never sent (the gateway also refuses it).
+- **A read-back that found the ID but whose rewrite failed** still returns `meta.recycleBinId`, beside `recycleBinIdMissing` (the warning's message says the ID and that the entry lacks it).
+- **Shared edits.** `PageWrite`: snapshot takes the operation's `Class`; a `CheckSection` hook (the protected-section refusal, before the page is read); `OwningSection`, `PageNode`, `JournalFile` exposed; `CheckBasis(..., comparePageHash)`. The entry-naming wrapper moved to `WriteOperation.CallNamingFailureNoteAsync`, with `PageWrite.CallNamingEntryAsync` delegating. `HierarchyWalk.NodeLocationAsync`. `ComGateway.BadExpectedDate` takes an optional noun.
+- **Live-sitting setup.** L3, L4, L7 and the protected half of L10 need throwaways made by hand in MCP Test, found by exact name ("Soft delete 5.5 Vault", "Soft delete 5.5 Locked group", "Soft delete 5.5 L3"); they skip with a `PHILL:` instruction when absent.
+- **Guide skill.** Its "can't delete" line now says "can't delete permanently"; the description grew from 1095 to 1166 characters (`claude plugin validate --strict` not run in this build).
+- **Verification.** `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2539 passed. Nothing touched OneNote.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-11-13 — Review pass
+- verdicts: 5 findings — high 0, medium 2, low 2, false 0, maybe-false 1
+- findings:
+  - `[medium]` `[patch]` A page delete's `noBasis`/`partialBasis` warnings and not-a-date error carried `PageWrite.NoBasisUserAction` ("pass meta.basis unchanged"), whose `elementHashes` this tool refuses, and the `noBasis` message said a change "could be overwritten" — fixed: `PageWrite` gained overridable `BasisUserAction` and `UnbasedRisk` (defaults unchanged for other writes); `SoftDeletePage` supplies `SoftDeleteUseCase.PageBasisUserAction` (lastModifiedTime and pageHash only, no elementHashes) and "wasn't caught"; a test asserts it.
+  - `[maybe-false]` `[defer]` A page in a locked section might come back `ObjectNotFound`, not `SectionLocked`, because step 1's `GetHierarchy(pageId, self)` runs before `PageWrite`'s section-first read — would settle with a live check of what `GetHierarchy` at `self` returns for a page in a locked section (no probe L1-L12 covers it; the unit test passes because the fake answers). If true, medium.
+  - `[low]` `[reject]` AC4 says "no ... COM call" for a notebook, but step 1 makes a COM read to learn the target is a notebook — no harm (a read is the only way to know the kind, and no grant dialog, lock or write happens); the fix would be to edit this build's plan's AC wording.
+  - `[low]` `[patch]` The tool description's spurious-`StaleWrite` note (spike 5.1 constraint 2) covered only sections and groups, though a page delete sends the page's hierarchy date too — fixed: the note now covers every target.
+  - `[medium]` `[patch]` `restore_from_journal`'s description, `entryId` text, `EntryIdUserAction`, README row and guide-skill row named only `update_page_content`/`delete_page_content` as entry sources — fixed: they name `delete_hierarchy_object` and say a page's entry restores as a new page while a section's or group's returns `NotSupported` pointing to the recycle bin.
 
 ## Design Notes
 
@@ -200,3 +239,33 @@ None runs in the build; each is an opt-in test in `tests/OneNoteMcp.Integration/
 
 **Manual checks (if no CLI):**
 - Phill's live sitting: `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter SoftDelete` on MCP Test and MCP Test Cloud (L1-L12), with Sync Now after each cloud step and an OneNote-for-the-web check for L12.
+
+## Auto Run Result
+
+**Status:** built (2026-11-13, bmad-build-auto, full route, quick review).
+
+**Summary.** New tool `delete_hierarchy_object(objectId, basis?)` soft-deletes a page, section or section group through the AD-7 pipeline as `SoftDelete`. A notebook is refused with `NotSupported` before any grant dialog. A page is refused in the recycle bin, a locked section, a password-protected section (AD-21's `userAction`) or when it has subpages (Q2, count only); its page-XML basis (date and `pageHash`) is compared, `DeleteHierarchy` is sent its hierarchy date, it gets a `page` journal entry, and its new ID in Deleted Pages is picked by a before/after diff narrowed by name (Q3) and written into the entry once (`recycleBinId`), else `recycleBinIdMissing`. A section or group gets a `hierarchy` entry of its `pages`-scope read (DPAPI for a protected section; a group's entry drops protected sections' pages), with a locked section anywhere beneath refused. `restore_from_journal` says where a soft-deleted section or group went (Q4). Results carry `meta.objectId`, `meta.journalEntryId` and, for a page, `meta.recycleBinId` (Q6).
+
+**Files changed.**
+- `src/OneNoteMcp.Core/UseCases/SoftDeleteUseCase.cs` (new) — the use case: step-1 checks, `SoftDeletePage` (a `PageWrite`) and `SoftDeleteNode`.
+- `src/OneNoteMcp.Server/Tools/DeleteHierarchyObjectTool.cs` (new), `ServerSetup.cs` — the tool and its registration.
+- `src/OneNoteMcp.Core/Journal/HierarchySnapshot.cs` (new), `JournalEntry.cs`, `JournalStore.cs` — `hierarchy` entries, `RecycleBinId`, the one-time rewrite.
+- `src/OneNoteMcp.Xml/RecycleBin.cs`, `DeleteTargets.cs` (new) — Deleted Pages reader and Q3 pick; target, subpage and page-ID readers.
+- `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs` — `DeleteHierarchyAsync` with the empty-ID and date guards, never retried.
+- `src/OneNoteMcp.Core/Writes/PageWrite.cs`, `WriteOperation.cs`, `Access/HierarchyWalk.cs` — shared hooks (snapshot class, `CheckSection`, `comparePageHash`, `BasisUserAction`, `UnbasedRisk`, `CallNamingFailureNoteAsync`, `NodeLocationAsync`).
+- `src/OneNoteMcp.Core/UseCases/RestoreFromJournalUseCase.cs`, `Server/Tools/RestoreFromJournalTool.cs` — Q4's `userAction`; entry-source wording.
+- `src/OneNoteMcp.Core/Results/ToolMeta.cs`, `ToolWarnings.cs` — `recycleBinId`, `recycleBinIdMissing`.
+- `tests/OneNoteMcp.Tests/SoftDeleteToolTests.cs`, `SoftDeleteReadsTests.cs` (new) plus `JournalTests`, `ComGatewayLifecycleTests`, `RestoreFromJournalToolTests`, fakes, counts and `Contract/tool-contract.json`.
+- `tests/OneNoteMcp.Integration/SoftDeleteIntegrationTests.cs` (new) — opt-in probes L1-L12, written, not run.
+- `README.md`, `plugin/skills/guide/SKILL.md`, `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` — tool rows and spine-sync items.
+
+**Review findings.** 5 from the quick lens. Patched 3 (2 medium, 1 low): the page delete's basis `userAction` and `noBasis` wording; the spurious-`StaleWrite` note for every target; `restore_from_journal`'s entry-source wording. Deferred 1 (maybe-false, medium if true): a page in a locked section may read as `ObjectNotFound` because of step 1's `self` read. Rejected 1 (low): AC4's "no COM call" versus step 1's COM read — harmless, and its fix would edit this plan's AC.
+
+**Follow-up review recommended: true.** Patched by verdict: high 0, medium 2, low 1. Named risk: the post-review `PageWrite` hooks (`BasisUserAction`, `UnbasedRisk`) change the shared page-write path that `update_page_content` and `delete_page_content` use, and no reviewer has read them (the existing tests for those tools pass).
+
+**Verification.** `dotnet build OneNoteMcp.slnx -warnaserror --no-incremental`: 0 warnings, 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2539 passed, 0 failed (after the patches; the known flaky lifecycle test passed first time). Matrix audit: every I/O matrix row has a passing test in `SoftDeleteToolTests`. `claude plugin validate --strict plugin`: only the pre-existing missing-icon warning. Nothing touched OneNote.
+
+**Residual risks.**
+- 5.4's pieces (`HierarchySnapshot`, `JournalEntry.HierarchyKind`, `DeleteTargets`, the date-only check) are stand-ins built here; the rebase onto 5.4 must merge them.
+- Unprobed live behaviour waits on the sitting: L3 (displayed page, hierarchy date), L4 (protected-page soft delete), L5/L6 (empty and nested groups, Q7), L7 (group holding a locked section), L8 (subpages), L9 (same-named pages, first delete), and the deferred locked-section page read.
+- Assumptions (Build Directions and Implementation Notes): 5.4 stand-ins; step 1's kind check as a `self` read; `Internal` for a missing hierarchy date; `meta.recycleBinId` still returned when the rewrite fails.

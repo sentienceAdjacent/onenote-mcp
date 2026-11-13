@@ -492,6 +492,8 @@ public sealed class SearchToolTests
 
         public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw new NotSupportedException();
 
+        public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct) => throw new NotSupportedException();
+
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
 
         private Task<string> Search(Func<Task<string>> serve) =>

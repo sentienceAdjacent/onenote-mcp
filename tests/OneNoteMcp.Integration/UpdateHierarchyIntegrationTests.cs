@@ -596,6 +596,9 @@ public sealed class UpdateHierarchyIntegrationTests(ITestOutputHelper output) : 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) =>
             throw new InvalidOperationException("The rename and reorder tools never write page content.");
 
+        public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct) =>
+            throw new InvalidOperationException("The rename and reorder tools never delete.");
+
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => inner.WaitForAbandonedWritesAsync(ct);
     }
 }

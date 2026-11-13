@@ -434,6 +434,35 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.DeleteHierarchy);
+        if (string.IsNullOrEmpty(objectId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no object ID was given.",
+                retryable: false));
+        }
+
+        // Never DateTime.MinValue, which skips OneNote's date check (AD-17; live, DeleteHierarchy, 2026-11-12).
+        if (OneNoteDates.ToUtc(expectedLastModified) is not { } date)
+        {
+            return Task.FromException(BadExpectedDate(method, "object's hierarchy"));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.DeleteHierarchy(objectId, date, permanent);
+                return true;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
     public Task WaitForAbandonedWritesAsync(CancellationToken ct)
     {
         lock (gate)
@@ -815,10 +844,10 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     /// <summary>The userAction that goes with <see cref="CrashingMessage"/>, so the model waits for the crashed copy to close.</summary>
     internal const string CrashingUserAction = "Wait until the crashed OneNote has closed, start OneNote desktop, then retry.";
 
-    private static OneNoteException BadExpectedDate(string method) => new(
+    private static OneNoteException BadExpectedDate(string method, string what = "page") => new(
         ErrorCode.InvalidArgument,
         $"{method} wasn't sent: the expected last-modified date isn't a date OneNote wrote.",
-        userAction: "Re-read the page and pass its lastModifiedTime exactly as OneNote wrote it.");
+        userAction: $"Re-read the {what} and pass its lastModifiedTime exactly as OneNote wrote it.");
 
     /// <summary>
     /// AD-3: while an abandoned write may still be running in OneNote, only reads are sent. Anything else (a write,

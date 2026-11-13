@@ -888,6 +888,55 @@ public sealed class ComGatewayLifecycleTests
         Assert.Single(app.Calls, c => c.Method == "DeletePageContent");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteHierarchy_PassesTheObjectAUtcDate_AndThePermanentFlag(bool permanent)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.DeleteHierarchyAsync("{section}", "2026-11-13T10:20:30.000Z", permanent, Ct);
+
+        var args = app.Calls.Single(c => c.Method == "DeleteHierarchy").Args;
+        Assert.Equal(["{section}", new DateTime(2026, 11, 13, 10, 20, 30, DateTimeKind.Utc), permanent], args);
+        Assert.Equal(DateTimeKind.Utc, ((DateTime)args[1]!).Kind);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("x")]
+    [InlineData("0001-01-01T00:00:00Z")]
+    [InlineData("0001-01-01T00:00:00")] // MinValue with no offset skips OneNote's date check (live, DeleteHierarchy, 2026-11-12)
+    [InlineData("1899-12-30T00:00:00Z")]
+    [InlineData(null)]
+    public async Task DeleteHierarchy_WithABadDate_IsInvalidArgument_BeforeCom(string? date)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.DeleteHierarchyAsync("{section}", date!, permanent: false, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Contains("lastModifiedTime", ex.UserAction, StringComparison.Ordinal);
+        Assert.Empty(app.Calls);
+        Assert.Equal(0, app.Activations);
+    }
+
+    [Fact]
+    public async Task DeleteHierarchy_RefusesAnEmptyId_BeforeCom_AndIsNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.DeleteHierarchyAsync(string.Empty, "2026-11-13T10:20:30.000Z", false, Ct))).Code);
+        Assert.Empty(app.Calls);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.DeleteHierarchyAsync("{section}", "2026-11-13T10:20:30.000Z", false, Ct));
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls, c => c.Method == "DeleteHierarchy");
+    }
+
     [Fact]
     public async Task AWriteThatTimesOut_IsOutstanding_OtherNonReadCallsAreComBusy_ReadsRun_UntilItSettles()
     {

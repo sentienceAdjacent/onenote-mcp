@@ -337,6 +337,27 @@ internal sealed class FakeGateway : IOneNoteGateway
         OnUpdateHierarchy?.Invoke(changesXml);
     }
 
+    /// <summary>Every <c>DeleteHierarchy</c> call, in order (story 5.5). It has no fixture: it records and succeeds.</summary>
+    public List<(string ObjectId, string ExpectedLastModified, bool Permanent)> DeleteHierarchyCalls { get; } = [];
+
+    /// <summary>When set, <c>DeleteHierarchy</c> alone throws it.</summary>
+    public Exception? DeleteHierarchyFailure { get; set; }
+
+    /// <summary>Runs with the object ID after each <c>DeleteHierarchy</c> call that succeeds (story 5.5), so a test can move it to the recycle bin.</summary>
+    public Action<string>? OnDeleteHierarchy { get; set; }
+
+    public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct)
+    {
+        DeleteHierarchyCalls.Add((objectId, expectedLastModified, permanent));
+        if ((Failure ?? DeleteHierarchyFailure) is { } failure)
+        {
+            return Task.FromException(failure);
+        }
+
+        OnDeleteHierarchy?.Invoke(objectId);
+        return Task.CompletedTask;
+    }
+
     public Task WaitForAbandonedWritesAsync(CancellationToken ct) =>
         AbandonedWrites is { } pending ? pending.Task.WaitAsync(ct) : Task.CompletedTask;
 

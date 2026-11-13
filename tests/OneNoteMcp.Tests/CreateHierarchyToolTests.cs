@@ -1289,6 +1289,8 @@ public sealed class CreateHierarchyToolTests : IDisposable
 
         public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => inner.UpdateHierarchyAsync(changesXml, ct);
 
+        public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct) => inner.DeleteHierarchyAsync(objectId, expectedLastModified, permanent, ct);
+
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => inner.WaitForAbandonedWritesAsync(ct);
     }
 

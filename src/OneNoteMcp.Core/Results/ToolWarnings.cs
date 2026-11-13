@@ -100,4 +100,12 @@ public static class ToolWarnings
     /// was sent to OneNote and no journal entry was taken (story 5.4). Names the node's ID only.
     /// </summary>
     public const string Unchanged = "unchanged";
+
+    /// <summary>
+    /// A page soft delete succeeded, but the page's new ID in Deleted Pages couldn't be told apart, or the journal entry
+    /// couldn't be rewritten with it (AD-7 <c>SoftDelete</c>; story 5.5 Q3): the entry has no <c>recycleBinId</c>, so a
+    /// later restore matches by name. <c>meta.recycleBinId</c> is present only when the ID was found and the rewrite alone
+    /// failed. It needs no userAction.
+    /// </summary>
+    public const string RecycleBinIdMissing = "recycleBinIdMissing";
 }
