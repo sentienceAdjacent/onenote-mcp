@@ -277,12 +277,27 @@ internal sealed class FakePrompt(params GrantPromptResult[] answers) : IGrantPro
     public Task<GrantPromptResult> AskAsync(GrantQuestion question, CancellationToken ct)
     {
         Questions.Add(question);
+        Order.Add("read");
         return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : new GrantPromptResult(GrantPromptStatus.Cancelled));
     }
 
     public Task<GrantPromptResult> AskWriteAsync(WriteGrantQuestion question, CancellationToken ct)
     {
         WriteQuestions.Add(question);
+        Order.Add("write");
+        return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : new GrantPromptResult(GrantPromptStatus.Cancelled));
+    }
+
+    /// <summary>The file-path dialog's questions (story 2.9 security review), in order.</summary>
+    public List<FilePathQuestion> FileQuestions { get; } = [];
+
+    /// <summary>Every dialog asked, in order: <c>read</c>, <c>write</c> or <c>paths</c>.</summary>
+    public List<string> Order { get; } = [];
+
+    public Task<GrantPromptResult> AskFilePathsAsync(FilePathQuestion question, CancellationToken ct)
+    {
+        FileQuestions.Add(question);
+        Order.Add("paths");
         return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : new GrantPromptResult(GrantPromptStatus.Cancelled));
     }
 

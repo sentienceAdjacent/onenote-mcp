@@ -233,6 +233,66 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
         };
     }
 
+    // --- The file-path dialog (AD-7 user-gated file paths; Phill, 2026-11-12, story 2.9 security review) ---------------
+
+    public async Task<GrantPromptResult> AskFilePathsAsync(FilePathQuestion question, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        if (server.ClientCapabilities?.Elicitation is null)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+
+        ElicitResult result;
+        try
+        {
+            result = await server.ElicitAsync(FilePathRequest(question), ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+        catch (McpException)
+        {
+            return new GrantPromptResult(GrantPromptStatus.Cancelled);
+        }
+
+        return ReadFilePaths(result);
+    }
+
+    /// <summary>
+    /// The file-path dialog's form: it names each canonical path and asks the user to accept or decline. There is nothing
+    /// to type (the 5.2 re-check); AD-6's Limits apply, so a client-side hook could answer it. Public for tests.
+    /// </summary>
+    public static ElicitRequestParams FilePathRequest(FilePathQuestion question)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        var list = string.Join("\n", question.Paths.Select(p => "  " + p));
+        return new ElicitRequestParams
+        {
+            Message =
+                $"Claude wants to change a OneNote page by reading {(question.Paths.Count == 1 ? "this file" : "these files")} from this PC into it:\n{list}\n"
+                + "OneNote copies each file's content into the notebook. Accept only if you want that. "
+                + "Decline to keep the files out; nothing is written. This covers this one change only. Only you can allow this: the model can't.",
+            RequestedSchema = new ElicitRequestParams.RequestSchema
+            {
+                Properties = new Dictionary<string, ElicitRequestParams.PrimitiveSchemaDefinition>(),
+            },
+        };
+    }
+
+    /// <summary>The file-path dialog's outcome: accept confirms every path; decline, cancel or anything else doesn't. Public for tests.</summary>
+    public static GrantPromptResult ReadFilePaths(ElicitResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return result.Action switch
+        {
+            "accept" => new GrantPromptResult(GrantPromptStatus.Accepted),
+            "decline" => new GrantPromptResult(GrantPromptStatus.Declined),
+            _ => new GrantPromptResult(GrantPromptStatus.Cancelled),
+        };
+    }
+
     /// <summary>
     /// The write dialog's outcome from the client's answer. The typed name is read only from
     /// <paramref name="notebookNameField"/>, the field named in that request; any other key gives no typed name, so a

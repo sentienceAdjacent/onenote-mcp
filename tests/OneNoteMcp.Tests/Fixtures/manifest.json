@@ -235,6 +235,16 @@
     {
       "method": "GetPageContent",
       "args": [
+        "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000001}",
+        "Basic"
+      ],
+      "file": "synthetic/update-page-Basic.xml",
+      "source": "synthetic",
+      "note": "a title, Outline A (nested OE, table with an unlocked and a locked column, image) and Outline B, hand-written for story 2.9"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
         "{5E000000-0000-4000-8000-000000000001}{11}{E1000000000000000000000000000000000000000002}",
         "Basic"
       ],

@@ -12,15 +12,20 @@ namespace OneNoteMcp.Core.Writes;
 /// <item>Access check (<see cref="WriteOperation{TResult}.AuthorizeAsync"/>). When it finds a notebook with a path but no
 /// write grant, and the call can ask (<see cref="ToolCallContext.Prompt"/>), it raises the write-grant dialog
 /// (<see cref="WriteGrantDialog"/>, AD-6) with the deadline paused and on the client's token only, then runs the check
-/// once more, with no second dialog.</item>
+/// once more, with no second grant dialog. A page write whose XML names new file paths throws
+/// <see cref="FilePathsUnconfirmed"/> from step 1; the runner then raises the file-path dialog (<see cref="FilePathDialog"/>,
+/// AD-7) the same way, at most once, and runs step 1 again.</item>
 /// <item>Take the write lock (AD-18), waiting up to <c>timeouts.callSeconds</c>, capped by what is left of the deadline.
-/// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable.</item>
+/// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable. Then, while the gateway reports an abandoned write
+/// still outstanding, the pipeline is <see cref="ErrorCode.ComBusy"/>, retryable, before anything is read (AD-3).</item>
 /// <item>Read the current state; 4. validate; 5. optimistic check; 6. snapshot (AD-8). A step-6 failure that isn't a
 /// <see cref="OneNoteException"/> (the snapshot's own COM reads keep their codes) or a cancellation becomes
 /// <see cref="ErrorCode.JournalFailed"/>; like any failure before step 7, it is never <c>outcomeUnknown</c>.</item>
 /// <item value="7">The COM call. A failure here with <see cref="ErrorCode.Timeout"/>, <see cref="ErrorCode.ComUnavailable"/>
 /// or <see cref="ErrorCode.Cancelled"/>, or with HRESULT <c>0x800706BE</c>, may have written: it gets
-/// <c>outcomeUnknown</c> (AD-9). No failure before step 7 ever does.</item>
+/// <c>outcomeUnknown</c> (AD-9). No failure before step 7 ever does. After a successful call, still under the lock, the
+/// operation's <see cref="WriteOperation{TResult}.AfterCallAsync"/> (the <c>PageWrite</c> read-back) runs; whatever it
+/// throws goes to <see cref="WriteOperation{TResult}.AfterCallFailed"/> and never fails the write.</item>
 /// <item>Release the lock, after dropping the written pages from the search page-text cache, whatever the outcome. After a
 /// step-7 failure, while the gateway reports an abandoned write still running in OneNote, the lock is kept (in the
 /// background; the result isn't delayed) until that call returns or the deadline runs out, whichever is first (AD-3).</item>
@@ -84,22 +89,40 @@ public sealed class WritePipeline
         var callFailed = false;
         try
         {
-            // 1. Access check. A missing grant may raise the grant dialog (AD-6), then step 1 runs once more.
-            try
+            // 1. Access check. A missing write grant may raise the grant dialog (AD-6), and new file paths in a page write
+            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once.
+            var askedGrant = false;
+            var askedPaths = false;
+            while (true)
             {
-                await operation.AuthorizeAsync(token).ConfigureAwait(false);
+                try
+                {
+                    await operation.AuthorizeAsync(token).ConfigureAwait(false);
+                    break;
+                }
+                catch (WriteGrantMissing missing) when (!askedGrant && dialog is not null && context.Prompt is { } prompt)
+                {
+                    askedGrant = true;
+                    await PausedAsync(() => dialog.AskAsync(prompt, missing, ct)).ConfigureAwait(false);
+                }
+                catch (FilePathsUnconfirmed unconfirmed) when (!askedPaths && context.Prompt is { } prompt)
+                {
+                    askedPaths = true;
+                    await PausedAsync(() => FilePathDialog.AskAsync(prompt, unconfirmed, ct)).ConfigureAwait(false);
+                    unconfirmed.Confirm();
+                }
             }
-            catch (WriteGrantMissing missing) when (dialog is not null && context.Prompt is { } prompt)
+
+            // The deadline is paused while the user decides: a dialog waits on the client's token only, and nothing is
+            // held meanwhile (no STA call, no write lock, no settings mutex).
+            async Task PausedAsync(Func<Task> ask)
             {
                 token.ThrowIfCancellationRequested();
-
-                // The deadline is paused while the user decides: the dialog waits on the client's token only, and
-                // nothing is held meanwhile (no STA call, no write lock, no settings mutex).
                 deadlineSource.CancelAfter(Timeout.InfiniteTimeSpan);
                 var pausedAt = clock.GetTimestamp();
                 try
                 {
-                    await dialog.AskAsync(prompt, missing, ct).ConfigureAwait(false);
+                    await ask().ConfigureAwait(false);
                 }
                 finally
                 {
@@ -116,7 +139,6 @@ public sealed class WritePipeline
                 }
 
                 token.ThrowIfCancellationRequested();
-                await operation.AuthorizeAsync(token).ConfigureAwait(false);
             }
 
             // 2. The write lock.
@@ -132,6 +154,16 @@ public sealed class WritePipeline
             {
                 // The wait ended because the deadline did, not the lock wait.
                 throw DeadlineExpired(written: false, ex);
+            }
+
+            // AD-3: while an abandoned write is still outstanding in this process, a new write is ComBusy, before it
+            // reads anything (story 2.9; the 2.7 forward note).
+            if (!AbandonedWrites().IsCompleted)
+            {
+                throw new OneNoteException(
+                    ErrorCode.ComBusy,
+                    "An earlier write that OneNote may still be making hasn't finished, so nothing was read or written.",
+                    retryable: true);
             }
 
             // 3–6. Read, validate, optimistic check, snapshot.
@@ -153,12 +185,12 @@ public sealed class WritePipeline
             }
 
             // 7. The COM call.
+            TResult result;
             try
             {
                 callFailed = true;
-                var result = await operation.CallAsync(token).ConfigureAwait(false);
+                result = await operation.CallAsync(token).ConfigureAwait(false);
                 callFailed = false;
-                return result;
             }
             catch (OneNoteException ex) when (IsAmbiguous(ex))
             {
@@ -171,6 +203,19 @@ public sealed class WritePipeline
             catch (OperationCanceledException ex) when (deadlineSource.IsCancellationRequested)
             {
                 throw DeadlineExpired(written: true, ex);
+            }
+
+            // Between 7 and 8, under the lock: the read-back (AD-7). The write already happened, so nothing here fails
+            // it: an exception, the deadline or a cancel becomes the operation's own warning.
+            try
+            {
+                return await operation.AfterCallAsync(result, token).ConfigureAwait(false);
+            }
+#pragma warning disable CA1031 // The write succeeded; any read-back failure is reported as a warning, never an error.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                return operation.AfterCallFailed(result, ex);
             }
         }
         catch (OperationCanceledException ex) when (deadlineSource.IsCancellationRequested && !ct.IsCancellationRequested)

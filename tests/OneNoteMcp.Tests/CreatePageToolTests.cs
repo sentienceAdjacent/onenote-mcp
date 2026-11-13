@@ -423,14 +423,14 @@ public sealed class CreatePageToolTests : IDisposable
     {
         Grant();
         gateway.CreateFailure = new OneNoteException(ErrorCode.Timeout, "CreateNewPage did not return within 30 s; the connection to OneNote was reset.");
-        gateway.AbandonedWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var abandoned = AbandonOnCreate();
 
         // The result comes back while the abandoned call is still outstanding.
         var error = Error(await Tool().CreatePage(SectionId, cancellationToken: Ct), "Timeout");
         Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
         await AssertLockHeldAsync();
 
-        gateway.AbandonedWrites.SetResult();
+        abandoned.SetResult();
         await AssertLockFreeAsync();
     }
 
@@ -439,9 +439,11 @@ public sealed class CreatePageToolTests : IDisposable
     {
         Grant();
         using var cts = new CancellationTokenSource();
-        gateway.AbandonedWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var abandoned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         gateway.OnCreate = async ct =>
         {
+            // The call is abandoned while it runs, after step 2's check (AD-3).
+            gateway.AbandonedWrites = abandoned;
             await cts.CancelAsync();
             ct.ThrowIfCancellationRequested();
         };
@@ -449,7 +451,7 @@ public sealed class CreatePageToolTests : IDisposable
         Error(await Tool().CreatePage(SectionId, cancellationToken: cts.Token), "Cancelled");
         await AssertLockHeldAsync();
 
-        gateway.AbandonedWrites.SetResult();
+        abandoned.SetResult();
         await AssertLockFreeAsync();
     }
 
@@ -458,7 +460,7 @@ public sealed class CreatePageToolTests : IDisposable
     {
         Grant();
         gateway.CreateFailure = new OneNoteException(ErrorCode.Timeout, "CreateNewPage did not return within 30 s; the connection to OneNote was reset.");
-        gateway.AbandonedWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        AbandonOnCreate();
 
         Error(await Tool(deadline: TimeSpan.FromMilliseconds(1500)).CreatePage(SectionId, cancellationToken: Ct), "Timeout");
         await AssertLockHeldAsync();
@@ -468,16 +470,26 @@ public sealed class CreatePageToolTests : IDisposable
     }
 
     [Fact]
-    public async Task AFailureBeforeStep7_ReleasesTheLockAtOnce_EvenWithAnAbandonedWriteOutstanding()
+    public async Task AnAbandonedWriteOutstanding_AfterStep2_IsComBusy_NothingIsRead_AndTheLockIsReleasedAtOnce()
     {
-        // Only a step-7 failure can leave a write running: a refusal before it never waits.
+        // AD-3 (story 2.9): while an abandoned write is outstanding, a new write is ComBusy right after it takes the lock,
+        // before step 3 reads anything. Only a step-7 failure can leave a write running, so this refusal never waits.
         Grant();
-        gateway.AbandonedWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var abandoned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        gateway.AbandonedWrites = abandoned;
+        gateway.Calls.Clear();
 
-        Error(await Tool().CreatePage(LockedId, cancellationToken: Ct), "SectionLocked");
+        var error = Error(await Tool().CreatePage(LockedId, cancellationToken: Ct), "ComBusy");
 
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.False(error.TryGetProperty("outcomeUnknown", out _));
+        Assert.DoesNotContain((LockedId, HierarchyScope.Self), gateway.Calls);
         await AssertLockFreeAsync();
         AssertNoWrite();
+
+        // Once it settles, writes run again.
+        abandoned.SetResult();
+        Error(await Tool().CreatePage(LockedId, cancellationToken: Ct), "SectionLocked");
     }
 
     [Fact]
@@ -487,10 +499,10 @@ public sealed class CreatePageToolTests : IDisposable
         Grant();
         const string OtherId = "{SW000000-0000-4000-8000-000000000001}{1}{E2}";
         cache.Set(PageId, DateTimeOffset.UnixEpoch, "before the write", long.MaxValue);
-        gateway.AbandonedWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var abandoned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var pipeline = new WritePipeline(writeLock, gateway, cache, Store.Read, TimeProvider.System);
 
-        var ex = await Assert.ThrowsAsync<OneNoteException>(() => pipeline.RunAsync(new ToolCallContext("c"), new TimedOutPageWrite(PageId), Ct));
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => pipeline.RunAsync(new ToolCallContext("c"), new TimedOutPageWrite(PageId, () => gateway.AbandonedWrites = abandoned), Ct));
         Assert.Equal(ErrorCode.Timeout, ex.Code);
         Assert.True(ex.OutcomeUnknown);
 
@@ -504,10 +516,95 @@ public sealed class CreatePageToolTests : IDisposable
         Assert.True(cache.TryGet(PageId, DateTimeOffset.UnixEpoch, out _));
 
         // It settles: the page is dropped again before the lock goes; other pages stay.
-        gateway.AbandonedWrites.SetResult();
+        abandoned.SetResult();
         await AssertLockFreeAsync();
         Assert.False(cache.TryGet(PageId, DateTimeOffset.UnixEpoch, out _));
         Assert.True(cache.TryGet(OtherId, DateTimeOffset.UnixEpoch, out _));
+    }
+
+    // --- The step after 7: the read-back hook (story 2.9, AD-7) ------------------------------------------------------
+
+    [Fact]
+    public async Task AfterCall_RunsUnderTheLock_AfterASuccessfulCall_AndItsResultIsReturned()
+    {
+        var operation = new ReadBackWrite(async (result, ct) =>
+        {
+            await AssertLockHeldAsync();
+            return result + " checked";
+        });
+
+        var result = await Pipeline().RunAsync(new ToolCallContext("c"), operation, Ct);
+
+        Assert.Equal("written checked", result);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task AfterCall_ThatThrows_NeverFailsTheWrite_ItsFailureHookDecidesTheResult()
+    {
+        var operation = new ReadBackWrite((_, _) => throw new OneNoteException(ErrorCode.ComBusy, "busy"));
+
+        var result = await Pipeline().RunAsync(new ToolCallContext("c"), operation, Ct);
+
+        Assert.Equal("written, read-back failed: OneNoteException", result);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task AfterCall_PastTheDeadline_NeverFailsTheWrite()
+    {
+        var operation = new ReadBackWrite(async (result, ct) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return result;
+        });
+
+        var result = await Pipeline(TimeSpan.FromMilliseconds(500)).RunAsync(new ToolCallContext("c"), operation, Ct);
+
+        Assert.StartsWith("written, read-back failed: ", result, StringComparison.Ordinal);
+        Assert.Contains("Canceled", result, StringComparison.Ordinal);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task AfterCall_DoesNotRun_WhenTheCallFails()
+    {
+        var ran = false;
+        var operation = new ReadBackWrite(
+            (result, _) =>
+            {
+                ran = true;
+                return Task.FromResult(result);
+            },
+            new OneNoteException(ErrorCode.StaleWrite, "stale"));
+
+        await Assert.ThrowsAsync<OneNoteException>(() => Pipeline().RunAsync(new ToolCallContext("c"), operation, Ct));
+
+        Assert.False(ran);
+        await AssertLockFreeAsync();
+    }
+
+    private WritePipeline Pipeline(TimeSpan? deadline = null) => new(writeLock, gateway, cache, Store.Read, TimeProvider.System, deadline);
+
+    /// <summary>A write whose step-7 call returns <c>"written"</c> (or throws <paramref name="callFailure"/>), with a scripted read-back.</summary>
+    private sealed class ReadBackWrite(Func<string, CancellationToken, Task<string>> afterCall, Exception? callFailure = null) : WriteOperation<string>
+    {
+        public override OperationClass Class => OperationClass.PageWrite;
+
+        public override Task AuthorizeAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public override Task ReadAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public override void Validate()
+        {
+        }
+
+        public override Task<string> CallAsync(CancellationToken ct) =>
+            callFailure is null ? Task.FromResult("written") : Task.FromException<string>(callFailure);
+
+        public override Task<string> AfterCallAsync(string result, CancellationToken ct) => afterCall(result, ct);
+
+        public override string AfterCallFailed(string result, Exception exception) => $"{result}, read-back failed: {exception.GetType().Name}";
     }
 
     // --- The write-grant dialog (story 2.6, AD-6, AD-7 step 1) ---------------------------------------------------------
@@ -847,6 +944,18 @@ public sealed class CreatePageToolTests : IDisposable
         }
     }
 
+    /// <summary>The step-7 call leaves an abandoned write outstanding (AD-3) until the returned source completes.</summary>
+    private TaskCompletionSource AbandonOnCreate()
+    {
+        var abandoned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        gateway.OnCreate = _ =>
+        {
+            gateway.AbandonedWrites = abandoned;
+            return Task.CompletedTask;
+        };
+        return abandoned;
+    }
+
     private void AssertNoWrite() => Assert.Empty(gateway.CreateCalls);
 
     private async Task AssertLockFreeAsync()
@@ -880,7 +989,7 @@ public sealed class CreatePageToolTests : IDisposable
     }
 
     /// <summary>A page write whose step-7 call times out after it may have written <paramref name="pageId"/>.</summary>
-    private sealed class TimedOutPageWrite(string pageId) : WriteOperation<string>
+    private sealed class TimedOutPageWrite(string pageId, Action? onCall = null) : WriteOperation<string>
     {
         public override OperationClass Class => OperationClass.Create;
 
@@ -894,8 +1003,11 @@ public sealed class CreatePageToolTests : IDisposable
         {
         }
 
-        public override Task<string> CallAsync(CancellationToken ct) =>
-            Task.FromException<string>(new OneNoteException(ErrorCode.Timeout, "UpdatePageContent did not return within 30 s; the connection to OneNote was reset."));
+        public override Task<string> CallAsync(CancellationToken ct)
+        {
+            onCall?.Invoke();
+            return Task.FromException<string>(new OneNoteException(ErrorCode.Timeout, "UpdatePageContent did not return within 30 s; the connection to OneNote was reset."));
+        }
     }
 
     /// <summary>Wraps a gateway: step 3's read of <c>sectionId</c> at <c>self</c> throws, or runs a hook first.</summary>

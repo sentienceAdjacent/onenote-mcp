@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(13, actual.Count);
+        Assert.Equal(15, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -277,7 +277,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(13, tools.Count);
+        Assert.Equal(15, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -361,9 +361,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllThirteenTools()
+    public void SnapshotToolNames_AreAllFifteenTools()
     {
-        Assert.Equal(13, SnapshotToolNames().Count);
+        Assert.Equal(15, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -388,6 +388,8 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.CreateCalls);
         Assert.Empty(gateway.NavigateCalls);
+        Assert.Empty(gateway.UpdateCalls);
+        Assert.Empty(gateway.DeleteCalls);
     }
 
     [Fact]
@@ -424,9 +426,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 29 properties in all.
-        Assert.Equal(12, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(29, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 36 properties in all.
+        Assert.Equal(14, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(36, SnapshotToolProperties().Count);
     }
 
     [Theory]
@@ -435,10 +437,11 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         // The coverage proof: no value our schemas refuse reaches the SDK's binder, so its bare "An error occurred
         // invoking" result (no structuredContent) can't come back. A string where the schema takes one is replaced by a
-        // number, anything else by a string (the coercions the SDK used to make), and each by an object too.
+        // number, anything else by a string (the coercions the SDK used to make), and each by an object too: an empty one,
+        // or, where the schema takes an object (update_page_content's basis), one with a member it doesn't declare.
         var schema = SnapshotTools().Single(t => t!["name"]!.GetValue<string>() == name)!["inputSchema"]!["properties"]![property]!;
-        var takesString = schema["type"] is JsonValue type ? type.GetValue<string>() == "string" : schema["type"]!.AsArray().Any(t => t!.GetValue<string>() == "string");
-        foreach (var wrong in new[] { takesString ? "5" : "\"5\"", "{}" })
+        bool Takes(string kind) => schema["type"] is JsonValue type ? type.GetValue<string>() == kind : schema["type"]!.AsArray().Any(t => t!.GetValue<string>() == kind);
+        foreach (var wrong in new[] { Takes("string") ? "5" : "\"5\"", Takes("object") ? "{\"bogusMember\": 1}" : "{}" })
         {
             var arguments = RequiredArguments(name);
             arguments[property] = JsonDocument.Parse(wrong).RootElement.Clone();
@@ -452,6 +455,51 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.CreateCalls);
         Assert.Empty(gateway.NavigateCalls);
+        Assert.Empty(gateway.UpdateCalls);
+        Assert.Empty(gateway.DeleteCalls);
+    }
+
+    [Theory]
+    [InlineData("{\"pageHash\": 5}", "an object with a member that is a number")]
+    [InlineData("{\"lastModifiedTime\": true}", "an object with a member that is a boolean")]
+    [InlineData("{\"elementHashes\": {\"{X}\": 5}}", "an object with a member that is an object with a member that is a number")]
+    [InlineData("{\"elementHashes\": []}", "an object with a member that is an array")]
+    [InlineData("{\"PageHash\": \"h\"}", "an object with a member it doesn't declare")]
+    public async Task UpdatePageContent_ABadBasisMember_IsInvalidArgument_NamingTheArgumentOnly(string basis, string got)
+    {
+        // Story 2.9: the check recurses into an object argument, so a bad member is ours, not the SDK's binding error,
+        // and the message names the argument, never the member or its value.
+        var arguments = RequiredArguments("update_page_content");
+        arguments["basis"] = JsonDocument.Parse(basis).RootElement.Clone();
+
+        var result = await Client.CallToolAsync("update_page_content", arguments, cancellationToken: Ct);
+
+        var message = AssertInvalidArgument(result).GetProperty("message").GetString()!;
+        Assert.StartsWith($"update_page_content's argument \"basis\" must be an object or null (it got {got}).", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("pageHash", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("{X}", message, StringComparison.Ordinal);
+        Assert.Empty(gateway.Calls);
+        Assert.Empty(gateway.UpdateCalls);
+    }
+
+    [Theory]
+    [InlineData("{\"pageHash\": 5}", "an object with a member that is a number")]
+    [InlineData("{\"elementHashes\": {\"{X}\": 5}}", "an object with a member that is an object with a member that is a number")]
+    [InlineData("{\"PageHash\": \"h\"}", "an object with a member it doesn't declare")]
+    public async Task DeletePageContent_ABadBasisMember_IsInvalidArgument_NamingTheArgumentOnly(string basis, string got)
+    {
+        // Story 2.10: the same basis argument, closed and checked member by member as in 2.9.
+        var arguments = RequiredArguments("delete_page_content");
+        arguments["basis"] = JsonDocument.Parse(basis).RootElement.Clone();
+
+        var result = await Client.CallToolAsync("delete_page_content", arguments, cancellationToken: Ct);
+
+        var message = AssertInvalidArgument(result).GetProperty("message").GetString()!;
+        Assert.StartsWith($"delete_page_content's argument \"basis\" must be an object or null (it got {got}).", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("pageHash", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("{X}", message, StringComparison.Ordinal);
+        Assert.Empty(gateway.Calls);
+        Assert.Empty(gateway.DeleteCalls);
     }
 
     /// <summary>The tool's required arguments with valid values: an enum's first value, else <c>"x"</c>.</summary>

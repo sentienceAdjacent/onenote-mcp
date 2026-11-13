@@ -67,7 +67,7 @@ internal sealed class ToolClient(McpClient client)
     public const string NavigateTo = "navigate_to";
 
     /// <summary>The write tools (story 2.4 on). The harness never calls them either: it only reads.</summary>
-    public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal) { "create_page" };
+    public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal) { "create_page", "update_page_content", "delete_page_content" };
 
     /// <summary>The tools that may lack readOnlyHint: the user-visible one and the writes. Every other contract tool must be read-only.</summary>
     public static bool MayWrite(string tool) => string.Equals(tool, NavigateTo, StringComparison.Ordinal) || WriteTools.Contains(tool);
