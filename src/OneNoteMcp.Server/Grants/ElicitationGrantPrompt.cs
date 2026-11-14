@@ -276,8 +276,9 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
 
     /// <summary>
     /// The permanent-delete confirmation's form (5.6 plan Q1 c), with the typed-name field named
-    /// <paramref name="objectNameField"/>. It names what will go, by kind and name, and where it is (a page's section, a
-    /// section's page count, and the notebook by name and path), says the delete skips the recycle bin and that this
+    /// <paramref name="objectNameField"/>. Its first sentence holds only what the server worked out (the kind, a section's
+    /// page count, a same-named page's last-modified date, the notebook's path); the model-writable names (the object's, a
+    /// page's section's, the notebook's) follow in the next. It says the delete skips the recycle bin and that this
     /// confirmation covers this one delete only, and asks the user to type the name. The question's texts are already safe
     /// to show (<see cref="PermanentDeleteDialog.Shown"/>). The CLI command it suggests holds a placeholder, never the
     /// notebook's name, which a model can choose. Nothing is stored. Public for tests, which have no in-process MCP client.
@@ -285,18 +286,31 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
     public static ElicitRequestParams PermanentDeleteRequest(PermanentDeleteQuestion question, string objectNameField)
     {
         ArgumentNullException.ThrowIfNull(question);
-        var named = question.ObjectName.Length > 0 ? $" \"{question.ObjectName}\"" : " (untitled)";
-        var detail = question switch
+
+        // What the server worked out itself comes first, every model-written name after it (fresh review, 2026-11-14), so
+        // no name can open the sentence with facts of its own.
+        var facts = new List<string>();
+        if (question.PageCount is { } count)
         {
-            { SectionName: { } section } => $" in the section \"{section}\"",
-            { PageCount: { } count } => string.Create(CultureInfo.InvariantCulture, $" ({count} page{(count == 1 ? string.Empty : "s")})"),
-            _ => string.Empty,
-        };
-        var path = question.NotebookPath.Length > 0 ? $" ({question.NotebookPath})" : string.Empty;
+            facts.Add(string.Create(CultureInfo.InvariantCulture, $" with {count} page{(count == 1 ? string.Empty : "s")}"));
+        }
+
+        if (question.LastModified is { } modified)
+        {
+            facts.Add($", last modified {modified},");
+        }
+
+        var where = question.NotebookPath.Length > 0
+            ? $" from the OneNote notebook stored at {question.NotebookPath}"
+            : " from a OneNote notebook";
+        var what = question.Kind == "page" ? "title" : "name";
+        var named = question.ObjectName.Length > 0 ? $"Its {what} is \"{question.ObjectName}\"" : $"It has no {what}";
+        var section = question.SectionName is { } sectionName ? $", it is in the section \"{sectionName}\"" : string.Empty;
         return new ElicitRequestParams
         {
             Message =
-                $"Claude wants to delete the {question.Kind}{named}{detail} of the OneNote notebook \"{question.NotebookName}\"{path} permanently. "
+                $"Claude wants to permanently delete a {question.Kind}{string.Concat(facts)}{where}. "
+                + $"{named}{section}, and the notebook's name is \"{question.NotebookName}\". "
                 + "It won't go to OneNote's recycle bin; the server keeps a copy in its recovery journal for 30 days. "
                 + $"To allow this one delete, type \"{question.ExpectedText}\". "
                 + "Decline to keep it. This covers this delete only; to allow permanent deletes in this notebook without asking, run "

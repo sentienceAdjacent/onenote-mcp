@@ -17,8 +17,9 @@ public sealed record SectionBackupResult(JournalWritten Entry, string BackupFile
 /// <item>The <c>backups</c> folder is created (<c>Publish</c> into a missing folder raises a modal and blocks).</item>
 /// <item><c>Publish</c> to <c>backups\&lt;entry name&gt;.one</c>, a new file (<c>Publish</c> refuses an existing one), under
 /// <c>timeouts.publishSeconds</c>, never retried.</item>
-/// <item>The backup counts as done only once the file exists, isn't empty, and its size is unchanged across two polls
-/// <see cref="PollInterval"/> apart, waited for up to <c>timeouts.publishSeconds</c> from the <c>Publish</c> call's start,
+/// <item>The backup counts as done only once the file exists, isn't empty, its size is unchanged across two polls
+/// <see cref="PollInterval"/> apart, and it opens with <see cref="FileShare.None"/> (no other handle, OneNote's writer
+/// included, holds it; fresh review), waited for up to <c>timeouts.publishSeconds</c> from the <c>Publish</c> call's start,
 /// within the pipeline's deadline (the call's token).</item>
 /// <item>Then the entry, with <c>backupFile</c>, written last so an entry never names a file that isn't there; a crash in
 /// between leaves an orphan backup the pruner removes after retention.</item>
@@ -109,18 +110,29 @@ public sealed class SectionBackup
     }
 
     /// <summary>
-    /// Polls <paramref name="target"/> until it exists, isn't empty and kept its size across two polls, or
+    /// Polls <paramref name="target"/> until it exists, isn't empty, kept its size across two polls and opens exclusively, or
     /// <paramref name="limit"/> has passed since <paramref name="started"/> (<see cref="ErrorCode.BackupFailed"/>).
     /// </summary>
     private async Task WaitForFileAsync(string sectionId, string target, long started, TimeSpan limit, CancellationToken ct)
     {
         long? last = null;
+        var stillOpen = false;
         while (true)
         {
             var size = Size(target);
             if (size is > 0 && size == last)
             {
-                return;
+                // Fresh review: a stable size alone isn't proof that OneNote has finished writing; nothing else may hold it open.
+                if (OpensExclusively(target))
+                {
+                    return;
+                }
+
+                stillOpen = true;
+            }
+            else
+            {
+                stillOpen = false;
             }
 
             if (clock.GetElapsedTime(started) >= limit)
@@ -129,6 +141,7 @@ public sealed class SectionBackup
                 {
                     null => "its file never appeared",
                     0 => "its file stayed empty",
+                    _ when stillOpen => "its file was still open for writing",
                     _ => "its file was still growing",
                 });
             }
@@ -149,6 +162,20 @@ public sealed class SectionBackup
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
+        }
+    }
+
+    /// <summary>Whether the file opens with no sharing at all (<see cref="FileShare.None"/>): no other handle holds it.</summary>
+    private static bool OpensExclusively(string path)
+    {
+        try
+        {
+            using var probe = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

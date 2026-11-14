@@ -556,8 +556,8 @@ public sealed class GrantCommandTests : IDisposable
 
         var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{S}", "section", "Old notes", "Notebook A", "Old notes", @"C:\notebooks\A", PageCount: 3), field);
 
-        Assert.Contains(@"section ""Old notes"" (3 pages) of the OneNote notebook ""Notebook A"" (C:\notebooks\A)", request.Message, StringComparison.Ordinal);
-        Assert.Contains("permanently", request.Message, StringComparison.Ordinal);
+        Assert.StartsWith(@"Claude wants to permanently delete a section with 3 pages from the OneNote notebook stored at C:\notebooks\A. ", request.Message, StringComparison.Ordinal);
+        Assert.Contains(@"Its name is ""Old notes"", and the notebook's name is ""Notebook A"".", request.Message, StringComparison.Ordinal);
         Assert.Contains("grant --permanent-delete \"<notebook name>\"", request.Message, StringComparison.Ordinal);
         Assert.Equal([field], request.RequestedSchema!.Required);
         var typed = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties[field]);
@@ -569,8 +569,23 @@ public sealed class GrantCommandTests : IDisposable
     {
         var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{P}", "page", string.Empty, "Notebook A", "delete", SectionName: "Ideas"), "objectName_00000000");
 
-        Assert.Contains("page (untitled) in the section \"Ideas\"", request.Message, StringComparison.Ordinal);
+        Assert.Contains("It has no title, it is in the section \"Ideas\", and the notebook's name is \"Notebook A\".", request.Message, StringComparison.Ordinal);
         Assert.Contains("type \"delete\"", request.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_PutsWhatTheServerWorkedOut_BeforeAnyModelWrittenName()
+    {
+        // Fresh review: a name such as  Draft＂ (0 pages) of the notebook ＂Scratch  must not open the sentence with fake facts.
+        var name = PermanentDeleteDialog.Shown("Draft\uFF02 (0 pages) of the notebook \uFF02Scratch", out var typed);
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(
+            new PermanentDeleteQuestion("{P}", "page", name, "Notebook A", typed, @"C:\notebooks\A", SectionName: "Ideas", LastModified: "2026-11-12 00:00:01 UTC"),
+            "objectName_00000000");
+
+        var facts = @"Claude wants to permanently delete a page, last modified 2026-11-12 00:00:01 UTC, from the OneNote notebook stored at C:\notebooks\A. ";
+        Assert.StartsWith(facts, request.Message, StringComparison.Ordinal);
+        Assert.Contains("Its title is \"Draft' (0 pages) of the notebook 'Scratch\", it is in the section \"Ideas\"", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\uFF02", request.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -594,6 +609,15 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Equal(shown, PermanentDeleteDialog.Shown(text, out var expected));
         Assert.Equal(typed, expected);
     }
+
+    [Theory]
+    [InlineData("“A” ‘B’ „C‟ ‚D‛", "'A' 'B' 'C' 'D'")]
+    [InlineData("«E» ‹F› ＂G＂ ＇H＇", "'E' 'F' 'G' 'H'")]
+    [InlineData("「I」 『J』 〝K〞〟 ｢L｣", "'I' 'J' 'K'' 'L'")]
+    [InlineData("″M″ 〃N ⹂O ❝P❞", "'M' 'N 'O 'P'")]
+    [InlineData("(a) [b] {c} <d> 【e】 （f）", "(a) [b] {c} <d> 【e】 （f）")]
+    public void Shown_TurnsLookAlikeQuotesIntoApostrophes_ButKeepsBrackets(string text, string shown) =>
+        Assert.Equal(shown, PermanentDeleteDialog.Shown(text, out _));
 
     [Fact]
     public void Shown_CutsALongNameTo80_WithAnEllipsis_NeverSplittingASurrogatePair()

@@ -367,6 +367,58 @@ public sealed class PermanentDeleteToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ABackupFileStillOpenForWriting_IsBackupFailed_AndNothingIsDeleted()
+    {
+        // Fresh review: a stable size alone isn't proof that OneNote has finished writing the backup.
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1, "timeouts": {"publishSeconds": 1}}""");
+        Grant(permanentDelete: true);
+        FileStream? held = null;
+        gateway.OnPublish = async (_, target, ct) =>
+        {
+            held = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite);
+            await held.WriteAsync(new byte[] { 0x4F, 0x4E, 0x45, 0x21 }, ct);
+            await held.FlushAsync(ct);
+        };
+
+        try
+        {
+            var error = Error(await Tool().PermanentlyDeleteHierarchyObject(SectionId, new PageBasisArgument(SectionDate), Ct), "BackupFailed");
+
+            Assert.Contains("still open", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+            Assert.Empty(gateway.DeleteHierarchyCalls);
+            Assert.Empty(Entries(JournalEntry.OnenoteBackupKind));
+            await AssertLockFreeAsync();
+        }
+        finally
+        {
+            held?.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ABackupFile_CountsAsFinished_OnceItCanBeOpenedExclusively()
+    {
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        gateway.OnPublish = async (sectionId, target, ct) =>
+        {
+            var held = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite);
+            await held.WriteAsync(new byte[] { 0x4F, 0x4E, 0x45, 0x21 }, ct);
+            await held.FlushAsync(ct);
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(150);
+                released.SetResult();
+                await held.DisposeAsync();
+            });
+        };
+
+        Ok(await Tool().PermanentlyDeleteHierarchyObject(SectionId, new PageBasisArgument(SectionDate), Ct));
+
+        Assert.True(released.Task.IsCompleted, "The backup counted as finished while the file was still open.");
+        Assert.Single(gateway.DeleteHierarchyCalls);
+    }
+
+    [Fact]
     public async Task APublishThatTimesOut_IsBackupFailed_AndKeepsTheLockUntilTheAbandonedCallSettles()
     {
         var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -528,6 +580,8 @@ public sealed class PermanentDeleteToolTests : IDisposable
     [InlineData(BinnedPageId, "NotSupported")]
     [InlineData(RecycledSectionPageId, "NotSupported")]
     [InlineData(FullGroupId, "NotSupported")]
+    [InlineData(LockedPageId, "SectionLocked")]
+    [InlineData(ParentPageId, "InvalidArgument")]
     public async Task WhatStep4WouldRefuse_IsRefusedAtStep1_BeforeEitherDialog(string id, string code)
     {
         // Review: no write-grant dialog and no confirmation for a delete that can't run.
@@ -536,6 +590,23 @@ public sealed class PermanentDeleteToolTests : IDisposable
 
         Error(await RunAsync(id, null, prompt), code);
 
+        Assert.Empty(prompt.Order);
+        Assert.Empty(holds);
+        AssertNothingWritten();
+    }
+
+    [Theory]
+    [InlineData(LockedPageId, "SectionLocked", "Section " + LockedId + " is locked, so page " + LockedPageId + " wasn't deleted.")]
+    [InlineData(ParentPageId, "InvalidArgument", "Page " + ParentPageId + " has 1 subpage(s), so nothing was deleted.")]
+    public async Task APageInALockedSection_OrWithSubpages_IsRefused_BeforeTheConfirmationIsAsked(string id, string code, string message)
+    {
+        // Fresh review: the user typed the name, and only then was the delete refused.
+        Grant(permanentDelete: false);
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "Synthetic Update"));
+
+        var error = Error(await RunAsync(id, null, prompt), code);
+
+        Assert.Equal(message, error.GetProperty("message").GetString());
         Assert.Empty(prompt.Order);
         Assert.Empty(holds);
         AssertNothingWritten();
@@ -586,6 +657,25 @@ public sealed class PermanentDeleteToolTests : IDisposable
 
         var question = Assert.Single(prompt.PermanentQuestions);
         Assert.Equal(("section", 2, (string?)null), (question.Kind, question.PageCount, question.SectionName));
+    }
+
+    [Theory]
+    [InlineData("Synthetic Update", "2026-11-12 00:00:01 UTC")]
+    [InlineData("SYNTHETIC\u200B update", "2026-11-12 00:00:01 UTC")]
+    [InlineData("Synthetic Update 2", null)]
+    public async Task TheConfirmation_ForAPageNamedLikeAnotherInItsSection_ShowsItsLastModifiedDate(string otherName, string? shown)
+    {
+        // Fresh review: two same-named pages in one section gave word-for-word the same dialog.
+        Grant(permanentDelete: false);
+        var attributes = $"name=\"Open\" ID=\"{SectionId}\" path=\"C:\\notebooks\\W\\Open.one\" lastModifiedTime=\"{SectionDate}\"";
+        gateway.Hierarchies[(SectionId, HierarchyScope.Pages)] =
+            $"<?xml version=\"1.0\"?>\n<one:Section {Ns} {attributes}><one:Page ID=\"{PageId}\" name=\"Synthetic Update\" pageLevel=\"1\" />"
+            + $"<one:Page ID=\"{SecondPageId}\" name=\"{otherName}\" pageLevel=\"1\" /></one:Section>";
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "Synthetic Update"));
+
+        Ok(await RunAsync(PageId, null, prompt));
+
+        Assert.Equal(shown, Assert.Single(prompt.PermanentQuestions).LastModified);
     }
 
     // --- Changes while the backup runs (review) ----------------------------------------------------------------------
