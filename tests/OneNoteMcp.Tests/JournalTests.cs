@@ -662,7 +662,7 @@ public sealed class JournalTests : IDisposable
 
     // --- Helpers -----------------------------------------------------------------------------------------------------
 
-    private static JournalEntry Entry() => new()
+    internal static JournalEntry Entry() => new()
     {
         EntryId = Guid.NewGuid(),
         CorrelationId = "corr-1",
