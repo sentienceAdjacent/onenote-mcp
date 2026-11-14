@@ -20,6 +20,9 @@ namespace OneNoteMcp.Server.Grants;
 /// until revoked with <c>grant --revoke --write</c>, and has one typed-name field (<c>notebookName_</c> plus 8 random hex
 /// digits, renamed on every request and the only field the answer is read from), with the notebook's name as its hint.
 /// There is no lifetime field: write grants have none (AD-10).</para>
+/// <para>And the one-call permanent-delete confirmation (story 5.6, plan Q1 c): it names the object's kind and name and its
+/// notebook, and has one typed-name field (<c>objectName_</c> plus 8 random hex digits, read the same way). Nothing is
+/// stored.</para>
 /// </summary>
 public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
 {
@@ -230,6 +233,101 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                     },
                 },
                 Required = [notebookNameField],
+            },
+        };
+    }
+
+    // --- The permanent-delete confirmation (AD-6; Phill, 2026-11-13, 5.6 plan Q1 c) ------------------------------------
+
+    /// <summary>The prefix of the permanent-delete confirmation's typed-name field's per-request name.</summary>
+    public const string ObjectNameField = "objectName";
+
+    public async Task<GrantPromptResult> AskPermanentDeleteAsync(PermanentDeleteQuestion question, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        if (server.ClientCapabilities?.Elicitation is null)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+
+        var field = NewObjectNameField();
+        ElicitResult result;
+        try
+        {
+            result = await server.ElicitAsync(PermanentDeleteRequest(question, field), ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            return GrantPromptResult.Unsupported;
+        }
+        catch (McpException)
+        {
+            // The client answered the request with an error: no confirmation.
+            return new GrantPromptResult(GrantPromptStatus.Cancelled);
+        }
+
+        // The same reading as the write dialog's: only the field named in this request counts.
+        return ReadWrite(result, field);
+    }
+
+    /// <summary>A fresh typed-name field name for the confirmation: <c>objectName_</c> plus 8 random lowercase hex digits.</summary>
+    public static string NewObjectNameField() =>
+        ObjectNameField + "_" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(8, lowercase: true);
+
+    /// <summary>
+    /// The permanent-delete confirmation's form (5.6 plan Q1 c), with the typed-name field named
+    /// <paramref name="objectNameField"/>. Its first sentence holds only what the server worked out (the kind, a section's
+    /// page count, a same-named page's last-modified date, the notebook's path); the model-writable names (the object's, a
+    /// page's section's, the notebook's) follow in the next. It says the delete skips the recycle bin and that this
+    /// confirmation covers this one delete only, and asks the user to type the name. The question's texts are already safe
+    /// to show (<see cref="PermanentDeleteDialog.Shown"/>). The CLI command it suggests holds a placeholder, never the
+    /// notebook's name, which a model can choose. Nothing is stored. Public for tests, which have no in-process MCP client.
+    /// </summary>
+    public static ElicitRequestParams PermanentDeleteRequest(PermanentDeleteQuestion question, string objectNameField)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+
+        // What the server worked out itself comes first, every model-written name after it (fresh review, 2026-11-14), so
+        // no name can open the sentence with facts of its own.
+        var facts = new List<string>();
+        if (question.PageCount is { } count)
+        {
+            facts.Add(string.Create(CultureInfo.InvariantCulture, $" with {count} page{(count == 1 ? string.Empty : "s")}"));
+        }
+
+        if (question.LastModified is { } modified)
+        {
+            facts.Add($", last modified {modified},");
+        }
+
+        var where = question.NotebookPath.Length > 0
+            ? $" from the OneNote notebook stored at {question.NotebookPath}"
+            : " from a OneNote notebook";
+        var what = question.Kind == "page" ? "title" : "name";
+        var named = question.ObjectName.Length > 0 ? $"Its {what} is \"{question.ObjectName}\"" : $"It has no {what}";
+        var section = question.SectionName is { } sectionName ? $", it is in the section \"{sectionName}\"" : string.Empty;
+        return new ElicitRequestParams
+        {
+            Message =
+                $"Claude wants to permanently delete a {question.Kind}{string.Concat(facts)}{where}. "
+                + $"{named}{section}, and the notebook's name is \"{question.NotebookName}\". "
+                + "It won't go to OneNote's recycle bin; the server keeps a copy in its recovery journal for 30 days. "
+                + $"To allow this one delete, type \"{question.ExpectedText}\". "
+                + "Decline to keep it. This covers this delete only; to allow permanent deletes in this notebook without asking, run "
+                + GrantCli.Run("--permanent-delete \"<notebook name>\"") + " yourself, with the notebook's name in place of <notebook name>. "
+                + "Only you can allow this: the model can't.",
+            RequestedSchema = new ElicitRequestParams.RequestSchema
+            {
+                Properties = new Dictionary<string, ElicitRequestParams.PrimitiveSchemaDefinition>
+                {
+                    [objectNameField] = new ElicitRequestParams.StringSchema
+                    {
+                        Title = question.ExpectedText == question.ObjectName ? $"The {question.Kind}'s name" : "Confirmation",
+                        Description = $"Type \"{question.ExpectedText}\" to confirm.",
+                        MinLength = 1,
+                    },
+                },
+                Required = [objectNameField],
             },
         };
     }

@@ -79,9 +79,8 @@ public sealed class SettingsWriter
     /// <summary>
     /// Removes every write grant (<c>notebooks{}</c> entry) whose key equals <paramref name="notebookKey"/>, exactly or
     /// ignoring case (AD-6). Runs on a file invalid only because of duplicate grant keys, like
-    /// <see cref="RevokeReadGrant"/>. A permanent-delete grant isn't this revoke's (epic 5): if any matching entry has
-    /// <c>"permanentDelete": true</c>, the first such entry stays, alone, with <c>"write": false</c> and every other
-    /// member as it was. Returns how many matching entries it revoked, that one included.
+    /// <see cref="RevokeReadGrant"/>. The permanent-delete grant goes with it (Phill, 2026-11-13, 5.6 plan Q2 b): a user
+    /// who revokes writes expects nothing can be deleted. Returns how many matching entries it removed.
     /// </summary>
     public int RevokeWriteGrant(string notebookKey)
     {
@@ -127,8 +126,10 @@ public sealed class SettingsWriter
 
     /// <summary>
     /// Stores (or replaces) the write grant <paramref name="grant"/> in <c>notebooks{}</c> under its key (AD-6); an entry
-    /// whose key differs only in case is replaced too. Granting again keeps an existing <c>permanentDelete: true</c>,
-    /// which only its own grant gives or takes away. Same failures as <see cref="SaveReadGrant"/>.
+    /// whose key differs only in case is replaced too. Granting writes again keeps a permanent-delete grant that is live
+    /// beside an existing write grant; it never brings back one held without a write grant (an entry with
+    /// <c>"write": false</c>, from a file an earlier server wrote), so a later write grant, the dialog's included, can't
+    /// silently restore permanent deletes (Phill, 2026-11-13, 5.6 plan Q2 b). Same failures as <see cref="SaveReadGrant"/>.
     /// </summary>
     public void SaveWriteGrant(NotebookGrant grant)
     {
@@ -138,7 +139,7 @@ public sealed class SettingsWriter
             var notebooks = Area(root, NotebooksArea);
             var keptPermanentDelete = notebooks
                 .Where(p => Access.GrantKeys.Comparer.Equals(p.Key, grant.Key))
-                .Any(p => p.Value is JsonObject old && old["permanentDelete"] is JsonValue v && v.TryGetValue<bool>(out var b) && b);
+                .Any(p => p.Value is JsonObject old && IsTrue(old, "write") && IsTrue(old, "permanentDelete"));
             RemoveKey(notebooks, grant.Key);
             notebooks[grant.Key] = new JsonObject
             {
@@ -152,6 +153,68 @@ public sealed class SettingsWriter
             return true;
         });
     }
+
+    /// <summary>
+    /// Gives the permanent-delete grant (AD-6; Phill, 2026-11-13, 5.6 plan Q1 c, Q2 b) to the notebook keyed
+    /// <paramref name="notebookKey"/>, which must already hold a write grant: <c>"permanentDelete": true</c> on that entry,
+    /// every other member as it was. A notebook with no write grant is refused with <see cref="ErrorCode.WriteNotGranted"/>
+    /// and nothing changes. Only the grant CLI calls it: no dialog stores this grant. Same failures as
+    /// <see cref="SaveReadGrant"/>.
+    /// </summary>
+    public void SavePermanentDeleteGrant(string notebookKey)
+    {
+        ArgumentNullException.ThrowIfNull(notebookKey);
+        Change(root =>
+        {
+            var entry = Area(root, NotebooksArea)
+                .Where(p => Access.GrantKeys.Comparer.Equals(p.Key, notebookKey))
+                .Select(p => p.Value as JsonObject)
+                .FirstOrDefault(e => e is not null && IsTrue(e, "write"))
+                ?? throw new OneNoteException(
+                    ErrorCode.WriteNotGranted,
+                    "That notebook has no write grant, and a permanent-delete grant counts only beside one.",
+                    userAction: "Grant writes to the notebook first (grant --write), then grant permanent deletes.");
+            if (IsTrue(entry, "permanentDelete"))
+            {
+                return false;
+            }
+
+            entry["permanentDelete"] = true;
+            return true;
+        });
+    }
+
+    /// <summary>
+    /// Takes the permanent-delete grant away from every <c>notebooks{}</c> entry whose key equals
+    /// <paramref name="notebookKey"/>, ignoring case, and leaves their write grants as they were (5.6 plan Q2 b). Returns how
+    /// many entries held it. Same failures as <see cref="SaveReadGrant"/>.
+    /// </summary>
+    public int RevokePermanentDeleteGrant(string notebookKey)
+    {
+        ArgumentNullException.ThrowIfNull(notebookKey);
+        var revoked = 0;
+        Change(root =>
+        {
+            revoked = 0;
+            foreach (var entry in Area(root, NotebooksArea)
+                .Where(p => Access.GrantKeys.Comparer.Equals(p.Key, notebookKey))
+                .Select(p => p.Value)
+                .OfType<JsonObject>()
+                .Where(e => IsTrue(e, "permanentDelete"))
+                .ToList())
+            {
+                entry["permanentDelete"] = false;
+                revoked++;
+            }
+
+            return revoked > 0;
+        });
+        return revoked;
+    }
+
+    /// <summary>True when <paramref name="entry"/>'s <paramref name="member"/> is the JSON <c>true</c>.</summary>
+    private static bool IsTrue(JsonObject entry, string member) =>
+        entry[member] is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
 
     private const string ProtectedSectionsArea = "protectedSections";
     private const string NotebooksArea = "notebooks";
@@ -243,7 +306,6 @@ public sealed class SettingsWriter
                 }
 
                 var pruned = 0;
-                var keptPermanentDelete = false;
                 using var buffer = new MemoryStream();
                 using (var json = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
                 {
@@ -264,15 +326,8 @@ public sealed class SettingsWriter
                         {
                             if (isArea && Access.GrantKeys.Comparer.Equals(entry.Name, key))
                             {
+                                // A write revoke takes the permanent-delete grant with it (5.6 plan Q2 b).
                                 removed++;
-
-                                // A write revoke leaves the permanent-delete grant (epic 5's) alone: the first matching
-                                // entry that holds it stays, as one entry with write false.
-                                if (area == NotebooksArea && !keptPermanentDelete && HoldsPermanentDelete(entry.Value))
-                                {
-                                    keptPermanentDelete = true;
-                                    WriteWithoutWrite(json, entry);
-                                }
                             }
                             else if (isSections && IsExpired(entry.Value))
                             {
@@ -304,42 +359,6 @@ public sealed class SettingsWriter
             }
         });
         return removed;
-    }
-
-    /// <summary>True when a <c>notebooks{}</c> entry has <c>"permanentDelete": true</c>.</summary>
-    private static bool HoldsPermanentDelete(JsonElement entry) =>
-        entry.ValueKind == JsonValueKind.Object
-        && entry.TryGetProperty("permanentDelete", out var value)
-        && value.ValueKind == JsonValueKind.True;
-
-    /// <summary>Writes <paramref name="entry"/> under its own key spelling with <c>"write": false</c>, every other member copied.</summary>
-    private static void WriteWithoutWrite(Utf8JsonWriter json, JsonProperty entry)
-    {
-        json.WritePropertyName(entry.Name);
-        json.WriteStartObject();
-        var wroteWrite = false;
-        foreach (var member in entry.Value.EnumerateObject())
-        {
-            if (member.NameEquals("write"))
-            {
-                if (!wroteWrite)
-                {
-                    json.WriteBoolean("write", false);
-                    wroteWrite = true;
-                }
-            }
-            else
-            {
-                member.WriteTo(json);
-            }
-        }
-
-        if (!wroteWrite)
-        {
-            json.WriteBoolean("write", false);
-        }
-
-        json.WriteEndObject();
     }
 
     private byte[] ReadBytes()

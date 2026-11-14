@@ -28,7 +28,7 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     {
         File.WriteAllText(SettingsPath, """{"schemaVersion": 1, "readGrants": {"onceMinutes": 10}, "readGrants": {"onceMinutes": 20}}""");
 
-        var snapshot = new SettingsStore(SettingsPath).Read();
+        var snapshot = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
 
         Assert.Equal(SettingsStatus.Ok, snapshot.Status);
         Assert.Equal(20, snapshot.ReadGrants.OnceMinutes);
@@ -39,7 +39,7 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     {
         File.WriteAllText(SettingsPath, TwoIdenticalGrants);
 
-        var snapshot = new SettingsStore(SettingsPath).Read();
+        var snapshot = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
 
         Assert.Equal(SettingsStatus.Invalid, snapshot.Status);
         Assert.True(snapshot.DuplicateGrantKeysOnly);
@@ -56,7 +56,7 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
         // Story 2.4 (AD-6, 2.3 plan Q7): the write grant counts as absent, and a revoke (story 2.6) still runs.
         File.WriteAllText(SettingsPath, "{\"schemaVersion\": 1, \"notebooks\": {\"" + first + "\": " + WriteGrant + ", \"" + second + "\": " + WriteGrant + "}}");
 
-        var snapshot = new SettingsStore(SettingsPath).Read();
+        var snapshot = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
 
         Assert.Equal(SettingsStatus.Invalid, snapshot.Status);
         Assert.Equal("notebooks: two keys differ only in case", snapshot.Reason);
@@ -77,7 +77,7 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
                 .Replace("@W@", WriteGrant, StringComparison.Ordinal)
                 .Replace("@G@", Grant, StringComparison.Ordinal));
 
-        var snapshot = new SettingsStore(SettingsPath).Read();
+        var snapshot = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
 
         Assert.Equal("notebooks and protectedSections: two keys differ only in case", snapshot.Reason);
         Assert.True(snapshot.DuplicateNotebookKeys && snapshot.DuplicateSectionKeys && snapshot.DuplicateGrantKeysOnly);
@@ -88,7 +88,7 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     {
         var json = "{\"schemaVersion\": 1, \"notebooks\": {\"C:\\\\nb\": " + WriteGrant + ", \"c:\\\\NB\": " + WriteGrant + "}}";
         File.WriteAllText(SettingsPath, json);
-        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath, temp.Combine("journal")), clock);
 
         var ex = Assert.Throws<OneNoteException>(() => writer.SaveWriteGrant(new NotebookGrant(@"C:\nb", "A", "{NB}", true, false, DateTimeOffset.UnixEpoch, "cli")));
 
@@ -101,11 +101,11 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     {
         // Story 2.6 (2.3 plan Q7): the revoke clears an exact duplicate, which story 2.1 pinned as a gap.
         File.WriteAllText(SettingsPath, TwoIdenticalGrants);
-        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath, temp.Combine("journal")), clock);
 
         Assert.Equal(2, writer.RevokeReadGrant(@"c:\NB\vault.one"));
 
-        var read = new SettingsStore(SettingsPath).Read();
+        var read = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
         Assert.Equal(SettingsStatus.Ok, read.Status);
         Assert.Empty(read.ProtectedSectionEntries);
     }
@@ -116,11 +116,11 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     public void Writer_AnEqualNotebookKey_IsRevoked_BothEntriesGone_AndTheFileIsValid(string first, string second)
     {
         File.WriteAllText(SettingsPath, "{\"schemaVersion\": 1, \"notebooks\": {\"" + first + "\": " + WriteGrant + ", \"" + second + "\": " + WriteGrant + ", \"C:\\\\nb\\\\B\": " + WriteGrant + "}}");
-        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath, temp.Combine("journal")), clock);
 
         Assert.Equal(2, writer.RevokeWriteGrant(@"C:\nb\A"));
 
-        var read = new SettingsStore(SettingsPath).Read();
+        var read = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
         Assert.Equal(SettingsStatus.Ok, read.Status);
         Assert.Equal([@"C:\nb\B"], read.Notebooks.Keys);
     }
@@ -135,16 +135,16 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
             """{"schemaVersion": 1, "future": {"x": [1, 2]}, "notebooks": {"C:\\nb": @W@, "C:\\nb": @W@}, "protectedSections": {"C:\\nb\\Vault.one": @G@, "C:\\nb\\Vault.one": @G@}}"""
                 .Replace("@W@", WriteGrant, StringComparison.Ordinal)
                 .Replace("@G@", Grant, StringComparison.Ordinal));
-        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath, temp.Combine("journal")), clock);
 
         Assert.Equal(2, writer.RevokeWriteGrant(@"C:\nb"));
-        var middle = new SettingsStore(SettingsPath).Read();
+        var middle = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
         Assert.True(middle.DuplicateSectionKeys);
         Assert.False(middle.DuplicateNotebookKeys);
         Assert.Equal(2, middle.ProtectedSectionEntries.Count);
 
         Assert.Equal(2, writer.RevokeReadGrant(@"C:\nb\Vault.one"));
-        var read = new SettingsStore(SettingsPath).Read();
+        var read = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
         Assert.Equal(SettingsStatus.Ok, read.Status);
         Assert.Empty(read.NotebookEntries);
         Assert.Empty(read.ProtectedSectionEntries);
@@ -153,22 +153,18 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     }
 
     [Fact]
-    public void Writer_RevokeWriteGrant_KeepsThePermanentDeleteGrant_AsOneEntryWithWriteFalse()
+    public void Writer_RevokeWriteGrant_TakesThePermanentDeleteGrantWithIt()
     {
-        // The permanent-delete grant is epic 5's: a write revoke leaves exactly one entry for it, with write false.
+        // Story 5.6 plan Q2 b: revoking writes revokes permanent deletes too; no entry is left behind.
         var both = WriteGrant.Replace("\"permanentDelete\": false", "\"permanentDelete\": true", StringComparison.Ordinal);
         File.WriteAllText(SettingsPath, "{\"schemaVersion\": 1, \"notebooks\": {\"C:\\\\nb\\\\A\": " + both + ", \"C:\\\\nb\\\\A\": " + both + ", \"c:\\\\NB\\\\a\": " + WriteGrant + "}}");
-        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath, temp.Combine("journal")), clock);
 
         Assert.Equal(3, writer.RevokeWriteGrant(@"C:\nb\A"));
 
-        var read = new SettingsStore(SettingsPath).Read();
+        var read = new SettingsStore(SettingsPath, temp.Combine("journal")).Read();
         Assert.Equal(SettingsStatus.Ok, read.Status);
-        var kept = Assert.Single(read.NotebookEntries);
-        Assert.Equal(@"C:\nb\A", kept.Key);
-        Assert.False(kept.Write);
-        Assert.True(kept.PermanentDelete);
-        Assert.Equal(("A", "{NB}{1}{B0}", "cli"), (kept.Name, kept.IdAtGrant, kept.GrantedVia));
+        Assert.Empty(read.NotebookEntries);
     }
 
     [Fact]
@@ -176,7 +172,7 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     {
         var json = TwoIdenticalGrants;
         File.WriteAllText(SettingsPath, json);
-        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath, temp.Combine("journal")), clock);
 
         Assert.Equal(0, writer.RevokeReadGrant(@"C:\nb\Other.one"));
 
@@ -188,7 +184,7 @@ public sealed class SettingsDuplicateKeyTests : IDisposable
     {
         var json = """{"schemaVersion": 1, "journal": {"retentionDays": 0}, "notebooks": {"C:\\nb": @W@}}""".Replace("@W@", WriteGrant, StringComparison.Ordinal);
         File.WriteAllText(SettingsPath, json);
-        var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
+        var writer = new SettingsWriter(new SettingsStore(SettingsPath, temp.Combine("journal")), clock);
 
         Assert.Equal(ErrorCode.SettingsInvalid, Assert.Throws<OneNoteException>(() => writer.RevokeWriteGrant(@"C:\nb")).Code);
 

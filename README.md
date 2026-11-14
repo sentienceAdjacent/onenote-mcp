@@ -79,7 +79,7 @@ The plugin also installs a `guide` skill that teaches Claude to use the tools we
 | **Focus** | The server never brings OneNote to the front or moves your view unless you ask. Only `navigate_to` does, and no other tool calls it. It never closes or kills OneNote. |
 | **Logs** | IDs, error codes and timings only, never note content. |
 | ***(planned)*** **Writing** | A grant for each notebook, given by typing the notebook's name in a confirmation dialog or with `OneNoteMcp grant`. The model can't grant itself access. |
-| ***(planned)*** **Permanent delete** | A second, separate grant. Normal deletes go to OneNote's recycle bin. |
+| **Permanent delete** *(preview)* | `permanently_delete_hierarchy_object` deletes a page, a section or an empty section group for good, skipping OneNote's recycle bin. Besides the notebook's write grant it needs your say-so for each delete: a dialog asks you to type the name of what will go, unless you allowed permanent deletes in that notebook with `OneNoteMcp grant --permanent-delete "<notebook name>"` (it needs the write grant; `grant --revoke --permanent-delete` takes it back, and revoking writes takes it too). Claude can never give itself this. A copy is kept first, for 30 days: a page in the recovery journal; a section as a OneNote backup file in the journal's `backups` folder, plus each of its pages in the journal. The journal is on this PC, outside OneDrive, unless you move it there. If the backup fails, nothing is deleted. Notebooks and password-protected sections can't be deleted permanently. |
 | **Undo** | A compressed snapshot in a local journal before every change to a page, with `restore_from_journal`. |
 | ***(planned)*** **Stale edits** | A write is refused if the page changed since it was read. |
 

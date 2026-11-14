@@ -42,9 +42,17 @@ public sealed class HierarchySnapshot
     }
 
     /// <summary>Takes and stores the snapshot, and returns what was stored.</summary>
-    public async Task<JournalWritten> TakeAsync(HierarchySnapshotRequest request, CancellationToken ct)
+    public async Task<JournalWritten> TakeAsync(HierarchySnapshotRequest request, CancellationToken ct) =>
+        store.Write(await EntryAsync(request, JournalEntry.HierarchyKind, ct).ConfigureAwait(false));
+
+    /// <summary>
+    /// Builds the entry of kind <paramref name="snapshotKind"/>, unstored, with a new ID and the current time: story 5.6
+    /// stores a section's <c>onenoteBackup</c> entry this way, last, once its backup file is on disk (<c>SectionBackup</c>).
+    /// </summary>
+    public async Task<JournalEntry> EntryAsync(HierarchySnapshotRequest request, string snapshotKind, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrEmpty(snapshotKind);
         var objectId = request.ObjectId ?? string.Empty;
 
         HierarchyNode root;
@@ -86,7 +94,7 @@ public sealed class HierarchySnapshot
             CorrelationId = request.CorrelationId ?? string.Empty,
             Operation = request.Operation ?? string.Empty,
             OperationClass = request.OperationClass.ToString(),
-            SnapshotKind = JournalEntry.HierarchyKind,
+            SnapshotKind = snapshotKind,
             ObjectId = objectId,
             NotebookId = notebook.Id,
             NotebookPath = GrantKeys.NotebookKey(notebook.Path),
@@ -100,6 +108,6 @@ public sealed class HierarchySnapshot
             MissingBinary = [],
             Xml = xml,
         };
-        return store.Write(entry);
+        return entry;
     }
 }

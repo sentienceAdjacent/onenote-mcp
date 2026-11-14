@@ -5,6 +5,7 @@ using OneNoteMcp.Core;
 using OneNoteMcp.Core.Settings;
 using Xunit;
 using InteropPageInfo = OneNoteMcp.Com.Interop.PageInfo;
+using PublishFormat = OneNoteMcp.Com.Interop.PublishFormat;
 using InteropSpecialLocation = OneNoteMcp.Com.Interop.SpecialLocation;
 using XMLSchema = OneNoteMcp.Com.Interop.XMLSchema;
 
@@ -831,6 +832,62 @@ public sealed class ComGatewayLifecycleTests
         var args = app.Calls.Single(c => c.Method == "DeletePageContent").Args;
         Assert.Equal(["{p}", "{oe}", new DateTime(2026, 11, 11, 10, 20, 30, DateTimeKind.Utc), false], args);
         Assert.Equal(DateTimeKind.Utc, ((DateTime)args[2]!).Kind);
+    }
+
+    [Fact]
+    public async Task Publish_SendsOneNoteFormat_ToTheGivenFile()
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct);
+
+        Assert.Equal(["{s}", @"C:\journal\backups\x.one", PublishFormat.pfOneNote, string.Empty], app.Calls.Single(c => c.Method == "Publish").Args);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(@"relative\x.one")]
+    [InlineData(@"\\server\share\x.one")]
+    [InlineData(@"\\?\C:\x.one")]
+    [InlineData("https://d.docs.live.net/abc/x.one")]
+    [InlineData(@"C:\folder\")]
+    public async Task Publish_ToAPathThatIsntALocalFile_IsInvalidArgument_BeforeCom(string path)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var error = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", path, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task Publish_RunsUnderThePublishTimeout_NotTheCallTimeout()
+    {
+        // callSeconds 100 ms, publishSeconds 5 s: a 400 ms Publish finishes; a 400 ms page write times out.
+        var app = new FakeApplication { OnCall = _ => { Thread.Sleep(400); return string.Empty; } };
+        using var gateway = Gateway(app, new GatewaySettings(
+            new Timeouts(TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(1)),
+            AllowSilentActivation: false));
+
+        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct);
+
+        Assert.Single(app.Calls, c => c.Method == "Publish");
+    }
+
+    [Fact]
+    public async Task Publish_IsNotRetriedAfterADisconnect()
+    {
+        // DeleteHierarchy's no-retry test is story 5.5's, below.
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var publish = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, publish.Code);
+        Assert.Single(app.Calls, c => c.Method == "Publish");
     }
 
     [Theory]

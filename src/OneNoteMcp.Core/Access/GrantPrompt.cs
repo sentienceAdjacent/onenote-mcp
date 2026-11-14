@@ -115,7 +115,36 @@ public interface IGrantPrompt
     /// <see cref="GrantPromptStatus.Unsupported"/>, the default.
     /// </summary>
     Task<GrantPromptResult> AskFilePathsAsync(FilePathQuestion question, CancellationToken ct) => Task.FromResult(GrantPromptResult.Unsupported);
+
+    /// <summary>
+    /// Asks the user to confirm one permanent delete by typing the object's name (AD-6; Phill, 2026-11-13, 5.6 plan Q1 c),
+    /// when its notebook has no stored permanent-delete grant. An <see cref="GrantPromptStatus.Accepted"/> result carries
+    /// the typed text only; nothing is stored. A prompt that can't ask returns <see cref="GrantPromptStatus.Unsupported"/>,
+    /// the default.
+    /// </summary>
+    Task<GrantPromptResult> AskPermanentDeleteAsync(PermanentDeleteQuestion question, CancellationToken ct) => Task.FromResult(GrantPromptResult.Unsupported);
 }
+
+/// <summary>
+/// What the permanent-delete confirmation shows the user (5.6 plan Q1 c): what will go, by its kind (<c>page</c>,
+/// <c>section</c> or <c>section group</c>) and name, and where it is: its notebook by name and by
+/// <see cref="NotebookPath"/> (the grant key, which no tool can change), a page's <see cref="SectionName"/>, a section's
+/// <see cref="PageCount"/>, and a page's <see cref="LastModified"/> date (UTC, to the second) when another page in its section
+/// shows the same name, so two such dialogs differ; plus <see cref="ExpectedText"/>, what the user must type: the object's name, or <c>delete</c>
+/// for an object with no name (an untitled page). Every text is already made safe to show
+/// (<see cref="PermanentDeleteDialog.Shown"/>), and <see cref="ExpectedText"/> comes from the same text as
+/// <see cref="ObjectName"/>. The names go to the user's client only, never into a tool result (AD-9).
+/// </summary>
+public sealed record PermanentDeleteQuestion(
+    string ObjectId,
+    string Kind,
+    string ObjectName,
+    string NotebookName,
+    string ExpectedText,
+    string NotebookPath = "",
+    string? SectionName = null,
+    int? PageCount = null,
+    string? LastModified = null);
 
 /// <summary>
 /// What the file-path dialog shows the user (AD-7): the page's ID and each new path, canonical (links and junctions

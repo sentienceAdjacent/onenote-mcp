@@ -8,7 +8,8 @@ namespace OneNoteMcp.Core.Journal;
 /// The journal's file names and its folder (AD-8, AD-10): the one place an entry's name is made and recognised, shared by
 /// the writer, the pruner and <c>uninstall --purge</c>, and the one resolver of the default folder.
 /// <para>An entry is <c>{takenAtUtc:yyyyMMddTHHmmssfff}-{pid}-{guid}.json.gz</c> (the GUID as 32 hex digits; the dashed
-/// form is recognised too). It is written once, to <c>.{name}.tmp</c> in the same folder, then renamed.</para>
+/// form is recognised too). It is written once, to <c>.{name}.tmp</c> in the same folder, then renamed. A
+/// <c>PermanentDelete</c> section backup is <c>backups\{name without .json.gz}.one</c> (AD-8, story 5.6).</para>
 /// </summary>
 public static partial class JournalFiles
 {
@@ -53,6 +54,34 @@ public static partial class JournalFiles
             CultureInfo.InvariantCulture,
             $"{takenAtUtc.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture)}-{processId}-{entryId:N}{Extension}");
 
+    /// <summary>The folder inside the journal folder that holds <c>PermanentDelete</c> backups (AD-8).</summary>
+    public const string BackupsFolderName = "backups";
+
+    /// <summary>A backup file's extension: OneNote's section format.</summary>
+    public const string BackupExtension = ".one";
+
+    /// <summary>
+    /// The backup file's name for the entry named <paramref name="entryName"/>: the same name with <c>.one</c> in place of
+    /// <c>.json.gz</c> (AD-8). The backup and its entry share the name, so the pruner removes them together.
+    /// </summary>
+    public static string BackupName(string entryName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(entryName);
+        if (!entryName.EndsWith(Extension, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Not a journal entry's name.", nameof(entryName));
+        }
+
+        return entryName[..^Extension.Length] + BackupExtension;
+    }
+
+    /// <summary>The name of the entry a backup belongs to (<c>.one</c> back to <c>.json.gz</c>); null when <paramref name="backupName"/> isn't a backup's.</summary>
+    public static string? EntryNameOfBackup(string backupName) =>
+        IsBackup(backupName) ? backupName[..^BackupExtension.Length] + Extension : null;
+
+    /// <summary>True when <paramref name="fileName"/> (a name, not a path) is a backup's: an entry's name ending <c>.one</c>.</summary>
+    public static bool IsBackup(string fileName) => BackupPattern().IsMatch(fileName ?? string.Empty);
+
     /// <summary>The temporary name an entry is written to before the rename: <c>.{name}.tmp</c>.</summary>
     public static string TempName(string entryName)
     {
@@ -94,8 +123,8 @@ public static partial class JournalFiles
     public static bool IsTemp(string fileName) => TempPattern().IsMatch(fileName ?? string.Empty);
 
     /// <summary>
-    /// The UTC time in an entry's name, or in its temporary name; false for any other name, or one whose timestamp isn't
-    /// a real date.
+    /// The UTC time in an entry's name, its temporary name or its backup's name; false for any other name, or one whose
+    /// timestamp isn't a real date.
     /// </summary>
     public static bool TryParseTimestamp(string fileName, out DateTime takenAtUtc)
     {
@@ -103,6 +132,11 @@ public static partial class JournalFiles
         if (!match.Success)
         {
             match = TempPattern().Match(fileName ?? string.Empty);
+        }
+
+        if (!match.Success)
+        {
+            match = BackupPattern().Match(fileName ?? string.Empty);
         }
 
         if (match.Success
@@ -125,6 +159,12 @@ public static partial class JournalFiles
         @"^(?<ts>\d{8}T\d{9})-\d+-(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json\.gz$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     public static partial Regex EntryPattern();
+
+    /// <summary>A backup's name (AD-8): an entry's name with <c>.one</c> in place of <c>.json.gz</c>.</summary>
+    [GeneratedRegex(
+        @"^(?<ts>\d{8}T\d{9})-\d+-(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.one$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    public static partial Regex BackupPattern();
 
     /// <summary>An entry's temporary name: <c>.</c>, an entry's name, <c>.tmp</c>.</summary>
     [GeneratedRegex(
