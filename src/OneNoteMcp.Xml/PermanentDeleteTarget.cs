@@ -78,6 +78,17 @@ public sealed record PermanentDeleteTarget(
     }
 
     /// <summary>
+    /// Each <c>one:Page</c> directly under the root of <paramref name="sectionPagesXml"/>, in section order, as its <c>ID</c>
+    /// and <c>name</c> (empty when absent): what a page's permanent-delete confirmation compares its own name with (story
+    /// 5.6, fresh review). Throws <see cref="OneNoteXmlException"/> when the XML isn't well-formed or has no root.
+    /// </summary>
+    public static IReadOnlyList<(string Id, string Name)> PageNames(string sectionPagesXml)
+    {
+        var root = OneNoteXml.Parse(sectionPagesXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        return [.. root.Elements(OneNoteXml.One + "Page").Select(p => ((string?)p.Attribute("ID") ?? string.Empty, (string?)p.Attribute("name") ?? string.Empty))];
+    }
+
+    /// <summary>
     /// The number of subpages of <paramref name="pageId"/> in <paramref name="sectionPagesXml"/>: the pages straight after
     /// it whose <c>pageLevel</c> is greater than its own, up to the next page at its level or above. Null when the page
     /// isn't in the section. A missing or unreadable <c>pageLevel</c> counts as 1. Throws

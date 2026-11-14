@@ -79,7 +79,9 @@ public sealed record PermanentDeleteServices(
 /// <item>Step 1, before the lock, in this order: a <c>pageHash</c> for a target that isn't a page is
 /// <see cref="ErrorCode.InvalidArgument"/>; a notebook, then a password-protected section (<c>encrypted</c>, read live) is
 /// <see cref="ErrorCode.NotSupported"/>, before any dialog; a page in a protected section with no read grant held at the
-/// call's start and a <c>pageHash</c> is <see cref="ErrorCode.ReadNotGranted"/>, never prompted (AD-17, AD-21). Then the
+/// call's start and a <c>pageHash</c> is <see cref="ErrorCode.ReadNotGranted"/>, never prompted (AD-17, AD-21). Step 4's
+/// refusals that need no lock run here too, before any dialog, a page's locked section and subpages included (fresh
+/// review). Then the
 /// write grant (its dialog, AD-6), then the permanent-delete grant: without a stored one, the one-call confirmation
 /// (<see cref="PermanentDeleteUnconfirmed"/>; 5.6 plan Q1 c).</item>
 /// <item value="3">Step 3 reads the target at <c>self</c>, a section or group also at <c>pages</c> scope, a page its section
@@ -211,6 +213,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         RefuseUndeletable(found);
         var gateway = services.Gateway;
         HierarchyNode? owner = null;
+        string? sectionPages = null;
         var readGrant = true;
         int? pageCount = null;
         switch (found.Kind)
@@ -234,6 +237,11 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 }
 
                 RefuseRecycledPage(found, owner);
+
+                // Fresh review: a locked section and subpages too, so the user never types a name for a refused delete.
+                RefuseLockedSection(owner);
+                sectionPages = await gateway.GetHierarchyAsync(owner.Id, HierarchyScope.Pages, ct).ConfigureAwait(false);
+                RefuseSubpages(sectionPages, owner.Id);
                 break;
 
             default:
@@ -267,7 +275,8 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 expected.Length > 0 ? expected : "delete",
                 PermanentDeleteDialog.Shown(access.Target.NotebookKey, out _, PermanentDeleteDialog.MaxPathLength),
                 owner is null ? null : PermanentDeleteDialog.Shown(owner.Name, out _),
-                pageCount),
+                pageCount,
+                sectionPages is not null && SharesItsShownName(sectionPages, name) ? ShownDate(found.LastModifiedTime) : null),
             access.Target.NotebookId,
             () => confirmed = true);
     }
@@ -305,11 +314,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 }
 
                 RefuseRecycledPage(found, section);
-                if (section.Locked)
-                {
-                    throw new OneNoteException(ErrorCode.SectionLocked, $"Section {section.Id} is locked, so page {objectId} wasn't deleted.");
-                }
-
+                RefuseLockedSection(section);
                 containerXml = await gateway.GetHierarchyAsync(section.Id, HierarchyScope.Pages, ct).ConfigureAwait(false);
                 basicXml = await gateway.GetPageContentAsync(objectId, PageInfo.Basic, ct).ConfigureAwait(false);
                 break;
@@ -327,16 +332,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
             return;
         }
 
-        var subpages = XmlReads.Readable(() => PermanentDeleteTarget.Subpages(containerXml ?? string.Empty, objectId), $"GetHierarchy({section?.Id})")
-            ?? throw NotATarget("isn't listed in its section");
-        if (subpages > 0)
-        {
-            throw new OneNoteException(
-                ErrorCode.InvalidArgument,
-                string.Create(CultureInfo.InvariantCulture, $"Page {objectId} has {subpages} subpage(s), so nothing was deleted."),
-                userAction: SubpagesUserAction,
-                retryable: false);
-        }
+        RefuseSubpages(containerXml ?? string.Empty, section?.Id);
     }
 
     // --- Step 5 ---------------------------------------------------------------------------------------------------------
@@ -595,6 +591,50 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 userAction: RecycledPageUserAction);
         }
     }
+
+    /// <summary>A page whose section is locked: <see cref="ErrorCode.SectionLocked"/>.</summary>
+    private void RefuseLockedSection(HierarchyNode owner)
+    {
+        if (owner.Locked)
+        {
+            throw new OneNoteException(ErrorCode.SectionLocked, $"Section {owner.Id} is locked, so page {objectId} wasn't deleted.");
+        }
+    }
+
+    /// <summary>
+    /// A page with subpages in <paramref name="sectionPagesXml"/> (its section at <c>pages</c> scope; 5.5 plan Q2 a):
+    /// <see cref="ErrorCode.InvalidArgument"/>, with the count. A page its section doesn't list is
+    /// <see cref="ErrorCode.ObjectNotFound"/>.
+    /// </summary>
+    private void RefuseSubpages(string sectionPagesXml, string? sectionId)
+    {
+        var subpages = XmlReads.Readable(() => PermanentDeleteTarget.Subpages(sectionPagesXml, objectId), $"GetHierarchy({sectionId})")
+            ?? throw NotATarget("isn't listed in its section");
+        if (subpages > 0)
+        {
+            throw new OneNoteException(
+                ErrorCode.InvalidArgument,
+                string.Create(CultureInfo.InvariantCulture, $"Page {objectId} has {subpages} subpage(s), so nothing was deleted."),
+                userAction: SubpagesUserAction,
+                retryable: false);
+        }
+    }
+
+    /// <summary>
+    /// Whether another page in <paramref name="sectionPagesXml"/> shows as <paramref name="shown"/> in the confirmation
+    /// (cleaned and cut by <see cref="PermanentDeleteDialog.Shown"/>, compared ignoring case; fresh review): two such pages
+    /// would get word-for-word the same dialog.
+    /// </summary>
+    private bool SharesItsShownName(string sectionPagesXml, string shown) =>
+        XmlReads.Readable(() => PermanentDeleteTarget.PageNames(sectionPagesXml), $"GetHierarchy({objectId})")
+            .Any(page => !string.Equals(page.Id, objectId, StringComparison.Ordinal)
+                && string.Equals(PermanentDeleteDialog.Shown(page.Name, out _), shown, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A page's hierarchy date as the confirmation shows it: UTC, to the second; null when OneNote gave none.</summary>
+    private static string? ShownDate(string? lastModifiedTime) =>
+        OneNoteDates.ToUtc(lastModifiedTime) is { } date
+            ? date.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture)
+            : null;
 
     /// <summary>
     /// AD-17 as amended by 5.2 (Fable N1): in a protected section with no read grant at the call's start, a page delete's
