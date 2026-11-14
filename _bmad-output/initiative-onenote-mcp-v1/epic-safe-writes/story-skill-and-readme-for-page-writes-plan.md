@@ -3,7 +3,7 @@ title: 'Skill and README for page writes'
 type: 'feature'
 ticket: '12'
 created: '2026-11-14'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -55,46 +55,17 @@ What an agent does when it follows the skill. These rows are the live check's sc
 
 </frozen-after-approval>
 
-## Open Questions
+## Answers (Phill, 2026-11-14, Inbox thread "2.12 skill and README")
 
-1. **Epic 5's tools.** Epic 5's create, rename, reorder, soft-delete and permanent-delete tools (PRs #44–#47, plus #48 on top) are unmerged drafts, stacked apart from this branch. They already add tool rows and intro text to the same skill and README lines. Epic 5 has its own docs ticket, entry 7 ("Skill, README and harness for hierarchy writes", hitl). On this branch, `GuideSkill_NamesOnlyContractTools` fails if the skill names a tool not in this branch's contract.
-   - (a) Page writes only. 2.12 merges first in epic 2's lane, the epic 5 branches rebase onto it (their rows and sentences go into 2.12's structure), and 5.7 writes their recipes.
-   - (b) 2.12 waits until epic 5 merges, then covers both.
-   - (c) 2.12 also writes epic 5's recipes now, on a branch stacked on 5.6.
-   Recommended: (a). It matches the ticket and both epics' boundaries, keeps the contract test honest, and avoids documenting behaviour epic 5's live sittings may still change.
-2. **Skill structure.** `SKILL.md` is about 5,350 words, and all of it loads on every OneNote request, reads included. The write recipes, grants, journal and new table rows add an estimated 1,500–2,000 more.
-   - (a) One file: add a "Writing pages" section to `SKILL.md`.
-   - (b) `SKILL.md` keeps the rules, tool map, error and warning rows and a short write overview; the recipes and details go to `plugin/skills/guide/references/page-writes.md`, which the skill says to read before any write. `PluginPackagingTests`' named-tool checks widen to `references/`.
-   - (c) A second skill just for writes, with its own description.
-   Recommended: (b). Reads stop paying for write detail, the safety rules stay in the file that always loads, and 5.7 can add a `hierarchy-writes.md` the same way. (c) would repeat the grant and error text in two skills.
-3. **The skill's description.** Today it tells Claude that edits aren't possible ("this release can only add empty pages"), so a request like "fix the typo on my page" meets a skill that says no.
-   - (a) Rewrite: add write triggers ("add a line to that page", "fix the text on my page", "delete that block", "undo the change you made", "bring back the earlier version"), and say move, rename and section or page deletes aren't supported yet. At most 1,024 characters.
-   - (b) Only drop the stale clause.
-   Recommended: (a). The description is what makes Claude load the skill for a write request at all.
-4. **README layout.** The write-grant bullets sit under the "Password-protected sections" paragraph, and nothing covers the journal. The epic asks for sections on grants, safety limits and the journal.
-   - (a) Restructure: tool tables stay in "What it does"; new top-level sections "Grants" (read and write, CLI, revoke, `list_grants`, where the exe is, limits) and "Recovery journal"; "Safety model" and "Limits" updated. Existing anchors (`#uninstall`) keep working.
-   - (b) Add only: keep today's text, and add a "Writing pages" section after "Password-protected sections".
-   Recommended: (a). It is what the epic's done-when names, and a reader looking for write grants won't find them under protected sections.
-5. **How the skill tells Claude to add an image.** The tool description says images go as inline `one:Data` (base64), and a new file path raises an accept/decline dialog. A typical photo is hundreds of KB, which is hundreds of thousands of base64 characters the model would have to write out. An image by `one:Image/one:File@path` hasn't been tried live (the sitting's dialog check used an `InsertedFile`).
-   - (a) A file on disk goes by its full local path (the user confirms it in the dialog); inline `one:Data` only for small images already in hand as base64, such as one copied with `get_binary_page_content`, and on clients without dialogs.
-   - (b) Always inline `one:Data`, as the tool description says.
-   - (c) Always a file path.
-   Recommended: (a). It is the only way a normal-sized image fits in a tool call, and the dialog keeps the user in charge. The live check adds an image by path to confirm OneNote takes it.
-6. **The `z` re-stack item** (joint sitting C3, unassigned). Resending an Outline's `one:Position z` re-stacks the Outlines, so another Outline's hash changes and an older basis for it gets `StaleWrite`.
-   - (a) The skill says to always use the `meta.basis` from the latest read or write, and the root fix (drop `z` from sent Positions, or from the hash) goes to the refactor sweep, 2.13.
-   - (b) The skill also says to leave `one:Position` out of a resent Outline. Not tested live.
-   - (c) Leave it all to a code fix.
-   Recommended: (a). Chaining the newest basis is always right and needs no untested claim; the code fix belongs with code.
-7. **The human part (hitl).** The ticket's check is "after Phill grants MCP Test through the CLI, an agent following the README makes an edit and restores it". Claude Code users get the skill, not the README.
-   - (a) One Claude Code session with the plugin packed from this branch: MCP Test already holds Phill's lasting CLI write grant (given 2026-11-11; `list_grants` confirms it at the start), then Phill asks for the matrix rows on a throwaway page in MCP Test.
-   - (b) As (a), plus a short session with the server registered without the plugin (`--mcp-config`), where the agent is given only the README and asked for an edit and an undo.
-   - (c) The README-only session alone, as the ticket words it.
-   Recommended: (b). It tests what plugin users get and what the ticket names; the README-only run takes a few minutes.
-8. **Plan size.** This plan is about 4,500 tokens, and about 3,000 once the Open Questions are answered and removed: over the 1,600 guide either way, mostly the Boundaries' recipe list and the Code Map's line references.
-   - (a) Keep it whole: one deliverable, and the skill and README must agree.
-   - (b) Split the README into its own story.
-   Recommended: (a). The excess is reference detail the build needs, not a second goal, and a split would make two stories describe the same tools twice.
-9. **Approve the plan** with these answers, so the build can start: Approve / Change.
+1. Page writes only (a). Epic 5's branches rebase onto 2.12; 5.7 writes their recipes.
+2. (b) `SKILL.md` keeps the safety rules, tool map, error and warning rows and a short write overview; the recipes go to `plugin/skills/guide/references/page-writes.md`, which the skill says to read before any write. `PluginPackagingTests`' named-tool checks widen to `references/`.
+3. (a) Rewrite the description with write triggers, and say move, rename and section or page deletes aren't supported yet. At most 1,024 characters.
+4. (a) New top-level "Grants" and "Recovery journal" sections; "Safety model" and "Limits" updated; existing anchors keep working.
+5. Phill answered (b) always inline, with a note: he leans inline but asked whether an image added by path stays available everywhere. Re-asked in the thread with the evidence (OneNote copies a file sent by path into the notebook: 2.11's attachment came back as a `{GUID}.bin` cache, not the source path); recipe (4) waits for the follow-up answer.
+6. (a) The skill says to always use the newest `meta.basis`; the `z` code fix goes to 2.13.
+7. (b) A plugin session on MCP Test, plus a short README-only session.
+8. (a) Keep the plan whole.
+9. Approved.
 
 ## Code Map
 
