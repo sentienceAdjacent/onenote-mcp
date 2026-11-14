@@ -16,6 +16,8 @@ namespace OneNoteMcp.Server.Grants;
 /// name is read only from that field (Phill, 2026-11-07). Supported means the client declared elicitation; an
 /// <see cref="InvalidOperationException"/> from the SDK also counts as unsupported. Core matches the typed name, never
 /// this adapter.
+/// <para>Every dialog states what the server worked out before any model-writable name, and shows names as Core cleaned
+/// them (<see cref="DialogText.Shown"/>); a typed-name hint asks for the shown name (5.6 and its follow-up).</para>
 /// <para>It also asks for AD-6's write grant (story 2.6): the form names the notebook and its path, says the grant lasts
 /// until revoked with <c>grant --revoke --write</c>, and has one typed-name field (<c>notebookName_</c> plus 8 random hex
 /// digits, renamed on every request and the only field the answer is read from), with the notebook's name as its hint.
@@ -73,21 +75,27 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
     public static string OnceTitle(int minutes) =>
         string.Create(CultureInfo.InvariantCulture, $"This section, for {minutes} minute{(minutes == 1 ? string.Empty : "s")}");
 
-    /// <summary>The elicitation form, with the typed-name field named <paramref name="sectionNameField"/>. Public for tests, which have no in-process MCP client.</summary>
+    /// <summary>
+    /// The elicitation form, with the typed-name field named <paramref name="sectionNameField"/>. Its first sentence holds
+    /// only what the server worked out (a password-protected section); the model-writable names (the section's, its
+    /// groups', its notebook's) follow in the next (5.6 follow-up), so no name can open the sentence with facts of its own.
+    /// The question's names are already safe to show (<see cref="DialogText.Shown"/>), and the user is asked to type
+    /// <see cref="GrantQuestion.ExpectedText"/>, the name as shown. Public for tests, which have no in-process MCP client.
+    /// </summary>
     public static ElicitRequestParams Request(GrantQuestion question, string sectionNameField)
     {
         ArgumentNullException.ThrowIfNull(question);
-        var where = string.IsNullOrEmpty(question.NotebookName) ? string.Empty : $" in the notebook \"{question.NotebookName}\"";
-        if (question.SectionGroups.Count > 0)
-        {
-            where += $" (section group {string.Join(" > ", question.SectionGroups.Select(g => $"\"{g}\""))})";
-        }
+        var groups = question.SectionGroups.Count > 0
+            ? $", it is in the section group {string.Join(" > ", question.SectionGroups.Select(g => $"\"{g}\""))}"
+            : string.Empty;
+        var notebook = string.IsNullOrEmpty(question.NotebookName) ? string.Empty : $", and the notebook's name is \"{question.NotebookName}\"";
 
         return new ElicitRequestParams
         {
             Message =
-                $"Claude wants to read the password-protected OneNote section \"{question.SectionName}\"{where}. "
-                + "To allow it, type the section's name exactly as it appears in OneNote and choose for how long. "
+                "Claude wants to read a password-protected OneNote section. "
+                + $"Its name is \"{question.SectionName}\"{groups}{notebook}. "
+                + $"To allow it, type \"{question.ExpectedText}\" and choose for how long. "
                 + "Decline to keep it private. Only you can grant this: the model can't.",
             RequestedSchema = new ElicitRequestParams.RequestSchema
             {
@@ -96,7 +104,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                     [sectionNameField] = new ElicitRequestParams.StringSchema
                     {
                         Title = "Section name",
-                        Description = $"Type \"{question.SectionName}\" to confirm.",
+                        Description = $"Type \"{question.ExpectedText}\" to confirm.",
                         MinLength = 1,
                     },
                     [LifetimeField] = new ElicitRequestParams.TitledSingleSelectEnumSchema
@@ -205,19 +213,22 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
         NotebookNameField + "_" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(8, lowercase: true);
 
     /// <summary>
-    /// The write dialog's form (AD-6), with the typed-name field named <paramref name="notebookNameField"/>. It names the
-    /// notebook and its path, says the grant lasts until revoked and how to revoke it, and has that one field: write
-    /// grants have no lifetime (AD-10). Public for tests, which have no in-process MCP client.
+    /// The write dialog's form (AD-6), with the typed-name field named <paramref name="notebookNameField"/>. Its first
+    /// sentence holds only what the server worked out (the notebook's path); the model-writable notebook name follows
+    /// (5.6 follow-up), so it can't open the sentence with facts of its own. It asks the user to type
+    /// <see cref="WriteGrantQuestion.ExpectedText"/>, the name as shown (already safe to show: <see cref="DialogText.Shown"/>),
+    /// says the grant lasts until revoked and how to revoke it, and has that one field: write grants have no lifetime
+    /// (AD-10). Public for tests, which have no in-process MCP client.
     /// </summary>
     public static ElicitRequestParams WriteRequest(WriteGrantQuestion question, string notebookNameField)
     {
         ArgumentNullException.ThrowIfNull(question);
-        var where = string.IsNullOrEmpty(question.NotebookPath) ? string.Empty : $" at {question.NotebookPath}";
+        var where = string.IsNullOrEmpty(question.NotebookPath) ? string.Empty : $" stored at {question.NotebookPath}";
         return new ElicitRequestParams
         {
             Message =
-                $"Claude wants to write to the OneNote notebook \"{question.NotebookName}\"{where}: to create and change pages in it. "
-                + "To allow it, type the notebook's name exactly as it appears in OneNote. "
+                $"Claude wants to write to a OneNote notebook{where}: to create and change pages in it. "
+                + $"Its name is \"{question.NotebookName}\". To allow it, type \"{question.ExpectedText}\". "
                 // A placeholder, never the name: a name holding $(...) would run in PowerShell inside double quotes.
                 + "The permission lasts until you revoke it with " + GrantCli.Run("--revoke --write \"<notebook name>\"") + ". "
                 + "Decline to keep Claude from writing to it. Only you can grant this: the model can't.",
@@ -228,7 +239,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
                     [notebookNameField] = new ElicitRequestParams.StringSchema
                     {
                         Title = "Notebook name",
-                        Description = $"Type \"{question.NotebookName}\" to confirm.",
+                        Description = $"Type \"{question.ExpectedText}\" to confirm.",
                         MinLength = 1,
                     },
                 },
@@ -280,7 +291,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
     /// page count, a same-named page's last-modified date, the notebook's path); the model-writable names (the object's, a
     /// page's section's, the notebook's) follow in the next. It says the delete skips the recycle bin and that this
     /// confirmation covers this one delete only, and asks the user to type the name. The question's texts are already safe
-    /// to show (<see cref="PermanentDeleteDialog.Shown"/>). The CLI command it suggests holds a placeholder, never the
+    /// to show (<see cref="DialogText.Shown"/>). The CLI command it suggests holds a placeholder, never the
     /// notebook's name, which a model can choose. Nothing is stored. Public for tests, which have no in-process MCP client.
     /// </summary>
     public static ElicitRequestParams PermanentDeleteRequest(PermanentDeleteQuestion question, string objectNameField)

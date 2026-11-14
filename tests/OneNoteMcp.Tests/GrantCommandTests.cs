@@ -577,7 +577,7 @@ public sealed class GrantCommandTests : IDisposable
     public void PermanentDeleteRequest_PutsWhatTheServerWorkedOut_BeforeAnyModelWrittenName()
     {
         // Fresh review: a name such as  Draft＂ (0 pages) of the notebook ＂Scratch  must not open the sentence with fake facts.
-        var name = PermanentDeleteDialog.Shown("Draft\uFF02 (0 pages) of the notebook \uFF02Scratch", out var typed);
+        var name = DialogText.Shown("Draft\uFF02 (0 pages) of the notebook \uFF02Scratch", out var typed);
         var request = ElicitationGrantPrompt.PermanentDeleteRequest(
             new PermanentDeleteQuestion("{P}", "page", name, "Notebook A", typed, @"C:\notebooks\A", SectionName: "Ideas", LastModified: "2026-11-12 00:00:01 UTC"),
             "objectName_00000000");
@@ -606,7 +606,7 @@ public sealed class GrantCommandTests : IDisposable
     [InlineData(null, "", "")]
     public void Shown_DropsControlFormatAndSeparatorCharacters_AndSwapsDoubleQuotes(string? text, string shown, string typed)
     {
-        Assert.Equal(shown, PermanentDeleteDialog.Shown(text, out var expected));
+        Assert.Equal(shown, DialogText.Shown(text, out var expected));
         Assert.Equal(typed, expected);
     }
 
@@ -617,12 +617,12 @@ public sealed class GrantCommandTests : IDisposable
     [InlineData("″M″ 〃N ⹂O ❝P❞", "'M' 'N 'O 'P'")]
     [InlineData("(a) [b] {c} <d> 【e】 （f）", "(a) [b] {c} <d> 【e】 （f）")]
     public void Shown_TurnsLookAlikeQuotesIntoApostrophes_ButKeepsBrackets(string text, string shown) =>
-        Assert.Equal(shown, PermanentDeleteDialog.Shown(text, out _));
+        Assert.Equal(shown, DialogText.Shown(text, out _));
 
     [Fact]
     public void Shown_CutsALongNameTo80_WithAnEllipsis_NeverSplittingASurrogatePair()
     {
-        var shown = PermanentDeleteDialog.Shown(new string('a', 78) + "\U0001F600" + "zzz", out var typed);
+        var shown = DialogText.Shown(new string('a', 78) + "\U0001F600" + "zzz", out var typed);
 
         Assert.Equal(new string('a', 78) + "…", shown);
         Assert.Equal(new string('a', 78), typed);
@@ -635,7 +635,7 @@ public sealed class GrantCommandTests : IDisposable
     [InlineData("", "Old notes", false)]
     [InlineData(null, "Old notes", false)]
     public void PermanentDeleteDialog_MatchesTheTrimmedName_IgnoringCase(string? typed, string expected, bool matches) =>
-        Assert.Equal(matches, PermanentDeleteDialog.Matches(typed, expected));
+        Assert.Equal(matches, DialogText.Matches(typed, expected));
 
     private GrantCommand WriteCommand(string input, bool interactive = true, string xml = NotebooksXml) =>
         new(new StringReader(input), output, interactive, _ =>
@@ -649,7 +649,7 @@ public sealed class GrantCommandTests : IDisposable
     [Fact]
     public void Elicitation_Form_NamesSectionAndNotebook_TypedNameRequired_ThreeLifetimes_Hours1To168()
     {
-        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", ["Group"]), "sectionName_0a1b2c3d");
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", ["Group"], "Vault"), "sectionName_0a1b2c3d");
 
         Assert.Contains("\"Vault\"", request.Message, StringComparison.Ordinal);
         Assert.Contains("\"Notebook A\"", request.Message, StringComparison.Ordinal);
@@ -667,6 +667,24 @@ public sealed class GrantCommandTests : IDisposable
         Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties["sectionName_0a1b2c3d"]);
         Assert.False(schema.Properties.ContainsKey(ElicitationGrantPrompt.SectionNameField));
         Assert.Equal("This section, for 5 minutes", lifetimes.OneOf[0].Title);
+    }
+
+    [Fact]
+    public void Elicitation_Form_PutsWhatTheServerWorkedOut_BeforeAnyName_AndAsksForTheShownName()
+    {
+        // Follow-up to 5.6: a section named  Vault＂ in the notebook “Work”  must not open the sentence with fake facts.
+        var section = DialogText.Shown("Vault＂ in the notebook “Work”​", out var typed);
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", section, "Notebook A", ["Group"], typed), "sectionName_0a1b2c3d");
+
+        Assert.StartsWith("Claude wants to read a password-protected OneNote section. ", request.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "Its name is \"Vault' in the notebook 'Work'\", it is in the section group \"Group\", and the notebook's name is \"Notebook A\". "
+                + "To allow it, type \"Vault' in the notebook 'Work'\" and choose for how long.",
+            request.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("​", request.Message, StringComparison.Ordinal);
+        var field = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties["sectionName_0a1b2c3d"]);
+        Assert.Equal("Type \"Vault' in the notebook 'Work'\" to confirm.", field.Description);
     }
 
     [Fact]
@@ -736,7 +754,7 @@ public sealed class GrantCommandTests : IDisposable
     public void Elicitation_OnceOption_NamesTheWindow(int minutes, string title)
     {
         Assert.Equal(title, ElicitationGrantPrompt.OnceTitle(minutes));
-        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", [], minutes), "sectionName_00000000");
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", [], "Vault", minutes), "sectionName_00000000");
         var lifetimes = Assert.IsType<ElicitRequestParams.TitledSingleSelectEnumSchema>(request.RequestedSchema!.Properties[ElicitationGrantPrompt.LifetimeField]);
         Assert.Equal(title, lifetimes.OneOf.Single(o => o.Const == ReadGrantLifetimes.Once).Title);
     }
@@ -749,7 +767,7 @@ public sealed class GrantCommandTests : IDisposable
     [Fact]
     public void WriteForm_NamesTheNotebookAndPath_SaysUntilRevoked_OneTypedNameField_WithTheNameAsHint_NoLifetime()
     {
-        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "Notebook A", @"C:\notebooks\A"), "notebookName_0a1b2c3d");
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "Notebook A", @"C:\notebooks\A", "Notebook A"), "notebookName_0a1b2c3d");
 
         Assert.Contains("\"Notebook A\"", request.Message, StringComparison.Ordinal);
         Assert.Contains(@"C:\notebooks\A", request.Message, StringComparison.Ordinal);
@@ -766,10 +784,36 @@ public sealed class GrantCommandTests : IDisposable
     }
 
     [Fact]
+    public void WriteForm_PutsThePathBeforeTheNotebooksName_AndAsksForTheShownName()
+    {
+        // Follow-up to 5.6: a model-written name such as  Scratch＂ at C:\fake: “ok”  must not open the sentence with fake facts.
+        var name = DialogText.Shown("Scratch\uFF02 at C:\\fake: \u201Cok\u201D\u202E", out var typed);
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", name, @"C:\notebooks\A", typed), "notebookName_0a1b2c3d");
+
+        Assert.StartsWith(@"Claude wants to write to a OneNote notebook stored at C:\notebooks\A: to create and change pages in it. ", request.Message, StringComparison.Ordinal);
+        Assert.Contains("Its name is \"Scratch' at C:\\fake: 'ok'\". To allow it, type \"Scratch' at C:\\fake: 'ok'\".", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\uFF02", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", request.Message, StringComparison.Ordinal);
+        var field = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties["notebookName_0a1b2c3d"]);
+        Assert.Equal("Type \"Scratch' at C:\\fake: 'ok'\" to confirm.", field.Description);
+    }
+
+    [Fact]
+    public void WriteForm_ALongName_IsShownCut_AndTheFieldAsksForWhatIsTyped()
+    {
+        var name = DialogText.Shown(new string('n', 100), out var typed);
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", name, @"C:\notebooks\A", typed), "notebookName_0a1b2c3d");
+
+        Assert.Contains($"Its name is \"{new string('n', 79)}…\".", request.Message, StringComparison.Ordinal);
+        var field = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties["notebookName_0a1b2c3d"]);
+        Assert.Equal($"Type \"{new string('n', 79)}\" to confirm.", field.Description);
+    }
+
+    [Fact]
     public void WriteForm_TheSuggestedCommand_NeverHoldsTheNotebooksName()
     {
         // A shared notebook can be named $(...), which PowerShell would expand inside double quotes.
-        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "$(evil)", @"C:\notebooks\A"), "notebookName_0a1b2c3d");
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "$(evil)", @"C:\notebooks\A", "$(evil)"), "notebookName_0a1b2c3d");
 
         var command = request.Message!.Split('`')[1];
         Assert.EndsWith("grant --revoke --write \"<notebook name>\"", command, StringComparison.Ordinal);

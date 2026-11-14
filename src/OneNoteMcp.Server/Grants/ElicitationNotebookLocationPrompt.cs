@@ -49,10 +49,15 @@ public sealed class ElicitationNotebookLocationPrompt(McpServer server) : INoteb
         return Read(result);
     }
 
-    /// <summary>The elicitation form. Public for tests, which have no in-process MCP client.</summary>
+    /// <summary>
+    /// The elicitation form. It says what will happen first and names the notebook last (5.6 follow-up): the model chose
+    /// the name, so it is shown cleaned (<see cref="DialogText.Shown"/>) and can't open the sentence with facts of its own.
+    /// Public for tests, which have no in-process MCP client.
+    /// </summary>
     public static ElicitRequestParams Request(NotebookLocationQuestion question)
     {
         ArgumentNullException.ThrowIfNull(question);
+        var name = DialogText.Shown(question.NotebookName, out _);
         List<ElicitRequestParams.EnumSchemaOption> options =
         [
             new() { Const = NotebookLocations.Local, Title = "A folder on this PC" },
@@ -65,11 +70,12 @@ public sealed class ElicitationNotebookLocationPrompt(McpServer server) : INoteb
         return new ElicitRequestParams
         {
             Message =
-                $"Claude wants to create a new OneNote notebook named \"{question.NotebookName}\". Choose where it goes: "
-                + $"it is created in a new folder named \"{question.NotebookName}\" inside the folder you enter, which must exist and must not be inside another notebook. "
+                "Claude wants to create a new OneNote notebook. Choose where it goes: "
+                + "it is created in a new folder of its own inside the folder you enter, which must exist and must not be inside another notebook. "
                 // A placeholder, never the name: the model chose it, and $(...) would run in PowerShell inside double quotes.
                 + "Claude will be able to write to this notebook until you revoke it with " + GrantCli.Run("--revoke --write \"<notebook name>\"") + ". "
-                + "Decline to create nothing. Only you choose the location: the model can't.",
+                + "Decline to create nothing. Only you choose the location: the model can't. "
+                + $"The new notebook's name, which its folder also takes, is \"{name}\".",
             RequestedSchema = new ElicitRequestParams.RequestSchema
             {
                 Properties = new Dictionary<string, ElicitRequestParams.PrimitiveSchemaDefinition>
