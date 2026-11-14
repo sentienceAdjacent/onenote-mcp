@@ -1032,6 +1032,19 @@ public sealed class CreateHierarchyToolTests : IDisposable
     }
 
     [Fact]
+    public void LocationDialog_SaysWhatHappensFirst_ThenTheNameShownCleaned()
+    {
+        // Follow-up to 5.6: the model names the new notebook, so  Notes＂. It is created in C:\Safe “ok”  must not forge the sentence.
+        var request = ElicitationNotebookLocationPrompt.Request(new NotebookLocationQuestion("Notes\uFF02. It is created in C:\\Safe \u201Cok\u201D\u202E", @"C:\Users\x\Notebooks", OfferOneDrive: false));
+
+        Assert.StartsWith("Claude wants to create a new OneNote notebook. Choose where it goes: ", request.Message, StringComparison.Ordinal);
+        Assert.EndsWith(" The new notebook's name, which its folder also takes, is \"Notes'. It is created in C:\\Safe 'ok'\".", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\uFF02", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", request.Message, StringComparison.Ordinal);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(request.Message!, "Notes'"));
+    }
+
+    [Fact]
     public void LocationDialog_TheSuggestedCommand_NeverHoldsTheNotebooksName()
     {
         // The model names the new notebook, and $(...) would run in PowerShell inside double quotes.

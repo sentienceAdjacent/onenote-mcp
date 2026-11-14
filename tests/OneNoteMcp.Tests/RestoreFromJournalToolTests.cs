@@ -266,7 +266,7 @@ public sealed class RestoreFromJournalToolTests : IDisposable
 
         Ok(await RestoreWithPrompt(prompt, entryId));
 
-        Assert.Equal(new WriteGrantQuestion(NotebookId, "W", NotebookPath), Assert.Single(prompt.WriteQuestions));
+        Assert.Equal(new WriteGrantQuestion(NotebookId, "W", NotebookPath, "W"), Assert.Single(prompt.WriteQuestions));
         Assert.Empty(prompt.Questions);
         Assert.Single(gateway.UpdateCalls);
     }

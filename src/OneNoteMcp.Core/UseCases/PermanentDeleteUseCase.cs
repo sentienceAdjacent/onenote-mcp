@@ -265,16 +265,16 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 userAction: ProtectedNoConfirmationUserAction);
         }
 
-        var name = PermanentDeleteDialog.Shown(found.Name, out var expected);
+        var name = DialogText.Shown(found.Name, out var expected);
         throw new PermanentDeleteUnconfirmed(
             new PermanentDeleteQuestion(
                 objectId,
                 KindName(found.Kind),
                 name,
-                PermanentDeleteDialog.Shown(access.NotebookName, out _),
+                DialogText.Shown(access.NotebookName, out _),
                 expected.Length > 0 ? expected : "delete",
-                PermanentDeleteDialog.Shown(access.Target.NotebookKey, out _, PermanentDeleteDialog.MaxPathLength),
-                owner is null ? null : PermanentDeleteDialog.Shown(owner.Name, out _),
+                DialogText.Shown(access.Target.NotebookKey, out _, DialogText.MaxPathLength),
+                owner is null ? null : DialogText.Shown(owner.Name, out _),
                 pageCount,
                 sectionPages is not null && SharesItsShownName(sectionPages, name) ? ShownDate(found.LastModifiedTime) : null),
             access.Target.NotebookId,
@@ -622,13 +622,13 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
 
     /// <summary>
     /// Whether another page in <paramref name="sectionPagesXml"/> shows as <paramref name="shown"/> in the confirmation
-    /// (cleaned and cut by <see cref="PermanentDeleteDialog.Shown"/>, compared ignoring case; fresh review): two such pages
+    /// (cleaned and cut by <see cref="DialogText.Shown"/>, compared ignoring case; fresh review): two such pages
     /// would get word-for-word the same dialog.
     /// </summary>
     private bool SharesItsShownName(string sectionPagesXml, string shown) =>
         XmlReads.Readable(() => PermanentDeleteTarget.PageNames(sectionPagesXml), $"GetHierarchy({objectId})")
             .Any(page => !string.Equals(page.Id, objectId, StringComparison.Ordinal)
-                && string.Equals(PermanentDeleteDialog.Shown(page.Name, out _), shown, StringComparison.OrdinalIgnoreCase));
+                && string.Equals(DialogText.Shown(page.Name, out _), shown, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>A page's hierarchy date as the confirmation shows it: UTC, to the second; null when OneNote gave none.</summary>
     private static string? ShownDate(string? lastModifiedTime) =>

@@ -56,10 +56,13 @@ public static class GrantedVia
 }
 
 /// <summary>
-/// What the grant dialog shows the user (AD-21): the section and its notebook, by name, and the <c>once</c> window in
-/// minutes. The names go to the user's client only, never into a tool result.
+/// What the grant dialog shows the user (AD-21): the section, its section groups and its notebook, by name, and the
+/// <c>once</c> window in minutes; plus <see cref="ExpectedText"/>, what the user must type: the section's name as shown.
+/// Every name is already made safe to show (<see cref="DialogText.Shown"/>), and
+/// <see cref="ExpectedText"/> comes from the same text as <see cref="SectionName"/>. The names go to the user's client
+/// only, never into a tool result.
 /// </summary>
-public sealed record GrantQuestion(string SectionId, string SectionName, string NotebookName, IReadOnlyList<string> SectionGroups, int OnceMinutes = 5);
+public sealed record GrantQuestion(string SectionId, string SectionName, string NotebookName, IReadOnlyList<string> SectionGroups, string ExpectedText, int OnceMinutes = 5);
 
 /// <summary>How the dialog ended.</summary>
 public enum GrantPromptStatus
@@ -88,10 +91,12 @@ public sealed record GrantPromptResult(GrantPromptStatus Status, string? TypedNa
 
 /// <summary>
 /// What the write-grant dialog shows the user (AD-6): the notebook by its displayed name (<c>nickname</c>, else
-/// <c>name</c>) and its live path. The name and path go to the user's client only, never into a tool result (AD-9).
+/// <c>name</c>) and its live path, both already made safe to show (<see cref="DialogText.Shown"/>),
+/// and <see cref="ExpectedText"/>, what the user must type: the name as shown, without an ellipsis. The name and path go
+/// to the user's client only, never into a tool result (AD-9).
 /// Write grants have no lifetime (AD-10): the dialog says the grant lasts until revoked.
 /// </summary>
-public sealed record WriteGrantQuestion(string NotebookId, string NotebookName, string NotebookPath);
+public sealed record WriteGrantQuestion(string NotebookId, string NotebookName, string NotebookPath, string ExpectedText);
 
 /// <summary>
 /// The port through which the server asks the user for a grant: a read grant for a target-scoped read (AD-21), or a
@@ -132,7 +137,7 @@ public interface IGrantPrompt
 /// <see cref="PageCount"/>, and a page's <see cref="LastModified"/> date (UTC, to the second) when another page in its section
 /// shows the same name, so two such dialogs differ; plus <see cref="ExpectedText"/>, what the user must type: the object's name, or <c>delete</c>
 /// for an object with no name (an untitled page). Every text is already made safe to show
-/// (<see cref="PermanentDeleteDialog.Shown"/>), and <see cref="ExpectedText"/> comes from the same text as
+/// (<see cref="DialogText.Shown"/>), and <see cref="ExpectedText"/> comes from the same text as
 /// <see cref="ObjectName"/>. The names go to the user's client only, never into a tool result (AD-9).
 /// </summary>
 public sealed record PermanentDeleteQuestion(
