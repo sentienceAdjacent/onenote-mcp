@@ -86,7 +86,7 @@ What an agent does when it follows the skill. These rows are the live check's sc
    - (c) Leave it all to a code fix.
    Recommended: (a). Chaining the newest basis is always right and needs no untested claim; the code fix belongs with code.
 7. **The human part (hitl).** The ticket's check is "after Phill grants MCP Test through the CLI, an agent following the README makes an edit and restores it". Claude Code users get the skill, not the README.
-   - (a) One Claude Code session with the plugin packed from this branch: Phill runs `grant --write` for MCP Test in his own terminal, then asks for the matrix rows on a throwaway page in MCP Test.
+   - (a) One Claude Code session with the plugin packed from this branch: MCP Test already holds Phill's lasting CLI write grant (given 2026-11-11; `list_grants` confirms it at the start), then Phill asks for the matrix rows on a throwaway page in MCP Test.
    - (b) As (a), plus a short session with the server registered without the plugin (`--mcp-config`), where the agent is given only the README and asked for an edit and an undo.
    - (c) The README-only session alone, as the ticket words it.
    Recommended: (b). It tests what plugin users get and what the ticket names; the README-only run takes a few minutes.
@@ -150,7 +150,7 @@ Not for 2.12 (spine or code): the `noBasis` wording without a read grant (l.376)
 - The description's length -- expected: at most 1,024 characters.
 
 **Manual checks (hitl, Phill):**
-- Phill runs the `grant --write` command for MCP Test in his own terminal (the agent never does).
+- MCP Test's write grant came from Phill's own terminal through the CLI (2026-11-11) and is still active; if `list_grants` ever shows it gone, Phill runs the `grant --write` command again himself (the agent never does).
 - A fresh Claude Code session with `claude --plugin-dir dist/onenote-<ver>-win-x64.zip`, on a throwaway page in MCP Test: the I/O matrix rows (edit, undo, remove a block, an image by path with accept and decline, an unsupported rename, the protected-section row in MCP Test's protected section). The agent should choose the tools from the skill alone.
 - Under Q7 (b): a session with the server registered without the plugin, given only the README: an edit and an undo.
 - Phill reads the README's new sections.
