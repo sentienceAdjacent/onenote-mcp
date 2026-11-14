@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(21, actual.Count);
+        Assert.Equal(22, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -277,7 +277,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(21, tools.Count);
+        Assert.Equal(22, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -361,9 +361,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllTwentyOneTools()
+    public void SnapshotToolNames_AreAllTwentyTwoTools()
     {
-        Assert.Equal(21, SnapshotToolNames().Count);
+        Assert.Equal(22, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -396,6 +396,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.UpdateCalls);
         Assert.Empty(gateway.DeleteCalls);
         Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(gateway.DeleteHierarchyCalls);
     }
 
     [Fact]
@@ -432,9 +433,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 49 properties in all.
-        Assert.Equal(20, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(49, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 51 properties in all.
+        Assert.Equal(21, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(51, SnapshotToolProperties().Count);
     }
 
     [Theory]
@@ -467,6 +468,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.UpdateCalls);
         Assert.Empty(gateway.DeleteCalls);
         Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(gateway.DeleteHierarchyCalls);
     }
 
     [Theory]
@@ -510,6 +512,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.DoesNotContain("{X}", message, StringComparison.Ordinal);
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.DeleteCalls);
+        Assert.Empty(gateway.DeleteHierarchyCalls);
     }
 
     /// <summary>The tool's required arguments with valid values: an enum's first value, <c>["x"]</c> for an array, else <c>"x"</c>.</summary>

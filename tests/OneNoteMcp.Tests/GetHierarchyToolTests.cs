@@ -270,6 +270,8 @@ public sealed class GetHierarchyToolTests
 
         public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw exception;
 
+        public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct) => throw exception;
+
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
     }
 

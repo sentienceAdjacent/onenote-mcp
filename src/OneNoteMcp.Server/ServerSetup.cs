@@ -165,6 +165,13 @@ public static class ServerSetup
             sp.GetRequiredService<HierarchySnapshot>()));
         services.AddSingleton<UpdateHierarchyUseCase>();
 
+        // Story 5.5: soft delete (AD-7 SoftDelete). A page takes a page snapshot as a page write does; a section or section
+        // group takes a hierarchy snapshot (AD-8).
+        services.AddSingleton(sp => new SoftDeleteUseCase(
+            sp.GetRequiredService<PageWriteServices>(),
+            sp.GetRequiredService<HierarchySnapshot>(),
+            sp.GetRequiredService<WritePipeline>()));
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -187,7 +194,8 @@ public static class ServerSetup
             .WithTools<CreateSectionGroupTool>(EnvelopeJson.Options)
             .WithTools<CreateNotebookTool>(EnvelopeJson.Options)
             .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
-            .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options);
+            .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options)
+            .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.

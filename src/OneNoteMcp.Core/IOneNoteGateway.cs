@@ -6,7 +6,8 @@ namespace OneNoteMcp.Core;
 /// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and the writes only the write pipeline makes (AD-7):
 /// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
 /// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
-/// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
+/// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>), and
+/// <see cref="DeleteHierarchyAsync"/> (<c>SoftDelete</c>, and story 5.6's <c>PermanentDelete</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
 /// IDs are opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
@@ -110,6 +111,17 @@ public interface IOneNoteGateway
     /// the write pipeline calls it, after the access check and under the write lock (AD-18).
     /// </summary>
     Task UpdateHierarchyAsync(string changesXml, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>SoftDelete</c> when <paramref name="permanent"/> is false, <c>PermanentDelete</c> when true; AD-7):
+    /// <c>DeleteHierarchy</c> of the page, section or section group <paramref name="objectId"/>.
+    /// <paramref name="expectedLastModified"/> is the target's hierarchy <c>lastModifiedTime</c> exactly as OneNote wrote
+    /// it, a page's included (AD-17's page-delete exception); one that is empty, unparsable or the minimum date is refused
+    /// with <see cref="ErrorCode.InvalidArgument"/> before COM, and so is an empty <paramref name="objectId"/>. Never
+    /// retried after a disconnect (AD-3). Only the write pipeline calls it, after the access check and under the write lock
+    /// (AD-18): <c>delete_hierarchy_object</c> (story 5.5), and story 5.6's permanent delete.
+    /// </summary>
+    Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct);
 
     /// <summary>
     /// Completes once no abandoned write is outstanding: a write that started in OneNote and whose caller stopped

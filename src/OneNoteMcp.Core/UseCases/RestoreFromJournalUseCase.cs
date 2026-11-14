@@ -38,7 +38,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
 
     /// <summary>What to do with an <c>entryId</c> that isn't a GUID.</summary>
     public const string EntryIdUserAction =
-        "Pass entryId: the meta.journalEntryId that update_page_content or delete_page_content returned, or the ID their failure message names.";
+        "Pass entryId: the meta.journalEntryId that update_page_content, delete_page_content or delete_hierarchy_object returned, or the ID their failure message names.";
 
     /// <summary>What to do when no entry has that ID.</summary>
     public const string UnknownEntryUserAction =
@@ -138,6 +138,19 @@ public sealed class RestoreFromJournalUseCase : IUseCase
             access.CheckNotebook(notebook);
         }
 
+        /// <summary>Whether a <c>hierarchy</c> entry's XML is a section group's (its root); false when it isn't readable.</summary>
+        private static bool IsGroup(JournalEntry entry)
+        {
+            try
+            {
+                return entry.Xml is { } xml && DeleteTargets.Root(xml).Kind == HierarchyKind.SectionGroup;
+            }
+            catch (OneNoteXmlException)
+            {
+                return false;
+            }
+        }
+
         private JournalEntry ReadEntry()
         {
             string? path;
@@ -180,6 +193,14 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                         userAction: string.IsNullOrEmpty(read.BackupFile)
                             ? $"The entry file {entryFile} is in the journal folder (journal.path in settings.json) for its 30 days."
                             : $"The backup file {Path.GetFileName(read.BackupFile)} is in the journal folder (journal.path in settings.json). The user can open it in OneNote (File > Open), though that may not bring the section back.");
+                case JournalEntry.HierarchyKind when read.OperationClass == nameof(OperationClass.SoftDelete):
+                    // Q4 (Phill, 2026-11-13, 5.5 plan): say where a soft-deleted section or section group went.
+                    throw new OneNoteException(
+                        ErrorCode.NotSupported,
+                        $"Journal entry {entryId:D} ({entryFile}) records a soft-deleted {(IsGroup(read) ? "section group" : "section")}, which restore_from_journal doesn't restore, so nothing was restored.",
+                        userAction: IsGroup(read)
+                            ? $"The section group dissolved when it was deleted: its sections are in its notebook's recycle bin one by one. The user can restore each from the Recycle Bin in OneNote, and the entry file {entryFile} (journal.path in settings.json, kept 30 days) records how the group was laid out, to rebuild it."
+                            : $"Section {read.ObjectId} is in its notebook's recycle bin under the same ID. The user can restore it from the Recycle Bin in OneNote.");
                 default:
                     throw new OneNoteException(
                         ErrorCode.NotSupported,
