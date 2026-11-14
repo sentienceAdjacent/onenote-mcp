@@ -384,6 +384,9 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: epic-safe-writes/story-delete-page-content-plan.md
   summary: Cloud steps D4c/d (date-only-basis deletes on displayed and undisplayed MCP Test Cloud pages, Sync Now before and after) not run: MCP Test Cloud hadn't synced since 6:21 PM (0xE01901F7 "can't sync right now", Probes 0xE000145C "server busy"), during a Microsoft outage, hours before any cloud call. Run them in the next sitting once it syncs. At that sitting's start, check `list_grants`: if Phill's D3b Ballast Vault read grant has a lasting lifetime, revoke it before any "no read grant" check.
   evidence: sitting D4; Phill's View Sync Status screenshot, 21:15.
+- source_plan: epic-safe-writes/story-delete-page-content-plan.md
+  summary: Resolved: D4c/d ran on MCP Test Cloud (2026-11-14 sitting), with Sync Now and View Sync Status clean before and after. On both pages the date-only-basis delete was ok with `partialBasis`, removed only the target Outline, and drew no 0x80042010 and no dialog. On the displayed page (D4c) the page-XML and hierarchy dates differed by about 7 minutes before the delete, and both advanced together after it. On the undisplayed page (D4d) both dates stayed frozen, as on MCP Test (D4a/b). The D3b grant check at the sitting's start: `list_grants` held only MCP Test's write grant.
+  evidence: sitting 2026-11-14, pages "D4c displayed probe" and "D4d undisplayed probe" in MCP Test Cloud's Probes section.
 
 ## Story 2.11 restore_from_journal (2026-11-12)
 
