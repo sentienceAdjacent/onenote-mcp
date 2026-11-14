@@ -165,7 +165,9 @@ public sealed class JournalStore
                 file.Flush(flushToDisk: true);
             }
 
-            File.Replace(temp, path, destinationBackupFileName: null);
+            // A scanner or the indexer can hold a just-written entry for a moment (a full test run hit it, 2026-11-13);
+            // the settings' replace already waits that out and recovers ERROR_UNABLE_TO_MOVE_REPLACEMENT (bug 2.15).
+            SettingsWriter.ReplaceWithRetry(temp, path);
             return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or NotSupportedException or ArgumentException)
