@@ -30,9 +30,9 @@ public sealed class DeletePageContentTool(ToolRunner runner, DeletePageContentUs
         + "objectId must be a one:Outline's objectID from that read; an OE, the title, an image or ink fails with InvalidArgument (to delete an OE, use update_page_content with removeObjectIds). "
         + "The page's notebook needs the user's write grant (a dialog may ask the user to type the notebook's name; only the user can grant, never run the grant command yourself). "
         + "In a password-protected section, the section's read grant is needed too: read the page with get_page_content first, or the call fails with ReadNotGranted. "
-        + "Every delete first saves the page to the recovery journal. Afterwards the page is re-read: readBackDiffers means the Outline is still there, readBackFailed a re-read that failed. "
+        + "Every delete first saves the page to the recovery journal: meta.journalEntryId is that entry, which restore_from_journal can bring back as a new page if the user asks. Afterwards the page is re-read: readBackDiffers means the Outline is still there, readBackFailed a re-read that failed. "
         + "meta.basis is the page's new basis for the next write. If the call fails with outcomeUnknown: true, re-read the page before trying again. "
-        + "Success: {ok:true, meta:{correlationId, basis?}, warnings:[]}. "
+        + "Success: {ok:true, meta:{correlationId, basis?, journalEntryId}, warnings:[]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> DeletePageContent(
         [Description("OneNote ID of the page that holds the Outline.")] string pageId,

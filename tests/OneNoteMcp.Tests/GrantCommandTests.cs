@@ -74,6 +74,18 @@ public sealed class GrantCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Grant_UntilRevoked_TheSuggestedRevokeCommand_NeverHoldsTheSectionsName()
+    {
+        // A shared notebook's section can be named $(...), which PowerShell would expand inside double quotes.
+        gateway.NameVault("$(evil)");
+
+        Assert.Equal(0, await Command("2\n").RunAsync(["--read-section", "$(evil)"], Ct));
+
+        var command = output.ToString().Split("with: ")[1].Trim();
+        Assert.Equal("OneNoteMcp grant --revoke --read-section \"<section name>\"", command);
+    }
+
+    [Fact]
     public async Task Grant_HoursBlank_IsTheDefault8()
     {
         await Command("1\n1\n\n").RunAsync(["--read-section", "Vault"], Ct);
@@ -269,7 +281,19 @@ public sealed class GrantCommandTests : IDisposable
     {
         Assert.Equal(0, await WriteCommand("yes\n").RunAsync(["--write", "Notebook A"], Ct));
 
-        Assert.Contains("grant --revoke --write \"Notebook A\"", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --write \"<notebook name>\"", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Write_Granted_TheSuggestedRevokeCommand_NeverHoldsTheNotebooksName()
+    {
+        // A shared notebook can be named $(...), which PowerShell would expand inside double quotes.
+        var xml = NotebooksXml.Replace("\"Notebook A\"", "\"$(evil)\"", StringComparison.Ordinal);
+
+        Assert.Equal(0, await WriteCommand("yes\n", xml: xml).RunAsync(["--write", "$(evil)"], Ct));
+
+        var command = output.ToString().Split("with: ")[1].Trim();
+        Assert.Equal("OneNoteMcp grant --revoke --write \"<notebook name>\"", command);
     }
 
     // --- grant --revoke --write (story 2.6, AD-6) -------------------------------------------------------------------
@@ -396,11 +420,11 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Equal("{ nope", File.ReadAllText(Store.Path));
     }
 
-    private GrantCommand WriteCommand(string input, bool interactive = true) =>
+    private GrantCommand WriteCommand(string input, bool interactive = true, string xml = NotebooksXml) =>
         new(new StringReader(input), output, interactive, _ =>
         {
             notebookReads++;
-            return Task.FromResult(NotebooksXml);
+            return Task.FromResult(xml);
         }, new SettingsWriter(Store, clock), clock);
 
     // --- Elicitation adapter --------------------------------------------------------------------------------------
@@ -513,7 +537,7 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Contains("\"Notebook A\"", request.Message, StringComparison.Ordinal);
         Assert.Contains(@"C:\notebooks\A", request.Message, StringComparison.Ordinal);
         Assert.Contains("until you revoke it", request.Message, StringComparison.Ordinal);
-        Assert.Contains("grant --revoke --write \"Notebook A\"", request.Message, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --write \"<notebook name>\"", request.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("{NA}", request.Message, StringComparison.Ordinal);
         var schema = request.RequestedSchema!;
         Assert.Equal(["notebookName_0a1b2c3d"], schema.Properties.Keys);
@@ -522,6 +546,17 @@ public sealed class GrantCommandTests : IDisposable
         var name = Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties["notebookName_0a1b2c3d"]);
         Assert.Contains("\"Notebook A\"", name.Description, StringComparison.Ordinal);
         Assert.Equal(1, name.MinLength);
+    }
+
+    [Fact]
+    public void WriteForm_TheSuggestedCommand_NeverHoldsTheNotebooksName()
+    {
+        // A shared notebook can be named $(...), which PowerShell would expand inside double quotes.
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "$(evil)", @"C:\notebooks\A"), "notebookName_0a1b2c3d");
+
+        var command = request.Message!.Split('`')[1];
+        Assert.EndsWith("grant --revoke --write \"<notebook name>\"", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("evil", command, StringComparison.Ordinal);
     }
 
     [Fact]

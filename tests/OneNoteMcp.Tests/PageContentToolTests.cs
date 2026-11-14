@@ -519,6 +519,8 @@ public sealed class PageContentToolTests
 
         public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => inner.CreateNewPageAsync(sectionId, style, ct);
 
+        public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => inner.CreateSectionAsync(parentId, sectionFileName, ct);
+
         public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => inner.UpdatePageContentAsync(pageXml, expectedLastModified, ct);
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => inner.DeletePageContentAsync(pageId, objectId, expectedLastModified, ct);
@@ -569,6 +571,8 @@ public sealed class PageContentToolTests
         public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => throw new NotSupportedException();
 
         public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
 

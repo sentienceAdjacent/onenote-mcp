@@ -89,8 +89,9 @@ public sealed class JournalStore
     /// <summary>
     /// Reads the entry file at <paramref name="path"/>: decompresses it, and for a protected entry decrypts its title and
     /// XML back into <see cref="JournalEntry.Title"/> and <see cref="JournalEntry.Xml"/> (and clears
-    /// <see cref="JournalEntry.Protected"/>). Members it doesn't know are ignored. Throws only
-    /// <see cref="ErrorCode.JournalFailed"/>.
+    /// <see cref="JournalEntry.Protected"/>). Members it doesn't know are ignored. Throws
+    /// <see cref="ErrorCode.JournalFailed"/>, or <see cref="ErrorCode.NotSupported"/> for an entry whose
+    /// <c>schemaVersion</c> is newer than <see cref="JournalEntry.CurrentSchemaVersion"/> (it is then never decrypted).
     /// </summary>
     public static JournalEntry Read(string path)
     {
@@ -103,6 +104,15 @@ public sealed class JournalStore
             using var gzip = new GZipStream(file, CompressionMode.Decompress);
             entry = JsonSerializer.Deserialize<JournalEntry>(gzip, JournalEntry.JsonOptions)
                 ?? throw new JsonException("The entry is null.");
+            if (entry.SchemaVersion > JournalEntry.CurrentSchemaVersion)
+            {
+                // Written by a newer server: its members may mean something this one can't honour (story 2.11).
+                throw new OneNoteException(
+                    ErrorCode.NotSupported,
+                    string.Create(CultureInfo.InvariantCulture, $"Journal entry {entry.EntryId:D} has schemaVersion {entry.SchemaVersion}, newer than this server reads ({JournalEntry.CurrentSchemaVersion})."),
+                    userAction: "Use a newer version of the OneNote MCP server to read this entry.");
+            }
+
             return entry.Protected is null ? entry : Unprotect(entry);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or JsonException or InvalidDataException or FormatException or NotSupportedException)

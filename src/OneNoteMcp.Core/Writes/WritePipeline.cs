@@ -198,11 +198,11 @@ public sealed class WritePipeline
             }
             catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
             {
-                throw new OneNoteException(ErrorCode.Cancelled, "The write was cancelled while OneNote was making it.", innerException: ex, outcomeUnknown: true);
+                throw new OneNoteException(ErrorCode.Cancelled, WithNote("The write was cancelled while OneNote was making it.", operation.FailureNote), innerException: ex, outcomeUnknown: true);
             }
             catch (OperationCanceledException ex) when (deadlineSource.IsCancellationRequested)
             {
-                throw DeadlineExpired(written: true, ex);
+                throw DeadlineExpired(written: true, ex, operation.FailureNote);
             }
 
             // Between 7 and 8, under the lock: the read-back (AD-7). The write already happened, so nothing here fails
@@ -299,10 +299,14 @@ public sealed class WritePipeline
         }
     }
 
-    private OneNoteException DeadlineExpired(bool written, Exception inner) => new(
+    private static string WithNote(string message, string? note) => string.IsNullOrEmpty(note) ? message : message + " " + note;
+
+    private OneNoteException DeadlineExpired(bool written, Exception inner, string? note = null) => new(
         ErrorCode.Timeout,
-        string.Create(CultureInfo.InvariantCulture, $"The write didn't finish within its {deadline.TotalSeconds:0.###} s deadline")
-            + (written ? ", while OneNote was making it." : "; nothing was written."),
+        WithNote(
+            string.Create(CultureInfo.InvariantCulture, $"The write didn't finish within its {deadline.TotalSeconds:0.###} s deadline")
+                + (written ? ", while OneNote was making it." : "; nothing was written."),
+            note),
         innerException: inner,
         outcomeUnknown: written,
         retryable: written ? null : true); // nothing was written: safe to retry (AD-18)

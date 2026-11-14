@@ -215,7 +215,8 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
             Message =
                 $"Claude wants to write to the OneNote notebook \"{question.NotebookName}\"{where}: to create and change pages in it. "
                 + "To allow it, type the notebook's name exactly as it appears in OneNote. "
-                + "The permission lasts until you revoke it with " + GrantCli.Run($"--revoke --write \"{question.NotebookName}\"") + ". "
+                // A placeholder, never the name: a name holding $(...) would run in PowerShell inside double quotes.
+                + "The permission lasts until you revoke it with " + GrantCli.Run("--revoke --write \"<notebook name>\"") + ". "
                 + "Decline to keep Claude from writing to it. Only you can grant this: the model can't.",
             RequestedSchema = new ElicitRequestParams.RequestSchema
             {

@@ -75,6 +75,9 @@ internal sealed class VaultGateway : IOneNoteGateway
     /// <summary>Renames or moves the Vault: its <c>path</c> changes, as OneNote reports after the user renames it.</summary>
     public void MoveVault(string newPath) => Find(VaultId)!.SetAttributeValue("path", newPath);
 
+    /// <summary>Gives the Vault (not the one in Group) the displayed name <paramref name="name"/>.</summary>
+    public void NameVault(string name) => Find(VaultId)!.SetAttributeValue("name", name);
+
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct)
     {
         Calls.Add($"GetHierarchy:{startNodeId}:{scope}");
@@ -163,6 +166,8 @@ internal sealed class VaultGateway : IOneNoteGateway
     public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 
     public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
+
+    public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => throw new NotSupportedException();
 
     public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
 
