@@ -597,7 +597,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>
     /// Waits for <paramref name="item"/> until <paramref name="deadline"/>. An item still queued at the deadline is
-    /// abandoned (it never touched COM). One that started and is still running is a hang: its worker is poisoned. A
+    /// abandoned (it never touched COM); one its poisoned worker already failed while queued takes that failure. One that
+    /// started and is still running is a hang: its worker is poisoned. A
     /// write that started and is then left (a hang, or the caller's cancel while it runs) is outstanding until it returns.
     /// </summary>
     private async Task<T> AwaitAsync<T>(StaThread worker, WorkItem<T> item, DateTime deadline, TimeSpan timeout, string method, CallKind kind, CancellationToken ct)
@@ -610,11 +611,18 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         catch (TimeoutException) when (!item.Task.IsCompleted)
         {
             var seconds = Seconds(timeout);
-            if (item.TryAbandon(new OneNoteException(ErrorCode.Timeout, "abandoned")))
+            switch (GiveUp(item, new OneNoteException(ErrorCode.Timeout, "abandoned")))
             {
-                throw new OneNoteException(ErrorCode.Timeout, $"{method} timed out after {seconds} s waiting for an earlier call to OneNote.");
+                case GiveUpOutcome.AbandonedByCaller:
+                    throw new OneNoteException(ErrorCode.Timeout, $"{method} timed out after {seconds} s waiting for an earlier call to OneNote.");
+                case GiveUpOutcome.AbandonedElsewhere:
+                    // Its worker was poisoned (or stopped) while it was still queued, as its own deadline passed: it never
+                    // ran, so it isn't a hang or an outstanding write. Take the failure it was given; awaiting also covers
+                    // the moment between that abandon and the task completing.
+                    return await item.Task.ConfigureAwait(false);
             }
 
+            // Started: it is still running in COM, a hang.
             if (kind == CallKind.Write)
             {
                 TrackAbandonedWrite(item.Task);
@@ -630,7 +638,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            if (!item.TryAbandon(new OperationCanceledException(ct)))
+            // Abandoned while queued, by this cancel or by its worker being poisoned: it never ran, so nothing to watch.
+            if (GiveUp(item, new OperationCanceledException(ct)) == GiveUpOutcome.Started)
             {
                 // Already running: the caller stops waiting, but a hang must still poison the worker at the deadline.
                 if (kind == CallKind.Write && !item.Task.IsCompleted)
@@ -643,6 +652,35 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
             throw;
         }
+    }
+
+    /// <summary>What became of a call its waiter gave up on (its deadline passed, or its caller cancelled).</summary>
+    internal enum GiveUpOutcome
+    {
+        /// <summary>Still queued: this waiter abandoned it, so it never touches COM.</summary>
+        AbandonedByCaller,
+
+        /// <summary>Already failed by its worker (poisoned or stopping) before it ran: it never touched COM.</summary>
+        AbandonedElsewhere,
+
+        /// <summary>The STA thread started it: it is running in COM, or has just returned.</summary>
+        Started,
+    }
+
+    /// <summary>Tries to abandon <paramref name="item"/> with <paramref name="failure"/> and says what became of it.</summary>
+    /// <remarks>
+    /// A failed abandon doesn't mean the call started: a poisoned worker drains its queue by abandoning every item,
+    /// and that can win the race with this waiter's own deadline or cancel. Once the abandon fails the item has left
+    /// <c>Queued</c> for good, so one read of its state settles which it was.
+    /// </remarks>
+    internal static GiveUpOutcome GiveUp(WorkItem item, Exception failure)
+    {
+        if (item.TryAbandon(failure))
+        {
+            return GiveUpOutcome.AbandonedByCaller;
+        }
+
+        return item.WasAbandoned ? GiveUpOutcome.AbandonedElsewhere : GiveUpOutcome.Started;
     }
 
     private async Task WatchAfterCancelAsync(StaThread worker, Task task, DateTime deadline)
