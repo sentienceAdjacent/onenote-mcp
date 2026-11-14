@@ -620,7 +620,7 @@ public sealed class CreatePageToolTests : IDisposable
 
         Assert.Equal(FakeGateway.CreatedPageId(1), root.GetProperty("meta").GetProperty("pageId").GetString());
         var question = Assert.Single(prompt.WriteQuestions);
-        Assert.Equal(new WriteGrantQuestion(NotebookId, "W", NotebookPath), question);
+        Assert.Equal(new WriteGrantQuestion(NotebookId, "W", NotebookPath, "W"), question);
         Assert.Empty(prompt.Questions);
         var grant = Assert.Single(Settings().Notebooks.Values);
         Assert.Equal(new NotebookGrant(GrantKeys.NotebookKey(NotebookPath), "W", NotebookId, true, false, clock.GetUtcNow(), GrantedVia.Elicitation), grant);
@@ -630,6 +630,38 @@ public sealed class CreatePageToolTests : IDisposable
             new GrantListing(ListGrantsUseCase.WriteNotebookKind, grant.Key, "W", grant.Key, NotebookId, SettingsWriter.Format(clock.GetUtcNow()), GrantedVia.Elicitation, ReadGrantLifetimes.UntilRevoked, "active"),
             listed);
         await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task Dialog_ANameChangedByCleaning_IsShownCleaned_GrantedByTypingWhatIsShown_AndStoredAgainstTheRealNotebook()
+    {
+        // Follow-up to 5.6: notebook names are model-writable, so the dialog shows them cleaned and compares with that.
+        const string raw = "W\uFF02 at C:\\fake: \u201Cyours\u201D\u200B";
+        const string shown = "W' at C:\\fake: 'yours'";
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        Self(NotebookId, $"<one:Notebook {Ns} name=\"{raw}\" nickname=\"{raw}\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" />");
+        OpenNotebooksAre(wName: raw, others: ("Other", @"C:\notebooks\Other"));
+        var prompt = new FakePrompt(Typed(" w' AT c:\\fake: 'yours' "));
+
+        Ok(await CreateWithPrompt(prompt));
+
+        Assert.Equal(new WriteGrantQuestion(NotebookId, shown, NotebookPath, shown), Assert.Single(prompt.WriteQuestions));
+        var grant = Assert.Single(Settings().Notebooks.Values);
+        Assert.Equal(new NotebookGrant(GrantKeys.NotebookKey(NotebookPath), raw, NotebookId, true, false, clock.GetUtcNow(), GrantedVia.Elicitation), grant);
+    }
+
+    [Fact]
+    public async Task Dialog_TwoNotebooksTheSameOnceCleaned_IsAmbiguous_NoGrant()
+    {
+        File.WriteAllText(Store.Path, """{"schemaVersion": 1}""");
+        Self(NotebookId, $"<one:Notebook {Ns} name=\"W\uFF02s\" nickname=\"W\uFF02s\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" />");
+        OpenNotebooksAre(wName: "W\uFF02s", others: ("W\u2019s", @"C:\notebooks\W2"));
+
+        var error = Error(await CreateWithPrompt(new FakePrompt(Typed("W's"))), "WriteNotGranted");
+
+        Assert.Contains("more than one open notebook", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(Settings().Notebooks);
+        AssertNoWrite();
     }
 
     [Fact]
@@ -914,10 +946,10 @@ public sealed class CreatePageToolTests : IDisposable
     }
 
     /// <summary>The open notebooks as <c>GetHierarchy("", sections)</c> returns them: W, plus <paramref name="others"/> (name, path).</summary>
-    private void OpenNotebooksAre(string wId = NotebookId, params (string Name, string Path)[] others)
+    private void OpenNotebooksAre(string wId = NotebookId, string wName = "W", params (string Name, string Path)[] others)
     {
         var xml = new System.Text.StringBuilder("<?xml version=\"1.0\"?>\n<one:Notebooks " + Ns + ">");
-        xml.Append($"<one:Notebook name=\"W\" nickname=\"W\" ID=\"{wId}\" path=\"{NotebookPath}\">{Section(SectionId, "Open", string.Empty)}</one:Notebook>");
+        xml.Append($"<one:Notebook name=\"{wName}\" nickname=\"{wName}\" ID=\"{wId}\" path=\"{NotebookPath}\">{Section(SectionId, "Open", string.Empty)}</one:Notebook>");
         var n = 0;
         foreach (var (name, path) in others)
         {
