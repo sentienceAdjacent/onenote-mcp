@@ -15,8 +15,11 @@ namespace OneNoteMcp.Core.Results;
 /// <see cref="ObjectId"/> (the section, section group or notebook a create made or found, with <see cref="ParentId"/> for a
 /// section or group and <see cref="Path"/>, read back, for a notebook; Phill, 2026-11-13, 5.3 plan Q5; also the object a
 /// delete removed, with <see cref="JournalEntryId"/>), and <see cref="RecycleBinId"/> (a soft-deleted page's new ID in
-/// Deleted Pages, when it was read back; Phill, 2026-11-13, 5.5 plan Q6). They are null, and so omitted on the wire, on
-/// every other result.
+/// Deleted Pages, when it was read back; Phill, 2026-11-13, 5.5 plan Q6). A permanent delete (story 5.6) reports
+/// <see cref="ObjectId"/>, <see cref="JournalEntryId"/> (its page, <c>hierarchy</c> or
+/// <c>onenoteBackup</c> entry) and, for a section, <see cref="BackupFile"/> (the backup's file name only, never a path) and
+/// <see cref="PageEntryIds"/> (its pages' entries in section order, 5.6 plan Q3 b). They are null, and so omitted on the
+/// wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
     string CorrelationId,
@@ -34,7 +37,9 @@ public sealed record ToolMeta(
     string? PageId = null,
     string? JournalEntryId = null,
     string? ObjectId = null,
-    string? RecycleBinId = null);
+    string? RecycleBinId = null,
+    string? BackupFile = null,
+    IReadOnlyList<string>? PageEntryIds = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read

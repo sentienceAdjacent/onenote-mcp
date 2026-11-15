@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(22, actual.Count);
+        Assert.Equal(23, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -277,7 +277,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(22, tools.Count);
+        Assert.Equal(23, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -361,9 +361,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllTwentyTwoTools()
+    public void SnapshotToolNames_AreAllTwentyThreeTools()
     {
-        Assert.Equal(22, SnapshotToolNames().Count);
+        Assert.Equal(23, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -397,6 +397,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.DeleteCalls);
         Assert.Empty(gateway.UpdateHierarchyCalls);
         Assert.Empty(gateway.DeleteHierarchyCalls);
+        Assert.Empty(gateway.PublishCalls);
     }
 
     [Fact]
@@ -433,9 +434,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 51 properties in all.
-        Assert.Equal(21, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(51, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 53 properties in all.
+        Assert.Equal(22, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(53, SnapshotToolProperties().Count);
     }
 
     [Theory]

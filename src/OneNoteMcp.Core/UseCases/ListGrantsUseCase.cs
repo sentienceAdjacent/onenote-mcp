@@ -11,7 +11,9 @@ namespace OneNoteMcp.Core.UseCases;
 /// <c>protectedSections{}</c> (kind <c>readSection</c>); this process's live <c>once</c> grants (lifetime <c>once</c>,
 /// <c>grantedVia: elicitation</c>, status <c>active</c>, <c>expiresAt</c> the window's end; expired windows aren't
 /// listed); and AD-6's write grants, one row per <c>notebooks{}</c> entry with <c>write: true</c> (kind
-/// <c>writeNotebook</c>, <c>notebookKey</c> its own key, lifetime <c>untilRevoked</c>). A stored read grant is
+/// <c>writeNotebook</c>, <c>notebookKey</c> its own key, lifetime <c>untilRevoked</c>); and the permanent-delete grants, one
+/// row per such entry that also holds <c>permanentDelete: true</c> (kind <c>permanentDeleteNotebook</c>, otherwise like its
+/// write row; story 5.6). A stored read grant is
 /// <c>active</c> (an open section has its key), <c>sectionNotOpen</c> or <c>expired</c>; a write grant is <c>active</c>
 /// (an open notebook has its key) or <c>notebookNotOpen</c>. With no stored grants it makes no COM call; otherwise one
 /// <c>GetHierarchy</c> of every open notebook at <c>sections</c> level. Reads continue on an invalid or newer
@@ -24,6 +26,9 @@ public sealed class ListGrantsUseCase(IOneNoteGateway gateway, Func<SettingsSnap
 
     /// <summary>The kind of a write grant's row (Phill, 2026-11-12, 2.6 plan Q3).</summary>
     public const string WriteNotebookKind = "writeNotebook";
+
+    /// <summary>The kind of a permanent-delete grant's row (Phill, 2026-11-13, 5.6 plan Q2).</summary>
+    public const string PermanentDeleteNotebookKind = "permanentDeleteNotebook";
 
     public OperationClass Class => OperationClass.Read;
 
@@ -76,6 +81,19 @@ public sealed class ListGrantsUseCase(IOneNoteGateway gateway, Func<SettingsSnap
             g.IdAtGrant,
             SettingsWriter.Format(g.GrantedAt),
             g.GrantedVia,
+            ReadGrantLifetimes.UntilRevoked,
+            openNotebooks.Contains(g.Key) ? "active" : "notebookNotOpen")));
+
+        // Permanent-delete grants (AD-6; 5.6 plan Q2 b): their own row, only beside the write grant they count with. Only the
+        // CLI stores one (Q1 c), so its grantedVia is always cli, whatever later relabelled the write grant's entry.
+        listed.AddRange(writeGrants.Where(g => g.PermanentDelete).Select(g => new GrantListing(
+            PermanentDeleteNotebookKind,
+            g.Key,
+            g.Name,
+            g.Key,
+            g.IdAtGrant,
+            SettingsWriter.Format(g.GrantedAt),
+            GrantedVia.Cli,
             ReadGrantLifetimes.UntilRevoked,
             openNotebooks.Contains(g.Key) ? "active" : "notebookNotOpen")));
         IReadOnlyList<ToolWarning> warnings = invalid

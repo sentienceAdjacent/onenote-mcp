@@ -174,6 +174,39 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         await AssertLockFreeAsync();
     }
 
+    // --- Story 5.6 AC 5: entries a permanent delete wrote -----------------------------------------------------------
+
+    [Fact]
+    public async Task APermanentlyDeletedPagesEntry_RestoresAsANewPage_WithTheSnapshotsContent()
+    {
+        var root = await PermanentlyDeleteAsync(PageId);
+        var entryId = root.GetProperty("journalEntryId").GetString()!;
+
+        var restored = Ok(await Tool().RestoreFromJournal(entryId, Ct));
+
+        Assert.Equal(SectionId, Assert.Single(gateway.CreateCalls).SectionId);
+        var page = XDocument.Parse(Assert.Single(gateway.UpdateCalls).PageXml).Root!;
+        Assert.Equal(NewId, (string?)page.Attribute("ID"));
+        Assert.Equal(
+            XDocument.Parse(Read).Root!.Descendants(XName.Get("T", OneNoteXml.Namespace2013)).Select(t => t.Value),
+            page.Descendants(XName.Get("T", OneNoteXml.Namespace2013)).Select(t => t.Value));
+        Assert.Equal(NewId, restored.GetProperty("meta").GetProperty("pageId").GetString());
+    }
+
+    [Fact]
+    public async Task APermanentlyDeletedSectionsPageEntry_RestoresIntoRecovered_SinceTheSectionIsGone()
+    {
+        var root = await PermanentlyDeleteAsync(SectionId);
+        var pageEntry = Assert.Single(root.GetProperty("pageEntryIds").EnumerateArray()).GetString()!;
+        sections.RemoveAll(s => s.Id == SectionId);
+
+        var restored = Ok(await Tool().RestoreFromJournal(pageEntry, Ct));
+
+        Assert.Equal((NotebookId, "Recovered.one"), Assert.Single(gateway.CreateSectionCalls));
+        Assert.Equal(FakeGateway.CreatedSectionId(1), restored.GetProperty("meta").GetProperty("parentId").GetString());
+        Assert.Contains("Recovered", Warning(restored, "restoredElsewhere"), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task AnExistingRecovered_IsUsedAsFound_AndOneInAGroupDoesntCount()
     {
@@ -339,7 +372,8 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         Assert.Contains(kind == "onenoteBackup" ? "backup-1.one" : Path.GetFileName(EntryFile(entryId)), userAction, StringComparison.Ordinal);
         if (kind == "onenoteBackup")
         {
-            Assert.Contains("open it in OneNote", userAction, StringComparison.Ordinal);
+            Assert.Contains("backups folder inside the journal folder", userAction, StringComparison.Ordinal);
+            Assert.Contains("copy it outside the journal folder and open the copy in OneNote", userAction, StringComparison.Ordinal);
         }
 
         AssertNoComCall();
@@ -883,6 +917,43 @@ public sealed class RestoreFromJournalToolTests : IDisposable
     private void Grant() =>
         new SettingsWriter(Store, clock).SaveWriteGrant(
             new NotebookGrant(GrantKeys.NotebookKey(NotebookPath), "W", NotebookId, Write: true, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
+
+    /// <summary>
+    /// Runs story 5.6's permanent delete of <paramref name="objectId"/> (the synthetic page, or section Open holding it) with
+    /// a stored permanent-delete grant, and returns its success <c>meta</c>. Clears the calls it made.
+    /// </summary>
+    private async Task<JsonElement> PermanentlyDeleteAsync(string objectId)
+    {
+        gateway.Parents[PageId] = SectionId;
+        Self(PageId, $"<one:Page {Ns} ID=\"{PageId}\" name=\"{Title}\" lastModifiedTime=\"2026-11-12T00:00:01.000Z\" />");
+        var open = new SectionSpec(SectionId, "Open", null, "lastModifiedTime=\"2026-11-12T00:10:00.000Z\"");
+        Self(SectionId, open.Xml(withNs: true));
+        gateway.Hierarchies[(SectionId, HierarchyScope.Pages)] =
+            $"<?xml version=\"1.0\"?>\n<one:Section {Ns} name=\"Open\" ID=\"{SectionId}\" path=\"{open.Path}\" lastModifiedTime=\"2026-11-12T00:10:00.000Z\"><one:Page ID=\"{PageId}\" name=\"{Title}\" pageLevel=\"1\" /></one:Section>";
+        new SettingsWriter(Store, clock).SavePermanentDeleteGrant(GrantKeys.NotebookKey(NotebookPath));
+        var journal = new JournalStore(Store.Read);
+        var useCase = new PermanentDeleteUseCase(
+            new PermanentDeleteServices(
+                gateway,
+                new WriteAccess(gateway, Store.Read),
+                new ReadAccess(gateway, Store.Read, new SettingsWriter(Store, clock), clock),
+                new PageSnapshot(gateway, journal, clock),
+                new HierarchySnapshot(gateway, journal, clock),
+                new SectionBackup(gateway, journal, Store.Read, TimeProvider.System, TimeSpan.FromMilliseconds(10))),
+            new WritePipeline(writeLock, gateway, cache, Store.Read, TimeProvider.System));
+
+        var result = await new ToolRunner(NullLogger<ToolRunner>.Instance).RunAsync(
+            PermanentlyDeleteHierarchyObjectTool.Name,
+            useCase,
+            (context, token) => useCase.ExecuteAsync(context, objectId, null, token),
+            Ct);
+
+        Assert.False(result.IsError, result.StructuredContent?.GetRawText());
+        Assert.Equal((objectId, true), (Assert.Single(gateway.DeleteHierarchyCalls).ObjectId, gateway.DeleteHierarchyCalls[0].Permanent));
+        gateway.Calls.Clear();
+        gateway.PageCalls.Clear();
+        return result.StructuredContent!.Value.GetProperty("meta");
+    }
 
     /// <summary>A real snapshot of the synthetic page in <paramref name="sectionId"/>; returns the entry's ID. Clears the calls it made.</summary>
     private async Task<string> EntryAsync(string sectionId)

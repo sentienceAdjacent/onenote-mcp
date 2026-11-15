@@ -29,7 +29,12 @@ public sealed record JournalPruneResult(
 /// entry, so the snapshot just taken survives a cap smaller than itself.</item>
 /// <item>Leftovers: a temporary file (<c>.{name}.tmp</c>) whose name's timestamp is more than a day old goes.</item>
 /// </list>
-/// Only journal-named files at the folder's top level are ever touched (<see cref="JournalFiles"/>). Other processes write
+/// A <c>PermanentDelete</c> backup in the <c>backups</c> folder (AD-8, story 5.6) belongs to the entry of the same name: its
+/// size counts toward the cap with its entry's, and it goes when its entry goes. A backup with no entry (left by a delete
+/// that failed after <c>Publish</c>, or a crash before the entry was written) goes once its name's timestamp is past the
+/// retention age, and counts in <see cref="JournalPruneResult.RemovedByAge"/>.
+/// Only journal-named files at the folder's top level, and backup-named files at the top level of its <c>backups</c>
+/// folder, are ever touched (<see cref="JournalFiles"/>). Other processes write
 /// and prune the same folder, so a file that vanishes meanwhile is skipped, and a file that can't be removed is counted
 /// in <see cref="JournalPruneResult.Failed"/> and left. It never throws for a file or the folder; a missing folder is an
 /// empty journal.
@@ -71,8 +76,22 @@ public sealed class JournalPruner
 
         var journal = snapshot.Journal;
         var now = clock.GetUtcNow().UtcDateTime;
-        var entries = new List<(string Path, string Name, DateTime TakenAtUtc, long Bytes)>();
+        var entries = new List<(string Path, string Name, DateTime TakenAtUtc, long Bytes, string? Backup)>();
         var temps = new List<(string Path, DateTime TakenAtUtc)>();
+
+        // Backups, by the name of the entry each belongs to (AD-8).
+        var backups = new Dictionary<string, (string Path, DateTime TakenAtUtc, long Bytes)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in List(Path.Combine(journal.Path, JournalFiles.BackupsFolderName)))
+        {
+            var name = Path.GetFileName(path);
+            if (JournalFiles.EntryNameOfBackup(name) is { } entryName
+                && JournalFiles.TryParseTimestamp(name, out var takenAtUtc)
+                && Size(path) is { } bytes)
+            {
+                backups[entryName] = (path, takenAtUtc, bytes);
+            }
+        }
+
         foreach (var path in List(journal.Path))
         {
             var name = Path.GetFileName(path);
@@ -87,7 +106,14 @@ public sealed class JournalPruner
             }
             else if (JournalFiles.IsEntry(name) && Size(path) is { } bytes)
             {
-                entries.Add((path, name, takenAtUtc, bytes));
+                if (backups.Remove(name, out var backup))
+                {
+                    entries.Add((path, name, takenAtUtc, bytes + backup.Bytes, backup.Path));
+                }
+                else
+                {
+                    entries.Add((path, name, takenAtUtc, bytes, null));
+                }
             }
         }
 
@@ -104,7 +130,7 @@ public sealed class JournalPruner
         var cutoff = journal.RetentionDays < (now - DateTime.MinValue).TotalDays
             ? now - TimeSpan.FromDays(journal.RetentionDays)
             : DateTime.MinValue;
-        var kept = new List<(string Path, string Name, DateTime TakenAtUtc, long Bytes)>();
+        var kept = new List<(string Path, string Name, DateTime TakenAtUtc, long Bytes, string? Backup)>();
         foreach (var entry in entries)
         {
             if (entry.TakenAtUtc >= cutoff)
@@ -113,6 +139,7 @@ public sealed class JournalPruner
             }
             else if (Remove(entry.Path) is { } removed)
             {
+                failed += RemoveBackup(entry.Backup);
                 if (removed)
                 {
                     removedByAge++;
@@ -126,6 +153,21 @@ public sealed class JournalPruner
             }
         }
 
+        // A backup whose entry is gone, once it is past the retention age.
+        foreach (var orphan in backups.Values.Where(b => b.TakenAtUtc < cutoff))
+        {
+            switch (Remove(orphan.Path))
+            {
+                case true:
+                    removedByAge++;
+                    removedBytes += orphan.Bytes;
+                    break;
+                case null:
+                    failed++;
+                    break;
+            }
+        }
+
         // 2. The size cap, oldest first, never the newest entry.
         var cap = journal.MaxSizeMB * BytesPerMB;
         var total = kept.Sum(e => e.Bytes);
@@ -136,6 +178,7 @@ public sealed class JournalPruner
             switch (Remove(entry.Path))
             {
                 case true:
+                    failed += RemoveBackup(entry.Backup);
                     removedBySize++;
                     removedBytes += entry.Bytes;
                     total -= entry.Bytes;
@@ -143,6 +186,7 @@ public sealed class JournalPruner
                     break;
                 case false:
                     // Vanished: another process pruned it.
+                    failed += RemoveBackup(entry.Backup);
                     total -= entry.Bytes;
                     kept.RemoveAt(index);
                     break;
@@ -169,6 +213,9 @@ public sealed class JournalPruner
 
         return new JournalPruneResult(kept.Count, kept.Sum(e => e.Bytes), removedByAge, removedBySize, removedBytes, removedTemp, failed);
     }
+
+    /// <summary>Removes an entry's backup, if it has one, with its entry; returns 1 when it couldn't be removed (it is then an orphan for a later prune).</summary>
+    private int RemoveBackup(string? backup) => backup is not null && Remove(backup) is null ? 1 : 0;
 
     /// <summary>The folder's top-level files; none when it doesn't exist or can't be listed.</summary>
     private static List<string> List(string folder)

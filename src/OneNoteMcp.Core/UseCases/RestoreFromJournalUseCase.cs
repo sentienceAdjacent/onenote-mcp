@@ -192,7 +192,8 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                         $"Journal entry {entryId:D} ({entryFile}) holds a OneNote backup of a section, which restore_from_journal doesn't restore, so nothing was restored.",
                         userAction: string.IsNullOrEmpty(read.BackupFile)
                             ? $"The entry file {entryFile} is in the journal folder (journal.path in settings.json) for its 30 days."
-                            : $"The backup file {Path.GetFileName(read.BackupFile)} is in the journal folder (journal.path in settings.json). The user can open it in OneNote (File > Open), though that may not bring the section back.");
+                            : $"The backup file {Path.GetFileName(read.BackupFile)} is in the backups folder inside the journal folder (journal.path in settings.json), kept for 30 days. "
+                                + "The user can copy it outside the journal folder and open the copy in OneNote (File > Open), though that may not bring the section back; never open the file where it is, since the journal's pruning and uninstall --purge delete it, edits included.");
                 case JournalEntry.HierarchyKind when read.OperationClass == nameof(OperationClass.SoftDelete):
                     // Q4 (Phill, 2026-11-13, 5.5 plan): say where a soft-deleted section or section group went.
                     throw new OneNoteException(

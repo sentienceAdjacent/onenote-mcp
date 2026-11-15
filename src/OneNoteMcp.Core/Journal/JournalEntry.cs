@@ -25,6 +25,12 @@ public sealed record JournalEntry
     /// <summary><see cref="SnapshotKind"/> of a hierarchy snapshot (stories 5.4 and 5.5): the hierarchy XML of the node a write changed or deleted.</summary>
     public const string HierarchyKind = "hierarchy";
 
+    /// <summary>
+    /// <see cref="SnapshotKind"/> of a section's <c>Publish</c> backup (AD-8, story 5.6): <see cref="BackupFile"/> names the
+    /// backup in the journal's <c>backups</c> folder, and <see cref="Xml"/> keeps the section's <c>pages</c>-scope XML.
+    /// </summary>
+    public const string OnenoteBackupKind = "onenoteBackup";
+
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     /// <summary>A GUID (Conventions), also in the file's name.</summary>
@@ -90,7 +96,10 @@ public sealed record JournalEntry
     /// <summary>The page's piBinaryData XML, unchanged; a hierarchy entry's <c>GetHierarchy</c> XML, unchanged. Absent on disk for a protected entry.</summary>
     public string? Xml { get; init; }
 
-    /// <summary>A <c>onenoteBackup</c> entry's backup file (epic 5); never set by a page snapshot.</summary>
+    /// <summary>
+    /// A <c>onenoteBackup</c> entry's backup file, by file name only, in the journal's <c>backups</c> folder: the entry's
+    /// own file name with <c>.one</c> in place of <c>.json.gz</c> (AD-8, story 5.6). Never set by a page or hierarchy snapshot.
+    /// </summary>
     public string? BackupFile { get; init; }
 
     /// <summary>

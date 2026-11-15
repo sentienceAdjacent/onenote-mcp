@@ -349,6 +349,74 @@ public sealed class JournalTests : IDisposable
         Assert.Equal(1, result.Kept);
     }
 
+    // --- Backups (story 5.6, AD-8) -----------------------------------------------------------------------------------
+
+    [Fact]
+    public void BackupName_IsTheEntrysNameWithDotOne_AndMapsBack()
+    {
+        var entry = JournalFiles.EntryName(Now, 77, Guid.NewGuid());
+        var backup = JournalFiles.BackupName(entry);
+
+        Assert.Equal(entry[..^".json.gz".Length] + ".one", backup);
+        Assert.True(JournalFiles.IsBackup(backup));
+        Assert.False(JournalFiles.IsEntry(backup));
+        Assert.False(JournalFiles.IsBackup(entry));
+        Assert.False(JournalFiles.IsBackup("Notes.one"));
+        Assert.Equal(entry, JournalFiles.EntryNameOfBackup(backup));
+        Assert.True(JournalFiles.TryParseTimestamp(backup, out var at));
+        Assert.Equal(Now, at);
+    }
+
+    [Fact]
+    public void Prune_ABackupGoesWithItsEntry_PastRetention()
+    {
+        var old = Seed(Now.AddDays(-31), 10);
+        var oldBackup = SeedBackup(old, 100);
+        var recent = Seed(Now.AddDays(-29), 10);
+        var recentBackup = SeedBackup(recent, 100);
+
+        var result = Pruner(retentionDays: 30).Prune();
+
+        Assert.False(File.Exists(old));
+        Assert.False(File.Exists(oldBackup));
+        Assert.True(File.Exists(recent));
+        Assert.True(File.Exists(recentBackup));
+        Assert.Equal((1, 110L, 1, 110L), (result.RemovedByAge, result.RemovedBytes, result.Kept, result.KeptBytes));
+    }
+
+    [Fact]
+    public void Prune_ABackupCountsTowardTheSizeCap_AndGoesWithItsEntry()
+    {
+        const int KB600 = 600 * 1024;
+        var oldest = Seed(Now.AddHours(-2), 10);
+        var oldestBackup = SeedBackup(oldest, KB600);
+        var newest = Seed(Now.AddHours(-1), KB600);
+
+        var result = Pruner(maxSizeMB: 1).Prune();
+
+        Assert.False(File.Exists(oldest));
+        Assert.False(File.Exists(oldestBackup));
+        Assert.True(File.Exists(newest));
+        Assert.Equal(1, result.RemovedBySize);
+    }
+
+    [Fact]
+    public void Prune_ABackupWithNoEntry_GoesOncePastRetention_AYoungerOneStays()
+    {
+        var orphanOld = SeedBackup(Path.Combine(Folder, JournalFiles.EntryName(Now.AddDays(-31), 77, Guid.NewGuid())), 50);
+        var orphanYoung = SeedBackup(Path.Combine(Folder, JournalFiles.EntryName(Now.AddMinutes(-5), 77, Guid.NewGuid())), 50);
+        var stranger = Path.Combine(Folder, JournalFiles.BackupsFolderName, "Notes.one");
+        File.WriteAllText(stranger, "not ours");
+        File.SetLastWriteTimeUtc(stranger, Now.AddYears(-1));
+
+        var result = Pruner(retentionDays: 30).Prune();
+
+        Assert.False(File.Exists(orphanOld));
+        Assert.True(File.Exists(orphanYoung));
+        Assert.True(File.Exists(stranger));
+        Assert.Equal(1, result.RemovedByAge);
+    }
+
     [Fact]
     public void Prune_HugeRetention_KeepsEverything_NoOverflow()
     {
@@ -688,6 +756,16 @@ public sealed class JournalTests : IDisposable
 
     private void WriteJournalSettings(int retentionDays = 30, int maxSizeMB = 2048) =>
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(new { schemaVersion = 1, journal = new { path = Folder, retentionDays, maxSizeMB } }));
+
+    /// <summary>A backup of <paramref name="bytes"/> bytes for the entry at <paramref name="entryPath"/> (which needn't exist), in <c>backups</c>.</summary>
+    private string SeedBackup(string entryPath, int bytes)
+    {
+        var folder = Path.Combine(Folder, JournalFiles.BackupsFolderName);
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, JournalFiles.BackupName(Path.GetFileName(entryPath)));
+        File.WriteAllBytes(path, new byte[bytes]);
+        return path;
+    }
 
     private string Seed(DateTime takenAtUtc, int bytes, bool temporary = false)
     {
