@@ -267,6 +267,9 @@ public sealed class GetHierarchyToolTests
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw exception;
 
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw exception;
+
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
     }
 

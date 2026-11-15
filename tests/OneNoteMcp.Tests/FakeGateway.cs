@@ -77,9 +77,13 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>The text of a fixture file, relative to <c>Fixtures/</c>.</summary>
     public static string ReadFixture(string relativePath) => Shared.Value.Read(relativePath);
 
+    /// <summary>Runs on each <c>GetHierarchy</c> before it answers, with its start node and scope.</summary>
+    public Action<string, HierarchyScope>? OnGetHierarchy { get; set; }
+
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct)
     {
         Calls.Add((startNodeId, scope));
+        OnGetHierarchy?.Invoke(startNodeId, scope);
         return HierarchyXml is not null && Failure is null ? Task.FromResult(HierarchyXml)
             : Failure is null && Hierarchies.TryGetValue((startNodeId, scope), out var xml) ? Task.FromResult(xml)
             : Serve(nameof(IOneNoteGateway.GetHierarchyAsync), startNodeId, scope.ToString());
@@ -304,6 +308,34 @@ internal sealed class FakeGateway : IOneNoteGateway
 
     /// <summary>Runs with the page and object IDs after each <c>DeletePageContent</c> call that succeeds (story 2.10).</summary>
     public Action<string, string>? OnDelete { get; set; }
+
+    /// <summary>Every <c>UpdateHierarchy</c> call's XML, in order (story 5.4). It has no fixture: it records and succeeds.</summary>
+    public List<string> UpdateHierarchyCalls { get; } = [];
+
+    /// <summary>When set, <c>UpdateHierarchy</c> alone throws it.</summary>
+    public Exception? UpdateHierarchyFailure { get; set; }
+
+    /// <summary>Runs with the sent XML after each <c>UpdateHierarchy</c> call that succeeds (story 5.4), so a test can serve the changed hierarchy to the read-back.</summary>
+    public Action<string>? OnUpdateHierarchy { get; set; }
+
+    /// <summary>When set, runs inside <c>UpdateHierarchy</c> before it answers, with the call's token (a hook to observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnUpdateHierarchyCall { get; set; }
+
+    public async Task UpdateHierarchyAsync(string changesXml, CancellationToken ct)
+    {
+        UpdateHierarchyCalls.Add(changesXml);
+        if (OnUpdateHierarchyCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? UpdateHierarchyFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        OnUpdateHierarchy?.Invoke(changesXml);
+    }
 
     public Task WaitForAbandonedWritesAsync(CancellationToken ct) =>
         AbandonedWrites is { } pending ? pending.Task.WaitAsync(ct) : Task.CompletedTask;

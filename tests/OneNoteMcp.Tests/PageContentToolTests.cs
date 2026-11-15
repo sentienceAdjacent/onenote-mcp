@@ -529,6 +529,9 @@ public sealed class PageContentToolTests
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => inner.DeletePageContentAsync(pageId, objectId, expectedLastModified, ct);
 
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => inner.UpdateHierarchyAsync(changesXml, ct);
+
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => inner.WaitForAbandonedWritesAsync(ct);
     }
 
@@ -585,6 +588,9 @@ public sealed class PageContentToolTests
         public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
+
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw new NotSupportedException();
 
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
     }

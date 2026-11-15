@@ -592,6 +592,54 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task UpdateHierarchy_SendsTheXmlWithTheXs2013Schema()
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        const string xml = "<one:Section xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\" ID=\"{s}\" name=\"Plans\" />";
+
+        await gateway.UpdateHierarchyAsync(xml, Ct);
+
+        Assert.Equal([[xml, Com.Interop.XMLSchema.xs2013]], app.Calls.Where(c => c.Method == "UpdateHierarchy").Select(c => c.Args));
+    }
+
+    [Fact]
+    public async Task UpdateHierarchy_RefusesEmptyXml_BeforeCom()
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdateHierarchyAsync(string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task UpdateHierarchy_IsNotRetriedAfterADisconnect_AndFailuresMapLikeAnyCall()
+    {
+        // A write: a disconnect that reached COM is never repeated (AD-3); the pipeline then reports outcomeUnknown.
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdateHierarchyAsync("<x/>", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        // Story 5.4's remaps: a sibling's name, a recording, the recycle bin.
+        app.OnCall = _ => throw new COMException("name", unchecked((int)0x80042017));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdateHierarchyAsync("<x/>", Ct))).Code);
+        app.OnCall = _ => throw new COMException("recording", unchecked((int)0x80042024));
+        var busy = await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdateHierarchyAsync("<x/>", Ct));
+        Assert.Equal(ErrorCode.ComBusy, busy.Code);
+        Assert.True(busy.Retryable);
+        Assert.Equal(3, app.Calls.Count); // 0x80042024 isn't retried with backoff: one call each.
+        app.OnCall = _ => throw new COMException("bin", unchecked((int)0x8004202E));
+        Assert.Equal(ErrorCode.ObjectNotFound, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdateHierarchyAsync("<x/>", Ct))).Code);
+    }
+
+    [Fact]
     public async Task CreateSectionGroup_OpensTheNameUnderTheParentId_WithCftFolder_AndReturnsTheNewId()
     {
         var app = new FakeApplication { OnCall = _ => "{group}" };
