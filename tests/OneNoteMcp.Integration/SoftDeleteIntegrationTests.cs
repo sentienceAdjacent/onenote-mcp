@@ -472,7 +472,7 @@ public sealed class SoftDeleteIntegrationTests(ITestOutputHelper output) : IDisp
 
     private async Task<string> NewGroupAsync(Run run, string parentId, string name)
     {
-        var id = ObjectId(Ok(await new CreateSectionGroupTool(Runner(), CreateUseCase(run)).CreateSectionGroup(parentId, name, Ct)));
+        var id = ObjectId(Ok(await new CreateSectionGroupTool(Runner(), CreateUseCase(run)).CreateSectionGroup(parentId, name.Replace('.', '-'), Ct)));
         created.Add(id);
         output.WriteLine($"section group {id} ({name}) under {parentId}");
         return id;
