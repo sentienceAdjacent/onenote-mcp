@@ -9,8 +9,9 @@ namespace OneNoteMcp.Xml;
 /// group named <c>OneNote_RecycleBin</c>), <see cref="IsInRecycleBin"/> (<c>isInRecycleBin</c>),
 /// <see cref="IsDeletedPages"/> (<c>isDeletedPages</c>), <see cref="Encrypted"/> (a section's <c>encrypted</c>, AD-21) and
 /// <see cref="Locked"/>. Story 5.5's <see cref="DeleteTargets"/> reads much the same but folds <c>isDeletedPages</c> into
-/// <c>InRecycleBin</c>, while a permanent delete allows a recycled section and refuses Deleted Pages, so both readers stay
-/// until the share-point refactor (5.6 plan change log).
+/// <c>InRecycleBin</c>, while a permanent delete allows a recycled section and refuses Deleted Pages. Both readers share
+/// <see cref="HierarchyElements"/> (5.8 refactor sweep); merging the records themselves is an open question in
+/// <c>deferred-work.md</c> (5.6 share points), because their recycle-bin and <c>pageLevel</c> rules differ.
 /// </summary>
 public sealed record PermanentDeleteTarget(
     HierarchyKind Kind,
@@ -29,15 +30,14 @@ public sealed record PermanentDeleteTarget(
     /// </summary>
     public static PermanentDeleteTarget Read(string selfXml)
     {
-        var root = OneNoteXml.Parse(selfXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
-        var kind = KindOf(root);
+        var root = OneNoteXml.ParseRoot(selfXml);
+        var kind = HierarchyElements.KindOf(root);
         return new PermanentDeleteTarget(
             kind,
             (string?)root.Attribute("ID") ?? string.Empty,
             (string?)root.Attribute("name") ?? string.Empty,
             (string?)root.Attribute("lastModifiedTime"),
-            OneNoteXml.IsTrue((string?)root.Attribute("isRecycleBin"))
-                || (kind == HierarchyKind.SectionGroup && string.Equals((string?)root.Attribute("name"), NotebookSections.RecycleBinName, StringComparison.Ordinal)),
+            HierarchyElements.IsRecycleBin(root),
             OneNoteXml.IsTrue((string?)root.Attribute("isInRecycleBin")),
             OneNoteXml.IsTrue((string?)root.Attribute("isDeletedPages")),
             kind == HierarchyKind.Section && EncryptedSections.IsEncrypted(root),
@@ -51,8 +51,8 @@ public sealed record PermanentDeleteTarget(
     /// </summary>
     public static int ContainersBeneath(string hierarchyXml)
     {
-        var root = OneNoteXml.Parse(hierarchyXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
-        return root.Descendants().Count(e => KindOf(e) is HierarchyKind.Section or HierarchyKind.SectionGroup);
+        var root = OneNoteXml.ParseRoot(hierarchyXml);
+        return root.Descendants().Count(e => HierarchyElements.KindOf(e) is HierarchyKind.Section or HierarchyKind.SectionGroup);
     }
 
     /// <summary>
@@ -62,7 +62,7 @@ public sealed record PermanentDeleteTarget(
     /// </summary>
     public static IReadOnlyList<string> PageIds(string sectionPagesXml)
     {
-        var root = OneNoteXml.Parse(sectionPagesXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(sectionPagesXml);
         return [.. root.Elements(OneNoteXml.One + "Page").Select(p => (string?)p.Attribute("ID") ?? string.Empty)];
     }
 
@@ -73,7 +73,7 @@ public sealed record PermanentDeleteTarget(
     /// </summary>
     public static IReadOnlyList<(string Id, string? LastModifiedTime)> PageDates(string sectionPagesXml)
     {
-        var root = OneNoteXml.Parse(sectionPagesXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(sectionPagesXml);
         return [.. root.Elements(OneNoteXml.One + "Page").Select(p => ((string?)p.Attribute("ID") ?? string.Empty, (string?)p.Attribute("lastModifiedTime")))];
     }
 
@@ -84,7 +84,7 @@ public sealed record PermanentDeleteTarget(
     /// </summary>
     public static IReadOnlyList<(string Id, string Name)> PageNames(string sectionPagesXml)
     {
-        var root = OneNoteXml.Parse(sectionPagesXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(sectionPagesXml);
         return [.. root.Elements(OneNoteXml.One + "Page").Select(p => ((string?)p.Attribute("ID") ?? string.Empty, (string?)p.Attribute("name") ?? string.Empty))];
     }
 
@@ -96,7 +96,7 @@ public sealed record PermanentDeleteTarget(
     /// </summary>
     public static int? Subpages(string sectionPagesXml, string pageId)
     {
-        var root = OneNoteXml.Parse(sectionPagesXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(sectionPagesXml);
         var pages = root.Elements(OneNoteXml.One + "Page").ToList();
         var index = pages.FindIndex(p => string.Equals((string?)p.Attribute("ID"), pageId, StringComparison.Ordinal));
         if (index < 0)
@@ -116,16 +116,4 @@ public sealed record PermanentDeleteTarget(
 
     private static int Level(XElement page) =>
         int.TryParse((string?)page.Attribute("pageLevel"), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var level) ? level : 1;
-
-    private static HierarchyKind KindOf(XElement element) =>
-        element.Name.Namespace != OneNoteXml.One
-            ? HierarchyKind.Other
-            : element.Name.LocalName switch
-            {
-                "Notebook" => HierarchyKind.Notebook,
-                "SectionGroup" => HierarchyKind.SectionGroup,
-                "Section" => HierarchyKind.Section,
-                "Page" => HierarchyKind.Page,
-                _ => HierarchyKind.Other,
-            };
 }

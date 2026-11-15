@@ -22,7 +22,7 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
 {
     /// <summary>The root of <paramref name="hierarchyXml"/>. Throws <see cref="OneNoteXmlException"/> when it isn't well-formed or has no root.</summary>
     public static HierarchyNode Root(string hierarchyXml) =>
-        From(OneNoteXml.Parse(hierarchyXml).Root ?? throw new OneNoteXmlException("The XML has no root element."));
+        From(OneNoteXml.ParseRoot(hierarchyXml));
 
     /// <summary>
     /// Every <c>one:Notebook</c> in <paramref name="hierarchyXml"/>, the root included, in document order (the grant
@@ -33,16 +33,7 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
 
     private static HierarchyNode From(XElement element)
     {
-        var kind = element.Name.Namespace != OneNoteXml.One
-            ? HierarchyKind.Other
-            : element.Name.LocalName switch
-            {
-                "Notebook" => HierarchyKind.Notebook,
-                "SectionGroup" => HierarchyKind.SectionGroup,
-                "Section" => HierarchyKind.Section,
-                "Page" => HierarchyKind.Page,
-                _ => HierarchyKind.Other,
-            };
+        var kind = HierarchyElements.KindOf(element);
         return new HierarchyNode(
             kind,
             (string?)element.Attribute("ID") ?? string.Empty,
@@ -51,6 +42,6 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
             (string?)element.Attribute("path") ?? string.Empty,
             kind == HierarchyKind.Section && EncryptedSections.IsEncrypted(element),
             OneNoteXml.IsTrue((string?)element.Attribute("locked")),
-            OneNoteXml.IsTrue((string?)element.Attribute("isInRecycleBin")) || OneNoteXml.IsTrue((string?)element.Attribute("isDeletedPages")));
+            HierarchyElements.InRecycleBin(element));
     }
 }
