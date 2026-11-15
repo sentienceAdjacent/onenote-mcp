@@ -3,7 +3,7 @@ title: 'Stop sending z in the Outline positions we write'
 type: 'bugfix'
 ticket: '2'
 created: '2026-11-15'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -38,6 +38,14 @@ context: []
 | Look-alikes | `z` text inside a `one:T` CDATA; `foo:z`; `Position` in another namespace | Untouched | None |
 | Bad `z` | `z="-1"` | `InvalidXml`, nothing sent (as today) | Existing schema gate |
 
+## Decisions (Phill, 2026-11-15)
+
+1. A sent `z` is always stripped, silently, changed or not; the `update_page_content` description says stacking order isn't written.
+2. Docs: reword `plugin/skills/guide/references/page-writes.md` l.16 (resending no longer re-stacks; adding an Outline may still change others' hashes, so keep "use the newest basis"), plus that one clause in the tool description. README unchanged.
+3. Spine: a `deferred-work.md` entry for the next spine-sync story (AD-4/AD-7: the server strips `z` from sent XML); no spine edit here.
+4. Every `one:Position` sent is covered (Outlines and page-level images, ink, files), not only Outlines.
+5. The sitting check (Verification, Manual checks) is required before Phill marks this done; the build stops at `built`.
+
 </frozen-after-approval>
 
 ## Code Map
@@ -60,7 +68,8 @@ context: []
 - [ ] `src/OneNoteMcp.Core/Writes/PageWrite.cs` -- `UpdatePageContentWrite` computes the sent text once after `Validate`, sends it in `CallAsync` and compares it in `AfterCallAsync`; doc comment says why (Z probe 57) -- checks stay on the caller's XML.
 - [ ] `tests/OneNoteMcp.Tests/SentPositionsTests.cs` (new) -- each matrix row, asserting the exact output string.
 - [ ] `tests/OneNoteMcp.Tests/UpdatePageContentToolTests.cs` -- a test sending Outline 40 as read (`z="1"`) plus a new Outline whose Position has no `z`: the single `UpdateCalls` XML has no `z` on any Position and keeps `x`/`y`; update l.103 and l.206 to expect `SentPositions.WithoutZ(sent)`.
-- [ ] Docs per the answer to Q2; `deferred-work.md` -- mark the l.379 and l.587 entries resolved, and add the spine entry if Q3 is (a).
+- [ ] `plugin/skills/guide/references/page-writes.md` l.16 and `src/OneNoteMcp.Server/Tools/UpdatePageContentTool.cs` description -- per decisions 1-2.
+- [ ] `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` -- mark the l.379 and l.587 entries resolved (code fix done; the sitting check pending), and add the spine entry (decision 3).
 
 **Acceptance Criteria:**
 - Given any accepted `update_page_content` call, when it reaches COM, then no `one:Position` in the sent XML has a `z`, and the text is otherwise the caller's.
@@ -84,13 +93,7 @@ Evidence on new Outlines: in the 2.12 README-only session, adding an Outline cha
 - `dotnet build OneNoteMcp.slnx -warnaserror` -- expected: 0 warnings, 0 errors
 - `dotnet test tests/OneNoteMcp.Tests` -- expected: all pass, new tests included
 
-**Manual checks (a later sitting, Phill; not run by the build):**
-- With the built server, on a throwaway page in MCP Test with two Outlines: read, resend one Outline as read (with its `z`); the other Outline's hash and both `z` values are unchanged. Then add a new Outline (once with `z`, once without) and record whether the other Outline's hash changes.
-
-## Open Questions
-
-1. **A caller who sends a changed `z`.** (a) Always strip, silently; the description says stacking order isn't written. (b) Always strip, plus a warning when a sent `z` differs from the read one (a new warning code: contract change). (c) Strip only a `z` equal to step 3's read value, so a changed `z` restacks on purpose (more code; needs a live check of what OneNote does with it).
-2. **Docs.** (a) Skill l.16 reworded (re-sending no longer re-stacks; adding an Outline may still change others' hashes) plus one clause in the tool description. (b) Skill only. (c) (a) plus a README line.
-3. **Spine.** The server now changes sent XML, which AD-4's "server quietly changing content" and AD-7 `PageWrite` don't mention. (a) A deferred-work entry for the next spine-sync story (as 2.13 Q3). (b) Amend AD-7 in this story (Fable final review needed).
-4. **Which Positions.** (a) Every `one:Position` sent (Outlines and page-level images, ink, files: one stacking order). (b) Only those directly under `one:Outline`.
-5. **The sitting check.** (a) Required before Phill marks done; the build stops at `built` without it. (b) Optional; unit tests suffice.
+**Manual checks (required before done; a later sitting, Phill; not run by the build).** With the built server, on a throwaway page in MCP Test:
+1. On a page with two Outlines, resend one Outline exactly as read, `z` included: nothing else moves (the other Outline's hash and both `z` values unchanged).
+2. The same with a page-level image resent exactly as read, `z` included: nothing else moves.
+3. Add a new Outline sent with `z`, then another sent without, and record each time whether the other Outline's hash changes.
