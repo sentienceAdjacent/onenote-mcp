@@ -343,6 +343,161 @@ public sealed class TestNotebookGuardTests
     public void AnyContains_FindsAnIdAnywhere() =>
         Assert.True(TestNotebookGuard.AnyContains(Tree, "{NS}") && !TestNotebookGuard.AnyContains(Tree, "{GONE}") && !TestNotebookGuard.AnyContains(Tree, string.Empty));
 
+    // --- Spike 3.1: merges, MergeFiles, adoption by exact name, recycle bins, the tenant notebook -------------------
+
+    private static readonly HashSet<string> Opened = ["{OPEN}"];
+
+    [Fact]
+    public void CheckMerge_CreatedSourceAndDestination_IsNotAnOpenedSource() =>
+        Assert.False(TestNotebookGuard.CheckMerge("MergeSections", "{S1}", "{S2}", TestIds, Made, Opened));
+
+    [Fact]
+    public void CheckMerge_OpenedBackupAsSource_NeedsItsPathChecked() =>
+        Assert.True(TestNotebookGuard.CheckMerge("MergeSections", "{OPEN}", "{S2}", TestIds, Made, Opened));
+
+    [Theory]
+    [InlineData("{S1}", "{S}")] // destination is a fixture
+    [InlineData("{S}", "{S2}")] // source is a fixture, neither made nor opened
+    [InlineData("{S1}", "{OPEN}")] // an opened backup is never a destination
+    [InlineData("{T}", "{S2}")] // MCP Test itself as the source
+    [InlineData("{S1}", "{C}")] // MCP Test Cloud itself as the destination
+    [InlineData("{S1}", "{S1}")] // the same section twice
+    [InlineData("", "{S2}")]
+    [InlineData("{S1}", "")]
+    public void CheckMerge_Refuses(string source, string destination) =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckMerge("MergeSections", source, destination, TestIds, new HashSet<string>(Made) { "{T}", "{C}" }, Opened));
+
+    [Fact]
+    public void EnsureOpenedFrom_AcceptsOnlyAPathUnderThePublishFolder()
+    {
+        var root = Root + @"\probes\publish";
+        TestNotebookGuard.EnsureOpenedFrom("MergeSections", $$"""<one:Section xmlns:one="{{Ns}}" ID="{OPEN}" path="{{root}}\s3\probe s3.one" />""", root);
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureOpenedFrom("MergeSections", $$"""<one:Section xmlns:one="{{Ns}}" ID="{OPEN}" path="{{Root}}\MCP Test\Seed.one" />""", root));
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureOpenedFrom("MergeSections", $$"""<one:Section xmlns:one="{{Ns}}" ID="{OPEN}" path="{{CloudPath}}Probes.one" />""", root));
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureOpenedFrom("MergeSections", $$"""<one:Section xmlns:one="{{Ns}}" ID="{OPEN}" />""", root));
+    }
+
+    [Fact]
+    public void CheckMergeFiles_AllFourUnderThePublishFolder()
+    {
+        var root = Root + @"\probes\publish";
+        string[] ok = [root + @"\a\x.one", root + @"\b\x.one", root + @"\c\x.one", root + @"\t\x.one"];
+        TestNotebookGuard.CheckMergeFiles("MergeFiles", ok, root);
+        for (var i = 0; i < 4; i++)
+        {
+            var bad = ok.ToArray();
+            bad[i] = Root + @"\MCP Test\Seed.one"; // each of base, client, server and target is checked
+            Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckMergeFiles("MergeFiles", bad, root));
+        }
+
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckMergeFiles("MergeFiles", [.. ok, root + @"\x.one"], root)); // not four
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckMergeFiles("MergeFiles", [ok[0], ok[1], ok[2], @"publish\t\x.one"], root)); // relative
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckMergeFiles("MergeFiles", [ok[0], ok[1], ok[2], root + @"\..\..\MCP Test\x.one"], root)); // climbs out
+    }
+
+    private const string Adoptee = "MCP Test Throwaway 1112-034716 a";
+
+    [Theory]
+    [InlineData(Root + @"\MCP Test Throwaway 1112-034716 a")]
+    [InlineData(Root + @"\mcp test throwaway 1112-034716 a\")] // Windows folder names ignore case
+    public void FindThrowawayByExactName_NameAndFolderMatch(string path) =>
+        Assert.Equal("{A}", TestNotebookGuard.FindThrowawayByExactName(CloudNotebooks((Adoptee, "{A}", path)), Root, Adoptee));
+
+    [Fact]
+    public void FindThrowawayByExactName_NotOpen_IsNull()
+    {
+        Assert.Null(TestNotebookGuard.FindThrowawayByExactName(CloudNotebooks(), Root, Adoptee));
+        Assert.Null(TestNotebookGuard.FindThrowawayByExactName(CloudNotebooks(("mcp test throwaway 1112-034716 a", "{A}", Root + @"\" + Adoptee)), Root, Adoptee)); // the name is exact
+    }
+
+    [Theory]
+    [InlineData(Root + @"\MCP Test Throwaway 1112-034716 b")] // another throwaway's folder
+    [InlineData(@"D:\Notebooks\MCP Test Throwaway 1112-034716 a")] // outside the throwaway root
+    [InlineData(Root + @"\Sub\MCP Test Throwaway 1112-034716 a")] // nested deeper
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway 1112-034716 a/")] // a cloud notebook with the name
+    public void FindThrowawayByExactName_RefusesTheNameElsewhere(string path) =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.FindThrowawayByExactName(CloudNotebooks((Adoptee, "{A}", path)), Root, Adoptee));
+
+    [Fact]
+    public void FindThrowawayByExactName_RefusesTwoNotebooksWithTheName() =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.FindThrowawayByExactName(
+            CloudNotebooks((Adoptee, "{A}", Root + @"\" + Adoptee), (Adoptee, "{B}", Root + @"\" + Adoptee)), Root, Adoptee));
+
+    [Theory]
+    [InlineData("MCP Test")]
+    [InlineData("MCP Test Cloud")]
+    [InlineData("MCP Test Throwaway Cloud")]
+    [InlineData("Personal")]
+    public void FindThrowawayByExactName_RefusesANameThatIsNoThrowaway(string name) =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.FindThrowawayByExactName(CloudNotebooks((name, "{X}", Root + @"\" + name)), Root, name));
+
+    private const string BinTree = $$"""
+        <one:Notebook xmlns:one="{{Ns}}" name="MCP Test" ID="{T}">
+          <one:Section name="Seed" ID="{S}" />
+          <one:SectionGroup name="probe run x" ID="{G}">
+            <one:SectionGroup name="OneNote_RecycleBin" ID="{FAKEBIN}" isRecycleBin="true" />
+          </one:SectionGroup>
+          <one:SectionGroup name="OneNote_RecycleBin" ID="{BIN}" isRecycleBin="true">
+            <one:Section name="Deleted Pages" ID="{DP}" isInRecycleBin="true" isDeletedPages="true" />
+            <one:Section name="probe del b" ID="{RS}" isInRecycleBin="true" />
+          </one:SectionGroup>
+        </one:Notebook>
+        """;
+
+    [Fact]
+    public void RecycleBinIds_TheNotebooksOwnBinAndDeletedPagesOnly() =>
+        Assert.Equal(["{BIN}", "{DP}"], TestNotebookGuard.RecycleBinIds(BinTree).Order(StringComparer.Ordinal));
+
+    [Fact]
+    public void RecycleBinIds_NotANotebook_IsEmpty() =>
+        Assert.Empty(TestNotebookGuard.RecycleBinIds($$"""<one:SectionGroup xmlns:one="{{Ns}}" ID="{BIN}" isRecycleBin="true" />"""));
+
+    [Fact]
+    public void CheckHierarchyXml_RecycleBinIdsPassOnlyWhenAllowed()
+    {
+        var bins = TestNotebookGuard.RecycleBinIds(BinTree);
+        var xml = $$"""<one:SectionGroup xmlns:one="{{Ns}}" ID="{BIN}"><one:Section ID="{S1}" /></one:SectionGroup>""";
+
+        Assert.Equal(["{BIN}", "{S1}"], TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", xml, TestIds, Made, bins));
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", xml, TestIds, Made)); // not allowed by default
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", xml.Replace("{S1}", "{S}", StringComparison.Ordinal), TestIds, Made, bins)); // a fixture still refused
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", $$"""<one:Section xmlns:one="{{Ns}}" ID="{RS}" name="x" />""", TestIds, Made, bins)); // a recycled section isn't the bin
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckHierarchyXml("UpdateHierarchy", $$"""<one:Notebook xmlns:one="{{Ns}}" ID="{T}" />""", TestIds, Made, new HashSet<string>(bins) { "{T}" })); // never a test notebook
+    }
+
+    private const string TenantPath = "https://contoso-my.sharepoint.com/sites/probes/Documents/Notebooks/MCP Test Tenant/";
+
+    [Theory]
+    [InlineData(TenantPath)]
+    [InlineData("https://contoso.sharepoint.com/sites/Team/Shared Documents/MCP Test Tenant")]
+    public void IsTenantTest_ExactNameAndAnHttpsPathOffOneDrivePersonal(string path) =>
+        Assert.True(TestNotebookGuard.IsTenantTest("MCP Test Tenant", path));
+
+    [Theory]
+    [InlineData("MCP Test Tenant 2", TenantPath)] // look-alike name
+    [InlineData("mcp test tenant", TenantPath)] // the name is exact
+    [InlineData("Work Notes", TenantPath)] // another tenant notebook
+    [InlineData("MCP Test Tenant", "https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Tenant/")] // OneDrive personal
+    [InlineData("MCP Test Tenant", "https://D.DOCS.LIVE.NET/0123456789ABCDEF/Documents/MCP Test Tenant/")] // the same, other case
+    [InlineData("MCP Test Tenant", "http://contoso.sharepoint.com/MCP Test Tenant/")] // not https
+    [InlineData("MCP Test Tenant", "https://user@contoso.sharepoint.com/MCP Test Tenant/")] // user info
+    [InlineData("MCP Test Tenant", @"C:\Notebooks\MCP Test Tenant")] // a local notebook with the name
+    [InlineData("MCP Test Tenant", "MCP Test Tenant")] // relative
+    [InlineData("MCP Test Tenant", null)]
+    [InlineData(null, TenantPath)]
+    public void IsTenantTest_RefusesLookAlikes(string? name, string? path) =>
+        Assert.False(TestNotebookGuard.IsTenantTest(name, path));
+
+    [Fact]
+    public void ThrowawayNotebookIds_AcceptsTheAdoptedTenantNotebookOnly()
+    {
+        var notebooks = CloudNotebooks(("MCP Test Tenant", "{TT}", TenantPath), ("Work Notes", "{WN}", "https://contoso-my.sharepoint.com/sites/probes/Documents/Notebooks/Work Notes/"));
+
+        Assert.Equal(["{TT}"], TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{TT}", ["MCP Test Tenant"]))));
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{WN}", ["MCP Test Tenant"])))); // another tenant notebook
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{TT}", ["MCP Test Throwaway x"])))); // a name the run never gave it
+    }
+
     [Fact]
     public void ResolveFolder_DefaultsUnderLocalAppData_OutsideOneNoteMcp()
     {

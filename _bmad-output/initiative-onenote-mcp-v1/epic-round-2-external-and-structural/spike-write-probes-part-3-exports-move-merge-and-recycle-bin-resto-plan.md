@@ -3,12 +3,13 @@ title: 'Write probes, part 3: exports, move, merge and recycle-bin restore'
 type: 'chore'
 ticket: '1'
 created: '2026-11-15'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '2843d5df33dc1bd9f90ce45abf5286ca2b4de2ae'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-hierarchy-writes-and-deletes/spike-write-probes-part-2-hierarchy-delete-and-backup-findings.md'
@@ -102,13 +103,13 @@ Each row is one findings-doc question. L = MCP Test, C = MCP Test Cloud, P = the
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/OneNoteMcp.Integration/TestNotebook.cs` + `TestNotebookGuardTests.cs` -- add four guarded calls, with a test for each refusal and look-alike:
+- [x] `tests/OneNoteMcp.Integration/TestNotebook.cs` + `TestNotebookGuardTests.cs` -- add four guarded calls, with a test for each refusal and look-alike:
   - `MergeSectionsAsync`: both IDs must be in `Created` and pass `EnsureTargetsAsync`. Alternatively, the source may be an ID in a new `Opened` set, recorded only by `OpenBackupAsync` for a path under `PublishDir`.
   - `MergeFilesAsync`: all four paths must be under `PublishDir`.
   - `AdoptThrowawayNotebookAsync(exactName)`: refuses unless both the name and the folder under `ThrowawayRoot` match exactly.
   - An optional allowed set for `CheckHierarchyXml`, holding only MCP Test's and MCP Test Cloud's `isRecycleBin` group and `isDeletedPages` section IDs, read live. Only R1's second call and R5 pass it.
   - `TestNotebookGuard.IsTenantTest(name, path)`: true only for exactly `MCP Test Tenant` with an absolute `https` path whose host isn't `d.docs.live.net`. Adopting it through the throwaway mechanism lets `EnsureTargetsAsync` accept it and nothing else on the tenant.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs` -- add:
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs` -- add:
   - wrappers for `MergeSectionsAsync`, `MergeFilesAsync` and `OpenPackageIntoAsync`;
   - `PublishFreshAsync` (a fresh subfolder, then the landing poll: first seen, stable, the files written);
   - `ExtractPackageAsync` (`expand.exe -F:*` into `PublishDir`);
@@ -116,7 +117,7 @@ Each row is one findings-doc question. L = MCP Test, C = MCP Test Cloud, P = the
   - growing `Created` from the new page IDs in a merge's destination.
   - for the label scenario, a recorder redaction that replaces every `http(s)` URL, and the tenant notebook's path, with `tenant notebook`, in rows and in echo lines alike.
   Helper tests go in `ProbeHelpersTests.cs`, and the redaction gets its own tests.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/` -- new files `Round2ExportProbes.cs`, `Round2MergeProbes.cs`, `Round2MoveProbes.cs`, `Round2RestoreProbes.cs`, `Round2ProtectedProbes.cs`, `Round2TimeoutProbe.cs` and `Round2LabelProbe.cs`. Their `[Fact]`s are the scenarios `write-probes-r2-local`, `-cloud`, `-protected`, `-timeout` and `-label`, which together cover every Matrix row. Steps run in this order: export, open-package, merge-files, merge-sections, move, restore, then modal (L only). M1(b) runs before R1's second call and R5's reorder, and the cross-storage steps (Q1) come last.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/` -- new files `Round2ExportProbes.cs`, `Round2MergeProbes.cs`, `Round2MoveProbes.cs`, `Round2RestoreProbes.cs`, `Round2ProtectedProbes.cs`, `Round2TimeoutProbe.cs` and `Round2LabelProbe.cs`. Their `[Fact]`s are the scenarios `write-probes-r2-local`, `-cloud`, `-protected`, `-timeout` and `-label`, which together cover every Matrix row. Steps run in this order: export, open-package, merge-files, merge-sections, move, restore, then modal (L only). M1(b) runs before R1's second call and R5's reorder, and the cross-storage steps (Q1) come last.
 - [ ] Live sittings (the main session's, with Phill present, after implementation and review) -- the Sitting script below. This isn't part of implementation.
 - [ ] `epic-round-2-external-and-structural/spike-write-probes-part-3-exports-move-merge-and-recycle-bin-restore-findings.md` (after the sittings) -- follows 5.1's structure: one row per Matrix question, then HRESULTs, Not probed, Evidence gaps, "Relied on, not re-probed", Open before final, and Left behind.
 - [ ] Spine `.memlog.md` (after the sittings) -- one `constraint` line per finding that changes an AD, naming the AD.
@@ -151,10 +152,51 @@ Run from the repo root with OneNote already running, with `$env:ONENOTE_MCP_INTE
 
 - Implementation writes code and unit tests only. Never set `ONENOTE_MCP_INTEGRATION` or `ONENOTE_MCP_SCENARIO`, never call OneNote, and never read or list `%APPDATA%\OneNoteMcp`, `%LOCALAPPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp-Test` on this machine. The main session runs every live sitting later.
 - Every `PauseAsync` instruction must stand on its own: what to do, in which notebook and section, and what to leave as it is. Keep step names stable, so that `ONENOTE_MCP_PROBE_STEPS` can rerun a single step.
+- 2026-11-15, implemented (code and unit tests only; nothing ran against OneNote). Judgement calls the plan didn't settle:
+  - **X3's 1 s limit.** A gateway's call limit is fixed when it activates, and a 1 s guard read of MCP Test (Ballast pages) would time out first. So the guard's reads run on the session's gateway at 60 s, and only the `Publish` call goes through a second gateway with its own 1 s limit and its own crash breaker (`ProbeSession.CreateSideGateway`, `TestNotebook.PublishAsync`'s `callGateway`). Its timeout poisons only that gateway; `timeout-retry` then runs on the session's gateway at 60 s.
+  - **Notebook scope** (X1, O1–O4, XP, D) publishes a throwaway only, never MCP Test or MCP Test Cloud whole: those hold Ballast Vault.
+  - **Landing poll.** Up to 120 s after an ok, 5 s after a failure (48 X1 publishes would otherwise wait 120 s per error). "Stable" is a non-empty folder with no empty file, unchanged for 1 s; times count from the call's return.
+  - **Protected order.** The lock state drives it: protect eight sections at one pause; unlocked XP1, SP and MP cases; lock (Ctrl+Alt+L); locked XP2, SP and MP cases; O5 (local only, since the Matrix doesn't mark it L/C); RP. O5 opens a package with `OpenPackage` and, only if that opens no notebook, its unpacked folder with `OpenHierarchy`, as 5.1 did.
+  - **Move shape.** M2, M1d, MP and the Q1 page moves use M1's working shape, or (c) when this run hasn't learnt it; D uses it, or (a). M1(b)'s answer (`Round2Context.OmittedPagesKept`) gates R1's second call and R5's reorder; a rerun that skips `move` logs them `notProbed`.
+  - **F3** merges into a copy of F1's target, so F1's open-and-merge still opens what `MergeFiles` wrote. F1's target is also byte-counted for both edits before it is opened.
+  - **Adopting** `MCP Test Throwaway 1112-034716 a` adds only the notebook's ID to `Created`, not what run 4 left in it. If it or `MCP Test Throwaway Cloud` isn't open, a pause asks Phill to open it, or `skip` (the cross-notebook rows then log `notProbed`).
+  - **Subpages** are made by `UpdatePageContent` with `pageLevel="2"` on the page root (the page XML's date), falling back to `UpdateHierarchy` with the section's page list; a setup row says which worked.
+  - **Setup soft deletes** send the hierarchy date (5.1 constraint 1) after a 2 s settle (constraint 2), and throw rather than send `MinValue`. `CreateProbePageAsync`'s setup `UpdatePageContent` now sends the new page's own page-XML date too (it sent `MinValue` in 5.1).
+  - **Label privacy.** URL redaction is on before the first row, and also covers the pause file and console. The label row logs the section's attribute names, never values, and the pause asks Phill whether the label encrypts, not its name: either could identify the organisation.
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+**Quick lens, iteration 0 (2026-11-15).** Verdicts: high 0, medium 6, low 4, false 0, maybe-false 0. Every finding was checked against the code. All ten were routed to patch and sent back to the implementer (impl-3-1), who applied them the same day. Afterwards: the build was clean with `-warnaserror`; `OneNoteMcp.Tests` passed 2,886; `OneNoteMcp.Integration` passed 217 and skipped 92, with all six Round2 facts skipping offline. Status goes back to `in-progress` until the live sittings and the findings doc are done.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---|---|---|---|
+| 1 | `CreateProbePageAsync` sends `DateTime.MinValue` on its setup `UpdatePageContent` | medium | `ProbeSession.cs` ~538. The plan's Never list has no setup exception, and every Round2 page, the tenant label page included, is made this way. This settles the implementer's judgement call: the plan's own rule wins | patch: send the page-XML root date |
+| 2 | R1's second call can send an empty Deleted Pages list | medium | `Round2RestoreProbes.cs` 142-143: `ours` is usually empty at R1, and `Hierarchy` then renders a childless `Section` that the recycle-bin allowance passes. M1(b) tested a list naming some pages, not an empty list | patch: `notProbed` when empty |
+| 3 | The M4 web check runs before the Sync Now check | medium | The web-check pause sits inside the `move` body. `SyncChecked` pauses after the body returns and never asks about `MCP Test Throwaway Cloud` | patch: the web-check pause asks for Sync Now on both notebooks first |
+| 4 | The source shown check is discarded in `MovePageAsync` and `MoveNodeAsync` | medium | Lines 126 and 195 ignore the bool. `UpdateHierarchyAsync` checks only the XML root (the destination), so a cross-notebook move can go ahead with the source on screen | patch: refuse with `NotShownRefusal` |
+| 5 | M1(c) re-sends shape (a) | medium | Line 40 calls `MovePageAsync(..., "c")`, which sends (a) again before (b). That is an automatic resend the plan forbids, and the result is mislabelled | patch: skip (a) for m1c |
+| 6 | `AdoptTenantAsync` adds the tenant notebook's ID to `Created` | low | `CheckDelete` and `CheckHierarchyXml` would then accept the tenant notebook itself. No probe sends such a call, but the guard is wider than "accept it and nothing else", and the fix is one deleted line | patch: drop `Created.Add` |
+| 7 | The label scenario has no Sync Now check | low | `label-baseline` and `label-publish` write to a cloud notebook. The Always rule asks for a Sync Now check after every cloud step | patch: a check-sync pause after each |
+| 8 | X3's summary fields mislead | low | `FirstSeenMs == 0` counts as "appeared after", and changes to other files count as growth. The raw data is logged, and the fix is a direct correction | patch |
+| 9 | `Finish`'s assert message is not redacted | low | It joins raw `ex.Message` texts, which in the label scenario could carry the tenant URL into test output. Direct correction | patch |
+| 10 | The close-opened pause names copies by live section names | low | The opened `.one` copies share their names with run sections, so the pause doesn't stand on its own (Implementation Notes). The fix is a wording change | patch |
+
+**Matrix test audit.** Every Matrix row is a live-probe question, answered by an opt-in scenario that skips without `ONENOTE_MCP_INTEGRATION`. No row can run offline, which is the same as 5.1. Each row maps to a `Round2*` step:
+- X1–X2: `export`.
+- X3: `timeout-*`.
+- XP, O5, SP, MP, RP: `<l>-unlocked`, `<l>-locked`, `<l>-open-packages`, `<l>-restore`.
+- O1–4: `open-package`.
+- F: `merge-files`.
+- S1–3: `merge-sections`.
+- M1–4: `move`, and `cross-storage` for Q1.
+- R1–3 and R5: `restore`.
+- D: `modal-options`.
+- LB: `label-*`.
+- H: `hresult-summary`.
+
+The offline parts all have unit tests that ran and passed: the guard refusals, redaction, the landing poll, `expand.exe` refusals, the recycle-bin reader and the XML builders. The Matrix answers themselves come from the sittings.
 
 ## Design Notes
 
