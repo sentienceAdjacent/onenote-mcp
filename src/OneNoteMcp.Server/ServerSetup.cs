@@ -146,6 +146,47 @@ public static class ServerSetup
             sp.GetRequiredService<WritePipeline>(),
             sp.GetRequiredService<SettingsStore>().Read));
 
+        // Story 5.3: section, section-group and notebook creates (AD-7 Create). A notebook create writes its automatic
+        // grant (AD-6 grantedVia: created) through the settings writer, inside the write lock.
+        services.AddSingleton(sp => new CreateHierarchyUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<WritePipeline>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            sp.GetRequiredService<SettingsWriter>(),
+            TimeProvider.System));
+
+        // Story 5.4: UpdateHierarchy renames and reorders (AD-7 HierarchyWrite), each with a hierarchy journal entry (AD-8).
+        services.AddSingleton(sp => new HierarchySnapshot(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<JournalStore>(), TimeProvider.System));
+        services.AddSingleton(sp => new HierarchyWriteServices(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<HierarchySnapshot>()));
+        services.AddSingleton<UpdateHierarchyUseCase>();
+
+        // Story 5.5: soft delete (AD-7 SoftDelete). A page takes a page snapshot as a page write does; a section or section
+        // group takes a hierarchy snapshot (AD-8).
+        services.AddSingleton(sp => new SoftDeleteUseCase(
+            sp.GetRequiredService<PageWriteServices>(),
+            sp.GetRequiredService<HierarchySnapshot>(),
+            sp.GetRequiredService<WritePipeline>()));
+        // Story 5.6: permanent deletes (AD-7 PermanentDelete, 600 s deadline). A section is backed up with Publish into the
+        // journal's backups folder, waited for on the system clock; an empty section group gets a hierarchy entry (5.5's snapshot).
+        services.AddSingleton(sp => new SectionBackup(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<JournalStore>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            TimeProvider.System));
+        services.AddSingleton(sp => new PermanentDeleteServices(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<PageSnapshot>(),
+            sp.GetRequiredService<HierarchySnapshot>(),
+            sp.GetRequiredService<SectionBackup>()));
+        services.AddSingleton<PermanentDeleteUseCase>();
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -163,7 +204,14 @@ public static class ServerSetup
             .WithTools<CreatePageTool>(EnvelopeJson.Options)
             .WithTools<UpdatePageContentTool>(EnvelopeJson.Options)
             .WithTools<DeletePageContentTool>(EnvelopeJson.Options)
-            .WithTools<RestoreFromJournalTool>(EnvelopeJson.Options);
+            .WithTools<RestoreFromJournalTool>(EnvelopeJson.Options)
+            .WithTools<CreateSectionTool>(EnvelopeJson.Options)
+            .WithTools<CreateSectionGroupTool>(EnvelopeJson.Options)
+            .WithTools<CreateNotebookTool>(EnvelopeJson.Options)
+            .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options)
+            .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.

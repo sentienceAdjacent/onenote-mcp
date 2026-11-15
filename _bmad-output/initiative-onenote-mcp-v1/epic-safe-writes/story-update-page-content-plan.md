@@ -3,7 +3,7 @@ title: 'update_page_content'
 type: 'feature'
 ticket: '9'
 created: '2026-11-12'
-status: 'built'
+status: done
 baseline_revision: '7204aa67603a9e0689a585df0b56caf1fe26ea7d'
 route: 'full'
 route_source: 'auto'

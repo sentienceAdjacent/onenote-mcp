@@ -3,7 +3,7 @@ title: 'Write gateway, timeouts and error map'
 type: 'feature'
 ticket: '7'
 created: '2026-11-11'
-status: 'built'
+status: done
 baseline_revision: '2a717a863c6842fac43ed2521c0466a0e645c8eb'
 route: 'full'
 route_source: 'auto'

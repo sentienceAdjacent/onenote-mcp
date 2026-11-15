@@ -8,7 +8,7 @@ namespace OneNoteMcp.Core.Journal;
 /// <summary>
 /// One recovery-journal entry (AD-8), in AD-10's format: <c>{schemaVersion, entryId, correlationId, operation,
 /// operationClass, snapshotKind, objectId, notebookId, notebookPath, notebookName, parentId, parentNamePath, sectionKey?,
-/// protected?, title, takenAtUtc, binaryComplete, missingBinary[], xml | backupFile}</c>.
+/// protected?, recycleBinId?, title, takenAtUtc, binaryComplete, missingBinary[], xml | backupFile}</c>.
 /// <para>Optional members are left out when null, and a reader ignores members it doesn't know, so a later story can add
 /// a member to <c>schemaVersion</c> 1 without breaking older readers (epic 5.5's recycle-bin page ID).</para>
 /// <para>An entry from a password-protected section carries <see cref="SectionKey"/>; on disk its <see cref="Title"/> and
@@ -21,6 +21,15 @@ public sealed record JournalEntry
 
     /// <summary><see cref="SnapshotKind"/> of a page snapshot.</summary>
     public const string PageKind = "page";
+
+    /// <summary><see cref="SnapshotKind"/> of a hierarchy snapshot (stories 5.4 and 5.5): the hierarchy XML of the node a write changed or deleted.</summary>
+    public const string HierarchyKind = "hierarchy";
+
+    /// <summary>
+    /// <see cref="SnapshotKind"/> of a section's <c>Publish</c> backup (AD-8, story 5.6): <see cref="BackupFile"/> names the
+    /// backup in the journal's <c>backups</c> folder, and <see cref="Xml"/> keeps the section's <c>pages</c>-scope XML.
+    /// </summary>
+    public const string OnenoteBackupKind = "onenoteBackup";
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
@@ -36,10 +45,10 @@ public sealed record JournalEntry
     /// <summary>The write's AD-7 class, such as <c>PageWrite</c>.</summary>
     public string OperationClass { get; init; } = string.Empty;
 
-    /// <summary><c>page</c>, <c>hierarchy</c> or <c>onenoteBackup</c>. This story writes <c>page</c> only.</summary>
+    /// <summary><c>page</c>, <c>hierarchy</c> (stories 5.4 and 5.5) or <c>onenoteBackup</c>.</summary>
     public string SnapshotKind { get; init; } = PageKind;
 
-    /// <summary>The snapshotted object's ID: for a page, the page's.</summary>
+    /// <summary>The snapshotted object's ID: for a page, the page's; for a hierarchy entry, the node at the root of <see cref="Xml"/>.</summary>
     public string ObjectId { get; init; } = string.Empty;
 
     public string NotebookId { get; init; } = string.Empty;
@@ -50,10 +59,14 @@ public sealed record JournalEntry
     /// <summary>The notebook's displayed name, as in the grants.</summary>
     public string NotebookName { get; init; } = string.Empty;
 
-    /// <summary>The owning section's ID.</summary>
+    /// <summary>The owning section's ID; for a hierarchy entry, the node's parent (empty for a notebook).</summary>
     public string ParentId { get; init; } = string.Empty;
 
-    /// <summary>The owning section's groups and name inside the notebook, joined by <c>/</c>, such as <c>Group/Section</c>.</summary>
+    /// <summary>
+    /// The owning section's groups and name inside the notebook, joined by <c>/</c>, such as <c>Group/Section</c>; for a
+    /// hierarchy entry, the section groups between the notebook and the node (empty at the notebook's top level or for a
+    /// notebook).
+    /// </summary>
     public string ParentNamePath { get; init; } = string.Empty;
 
     /// <summary>The protection marker (AD-8, AD-21): the section's <c>SectionKey</c>, only on an entry from a protected section.</summary>
@@ -62,7 +75,13 @@ public sealed record JournalEntry
     /// <summary>On disk only: the base64 DPAPI blob (current user) of the JSON <c>{title, xml}</c> of a protected entry.</summary>
     public string? Protected { get; init; }
 
-    /// <summary>The page's title. Absent on disk for a protected entry.</summary>
+    /// <summary>
+    /// A page soft delete's only: the page's new ID in Deleted Pages, added by rewriting the entry once after the delete
+    /// (AD-8, AD-10; story 5.5). Absent when it couldn't be read back, and on every other entry.
+    /// </summary>
+    public string? RecycleBinId { get; init; }
+
+    /// <summary>The page's title; a hierarchy entry's node's displayed name, as it was before the write. Absent on disk for a protected entry.</summary>
     public string? Title { get; init; }
 
     /// <summary>When the snapshot was taken, UTC.</summary>
@@ -74,10 +93,13 @@ public sealed record JournalEntry
     /// <summary>What the snapshot lacks: images with no local binary, and attachments (AD-8).</summary>
     public IReadOnlyList<MissingBinary> MissingBinary { get; init; } = [];
 
-    /// <summary>The page's piBinaryData XML, unchanged. Absent on disk for a protected entry.</summary>
+    /// <summary>The page's piBinaryData XML, unchanged; a hierarchy entry's <c>GetHierarchy</c> XML, unchanged. Absent on disk for a protected entry.</summary>
     public string? Xml { get; init; }
 
-    /// <summary>A <c>onenoteBackup</c> entry's backup file (epic 5); never set by a page snapshot.</summary>
+    /// <summary>
+    /// A <c>onenoteBackup</c> entry's backup file, by file name only, in the journal's <c>backups</c> folder: the entry's
+    /// own file name with <c>.one</c> in place of <c>.json.gz</c> (AD-8, story 5.6). Never set by a page or hierarchy snapshot.
+    /// </summary>
     public string? BackupFile { get; init; }
 
     /// <summary>

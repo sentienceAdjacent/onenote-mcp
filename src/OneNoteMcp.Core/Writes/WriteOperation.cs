@@ -50,6 +50,31 @@ public abstract class WriteOperation<TResult>
     /// </summary>
     public virtual string? FailureNote => null;
 
+    /// <summary>
+    /// Runs step 7's COM <paramref name="call"/>; a <see cref="OneNoteException"/> it throws comes back with the same code,
+    /// HRESULT, flags and userAction, and its message followed by <see cref="FailureNote"/> when there is one (a page
+    /// write's or a delete's journal entry, 2.11 plan Q1). The pipeline still decides <c>outcomeUnknown</c> (AD-9).
+    /// </summary>
+    protected async Task CallNamingFailureNoteAsync(Func<Task> call)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        try
+        {
+            await call().ConfigureAwait(false);
+        }
+        catch (OneNoteException ex) when (FailureNote is { } note)
+        {
+            throw new OneNoteException(
+                ex.Code,
+                $"{ex.Message} {note}",
+                ex.ComHResult,
+                ex,
+                ex.OutcomeUnknown,
+                ex.UserAction,
+                ex.Retryable);
+        }
+    }
+
     /// <summary>The pages this write wrote or may have written, dropped from the search page-text cache whatever the outcome (AD-7, AD-12).</summary>
     public virtual IReadOnlyCollection<string> WrittenPageIds => [];
 }

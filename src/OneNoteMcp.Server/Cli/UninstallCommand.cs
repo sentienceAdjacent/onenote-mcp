@@ -47,7 +47,9 @@ public sealed record UninstallPaths(string SettingsPath, string LogDirectory, st
 /// <summary>
 /// <c>OneNoteMcp uninstall --purge</c> (AD-19): removes the files the server leaves on disk, and only those. That is the
 /// settings file and its <c>.settings.*.tmp</c> leftovers, the <c>onenote-mcp-*.log</c> files, and journal-named files
-/// (<c>{yyyyMMddTHHmmssfff}-{pid}-{guid}.json.gz</c> and their <c>.{name}.tmp</c> leftovers, <see cref="JournalFiles"/>). It never recurses, removes a folder only when nothing is left in
+/// (<c>{yyyyMMddTHHmmssfff}-{pid}-{guid}.json.gz</c> and their <c>.{name}.tmp</c> leftovers, <see cref="JournalFiles"/>), and
+/// the backup-named <c>.one</c> files at the top of the journal's <c>backups</c> folder (story 5.6), then that folder when
+/// empty. It never recurses further, removes a folder only when nothing is left in
 /// it, and refuses a journal folder that looks like a root or system folder. It never removes the exe, the plugin, or
 /// Claude Code's own <c>tool-results</c> files. It starts no COM.
 /// <para>Interactive, it asks the user to type <c>purge</c>; otherwise it needs <c>--yes</c>.</para>
@@ -297,6 +299,9 @@ public sealed partial class UninstallCommand
         else
         {
             AddMatching(plan, journalFolder, name => JournalFiles.IsEntry(name) || JournalFiles.IsTemp(name));
+
+            // PermanentDelete backups (AD-8, story 5.6): backup-named files only, at that folder's top level.
+            AddMatching(plan, Path.Combine(journalFolder, JournalFiles.BackupsFolderName), JournalFiles.IsBackup);
         }
 
         // OneNoteMcp's own folders, in removal order: children before the OneNoteMcp folders that hold them.
@@ -309,6 +314,8 @@ public sealed partial class UninstallCommand
         candidates.Add(logFolder);
         if (journalRefusal is null)
         {
+            // The backups folder before the journal folder that holds it (folders are removed longest path first).
+            candidates.Add(Path.Combine(journalFolder, JournalFiles.BackupsFolderName));
             candidates.Add(journalFolder);
         }
 

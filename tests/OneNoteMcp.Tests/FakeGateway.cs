@@ -77,9 +77,13 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>The text of a fixture file, relative to <c>Fixtures/</c>.</summary>
     public static string ReadFixture(string relativePath) => Shared.Value.Read(relativePath);
 
+    /// <summary>Runs on each <c>GetHierarchy</c> before it answers, with its start node and scope.</summary>
+    public Action<string, HierarchyScope>? OnGetHierarchy { get; set; }
+
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct)
     {
         Calls.Add((startNodeId, scope));
+        OnGetHierarchy?.Invoke(startNodeId, scope);
         return HierarchyXml is not null && Failure is null ? Task.FromResult(HierarchyXml)
             : Failure is null && Hierarchies.TryGetValue((startNodeId, scope), out var xml) ? Task.FromResult(xml)
             : Serve(nameof(IOneNoteGateway.GetHierarchyAsync), startNodeId, scope.ToString());
@@ -200,6 +204,51 @@ internal sealed class FakeGateway : IOneNoteGateway
         return Task.FromResult(created);
     }
 
+    /// <summary>Every <c>OpenHierarchy</c> section-group create, in order (story 5.3). It has no fixture: it records and returns <see cref="CreatedGroupId"/>.</summary>
+    public List<(string ParentId, string GroupName)> CreateGroupCalls { get; } = [];
+
+    /// <summary>When set, the section-group create alone throws it.</summary>
+    public Exception? CreateGroupFailure { get; set; }
+
+    /// <summary>The synthetic ID the <paramref name="n"/>th section-group create (from 1) returns.</summary>
+    public static string CreatedGroupId(int n) =>
+        string.Create(CultureInfo.InvariantCulture, $"{{6C70C4EA-0000-4000-8000-{n:D12}}}{{1}}{{B0}}");
+
+    public Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct)
+    {
+        CreateGroupCalls.Add((parentId, groupName));
+        if ((Failure ?? CreateGroupFailure) is { } failure)
+        {
+            return Task.FromException<string>(failure);
+        }
+
+        return Task.FromResult(CreatedGroupId(CreateGroupCalls.Count));
+    }
+
+    /// <summary>Every <c>OpenHierarchy</c> notebook create, in order (story 5.3). It has no fixture: it records and returns <see cref="CreatedNotebookId"/>.</summary>
+    public List<string> CreateNotebookCalls { get; } = [];
+
+    /// <summary>When set, the notebook create alone throws it.</summary>
+    public Exception? CreateNotebookFailure { get; set; }
+
+    /// <summary>When set, the notebook create returns its answer instead of <see cref="CreatedNotebookId"/>, after recording the call.</summary>
+    public Func<string, string>? OnCreateNotebook { get; set; }
+
+    /// <summary>The synthetic ID the <paramref name="n"/>th notebook create (from 1) returns.</summary>
+    public static string CreatedNotebookId(int n) =>
+        string.Create(CultureInfo.InvariantCulture, $"{{4B0BC4EA-0000-4000-8000-{n:D12}}}{{1}}{{B0}}");
+
+    public Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct)
+    {
+        CreateNotebookCalls.Add(folderPath);
+        if ((Failure ?? CreateNotebookFailure) is { } failure)
+        {
+            return Task.FromException<string>(failure);
+        }
+
+        return Task.FromResult(OnCreateNotebook?.Invoke(folderPath) ?? CreatedNotebookId(CreateNotebookCalls.Count));
+    }
+
     /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
     public List<(string PageXml, string ExpectedLastModified)> UpdateCalls { get; } = [];
 
@@ -259,6 +308,87 @@ internal sealed class FakeGateway : IOneNoteGateway
 
     /// <summary>Runs with the page and object IDs after each <c>DeletePageContent</c> call that succeeds (story 2.10).</summary>
     public Action<string, string>? OnDelete { get; set; }
+
+    /// <summary>Every <c>UpdateHierarchy</c> call's XML, in order (story 5.4). It has no fixture: it records and succeeds.</summary>
+    public List<string> UpdateHierarchyCalls { get; } = [];
+
+    /// <summary>When set, <c>UpdateHierarchy</c> alone throws it.</summary>
+    public Exception? UpdateHierarchyFailure { get; set; }
+
+    /// <summary>Runs with the sent XML after each <c>UpdateHierarchy</c> call that succeeds (story 5.4), so a test can serve the changed hierarchy to the read-back.</summary>
+    public Action<string>? OnUpdateHierarchy { get; set; }
+
+    /// <summary>When set, runs inside <c>UpdateHierarchy</c> before it answers, with the call's token (a hook to observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnUpdateHierarchyCall { get; set; }
+
+    public async Task UpdateHierarchyAsync(string changesXml, CancellationToken ct)
+    {
+        UpdateHierarchyCalls.Add(changesXml);
+        if (OnUpdateHierarchyCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? UpdateHierarchyFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        OnUpdateHierarchy?.Invoke(changesXml);
+    }
+
+    /// <summary>Every <c>DeleteHierarchy</c> call, in order (story 5.5). It has no fixture: it records and succeeds.</summary>
+    public List<(string ObjectId, string ExpectedLastModified, bool Permanent)> DeleteHierarchyCalls { get; } = [];
+
+    /// <summary>When set, <c>DeleteHierarchy</c> alone throws it.</summary>
+    public Exception? DeleteHierarchyFailure { get; set; }
+
+    /// <summary>Runs with the object ID after each <c>DeleteHierarchy</c> call that succeeds (story 5.5), so a test can move it to the recycle bin.</summary>
+    public Action<string>? OnDeleteHierarchy { get; set; }
+
+    public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct)
+    {
+        DeleteHierarchyCalls.Add((objectId, expectedLastModified, permanent));
+        if ((Failure ?? DeleteHierarchyFailure) is { } failure)
+        {
+            return Task.FromException(failure);
+        }
+
+        OnDeleteHierarchy?.Invoke(objectId);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Every <c>Publish</c> call, in order (story 5.6). It has no fixture: by default it writes <see cref="PublishedBytes"/> to the target.</summary>
+    public List<(string ObjectId, string TargetPath)> PublishCalls { get; } = [];
+
+    /// <summary>When set, <c>Publish</c> alone throws it, writing nothing.</summary>
+    public Exception? PublishFailure { get; set; }
+
+    /// <summary>What a successful <c>Publish</c> writes; null writes nothing (a file that never lands), empty an empty file.</summary>
+    public byte[]? PublishedBytes { get; set; } = [0x4F, 0x4E, 0x45, 0x21];
+
+    /// <summary>When set, runs instead of the default file write, with the call's arguments and token.</summary>
+    public Func<string, string, CancellationToken, Task>? OnPublish { get; set; }
+
+    public async Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    {
+        PublishCalls.Add((objectId, targetPath));
+        if ((Failure ?? PublishFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        if (OnPublish is { } hook)
+        {
+            await hook(objectId, targetPath, ct).ConfigureAwait(false);
+            return;
+        }
+
+        if (PublishedBytes is { } bytes)
+        {
+            await File.WriteAllBytesAsync(targetPath, bytes, ct).ConfigureAwait(false);
+        }
+    }
 
     public Task WaitForAbandonedWritesAsync(CancellationToken ct) =>
         AbandonedWrites is { } pending ? pending.Task.WaitAsync(ct) : Task.CompletedTask;

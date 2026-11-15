@@ -92,6 +92,33 @@ public sealed class ProtectedSectionToolTests
     }
 
     [Fact]
+    public async Task Dialog_ASectionNameChangedByCleaning_IsShownCleaned_AndGrantedByTypingWhatIsShown()
+    {
+        // Follow-up to 5.6: section names are model-writable, so the dialog shows them cleaned and compares with that.
+        using var h = new VaultHarness();
+        h.Gateway.NameVault("Vault＂ in the notebook “Work”‮");
+        const string shown = "Vault' in the notebook 'Work'";
+        var prompt = new FakePrompt(FakePrompt.Accept(" vault' IN the notebook 'work' ", ReadGrantLifetime.Once));
+
+        var root = Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
+
+        Assert.Contains(V.Secret, Grants.Xml(root), StringComparison.Ordinal);
+        var question = Assert.Single(prompt.Questions);
+        Assert.Equal((shown, shown, "Notebook A"), (question.SectionName, question.ExpectedText, question.NotebookName));
+    }
+
+    [Fact]
+    public async Task Dialog_TypingTheRawNameOfACleanedSection_GrantsNothing()
+    {
+        // The comparison follows what the dialog shows: the raw name's look-alike quote is not what the user was asked for.
+        using var h = new VaultHarness();
+        h.Gateway.NameVault("Vault＂s");
+
+        Grants.NotGranted(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept("Vault＂s", ReadGrantLifetime.Once))), V.VaultId);
+        Assert.Empty(h.Gateway.ContentCalls);
+    }
+
+    [Fact]
     public async Task OnceWindow_CoversBroadReadsOfThatSectionOnly()
     {
         using var h = new VaultHarness();

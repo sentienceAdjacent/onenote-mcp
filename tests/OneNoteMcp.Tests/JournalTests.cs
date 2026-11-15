@@ -139,6 +139,75 @@ public sealed class JournalTests : IDisposable
         Assert.Null(read.Protected);
     }
 
+    // --- Hierarchy snapshots (story 5.4) --------------------------------------------------------------------------
+
+    private const string HierarchyNs = "xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\"";
+
+    [Fact]
+    public async Task HierarchySnapshot_OfASectionInAGroup_IsAHierarchyEntry_PlacedByTheWalk()
+    {
+        var gateway = new FakeGateway();
+        gateway.Parents["{S}"] = "{G}";
+        gateway.Parents["{G}"] = "{N}";
+        gateway.Parents["{N}"] = string.Empty;
+        gateway.Hierarchies[("{G}", HierarchyScope.Self)] = $"<one:SectionGroup {HierarchyNs} name=\"Group\" ID=\"{{G}}\" />";
+        gateway.Hierarchies[("{N}", HierarchyScope.Self)] = $"<one:Notebook {HierarchyNs} name=\"N\" nickname=\"Shown\" ID=\"{{N}}\" path=\"C:\\n\\N\\\" />";
+        var xml = $"<one:Section {HierarchyNs} name=\"Ideas\" ID=\"{{S}}\" path=\"C:\\n\\N\\Group\\Ideas.one\" />";
+
+        var written = await new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock())
+            .TakeAsync(new HierarchySnapshotRequest("c", "rename_hierarchy_object", OperationClass.HierarchyWrite, "{S}", xml), TestContext.Current.CancellationToken);
+
+        var entry = JournalStore.Read(written.Path);
+        Assert.False(written.Protected);
+        Assert.Equal(JournalEntry.HierarchyKind, entry.SnapshotKind);
+        Assert.Equal("HierarchyWrite", entry.OperationClass);
+        Assert.Equal("{S}", entry.ObjectId);
+        Assert.Equal("{N}", entry.NotebookId);
+        Assert.Equal(@"C:\n\N", entry.NotebookPath);
+        Assert.Equal("Shown", entry.NotebookName);
+        Assert.Equal("{G}", entry.ParentId);
+        Assert.Equal("Group", entry.ParentNamePath);
+        Assert.Equal("Ideas", entry.Title);
+        Assert.Equal(xml, entry.Xml);
+        Assert.True(entry.BinaryComplete);
+    }
+
+    [Fact]
+    public async Task HierarchySnapshot_RootedAtAProtectedSection_IsProtected_ByItsPreWriteSectionKey()
+    {
+        var gateway = new FakeGateway();
+        gateway.Parents["{S}"] = "{N}";
+        gateway.Parents["{N}"] = string.Empty;
+        gateway.Hierarchies[("{N}", HierarchyScope.Self)] = $"<one:Notebook {HierarchyNs} name=\"N\" ID=\"{{N}}\" path=\"C:\\n\\N\" />";
+        var xml = $"<one:Section {HierarchyNs} name=\"Vault\" ID=\"{{S}}\" path=\"C:\\n\\N\\Vault.one\" encrypted=\"true\"><one:Page ID=\"{{P}}\" name=\"Secret title\" /></one:Section>";
+
+        var written = await new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock())
+            .TakeAsync(new HierarchySnapshotRequest("c", "reorder_hierarchy_children", OperationClass.HierarchyWrite, "{S}", xml), TestContext.Current.CancellationToken);
+
+        Assert.True(written.Protected);
+        Assert.DoesNotContain("Secret title", Raw(written.Path).ToJsonString(), StringComparison.Ordinal);
+        var entry = JournalStore.Read(written.Path);
+        Assert.Equal(@"C:\n\N\Vault.one", entry.SectionKey);
+        Assert.Equal(xml, entry.Xml);
+    }
+
+    [Fact]
+    public async Task HierarchySnapshot_OfUnreadableXml_OrAnUnplacedNode_IsJournalFailed()
+    {
+        var gateway = new FakeGateway();
+        gateway.Parents["{S}"] = string.Empty;
+        var snapshot = new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock());
+
+        var unreadable = await Assert.ThrowsAsync<OneNoteException>(() => snapshot.TakeAsync(
+            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", "<one:Section"), TestContext.Current.CancellationToken));
+        var unplaced = await Assert.ThrowsAsync<OneNoteException>(() => snapshot.TakeAsync(
+            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", $"<one:Section {HierarchyNs} name=\"S\" ID=\"{{S}}\" />"), TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.JournalFailed, unreadable.Code);
+        Assert.Equal(ErrorCode.JournalFailed, unplaced.Code);
+        Assert.False(Directory.Exists(Folder) && Directory.GetFiles(Folder).Length > 0);
+    }
+
     [Fact]
     public void Write_TheFile_IsAd10sFormat_NullsLeftOut_DatesUtcIso()
     {
@@ -278,6 +347,74 @@ public sealed class JournalTests : IDisposable
         Assert.True(File.Exists(recent));
         Assert.Equal(1, result.RemovedByAge);
         Assert.Equal(1, result.Kept);
+    }
+
+    // --- Backups (story 5.6, AD-8) -----------------------------------------------------------------------------------
+
+    [Fact]
+    public void BackupName_IsTheEntrysNameWithDotOne_AndMapsBack()
+    {
+        var entry = JournalFiles.EntryName(Now, 77, Guid.NewGuid());
+        var backup = JournalFiles.BackupName(entry);
+
+        Assert.Equal(entry[..^".json.gz".Length] + ".one", backup);
+        Assert.True(JournalFiles.IsBackup(backup));
+        Assert.False(JournalFiles.IsEntry(backup));
+        Assert.False(JournalFiles.IsBackup(entry));
+        Assert.False(JournalFiles.IsBackup("Notes.one"));
+        Assert.Equal(entry, JournalFiles.EntryNameOfBackup(backup));
+        Assert.True(JournalFiles.TryParseTimestamp(backup, out var at));
+        Assert.Equal(Now, at);
+    }
+
+    [Fact]
+    public void Prune_ABackupGoesWithItsEntry_PastRetention()
+    {
+        var old = Seed(Now.AddDays(-31), 10);
+        var oldBackup = SeedBackup(old, 100);
+        var recent = Seed(Now.AddDays(-29), 10);
+        var recentBackup = SeedBackup(recent, 100);
+
+        var result = Pruner(retentionDays: 30).Prune();
+
+        Assert.False(File.Exists(old));
+        Assert.False(File.Exists(oldBackup));
+        Assert.True(File.Exists(recent));
+        Assert.True(File.Exists(recentBackup));
+        Assert.Equal((1, 110L, 1, 110L), (result.RemovedByAge, result.RemovedBytes, result.Kept, result.KeptBytes));
+    }
+
+    [Fact]
+    public void Prune_ABackupCountsTowardTheSizeCap_AndGoesWithItsEntry()
+    {
+        const int KB600 = 600 * 1024;
+        var oldest = Seed(Now.AddHours(-2), 10);
+        var oldestBackup = SeedBackup(oldest, KB600);
+        var newest = Seed(Now.AddHours(-1), KB600);
+
+        var result = Pruner(maxSizeMB: 1).Prune();
+
+        Assert.False(File.Exists(oldest));
+        Assert.False(File.Exists(oldestBackup));
+        Assert.True(File.Exists(newest));
+        Assert.Equal(1, result.RemovedBySize);
+    }
+
+    [Fact]
+    public void Prune_ABackupWithNoEntry_GoesOncePastRetention_AYoungerOneStays()
+    {
+        var orphanOld = SeedBackup(Path.Combine(Folder, JournalFiles.EntryName(Now.AddDays(-31), 77, Guid.NewGuid())), 50);
+        var orphanYoung = SeedBackup(Path.Combine(Folder, JournalFiles.EntryName(Now.AddMinutes(-5), 77, Guid.NewGuid())), 50);
+        var stranger = Path.Combine(Folder, JournalFiles.BackupsFolderName, "Notes.one");
+        File.WriteAllText(stranger, "not ours");
+        File.SetLastWriteTimeUtc(stranger, Now.AddYears(-1));
+
+        var result = Pruner(retentionDays: 30).Prune();
+
+        Assert.False(File.Exists(orphanOld));
+        Assert.True(File.Exists(orphanYoung));
+        Assert.True(File.Exists(stranger));
+        Assert.Equal(1, result.RemovedByAge);
     }
 
     [Fact]
@@ -531,9 +668,69 @@ public sealed class JournalTests : IDisposable
         await service.StopAsync(TestContext.Current.CancellationToken);
     }
 
+    // --- Story 5.5: the one-time recycleBinId rewrite ----------------------------------------------------------------
+
+    [Fact]
+    public void AddRecycleBinId_RewritesTheEntryOnce_KeepingEveryOtherMember_AndLeavesNoTempFile()
+    {
+        var entry = Entry();
+        var written = new JournalStore(Store.Read).Write(entry);
+        var before = Raw(written.Path);
+        Assert.False(before.ContainsKey("recycleBinId"));
+
+        Assert.Null(JournalStore.TryAddRecycleBinId(written.Path, entry.EntryId, "{RB}{1}{E9}"));
+
+        var after = Raw(written.Path);
+        Assert.Equal("{RB}{1}{E9}", after["recycleBinId"]!.GetValue<string>());
+        after.Remove("recycleBinId");
+        Assert.True(JsonNode.DeepEquals(before, after));
+        Assert.Equal("{RB}{1}{E9}", JournalStore.Read(written.Path).RecycleBinId);
+        Assert.Equal([Path.GetFileName(written.Path)], Directory.GetFiles(Folder).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void AddRecycleBinId_OnAProtectedEntry_KeepsTheBlobAsItWas_WithNoTitleOrXml()
+    {
+        var entry = Entry() with { SectionKey = @"C:\notebooks\A\Vault.one" };
+        var written = new JournalStore(Store.Read).Write(entry);
+        var blob = Raw(written.Path)["protected"]!.GetValue<string>();
+
+        Assert.Null(JournalStore.TryAddRecycleBinId(written.Path, entry.EntryId, "{RB}{1}{E9}"));
+
+        var raw = Raw(written.Path);
+        Assert.Equal(blob, raw["protected"]!.GetValue<string>());
+        Assert.False(raw.ContainsKey("title"));
+        Assert.False(raw.ContainsKey("xml"));
+        Assert.DoesNotContain("SECRET", Decompressed(written.Path), StringComparison.Ordinal);
+        var read = JournalStore.Read(written.Path);
+        Assert.Equal("{RB}{1}{E9}", read.RecycleBinId);
+        Assert.Equal(entry.Xml, read.Xml);
+    }
+
+    [Fact]
+    public void AddRecycleBinId_AMissingFile_IsReported_NotThrown()
+    {
+        var why = JournalStore.TryAddRecycleBinId(Path.Combine(Folder, "20261112T093000123-1-0123456789abcdef0123456789abcdef.json.gz"), Guid.NewGuid(), "{RB}");
+
+        Assert.Equal("the entry file is gone", why);
+        Assert.False(Directory.Exists(Folder) && Directory.EnumerateFileSystemEntries(Folder).Any());
+    }
+
+    [Fact]
+    public void AddRecycleBinId_AFileHoldingAnotherEntry_IsReported_AndLeftAsItWas()
+    {
+        var entry = Entry();
+        var written = new JournalStore(Store.Read).Write(entry);
+        var bytes = File.ReadAllBytes(written.Path);
+
+        Assert.Equal("the entry file holds another entry", JournalStore.TryAddRecycleBinId(written.Path, Guid.NewGuid(), "{RB}"));
+
+        Assert.Equal(bytes, File.ReadAllBytes(written.Path));
+    }
+
     // --- Helpers -----------------------------------------------------------------------------------------------------
 
-    private static JournalEntry Entry() => new()
+    internal static JournalEntry Entry() => new()
     {
         EntryId = Guid.NewGuid(),
         CorrelationId = "corr-1",
@@ -559,6 +756,16 @@ public sealed class JournalTests : IDisposable
 
     private void WriteJournalSettings(int retentionDays = 30, int maxSizeMB = 2048) =>
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(new { schemaVersion = 1, journal = new { path = Folder, retentionDays, maxSizeMB } }));
+
+    /// <summary>A backup of <paramref name="bytes"/> bytes for the entry at <paramref name="entryPath"/> (which needn't exist), in <c>backups</c>.</summary>
+    private string SeedBackup(string entryPath, int bytes)
+    {
+        var folder = Path.Combine(Folder, JournalFiles.BackupsFolderName);
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, JournalFiles.BackupName(Path.GetFileName(entryPath)));
+        File.WriteAllBytes(path, new byte[bytes]);
+        return path;
+    }
 
     private string Seed(DateTime takenAtUtc, int bytes, bool temporary = false)
     {

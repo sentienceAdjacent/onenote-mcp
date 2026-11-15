@@ -396,7 +396,16 @@ public sealed class PageSnapshotTests : IDisposable
 
         public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => throw new NotSupportedException();
 
+        public Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct) => throw new NotSupportedException();
+
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw new NotSupportedException();
+
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct) => throw new NotSupportedException();
 
         private static Task<T> NotFound<T>() =>
             Task.FromException<T>(new OneNoteException(ErrorCode.ObjectNotFound, "hrObjectDoesNotExist (0x80042014).", unchecked((int)0x80042014)));

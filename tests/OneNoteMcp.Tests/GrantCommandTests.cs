@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
+using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Server.Cli;
@@ -22,7 +23,7 @@ public sealed class GrantCommandTests : IDisposable
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private SettingsStore Store => new(temp.Combine("settings.json"));
+    private SettingsStore Store => new(temp.Combine("settings.json"), temp.Combine("journal"));
 
     public void Dispose()
     {
@@ -420,6 +421,222 @@ public sealed class GrantCommandTests : IDisposable
         Assert.Equal("{ nope", File.ReadAllText(Store.Path));
     }
 
+    // --- grant --permanent-delete (story 5.6, plan Q1 c and Q2 b) -------------------------------------------------------
+
+    [Fact]
+    public void Usage_NamesThePermanentDeleteGrantAndItsRevoke()
+    {
+        Assert.Contains("grant --permanent-delete", GrantCommand.Usage, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --permanent-delete", GrantCommand.Usage, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--write", "--permanent-delete")]
+    [InlineData("--permanent-delete", "--read-section")]
+    public async Task PermanentDelete_WithAnotherKind_IsBadUsage(string first, string second) =>
+        Assert.Equal(2, await WriteCommand("yes\n").RunAsync([first, second], Ct));
+
+    [Fact]
+    public async Task PermanentDelete_WithoutAWriteGrant_IsRefused_AndNothingChanges()
+    {
+        Assert.Equal(1, await WriteCommand("yes\n").RunAsync(["--permanent-delete", "Notebook A"], Ct));
+
+        Assert.Contains("has no write grant", output.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(Store.Path));
+    }
+
+    [Fact]
+    public async Task PermanentDelete_ShowsThePath_AndIsMadeOnlyOnYes_BesideTheWriteGrant()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.Equal(0, await WriteCommand(" yes \n").RunAsync(["--permanent-delete", " notebook a "], Ct));
+
+        var text = output.ToString();
+        Assert.Contains(@"Path:     C:\notebooks\A", text, StringComparison.Ordinal);
+        Assert.Contains("grant --revoke --permanent-delete \"<notebook name>\"", text, StringComparison.Ordinal);
+        var grant = Assert.Single(Store.Read().Notebooks.Values);
+        Assert.True(grant.Write && grant.PermanentDelete);
+    }
+
+    [Fact]
+    public async Task PermanentDelete_WithoutAWriteGrant_TheSuggestedCommand_NeverHoldsTheNotebooksName()
+    {
+        // A shared or model-created notebook can be named $(...), which PowerShell would expand inside double quotes.
+        var xml = NotebooksXml.Replace("\"Notebook A\"", "\"$(evil)\"", StringComparison.Ordinal);
+
+        Assert.Equal(1, await WriteCommand("yes\n", xml: xml).RunAsync(["--permanent-delete", "$(evil)"], Ct));
+
+        var command = output.ToString().Split("with: ")[1].Split('\n')[0].Trim();
+        Assert.Equal("OneNoteMcp grant --write \"<notebook name>\"", command);
+    }
+
+    [Fact]
+    public async Task PermanentDelete_Granted_TheSuggestedRevokeCommand_NeverHoldsTheNotebooksName()
+    {
+        // A shared or model-created notebook can be named $(...), which PowerShell would expand inside double quotes.
+        SaveWriteGrant(@"C:\notebooks\A", "$(evil)");
+        var xml = NotebooksXml.Replace("\"Notebook A\"", "\"$(evil)\"", StringComparison.Ordinal);
+
+        Assert.Equal(0, await WriteCommand("yes\n", xml: xml).RunAsync(["--permanent-delete", "$(evil)"], Ct));
+
+        var command = output.ToString().Split("with: ")[1].Trim();
+        Assert.Equal("OneNoteMcp grant --revoke --permanent-delete \"<notebook name>\"", command);
+    }
+
+    [Theory]
+    [InlineData("no\n")]
+    [InlineData("")]
+    public async Task PermanentDelete_NotConfirmedWithYes_ChangesNothing(string input)
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.Equal(1, await WriteCommand(input).RunAsync(["--permanent-delete", "Notebook A"], Ct));
+
+        Assert.False(Assert.Single(Store.Read().Notebooks.Values).PermanentDelete);
+    }
+
+    [Fact]
+    public async Task RevokePermanentDelete_RemovesOnlyIt_TheWriteGrantStays()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+        new SettingsWriter(Store, clock).SavePermanentDeleteGrant(@"C:\notebooks\A");
+
+        Assert.Equal(0, await WriteCommand(string.Empty).RunAsync(["--revoke", "--permanent-delete", "Notebook A"], Ct));
+
+        Assert.Contains("Revoked the permanent-delete grant for \"Notebook A\"", output.ToString(), StringComparison.Ordinal);
+        var grant = Assert.Single(Store.Read().Notebooks.Values);
+        Assert.True(grant.Write);
+        Assert.False(grant.PermanentDelete);
+    }
+
+    [Fact]
+    public async Task RevokePermanentDelete_WithNoneStored_ChangesNothing()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.Equal(1, await WriteCommand(string.Empty).RunAsync(["--revoke", "--permanent-delete", "Notebook A"], Ct));
+
+        Assert.True(Assert.Single(Store.Read().Notebooks.Values).Write);
+    }
+
+    [Fact]
+    public async Task RevokeWrite_TakesThePermanentDeleteGrantWithIt_AndSaysSo()
+    {
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+        new SettingsWriter(Store, clock).SavePermanentDeleteGrant(@"C:\notebooks\A");
+
+        Assert.Equal(0, await WriteCommand(string.Empty).RunAsync(["--revoke", "--write", "Notebook A"], Ct));
+
+        Assert.Contains("and its permanent-delete grant with it", output.ToString(), StringComparison.Ordinal);
+        Assert.Empty(Store.Read().Notebooks);
+    }
+
+    [Fact]
+    public void Writer_PermanentDeleteGrant_NeedsAWriteGrant_AndAWriteRegrantKeepsALiveOne()
+    {
+        var writer = new SettingsWriter(Store, clock);
+        Assert.Equal(ErrorCode.WriteNotGranted, Assert.Throws<OneNoteException>(() => writer.SavePermanentDeleteGrant(@"C:\notebooks\A")).Code);
+
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+        writer.SavePermanentDeleteGrant(@"c:\NOTEBOOKS\a");
+        SaveWriteGrant(@"C:\notebooks\A", "Notebook A");
+
+        Assert.True(Assert.Single(Store.Read().Notebooks.Values).PermanentDelete);
+        Assert.Equal(1, writer.RevokePermanentDeleteGrant(@"C:\notebooks\A"));
+        Assert.Equal(0, writer.RevokePermanentDeleteGrant(@"C:\notebooks\A"));
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_NamesWhatGoes_AndAsksForTheNameInAFreshField()
+    {
+        var field = ElicitationGrantPrompt.NewObjectNameField();
+        Assert.Matches("^objectName_[0-9a-f]{8}$", field);
+        Assert.NotEqual(field, ElicitationGrantPrompt.NewObjectNameField());
+
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{S}", "section", "Old notes", "Notebook A", "Old notes", @"C:\notebooks\A", PageCount: 3), field);
+
+        Assert.StartsWith(@"Claude wants to permanently delete a section with 3 pages from the OneNote notebook stored at C:\notebooks\A. ", request.Message, StringComparison.Ordinal);
+        Assert.Contains(@"Its name is ""Old notes"", and the notebook's name is ""Notebook A"".", request.Message, StringComparison.Ordinal);
+        Assert.Contains("grant --permanent-delete \"<notebook name>\"", request.Message, StringComparison.Ordinal);
+        Assert.Equal([field], request.RequestedSchema!.Required);
+        var typed = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties[field]);
+        Assert.Contains("Old notes", typed.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_ForAnUntitledPage_AsksForTheWordDelete()
+    {
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{P}", "page", string.Empty, "Notebook A", "delete", SectionName: "Ideas"), "objectName_00000000");
+
+        Assert.Contains("It has no title, it is in the section \"Ideas\", and the notebook's name is \"Notebook A\".", request.Message, StringComparison.Ordinal);
+        Assert.Contains("type \"delete\"", request.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_PutsWhatTheServerWorkedOut_BeforeAnyModelWrittenName()
+    {
+        // Fresh review: a name such as  Draft＂ (0 pages) of the notebook ＂Scratch  must not open the sentence with fake facts.
+        var name = DialogText.Shown("Draft\uFF02 (0 pages) of the notebook \uFF02Scratch", out var typed);
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(
+            new PermanentDeleteQuestion("{P}", "page", name, "Notebook A", typed, @"C:\notebooks\A", SectionName: "Ideas", LastModified: "2026-11-12 00:00:01 UTC"),
+            "objectName_00000000");
+
+        var facts = @"Claude wants to permanently delete a page, last modified 2026-11-12 00:00:01 UTC, from the OneNote notebook stored at C:\notebooks\A. ";
+        Assert.StartsWith(facts, request.Message, StringComparison.Ordinal);
+        Assert.Contains("Its title is \"Draft' (0 pages) of the notebook 'Scratch\", it is in the section \"Ideas\"", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\uFF02", request.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PermanentDeleteRequest_TheSuggestedCommand_NeverHoldsTheNotebooksName()
+    {
+        // A model can name a notebook $(...), which PowerShell would expand inside double quotes.
+        var request = ElicitationGrantPrompt.PermanentDeleteRequest(new PermanentDeleteQuestion("{P}", "page", "x", "$(evil)", "x"), "objectName_00000000");
+
+        var command = request.Message!.Split('`')[1];
+        Assert.EndsWith("grant --permanent-delete \"<notebook name>\"", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("evil", command, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Plain", "Plain", "Plain")]
+    [InlineData("  a\u202Eb\u200Bc\r\n\u2028d\u2029\"e\"  ", "abcd'e'", "abcd'e'")]
+    [InlineData("", "", "")]
+    [InlineData(null, "", "")]
+    public void Shown_DropsControlFormatAndSeparatorCharacters_AndSwapsDoubleQuotes(string? text, string shown, string typed)
+    {
+        Assert.Equal(shown, DialogText.Shown(text, out var expected));
+        Assert.Equal(typed, expected);
+    }
+
+    [Theory]
+    [InlineData("“A” ‘B’ „C‟ ‚D‛", "'A' 'B' 'C' 'D'")]
+    [InlineData("«E» ‹F› ＂G＂ ＇H＇", "'E' 'F' 'G' 'H'")]
+    [InlineData("「I」 『J』 〝K〞〟 ｢L｣", "'I' 'J' 'K'' 'L'")]
+    [InlineData("″M″ 〃N ⹂O ❝P❞", "'M' 'N 'O 'P'")]
+    [InlineData("(a) [b] {c} <d> 【e】 （f）", "(a) [b] {c} <d> 【e】 （f）")]
+    public void Shown_TurnsLookAlikeQuotesIntoApostrophes_ButKeepsBrackets(string text, string shown) =>
+        Assert.Equal(shown, DialogText.Shown(text, out _));
+
+    [Fact]
+    public void Shown_CutsALongNameTo80_WithAnEllipsis_NeverSplittingASurrogatePair()
+    {
+        var shown = DialogText.Shown(new string('a', 78) + "\U0001F600" + "zzz", out var typed);
+
+        Assert.Equal(new string('a', 78) + "…", shown);
+        Assert.Equal(new string('a', 78), typed);
+    }
+
+    [Theory]
+    [InlineData("Old notes", "Old notes", true)]
+    [InlineData("  old NOTES ", "Old notes", true)]
+    [InlineData("Old", "Old notes", false)]
+    [InlineData("", "Old notes", false)]
+    [InlineData(null, "Old notes", false)]
+    public void PermanentDeleteDialog_MatchesTheTrimmedName_IgnoringCase(string? typed, string expected, bool matches) =>
+        Assert.Equal(matches, DialogText.Matches(typed, expected));
+
     private GrantCommand WriteCommand(string input, bool interactive = true, string xml = NotebooksXml) =>
         new(new StringReader(input), output, interactive, _ =>
         {
@@ -432,7 +649,7 @@ public sealed class GrantCommandTests : IDisposable
     [Fact]
     public void Elicitation_Form_NamesSectionAndNotebook_TypedNameRequired_ThreeLifetimes_Hours1To168()
     {
-        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", ["Group"]), "sectionName_0a1b2c3d");
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", ["Group"], "Vault"), "sectionName_0a1b2c3d");
 
         Assert.Contains("\"Vault\"", request.Message, StringComparison.Ordinal);
         Assert.Contains("\"Notebook A\"", request.Message, StringComparison.Ordinal);
@@ -450,6 +667,24 @@ public sealed class GrantCommandTests : IDisposable
         Assert.IsType<ElicitRequestParams.StringSchema>(schema.Properties["sectionName_0a1b2c3d"]);
         Assert.False(schema.Properties.ContainsKey(ElicitationGrantPrompt.SectionNameField));
         Assert.Equal("This section, for 5 minutes", lifetimes.OneOf[0].Title);
+    }
+
+    [Fact]
+    public void Elicitation_Form_PutsWhatTheServerWorkedOut_BeforeAnyName_AndAsksForTheShownName()
+    {
+        // Follow-up to 5.6: a section named  Vault＂ in the notebook “Work”  must not open the sentence with fake facts.
+        var section = DialogText.Shown("Vault＂ in the notebook “Work”​", out var typed);
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", section, "Notebook A", ["Group"], typed), "sectionName_0a1b2c3d");
+
+        Assert.StartsWith("Claude wants to read a password-protected OneNote section. ", request.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "Its name is \"Vault' in the notebook 'Work'\", it is in the section group \"Group\", and the notebook's name is \"Notebook A\". "
+                + "To allow it, type \"Vault' in the notebook 'Work'\" and choose for how long.",
+            request.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("​", request.Message, StringComparison.Ordinal);
+        var field = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties["sectionName_0a1b2c3d"]);
+        Assert.Equal("Type \"Vault' in the notebook 'Work'\" to confirm.", field.Description);
     }
 
     [Fact]
@@ -519,7 +754,7 @@ public sealed class GrantCommandTests : IDisposable
     public void Elicitation_OnceOption_NamesTheWindow(int minutes, string title)
     {
         Assert.Equal(title, ElicitationGrantPrompt.OnceTitle(minutes));
-        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", [], minutes), "sectionName_00000000");
+        var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", "Vault", "Notebook A", [], "Vault", minutes), "sectionName_00000000");
         var lifetimes = Assert.IsType<ElicitRequestParams.TitledSingleSelectEnumSchema>(request.RequestedSchema!.Properties[ElicitationGrantPrompt.LifetimeField]);
         Assert.Equal(title, lifetimes.OneOf.Single(o => o.Const == ReadGrantLifetimes.Once).Title);
     }
@@ -532,7 +767,7 @@ public sealed class GrantCommandTests : IDisposable
     [Fact]
     public void WriteForm_NamesTheNotebookAndPath_SaysUntilRevoked_OneTypedNameField_WithTheNameAsHint_NoLifetime()
     {
-        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "Notebook A", @"C:\notebooks\A"), "notebookName_0a1b2c3d");
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "Notebook A", @"C:\notebooks\A", "Notebook A"), "notebookName_0a1b2c3d");
 
         Assert.Contains("\"Notebook A\"", request.Message, StringComparison.Ordinal);
         Assert.Contains(@"C:\notebooks\A", request.Message, StringComparison.Ordinal);
@@ -549,10 +784,36 @@ public sealed class GrantCommandTests : IDisposable
     }
 
     [Fact]
+    public void WriteForm_PutsThePathBeforeTheNotebooksName_AndAsksForTheShownName()
+    {
+        // Follow-up to 5.6: a model-written name such as  Scratch＂ at C:\fake: “ok”  must not open the sentence with fake facts.
+        var name = DialogText.Shown("Scratch\uFF02 at C:\\fake: \u201Cok\u201D\u202E", out var typed);
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", name, @"C:\notebooks\A", typed), "notebookName_0a1b2c3d");
+
+        Assert.StartsWith(@"Claude wants to write to a OneNote notebook stored at C:\notebooks\A: to create and change pages in it. ", request.Message, StringComparison.Ordinal);
+        Assert.Contains("Its name is \"Scratch' at C:\\fake: 'ok'\". To allow it, type \"Scratch' at C:\\fake: 'ok'\".", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\uFF02", request.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", request.Message, StringComparison.Ordinal);
+        var field = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties["notebookName_0a1b2c3d"]);
+        Assert.Equal("Type \"Scratch' at C:\\fake: 'ok'\" to confirm.", field.Description);
+    }
+
+    [Fact]
+    public void WriteForm_ALongName_IsShownCut_AndTheFieldAsksForWhatIsTyped()
+    {
+        var name = DialogText.Shown(new string('n', 100), out var typed);
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", name, @"C:\notebooks\A", typed), "notebookName_0a1b2c3d");
+
+        Assert.Contains($"Its name is \"{new string('n', 79)}…\".", request.Message, StringComparison.Ordinal);
+        var field = Assert.IsType<ElicitRequestParams.StringSchema>(request.RequestedSchema!.Properties["notebookName_0a1b2c3d"]);
+        Assert.Equal($"Type \"{new string('n', 79)}\" to confirm.", field.Description);
+    }
+
+    [Fact]
     public void WriteForm_TheSuggestedCommand_NeverHoldsTheNotebooksName()
     {
         // A shared notebook can be named $(...), which PowerShell would expand inside double quotes.
-        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "$(evil)", @"C:\notebooks\A"), "notebookName_0a1b2c3d");
+        var request = ElicitationGrantPrompt.WriteRequest(new WriteGrantQuestion("{NA}{1}{B0}", "$(evil)", @"C:\notebooks\A", "$(evil)"), "notebookName_0a1b2c3d");
 
         var command = request.Message!.Split('`')[1];
         Assert.EndsWith("grant --revoke --write \"<notebook name>\"", command, StringComparison.Ordinal);

@@ -14,13 +14,16 @@ namespace OneNoteMcp.Core.Writes;
 /// (<see cref="WriteGrantDialog"/>, AD-6) with the deadline paused and on the client's token only, then runs the check
 /// once more, with no second grant dialog. A page write whose XML names new file paths throws
 /// <see cref="FilePathsUnconfirmed"/> from step 1; the runner then raises the file-path dialog (<see cref="FilePathDialog"/>,
-/// AD-7) the same way, at most once, and runs step 1 again.</item>
+/// AD-7) the same way, at most once, and runs step 1 again. A permanent delete without a stored permanent-delete grant
+/// throws <see cref="PermanentDeleteUnconfirmed"/>; the runner raises the one-call confirmation
+/// (<see cref="PermanentDeleteDialog"/>; 5.6 plan Q1 c) the same way, at most once, and runs step 1 again.</item>
 /// <item>Take the write lock (AD-18), waiting up to <c>timeouts.callSeconds</c>, capped by what is left of the deadline.
 /// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable. Then, while the gateway reports an abandoned write
 /// still outstanding, the pipeline is <see cref="ErrorCode.ComBusy"/>, retryable, before anything is read (AD-3).</item>
 /// <item>Read the current state; 4. validate; 5. optimistic check; 6. snapshot (AD-8). A step-6 failure that isn't a
 /// <see cref="OneNoteException"/> (the snapshot's own COM reads keep their codes) or a cancellation becomes
-/// <see cref="ErrorCode.JournalFailed"/>; like any failure before step 7, it is never <c>outcomeUnknown</c>.</item>
+/// <see cref="ErrorCode.JournalFailed"/>; like any failure before step 7, it is never <c>outcomeUnknown</c>. A step-6 write
+/// that may still run in OneNote (a section backup's <c>Publish</c> that timed out) keeps the lock as a step-7 one does.</item>
 /// <item value="7">The COM call. A failure here with <see cref="ErrorCode.Timeout"/>, <see cref="ErrorCode.ComUnavailable"/>
 /// or <see cref="ErrorCode.Cancelled"/>, or with HRESULT <c>0x800706BE</c>, may have written: it gets
 /// <c>outcomeUnknown</c> (AD-9). No failure before step 7 ever does. After a successful call, still under the lock, the
@@ -30,7 +33,9 @@ namespace OneNoteMcp.Core.Writes;
 /// step-7 failure, while the gateway reports an abandoned write still running in OneNote, the lock is kept (in the
 /// background; the result isn't delayed) until that call returns or the deadline runs out, whichever is first (AD-3).</item>
 /// </list>
-/// The whole pipeline has a deadline, 120 s by default (AD-7), not counting time spent on the grant dialog; its expiry is
+/// The whole pipeline has a deadline, 120 s by default and 600 s for <see cref="OperationClass.PermanentDelete"/>, which
+/// publishes (AD-7), not counting time spent on the grant dialog; a deadline given to the constructor (a test's) overrides
+/// both. Its expiry is
 /// <see cref="ErrorCode.Timeout"/>. The
 /// client's own cancellation stays an <see cref="OperationCanceledException"/> before step 7, which the tool runner
 /// reports as <see cref="ErrorCode.Cancelled"/>.
@@ -40,6 +45,9 @@ public sealed class WritePipeline
     /// <summary>AD-7's deadline for a class that doesn't publish.</summary>
     public static readonly TimeSpan DefaultDeadline = TimeSpan.FromSeconds(120);
 
+    /// <summary>AD-7's deadline for a class that publishes: <see cref="OperationClass.PermanentDelete"/> (and epic 3's <c>ExternalWrite</c>).</summary>
+    public static readonly TimeSpan PublishingDeadline = TimeSpan.FromSeconds(600);
+
     /// <summary>The HRESULT that can mean OneNote crashed during the call (AD-9): RPC_S_CALL_FAILED.</summary>
     public const int CallFailedHResult = unchecked((int)0x800706BE);
 
@@ -48,7 +56,7 @@ public sealed class WritePipeline
     private readonly PageTextCache? cache;
     private readonly Func<SettingsSnapshot> settings;
     private readonly TimeProvider clock;
-    private readonly TimeSpan deadline;
+    private readonly TimeSpan? deadlineOverride;
     private readonly WriteGrantDialog? dialog;
 
     /// <param name="writeLock">The write lock (AD-18).</param>
@@ -56,7 +64,7 @@ public sealed class WritePipeline
     /// <param name="cache">This process's search page-text cache, or null when there is none.</param>
     /// <param name="settings">Reads <c>settings.json</c> for <c>timeouts.callSeconds</c>, once per write.</param>
     /// <param name="clock">The clock the deadline runs on.</param>
-    /// <param name="deadline">The pipeline deadline; <see cref="DefaultDeadline"/> when null.</param>
+    /// <param name="deadline">The pipeline deadline for every class, a test's override; when null, each class's own (<see cref="DeadlineFor"/>).</param>
     /// <param name="dialog">The write-grant dialog step 1 raises (AD-6), or null for none.</param>
     public WritePipeline(WriteLock writeLock, IOneNoteGateway gateway, PageTextCache? cache, Func<SettingsSnapshot> settings, TimeProvider? clock = null, TimeSpan? deadline = null, WriteGrantDialog? dialog = null)
     {
@@ -68,11 +76,16 @@ public sealed class WritePipeline
         this.cache = cache;
         this.settings = settings;
         this.clock = clock ?? TimeProvider.System;
-        this.deadline = deadline ?? DefaultDeadline;
+        deadlineOverride = deadline;
         this.dialog = dialog;
     }
 
-    public TimeSpan Deadline => deadline;
+    /// <summary>The deadline for a class that doesn't publish: the constructor's, else <see cref="DefaultDeadline"/>.</summary>
+    public TimeSpan Deadline => deadlineOverride ?? DefaultDeadline;
+
+    /// <summary>The deadline a write of <paramref name="operationClass"/> runs under (AD-7): the constructor's when given.</summary>
+    public TimeSpan DeadlineFor(OperationClass operationClass) =>
+        deadlineOverride ?? (operationClass is OperationClass.PermanentDelete or OperationClass.ExternalWrite ? PublishingDeadline : DefaultDeadline);
 
     /// <summary>Runs <paramref name="operation"/> through steps 1 to 8 and returns its COM call's result.</summary>
     public async Task<TResult> RunAsync<TResult>(ToolCallContext context, WriteOperation<TResult> operation, CancellationToken ct)
@@ -80,6 +93,7 @@ public sealed class WritePipeline
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(operation);
 
+        var deadline = DeadlineFor(operation.Class);
         var start = clock.GetTimestamp();
         var paused = TimeSpan.Zero;
         using var deadlineSource = new CancellationTokenSource(deadline, clock);
@@ -93,6 +107,7 @@ public sealed class WritePipeline
             // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once.
             var askedGrant = false;
             var askedPaths = false;
+            var askedPermanent = false;
             while (true)
             {
                 try
@@ -109,6 +124,12 @@ public sealed class WritePipeline
                 {
                     askedPaths = true;
                     await PausedAsync(() => FilePathDialog.AskAsync(prompt, unconfirmed, ct)).ConfigureAwait(false);
+                    unconfirmed.Confirm();
+                }
+                catch (PermanentDeleteUnconfirmed unconfirmed) when (!askedPermanent && context.Prompt is { } prompt)
+                {
+                    askedPermanent = true;
+                    await PausedAsync(() => PermanentDeleteDialog.AskAsync(prompt, unconfirmed, ct)).ConfigureAwait(false);
                     unconfirmed.Confirm();
                 }
             }
@@ -153,7 +174,7 @@ public sealed class WritePipeline
             catch (OneNoteException ex) when (ex.Code == ErrorCode.ComBusy && cappedByDeadline)
             {
                 // The wait ended because the deadline did, not the lock wait.
-                throw DeadlineExpired(written: false, ex);
+                throw DeadlineExpired(deadline, written: false, ex);
             }
 
             // AD-3: while an abandoned write is still outstanding in this process, a new write is ComBusy, before it
@@ -174,8 +195,16 @@ public sealed class WritePipeline
             {
                 await operation.SnapshotAsync(token).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OneNoteException and not OperationCanceledException)
+            catch (Exception ex)
             {
+                // A step-6 write (a section backup's Publish, story 5.6) may still be running in OneNote: keep the lock
+                // until it settles, as after a step-7 failure. Never outcomeUnknown: the delete itself didn't run.
+                callFailed = !AbandonedWrites().IsCompleted;
+                if (ex is OneNoteException or OperationCanceledException)
+                {
+                    throw;
+                }
+
                 // Step 6 (AD-8): any other failure to build or store the snapshot is JournalFailed, never outcomeUnknown,
                 // and the COM call doesn't run. A snapshot's own COM errors keep their codes (story 2.8 decision Q3).
                 throw new OneNoteException(
@@ -202,7 +231,7 @@ public sealed class WritePipeline
             }
             catch (OperationCanceledException ex) when (deadlineSource.IsCancellationRequested)
             {
-                throw DeadlineExpired(written: true, ex, operation.FailureNote);
+                throw DeadlineExpired(deadline, written: true, ex, operation.FailureNote);
             }
 
             // Between 7 and 8, under the lock: the read-back (AD-7). The write already happened, so nothing here fails
@@ -221,7 +250,7 @@ public sealed class WritePipeline
         catch (OperationCanceledException ex) when (deadlineSource.IsCancellationRequested && !ct.IsCancellationRequested)
         {
             // Before step 7: nothing was written.
-            throw DeadlineExpired(written: false, ex);
+            throw DeadlineExpired(deadline, written: false, ex);
         }
         finally
         {
@@ -301,7 +330,7 @@ public sealed class WritePipeline
 
     private static string WithNote(string message, string? note) => string.IsNullOrEmpty(note) ? message : message + " " + note;
 
-    private OneNoteException DeadlineExpired(bool written, Exception inner, string? note = null) => new(
+    private static OneNoteException DeadlineExpired(TimeSpan deadline, bool written, Exception inner, string? note = null) => new(
         ErrorCode.Timeout,
         WithNote(
             string.Create(CultureInfo.InvariantCulture, $"The write didn't finish within its {deadline.TotalSeconds:0.###} s deadline")

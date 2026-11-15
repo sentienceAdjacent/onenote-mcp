@@ -272,7 +272,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             return Task.FromException<string>(new OneNoteException(
                 ErrorCode.InvalidArgument,
                 $"{method} wasn't sent: the new section's file name {problem}.",
-                userAction: "Use a section name with no path separators, no '..' and no characters a Windows file name can't hold.",
+                userAction: NameUserAction,
                 retryable: false));
         }
 
@@ -288,6 +288,98 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
             CallKind.Write,
             ct);
+    }
+
+    public Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenHierarchy);
+        if (string.IsNullOrEmpty(parentId))
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no parent ID was given for the new section group.",
+                retryable: false));
+        }
+
+        if (SectionFileNames.NameProblem(groupName) is { } problem)
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the new section group's name {problem}.",
+                userAction: NameUserAction,
+                retryable: false));
+        }
+
+        // OpenHierarchy with cftFolder fails 0x80042018 for any '.' in the name (sitting 2026-11-15).
+        if (SectionFileNames.GroupPeriodProblem(groupName) is { } period)
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the new section group's name {period}.",
+                userAction: SectionFileNames.GroupPeriodUserAction,
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // Relative to the parent's ID only, never an absolute path (AD-7 Create row).
+                app.OpenHierarchy(groupName, parentId, out var groupId, CreateFileType.cftFolder);
+                return groupId;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
+    public Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenHierarchy);
+        if (NotebookFolderProblem(folderPath) is { } problem)
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the new notebook's folder {problem}.",
+                userAction: "Create a notebook only in a local folder (C:\\…), named with no characters a Windows folder name can't hold.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // An absolute local folder, no parent ID (AD-7 Create row). The caller checked it is absent or empty.
+                app.OpenHierarchy(folderPath, string.Empty, out var notebookId, CreateFileType.cftNotebook);
+                return notebookId;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
+    private const string NameUserAction = "Use a name with no path separators, no '..' and no characters a Windows file name can't hold.";
+
+    /// <summary>
+    /// Why <paramref name="folderPath"/> can't be a new notebook's folder, as a phrase that never quotes it; null when it is
+    /// a fully qualified local path (not UNC, a device path or a URL) whose last segment is a valid name.
+    /// </summary>
+    private static string? NotebookFolderProblem(string? folderPath)
+    {
+        if (string.IsNullOrEmpty(folderPath))
+        {
+            return "is empty";
+        }
+
+        var slashed = folderPath.Replace('/', '\\');
+        if (slashed.StartsWith(@"\\", StringComparison.Ordinal) || slashed.StartsWith(@"\??\", StringComparison.Ordinal)
+            || !System.IO.Path.IsPathFullyQualified(slashed) || slashed.Length < 3 || !char.IsAsciiLetter(slashed[0]) || slashed[1] != ':')
+        {
+            return "isn't a fully qualified local path";
+        }
+
+        var leaf = System.IO.Path.GetFileName(slashed.TrimEnd('\\'));
+        return SectionFileNames.NameProblem(leaf) is { } problem ? "has a last segment that " + problem : null;
     }
 
     public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct)
@@ -327,6 +419,106 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             },
             CallKind.Write,
             ct);
+    }
+
+    public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.UpdateHierarchy);
+        if (string.IsNullOrEmpty(changesXml))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no hierarchy XML was given.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.UpdateHierarchy(changesXml, XMLSchema.xs2013);
+                return true;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
+    public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.DeleteHierarchy);
+        if (string.IsNullOrEmpty(objectId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no object ID was given.",
+                retryable: false));
+        }
+
+        // Never DateTime.MinValue, which skips OneNote's date check (AD-17; live, DeleteHierarchy, 2026-11-12).
+        if (OneNoteDates.ToUtc(expectedLastModified) is not { } date)
+        {
+            return Task.FromException(BadExpectedDate(method, "object's hierarchy"));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.DeleteHierarchy(objectId, date, permanent);
+                return true;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
+    public Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.Publish);
+        if (string.IsNullOrEmpty(objectId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no object ID was given.",
+                retryable: false));
+        }
+
+        if (LocalFileProblem(targetPath) is { } problem)
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the target file {problem}.",
+                retryable: false));
+        }
+
+        // AD-3: Publish has its own timeout (timeouts.publishSeconds); a write, so never retried after a disconnect.
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.Publish(objectId, targetPath, PublishFormat.pfOneNote, string.Empty);
+                return true;
+            },
+            CallKind.Write,
+            ct,
+            publish: true);
+    }
+
+    /// <summary>Why <paramref name="path"/> can't be a <c>Publish</c> target, or null: it must be a fully qualified local file path (<c>C:\…</c>), not UNC, a device path or a URL.</summary>
+    private static string? LocalFileProblem(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return "is empty";
+        }
+
+        var slashed = path.Replace('/', '\\');
+        return slashed.StartsWith(@"\\", StringComparison.Ordinal) || slashed.StartsWith(@"\??\", StringComparison.Ordinal)
+            || !System.IO.Path.IsPathFullyQualified(slashed) || slashed.Length < 4 || !char.IsAsciiLetter(slashed[0]) || slashed[1] != ':'
+            || slashed.EndsWith('\\')
+            ? "isn't a fully qualified local file path"
+            : null;
     }
 
     public Task WaitForAbandonedWritesAsync(CancellationToken ct)
@@ -445,7 +637,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     internal static bool IsBusy(Exception ex) =>
         ex is COMException && unchecked((uint)ex.HResult) is 0x80010001 or 0x8001010A;
 
-    private async Task<T> RunAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct)
+    /// <param name="publish">True for <c>Publish</c>, which runs under <c>timeouts.publishSeconds</c> instead of <c>callSeconds</c> (AD-3).</param>
+    private async Task<T> RunAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct, bool publish = false)
     {
         // First, before any other refusal: nothing but a read goes to OneNote while an abandoned write may still run (AD-3).
         ThrowIfWriteOutstanding(method, kind);
@@ -457,7 +650,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             {
                 try
                 {
-                    return await AttemptAsync(method, call, kind, ct).ConfigureAwait(false);
+                    return await AttemptAsync(method, call, kind, publish, ct).ConfigureAwait(false);
                 }
                 catch (ReconnectRequiredException ex)
                 {
@@ -478,10 +671,10 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
     }
 
-    private async Task<T> AttemptAsync<T>(string method, Func<IApplication, T> call, CallKind kind, CancellationToken ct)
+    private async Task<T> AttemptAsync<T>(string method, Func<IApplication, T> call, CallKind kind, bool publish, CancellationToken ct)
     {
         var (worker, settings) = await EnsureActivatedAsync(ct).ConfigureAwait(false);
-        var timeout = settings.Timeouts.Call;
+        var timeout = publish ? settings.Timeouts.Publish : settings.Timeouts.Call;
         var deadline = DateTime.UtcNow + timeout;
         var backoff = FirstBackoff;
         while (true)
@@ -631,7 +824,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>
     /// Waits for <paramref name="item"/> until <paramref name="deadline"/>. An item still queued at the deadline is
-    /// abandoned (it never touched COM). One that started and is still running is a hang: its worker is poisoned. A
+    /// abandoned (it never touched COM); one its poisoned worker already failed while queued takes that failure. One that
+    /// started and is still running is a hang: its worker is poisoned. A
     /// write that started and is then left (a hang, or the caller's cancel while it runs) is outstanding until it returns.
     /// </summary>
     private async Task<T> AwaitAsync<T>(StaThread worker, WorkItem<T> item, DateTime deadline, TimeSpan timeout, string method, CallKind kind, CancellationToken ct)
@@ -644,11 +838,18 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         catch (TimeoutException) when (!item.Task.IsCompleted)
         {
             var seconds = Seconds(timeout);
-            if (item.TryAbandon(new OneNoteException(ErrorCode.Timeout, "abandoned")))
+            switch (GiveUp(item, new OneNoteException(ErrorCode.Timeout, "abandoned")))
             {
-                throw new OneNoteException(ErrorCode.Timeout, $"{method} timed out after {seconds} s waiting for an earlier call to OneNote.");
+                case GiveUpOutcome.AbandonedByCaller:
+                    throw new OneNoteException(ErrorCode.Timeout, $"{method} timed out after {seconds} s waiting for an earlier call to OneNote.");
+                case GiveUpOutcome.AbandonedElsewhere:
+                    // Its worker was poisoned (or stopped) while it was still queued, as its own deadline passed: it never
+                    // ran, so it isn't a hang or an outstanding write. Take the failure it was given; awaiting also covers
+                    // the moment between that abandon and the task completing.
+                    return await item.Task.ConfigureAwait(false);
             }
 
+            // Started: it is still running in COM, a hang.
             if (kind == CallKind.Write)
             {
                 TrackAbandonedWrite(item.Task);
@@ -664,7 +865,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            if (!item.TryAbandon(new OperationCanceledException(ct)))
+            // Abandoned while queued, by this cancel or by its worker being poisoned: it never ran, so nothing to watch.
+            if (GiveUp(item, new OperationCanceledException(ct)) == GiveUpOutcome.Started)
             {
                 // Already running: the caller stops waiting, but a hang must still poison the worker at the deadline.
                 if (kind == CallKind.Write && !item.Task.IsCompleted)
@@ -677,6 +879,35 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
             throw;
         }
+    }
+
+    /// <summary>What became of a call its waiter gave up on (its deadline passed, or its caller cancelled).</summary>
+    internal enum GiveUpOutcome
+    {
+        /// <summary>Still queued: this waiter abandoned it, so it never touches COM.</summary>
+        AbandonedByCaller,
+
+        /// <summary>Already failed by its worker (poisoned or stopping) before it ran: it never touched COM.</summary>
+        AbandonedElsewhere,
+
+        /// <summary>The STA thread started it: it is running in COM, or has just returned.</summary>
+        Started,
+    }
+
+    /// <summary>Tries to abandon <paramref name="item"/> with <paramref name="failure"/> and says what became of it.</summary>
+    /// <remarks>
+    /// A failed abandon doesn't mean the call started: a poisoned worker drains its queue by abandoning every item,
+    /// and that can win the race with this waiter's own deadline or cancel. Once the abandon fails the item has left
+    /// <c>Queued</c> for good, so one read of its state settles which it was.
+    /// </remarks>
+    internal static GiveUpOutcome GiveUp(WorkItem item, Exception failure)
+    {
+        if (item.TryAbandon(failure))
+        {
+            return GiveUpOutcome.AbandonedByCaller;
+        }
+
+        return item.WasAbandoned ? GiveUpOutcome.AbandonedElsewhere : GiveUpOutcome.Started;
     }
 
     private async Task WatchAfterCancelAsync(StaThread worker, Task task, DateTime deadline)
@@ -710,10 +941,10 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     /// <summary>The userAction that goes with <see cref="CrashingMessage"/>, so the model waits for the crashed copy to close.</summary>
     internal const string CrashingUserAction = "Wait until the crashed OneNote has closed, start OneNote desktop, then retry.";
 
-    private static OneNoteException BadExpectedDate(string method) => new(
+    private static OneNoteException BadExpectedDate(string method, string what = "page") => new(
         ErrorCode.InvalidArgument,
         $"{method} wasn't sent: the expected last-modified date isn't a date OneNote wrote.",
-        userAction: "Re-read the page and pass its lastModifiedTime exactly as OneNote wrote it.");
+        userAction: $"Re-read the {what} and pass its lastModifiedTime exactly as OneNote wrote it.");
 
     /// <summary>
     /// AD-3: while an abandoned write may still be running in OneNote, only reads are sent. Anything else (a write,

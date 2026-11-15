@@ -4,8 +4,10 @@ namespace OneNoteMcp.Core;
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
 /// <see cref="NavigateToAsync"/>, an <c>AppState</c> call (AD-11), and the writes only the write pipeline makes (AD-7):
-/// <see cref="CreateNewPageAsync"/> and <see cref="CreateSectionAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
-/// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
+/// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
+/// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
+/// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>), and
+/// <see cref="DeleteHierarchyAsync"/> (<c>SoftDelete</c>, and story 5.6's <c>PermanentDelete</c>), with 5.6's <see cref="PublishAsync"/> (the section backup). Every XML result is 2013-schema, returned unchanged (AD-4).
 /// IDs are opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
@@ -58,10 +60,31 @@ public interface IOneNoteGateway
     /// <see cref="SectionFileNames.Problem"/> (or an empty parent ID) is refused with <see cref="ErrorCode.InvalidArgument"/>
     /// before COM. When a section of that name already exists there, OneNote returns its ID (spike 5.1 constraint 5).
     /// Never retried after a disconnect (AD-3). Only the write pipeline calls it, after the access check and under the
-    /// write lock (AD-18); <c>restore_from_journal</c> uses it for its <c>Recovered</c> section, and epic 5 adds its
-    /// siblings (section groups, notebooks).
+    /// write lock (AD-18): <c>create_section</c> (story 5.3), and <c>restore_from_journal</c> for its <c>Recovered</c> section.
     /// </summary>
     Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>Create</c>, AD-7; story 5.3): <c>OpenHierarchy</c> with <c>cftFolder</c>, creating the section group
+    /// <paramref name="groupName"/> (one relative folder name) under the notebook or section group
+    /// <paramref name="parentId"/>, and returns its ID. Only by parent ID, never by an absolute path. A name that fails
+    /// <see cref="SectionFileNames.NameProblem"/> (or an empty parent ID) is refused with
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. What OneNote does for an existing group's name is unprobed (spike
+    /// 5.1), so <c>create_section_group</c> never sends one. Never retried after a disconnect (AD-3). Only the write
+    /// pipeline calls it, after the access check and under the write lock (AD-18).
+    /// </summary>
+    Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>Create</c>, AD-7; story 5.3): <c>OpenHierarchy</c> with <c>cftNotebook</c>, creating a notebook in the
+    /// local folder <paramref name="folderPath"/> and opening it, and returns its ID. The path must be a fully qualified
+    /// local path (<c>C:\…</c>) whose last segment passes <see cref="SectionFileNames.NameProblem"/>; anything else, a URL,
+    /// a UNC or device path included, is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. The caller checks
+    /// the folder is absent or empty first: OneNote creates a notebook in a non-empty folder too, and at an open notebook's
+    /// path returns that notebook's ID. Never retried after a disconnect (AD-3). Only the write pipeline calls it, after
+    /// the access check and under the write lock (AD-18).
+    /// </summary>
+    Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct);
 
     /// <summary>
     /// A write (<c>PageWrite</c>, AD-7): applies <paramref name="pageXml"/>, a 2013-schema page document, with
@@ -78,6 +101,39 @@ public interface IOneNoteGateway
     /// <see cref="UpdatePageContentAsync"/>.
     /// </summary>
     Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>HierarchyWrite</c>, AD-7; story 5.4): <c>UpdateHierarchy</c> with the 2013 schema, applying
+    /// <paramref name="changesXml"/>, a minimal hierarchy document that <c>OneNoteMcp.Xml</c> built and the AD-16 XSD gate
+    /// passed (a rename: the node's element with <c>ID</c> and <c>name</c> or <c>nickname</c>; a reorder: the parent's
+    /// element with ID-only children). It takes no date, so the optimistic check is the pipeline's own (AD-17). Empty XML
+    /// is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. Never retried after a disconnect (AD-3). Only
+    /// the write pipeline calls it, after the access check and under the write lock (AD-18).
+    /// </summary>
+    Task UpdateHierarchyAsync(string changesXml, CancellationToken ct);
+
+    /// <summary>
+    /// A write (<c>SoftDelete</c> when <paramref name="permanent"/> is false, <c>PermanentDelete</c> when true; AD-7):
+    /// <c>DeleteHierarchy</c> of the page, section or section group <paramref name="objectId"/>.
+    /// <paramref name="expectedLastModified"/> is the target's hierarchy <c>lastModifiedTime</c> exactly as OneNote wrote
+    /// it, a page's included (AD-17's page-delete exception); one that is empty, unparsable or the minimum date is refused
+    /// with <see cref="ErrorCode.InvalidArgument"/> before COM, and so is an empty <paramref name="objectId"/>. Never
+    /// retried after a disconnect (AD-3). Only the write pipeline calls it, after the access check and under the write lock
+    /// (AD-18): <c>delete_hierarchy_object</c> (story 5.5), and story 5.6's permanent delete.
+    /// </summary>
+    Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct);
+
+    /// <summary>
+    /// A write (AD-7; story 5.6, the <c>PermanentDelete</c> backup): <c>Publish</c> of the section
+    /// <paramref name="objectId"/> in OneNote's own format (<c>pfOneNote</c>) to the new file
+    /// <paramref name="targetPath"/>, a fully qualified local path whose folder exists (OneNote raises a modal for a missing
+    /// folder and refuses an existing file). An empty ID or a path that isn't fully qualified and local is refused with
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. It runs under <c>timeouts.publishSeconds</c>, not the call
+    /// timeout, and is never retried after a disconnect (AD-3). The file may land after the call returns: the caller waits
+    /// for it. The default throws <see cref="ErrorCode.NotSupported"/>, for test doubles that never publish.
+    /// </summary>
+    Task PublishAsync(string objectId, string targetPath, CancellationToken ct) =>
+        Task.FromException(new OneNoteException(ErrorCode.NotSupported, "Publish isn't available through this gateway."));
 
     /// <summary>
     /// Completes once no abandoned write is outstanding: a write that started in OneNote and whose caller stopped

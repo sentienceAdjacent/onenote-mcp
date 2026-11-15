@@ -226,22 +226,31 @@ internal sealed class StaThread : IDisposable
     }
 }
 
-/// <summary>A queued call. It runs at most once; until it starts it can be abandoned with a chosen failure.</summary>
+/// <summary>
+/// A queued call. It runs at most once; until it starts it can be abandoned with a chosen failure. It leaves
+/// <c>Queued</c> exactly once, either to <c>Running</c> (the STA thread took it) or to <c>Abandoned</c> (it never ran).
+/// </summary>
 internal abstract class WorkItem
 {
     private const int Queued = 0;
     private const int Running = 1;
-    private const int Finished = 2;
+    private const int Abandoned = 2;
 
     private int state;
 
-    /// <summary>True once the STA thread has started running it (or it finished).</summary>
-    public bool Started => Volatile.Read(ref state) != Queued;
+    /// <summary>True once the STA thread has started running it (it may have returned since). False if it was abandoned.</summary>
+    public bool Started => Volatile.Read(ref state) == Running;
 
-    /// <summary>Fails the item with <paramref name="failure"/> if it hasn't started. Returns false if it already started.</summary>
+    /// <summary>True once someone abandoned it before it started: it never ran. Its task may complete a moment later.</summary>
+    public bool WasAbandoned => Volatile.Read(ref state) == Abandoned;
+
+    /// <summary>
+    /// Fails the item with <paramref name="failure"/> if it hasn't started. Returns false if it already started, or if
+    /// someone else abandoned it first (<see cref="WasAbandoned"/> tells the two apart).
+    /// </summary>
     public bool TryAbandon(Exception failure)
     {
-        if (Interlocked.CompareExchange(ref state, Finished, Queued) != Queued)
+        if (Interlocked.CompareExchange(ref state, Abandoned, Queued) != Queued)
         {
             return false;
         }

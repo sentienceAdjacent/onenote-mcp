@@ -3,7 +3,7 @@ title: 'Write grants: dialog, revoke and listing'
 type: 'feature'
 ticket: '6'
 created: '2026-11-11'
-status: 'built'
+status: done
 baseline_revision: '4e6533d184659036608cd66fbb1f7f4f930a71b6'
 route: 'full'
 route_source: 'auto'

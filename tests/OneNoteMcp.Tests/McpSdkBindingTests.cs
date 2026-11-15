@@ -53,7 +53,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
 
         // The real registration, with the gateway and settings.json swapped for test ones (the last registration wins).
         builder.Services.AddSingleton<IOneNoteGateway>(gateway);
-        builder.Services.AddSingleton(new SettingsStore(dir.Combine("settings.json")));
+        builder.Services.AddSingleton(new SettingsStore(dir.Combine("settings.json"), dir.Combine("journal"))); // never the real journal
 
         host = builder.Build();
         await host.StartAsync(Ct);
@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(16, actual.Count);
+        Assert.Equal(23, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -277,7 +277,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(16, tools.Count);
+        Assert.Equal(23, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -361,9 +361,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllSixteenTools()
+    public void SnapshotToolNames_AreAllTwentyThreeTools()
     {
-        Assert.Equal(16, SnapshotToolNames().Count);
+        Assert.Equal(23, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -375,8 +375,10 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var required in schema["required"]?.AsArray().Select(n => n!.GetValue<string>()) ?? [])
         {
-            Assert.Equal("string", schema["properties"]![required]!["type"]!.GetValue<string>());
-            arguments[required] = (name, required) == ("get_special_location", "location") ? "backUpFolder" : "x";
+            // A string, or reorder_hierarchy_children's childIds, an array of strings (story 5.4).
+            var type = schema["properties"]![required]!["type"]!.GetValue<string>();
+            Assert.Contains(type, new[] { "string", "array" });
+            arguments[required] = type == "array" ? new[] { "x" } : (name, required) == ("get_special_location", "location") ? "backUpFolder" : "x";
         }
 
         arguments["bogusArgument"] = true;
@@ -388,9 +390,14 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.CreateCalls);
         Assert.Empty(gateway.CreateSectionCalls);
+        Assert.Empty(gateway.CreateGroupCalls);
+        Assert.Empty(gateway.CreateNotebookCalls);
         Assert.Empty(gateway.NavigateCalls);
         Assert.Empty(gateway.UpdateCalls);
         Assert.Empty(gateway.DeleteCalls);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(gateway.DeleteHierarchyCalls);
+        Assert.Empty(gateway.PublishCalls);
     }
 
     [Fact]
@@ -427,9 +434,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 37 properties in all.
-        Assert.Equal(15, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(37, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 53 properties in all.
+        Assert.Equal(22, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(53, SnapshotToolProperties().Count);
     }
 
     [Theory]
@@ -456,9 +463,13 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.CreateCalls);
         Assert.Empty(gateway.CreateSectionCalls);
+        Assert.Empty(gateway.CreateGroupCalls);
+        Assert.Empty(gateway.CreateNotebookCalls);
         Assert.Empty(gateway.NavigateCalls);
         Assert.Empty(gateway.UpdateCalls);
         Assert.Empty(gateway.DeleteCalls);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(gateway.DeleteHierarchyCalls);
     }
 
     [Theory]
@@ -502,16 +513,20 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.DoesNotContain("{X}", message, StringComparison.Ordinal);
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.DeleteCalls);
+        Assert.Empty(gateway.DeleteHierarchyCalls);
     }
 
-    /// <summary>The tool's required arguments with valid values: an enum's first value, else <c>"x"</c>.</summary>
+    /// <summary>The tool's required arguments with valid values: an enum's first value, <c>["x"]</c> for an array, else <c>"x"</c>.</summary>
     private static Dictionary<string, object?> RequiredArguments(string tool)
     {
         var schema = SnapshotTools().Single(t => t!["name"]!.GetValue<string>() == tool)!["inputSchema"]!;
         var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var required in schema["required"]?.AsArray().Select(n => n!.GetValue<string>()) ?? [])
         {
-            arguments[required] = schema["properties"]![required]!["enum"]?.AsArray()[0]!.GetValue<string>() ?? "x";
+            var property = schema["properties"]![required]!;
+            arguments[required] = property["type"]?.GetValueKind() == JsonValueKind.String && property["type"]!.GetValue<string>() == "array"
+                ? new[] { "x" }
+                : property["enum"]?.AsArray()[0]!.GetValue<string>() ?? "x";
         }
 
         return arguments;

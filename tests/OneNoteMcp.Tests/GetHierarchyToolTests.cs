@@ -259,9 +259,18 @@ public sealed class GetHierarchyToolTests
 
         public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => throw exception;
 
+        public Task<string> CreateSectionGroupAsync(string parentId, string groupName, CancellationToken ct) => throw exception;
+
+        public Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct) => throw exception;
+
         public Task UpdatePageContentAsync(string pageXml, string expectedLastModified, CancellationToken ct) => throw exception;
 
         public Task DeletePageContentAsync(string pageId, string objectId, string expectedLastModified, CancellationToken ct) => throw exception;
+
+
+        public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw exception;
+
+        public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct) => throw exception;
 
         public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
     }

@@ -56,14 +56,16 @@ public static class ToolWarnings
 
     /// <summary>
     /// After a page write, the re-read page differs from what was sent: an attribute OneNote didn't apply, an OE re-created
-    /// under a new objectID, or OE lists of another length (AD-7). Names objectIDs and attribute names only.
+    /// under a new objectID, or OE lists of another length (AD-7). Names objectIDs and attribute names only. After a
+    /// hierarchy rename or reorder (story 5.4): the node reads back with another name, or the parent's children in another
+    /// order or at another page level; IDs and counts only.
     /// </summary>
     public const string ReadBackDiffers = "readBackDiffers";
 
     /// <summary>After a page write, an Outline that was sent has fewer images than were sent in it (AD-7).</summary>
     public const string ImageLost = "imageLost";
 
-    /// <summary>The page couldn't be re-read after a write that succeeded, so what OneNote kept wasn't checked (AD-7).</summary>
+    /// <summary>The page (or, after a rename or reorder, the node) couldn't be re-read after a write that succeeded, so what OneNote kept wasn't checked (AD-7).</summary>
     public const string ReadBackFailed = "readBackFailed";
 
     /// <summary>
@@ -79,4 +81,31 @@ public static class ToolWarnings
     /// path itself; <c>meta.parentId</c> is the section used.
     /// </summary>
     public const string RestoredElsewhere = "restoredElsewhere";
+
+    /// <summary>
+    /// A create found a live section or section group of the same kind and name (ignoring case) already under the parent,
+    /// so it made nothing and returned that object's ID in <c>meta.objectId</c> (AD-7 <c>Create</c>). Names the ID only.
+    /// </summary>
+    public const string AlreadyExisted = "alreadyExisted";
+
+    /// <summary>
+    /// <c>create_notebook</c> made the notebook, but couldn't give it its automatic write grant (AD-6 <c>grantedVia:
+    /// created</c>): the notebook couldn't be read back, OneNote put it somewhere other than the folder the server checked,
+    /// or <c>settings.json</c> couldn't be written. The create stands. Its userAction says how the user grants writes.
+    /// </summary>
+    public const string CreatedNotGranted = "createdNotGranted";
+
+    /// <summary>
+    /// A rename or reorder asked for what the hierarchy already shows (the same exact name, or the same order), so nothing
+    /// was sent to OneNote and no journal entry was taken (story 5.4). Names the node's ID only.
+    /// </summary>
+    public const string Unchanged = "unchanged";
+
+    /// <summary>
+    /// A page soft delete succeeded, but the page's new ID in Deleted Pages couldn't be told apart, or the journal entry
+    /// couldn't be rewritten with it (AD-7 <c>SoftDelete</c>; story 5.5 Q3): the entry has no <c>recycleBinId</c>, so a
+    /// later restore matches by name. <c>meta.recycleBinId</c> is present only when the ID was found and the rewrite alone
+    /// failed. It needs no userAction.
+    /// </summary>
+    public const string RecycleBinIdMissing = "recycleBinIdMissing";
 }
