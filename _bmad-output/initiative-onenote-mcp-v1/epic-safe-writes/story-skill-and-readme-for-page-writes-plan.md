@@ -103,6 +103,8 @@ What an agent does when it follows the skill. These rows are the live check's sc
 
 ## Plan Change Log
 
+- 2026-11-15 (live check, Phill): both sessions passed (details in `deferred-work.md`). Image by path confirmed (the page kept the image after the source file was renamed), so recipe 4 drops its "not yet confirmed" note. Phill chose the undo rule (Inbox, 2026-11-15): Claude undoes its own recent edit by writing the old content back with the newest basis; `restore_from_journal` is for content no longer in hand, a delete it can't rebuild, or a copy the user asks for. Recipe 6 and the README Restore bullet updated. The I/O matrix's Undo row (restore) is superseded by this rule.
+
 ## Review Triage Log
 
 ### 2026-11-14 — Review pass

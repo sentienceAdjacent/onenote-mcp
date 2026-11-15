@@ -81,7 +81,7 @@ Changing the second of two paragraphs in one Outline:
 - **The user confirms each new path.** A file path that isn't already on that element shows the user a dialog naming the file, which they accept or decline. A network, device or relative path fails with `InvalidArgument`: ask the user for a local copy.
 - **Declined:** the write fails with `WriteNotGranted`, and nothing is written. Tell the user and stop. Don't send the file another way (inline, or by another path) unless the user asks for that.
 - **A client that can't show dialogs** also gets `WriteNotGranted` for a new path. Tell the user; a small image can go inline instead (below) if they agree.
-- **OneNote copies the file into the notebook** when it inserts it: a read afterwards shows OneNote's own copy (an attachment's `pathCache` is a `%TEMP%\{GUID}.bin` file), not the source path. So the page keeps the image or attachment after the original file is moved or deleted. That's expected. (Seen for attachments; not yet confirmed for images added by path.)
+- **OneNote copies the file into the notebook** when it inserts it: a read afterwards shows OneNote's own copy (an attachment's `pathCache` is a `%TEMP%\{GUID}.bin` file), not the source path. So the page keeps the image or attachment after the original file is moved or deleted. That's expected.
 - **Inline `one:Data` (base64)** only for a small image you already have as data, such as one copied from another page with `mcp__plugin_onenote_desktop__get_binary_page_content`, or on a client that can't show dialogs. Never read a large file and write it out as base64 to avoid the dialog.
 - An image or attachment already on the page: send it exactly as your latest read shows it. Its unchanged paths raise no dialog.
 - Afterwards, `imageLost` means a sent Outline holds fewer images than you sent: tell the user.
@@ -107,6 +107,10 @@ Changing the second of two paragraphs in one Outline:
 - The journal entry of such a page is encrypted for the user's Windows account. A restore puts it back only into that same section, while the section is still password-protected.
 
 ## 6. Undo a change
+
+**Your own recent edit, with the old content still in hand: write it back.** Send the previous content as a normal edit (recipe 1 or 3), with the newest `meta.basis`. The page stays where it is, nothing is duplicated, and the write is journaled like any other. Check the result: the returned `pageHash` should match the one from before your edit; if it doesn't, read the page and tell the user what still differs.
+
+**Otherwise restore from the journal:** when you no longer have the old content (a new session, or an earlier change), after a delete you can't rebuild exactly, or when the user wants the old version as a copy beside the current one.
 
 1. Call `mcp__plugin_onenote_desktop__restore_from_journal` with `entryId` = the `meta.journalEntryId` of the `update_page_content` or `delete_page_content` to undo, or the entry ID a failed write's message names. Each entry is the page as it was just before that write, so to undo several changes to one page, restore the entry of the earliest.
 2. Tell the user it's a **new** page: the restore never overwrites, so the edited page stays as it is, and they can delete whichever copy they don't want in OneNote (this release can't delete pages).
