@@ -426,7 +426,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         + "Without that grant, a write here may carry only basis.lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds.";
 
     public const string PathUserAction =
-        "Name a file by its full local path (such as C:\\folder\\file.png), never a network, device or relative path; or, for an image, send it as inline one:Data (base64).";
+        "Name a file by its full local path (such as C:\\folder\\file.png), never a network, device or relative path, and with no control, invisible or wildcard characters; if you have no such path, ask the user for a local copy at a plain local path.";
 
     public const string HtmlBlockUserAction =
         "HTML blocks can't be written yet; send the content as text (one:T) or an inline image (one:Data).";
@@ -435,7 +435,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         "For now text HTML may use only a, b, br, cite, code, del, em, font, i, ins, p, s, small, span, strike, strong, sub, sup and u, "
         + "with style, lang and dir (plus href on a, and face, size and color on font); no comments. "
         + "A link must be an absolute http, https or mailto URL, an in-page onenote:# link, or an onenote: link to a OneDrive or SharePoint notebook. "
-        + "Style may use no CSS function but rgb()/hsl() colours. To insert a file, use one:InsertedFile with its full local path (the user confirms it in a dialog); for an image, send it as inline one:Data (base64).";
+        + "Style may use no CSS function but rgb()/hsl() colours. To insert a file or an image from disk, name it by its full local path (one:InsertedFile pathSource, or one:Image holding one:File path; the user confirms it in a dialog).";
 
     public const string ReadBackWithheldUserAction =
         "To see what OneNote kept, read the page with get_page_content, which asks the user for the section's read grant.";
@@ -538,7 +538,7 @@ public sealed class UpdatePageContentWrite : PageWrite
             throw new OneNoteException(
                 ErrorCode.WriteNotGranted,
                 string.Create(CultureInfo.InvariantCulture, $"The XML for page {PageId} names {unconfirmed.Count} new file path(s) the user didn't confirm in this call, so nothing was written."),
-                userAction: "Re-read the page and retry: the user is asked to confirm each new file path. Or, for an image, send it as inline one:Data (base64) instead.",
+                userAction: "Re-read the page and retry: the user is asked to confirm each new file path.",
                 retryable: true);
         }
 

@@ -108,6 +108,9 @@ public sealed class UpdatePageContentIntegrationTests(ITestOutputHelper output) 
             Ct));
 
         Assert.Equal(ErrorCode.StaleWrite, ex.Code);
+
+        // The hash refusal names the Outline; a date refusal wouldn't, so this proves the hash caught it.
+        Assert.Contains(ProbeXml.ObjectId(outline)!, ex.Message, StringComparison.Ordinal);
         Assert.False(Directory.Exists(JournalFolder) && Directory.EnumerateFiles(JournalFolder).Any());
     }
 
