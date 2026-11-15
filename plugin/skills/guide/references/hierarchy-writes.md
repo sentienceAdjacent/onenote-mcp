@@ -14,7 +14,7 @@ Read this before any hierarchy write: creating a section, section group or noteb
 - **A section, section group or notebook:** `{lastModifiedTime}`, the attribute on its element in `mcp__plugin_onenote_desktop__get_hierarchy`. For a rename, read the node itself (`startNodeId` = its ID, `scope: self`); for a reorder, the parent (`scope: children`), whose element carries the parent's date.
 - **A page you delete:** `{lastModifiedTime, pageHash}` from `mcp__plugin_onenote_desktop__get_page_content`'s `meta.basis`. Never send `elementHashes` with a delete (`InvalidArgument`).
 - The check on a node is weak: a node's date doesn't always move when something inside it changes. Read just before the write anyway.
-- Straight after another hierarchy write (a create, a rename, a delete nearby), a node's date can move a second late, so the next write may get `StaleWrite` once. Re-read and try once more with the new date; never resend the old basis. If it's stale again, tell the user what changed and ask.
+- Straight after another write (a create, a rename, a delete nearby, or a page write in a section), a node's date can move a few seconds late, so the next write may get `StaleWrite` once. After writing to a page, re-read its section just before you delete or rename the section. On `StaleWrite`, re-read and try once more with the new date; never resend the old basis. If it's stale again, tell the user what changed and ask.
 
 ## 1. Create a section, section group or notebook
 
@@ -26,7 +26,7 @@ Only when the user asks for a new one. Nothing is journaled: a create only adds.
 
 1. Tell the user OneNote can't create a group named with a `.` directly, then create it without the `.` (such as "v12" or "v1-2").
 2. Ask whether you should rename it to "v1.2". If they decline, leave it as it is and tell them its name.
-3. If they agree, read the new group (`mcp__plugin_onenote_desktop__get_hierarchy`, `startNodeId` = its `meta.objectId`, `scope: self`) and rename it with `mcp__plugin_onenote_desktop__rename_hierarchy_object` to "v1.2" (recipe 2). It is a write straight after the create, so it may get `StaleWrite` once (see The basis).
+3. If they agree, read the new group (`mcp__plugin_onenote_desktop__get_hierarchy`, `startNodeId` = its `meta.objectId`, `scope: self`) and rename it with `mcp__plugin_onenote_desktop__rename_hierarchy_object` to "v1.2" (recipe 2). OneNote keeps the `.` in a rename, and it survives a sync and a restart. It is a write straight after the create, so it may get `StaleWrite` once (see The basis).
 4. Check the result: with `readBackDiffers`, OneNote kept another name; tell the user, who can rename it in OneNote.
 
 **A notebook:** `mcp__plugin_onenote_desktop__create_notebook` with `name`. It shows the user a dialog to choose the folder on this PC it goes in; the notebook gets a new folder named `name` there. `folder` only prefills the dialog: pass it only when the user named a place, and never pick or insist on one for them.
@@ -48,7 +48,7 @@ Only when the user asks for a new one. Nothing is journaled: a create only adds.
 - **A page** is renamed by its title: change the `one:Title` OE with `mcp__plugin_onenote_desktop__update_page_content` (`references/page-writes.md`, recipe 1).
 - **A notebook:** only the name OneNote shows changes; its folder keeps its name. The write grant stays.
 - **Refused:** a name another section or section group under the same parent uses (ignoring case), or another open notebook's name (`InvalidArgument`: ask for another; changing only the case of the node's own name is fine); a locked section (`SectionLocked`: the user unlocks it in OneNote); a section group in a notebook stored on OneDrive (`NotSupported`: the user renames it in OneNote); anything in the recycle bin (`ObjectNotFound`).
-- **Read grants follow a location.** A rename that would move a section onto a location where the user holds a read grant is `InvalidArgument`: suggest another name, or the user revokes that grant first. Renaming a password-protected section ends its read grant, so the user is asked again on the next read. Renaming a section group that holds one, in a notebook on this PC, is expected to end it too, once OneNote renames the group's folder on disk, which it can do some time after the rename; this isn't confirmed.
+- **Read grants follow a location.** A rename that would move a section onto a location where the user holds a read grant is `InvalidArgument`: suggest another name, or the user revokes that grant first. Renaming a password-protected section ends its read grant, and so does renaming a section group that holds one: the user is asked again on the next read.
 - **After the write:** `readBackDiffers` means OneNote kept another name; tell the user. `readBackFailed` means the rename happened but couldn't be checked: read the node before its next write.
 
 **Undo:** rename it back to the name you noted, with a fresh read's basis. `mcp__plugin_onenote_desktop__restore_from_journal` can't restore a rename: its `meta.journalEntryId` only records the node as it was.
@@ -87,7 +87,7 @@ When the user asks to delete a page, section or section group and doesn't say "p
 
 `mcp__plugin_onenote_desktop__permanently_delete_hierarchy_object` deletes a page, a section or an empty section group for good, skipping the recycle bin. Use it only when the user explicitly asks to delete something permanently, for good, or without the recycle bin.
 
-1. Confirm in chat first: name what will go, and say it won't be in the recycle bin. The server's own check comes next; this question is a courtesy, never a replacement for it.
+1. Ask in the chat first, and wait for the user's yes before you call the tool: name what will go, and say it won't be in the recycle bin. Do this even when the user already said "permanently". The server's own check comes next; your question never replaces it.
 2. Read it, as in recipe 4: a page's `meta.basis` (`{lastModifiedTime, pageHash}`), or a section's or group's `{lastModifiedTime}`.
 3. Call it with `objectId` and `basis`. Unless the user allowed permanent deletes in that notebook, a dialog asks them to type the object's name for this one delete; nothing is stored, so the next permanent delete asks again. A section's backup can take a while.
 4. Tell the user what was kept, and give them the IDs, since no tool lists them later:
