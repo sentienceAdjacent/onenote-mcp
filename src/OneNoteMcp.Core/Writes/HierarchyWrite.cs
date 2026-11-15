@@ -217,7 +217,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
         {
             warnings.Add(new ToolWarning(
                 ToolWarnings.NoBasis,
-                $"No basis was passed, so {noun} {TargetId} was checked against the hierarchy as the server just read it: a change made since your own read could be overwritten.",
+                $"No basis was passed, so {noun} {TargetId} was checked against its current version (read internally; nothing of it is returned): a change made since your own read could be overwritten.",
                 NoBasisUserAction));
             return Task.CompletedTask;
         }
@@ -226,7 +226,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
         {
             warnings.Add(new ToolWarning(
                 ToolWarnings.PartialBasis,
-                $"The basis for {noun} {TargetId} is partial: it has no lastModifiedTime, so the {noun} as the server just read it was used.",
+                $"The basis for {noun} {TargetId} is partial: it has no lastModifiedTime, so its current version (read internally; nothing of it is returned) was used.",
                 NoBasisUserAction));
             return Task.CompletedTask;
         }

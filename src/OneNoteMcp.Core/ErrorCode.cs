@@ -26,8 +26,10 @@ public enum ErrorCode
     InvalidXml,
 
     /// <summary>
-    /// AD-9: an argument the server refuses. From story 2.5, an argument name the tool doesn't declare (checked after the
-    /// SDK has bound the call); later, the AD-7 refusals of a write's arguments.
+    /// AD-9: an argument the server refuses. An argument that doesn't fit the tool's input schema (an undeclared name, a
+    /// missing required argument, a value of the wrong type or outside its enum), checked before the SDK binds the call
+    /// (stories 2.5, 2.14); the AD-7 refusals of a write's arguments; and OneNote's <c>0x80042017</c> hrInvalidName
+    /// (AD-9 Remapped).
     /// </summary>
     InvalidArgument,
     InvalidQuery,
@@ -36,8 +38,10 @@ public enum ErrorCode
     PermanentDeleteNotGranted,
 
     /// <summary>
-    /// AD-21: a target-scoped read inside a password-protected section with no read grant, or a <c>read_result</c> part
-    /// whose grant has lapsed (AD-20).
+    /// AD-21: a target-scoped read inside a password-protected section with no read grant; in such a section, the writes
+    /// that need one (<c>delete_page_content</c>, a page write whose basis carries a hash, whose XML carries an
+    /// <c>objectID</c> or that names <c>removeObjectIds</c>, a page permanent delete whose basis carries a hash; AD-17);
+    /// or a <c>read_result</c> part whose grant has lapsed (AD-20).
     /// </summary>
     ReadNotGranted,
 

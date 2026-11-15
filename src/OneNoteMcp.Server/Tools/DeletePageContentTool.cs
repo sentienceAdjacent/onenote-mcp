@@ -26,7 +26,7 @@ public sealed class DeletePageContentTool(ToolRunner runner, DeletePageContentUs
     [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "Writes to OneNote: deletes one whole Outline (a block of content) from a page. Call it only when the user asks to remove a block of a page. "
-        + "Read the page first with get_page_content and pass its meta.basis unchanged as basis: an Outline changed since that read fails with StaleWrite (re-read, then decide again). Without basis the delete runs with the warning noBasis. "
+        + "Read the page first with get_page_content and pass its meta.basis unchanged as basis: the page changed since that read (its date, or that Outline) fails with StaleWrite (re-read, then decide again). Without basis the delete runs with the warning noBasis. "
         + "objectId must be a one:Outline's objectID from that read; an OE, the title, an image or ink fails with InvalidArgument (to delete an OE, use update_page_content with removeObjectIds). "
         + "The page's notebook needs the user's write grant (a dialog may ask the user to type the notebook's name; only the user can grant, never run the grant command yourself). "
         + "In a password-protected section, the section's read grant is needed too: read the page with get_page_content first, or the call fails with ReadNotGranted. "
