@@ -243,7 +243,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
         {
             warnings.Add(new ToolWarning(
                 ToolWarnings.NoBasis,
-                $"No basis was passed, so the write to page {PageId} was checked against the page as the server just read it: {UnbasedRisk}.",
+                $"No basis was passed, so the write to page {PageId} was checked against its current version (read internally; nothing of it is returned): {UnbasedRisk}.",
                 BasisUserAction));
             return current.LastModifiedTime ?? string.Empty;
         }

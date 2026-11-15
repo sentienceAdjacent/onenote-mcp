@@ -397,7 +397,7 @@ public sealed class SoftDeleteUseCase : IUseCase
                 warnings.Add(noBasis
                     ? new ToolWarning(
                         ToolWarnings.NoBasis,
-                        $"No basis was passed, so the delete of {Noun} {objectId} was checked against it as the server just read it: a change made since your own read wasn't caught.",
+                        $"No basis was passed, so the delete of {Noun} {objectId} was checked against its current version (read internally; nothing of it is returned): a change made since your own read wasn't caught.",
                         NodeBasisUserAction)
                     : new ToolWarning(
                         ToolWarnings.PartialBasis,

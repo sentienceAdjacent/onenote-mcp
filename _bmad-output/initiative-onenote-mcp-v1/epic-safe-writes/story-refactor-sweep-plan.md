@@ -34,6 +34,13 @@ Out of scope, returned as questions: the `z` re-stack (l.379, l.562; every code 
 
 </intent-contract>
 
+## Answers (Phill, 2026-11-15, via the coordinator)
+
+1. `z` re-stack: live probe first. At the next sitting, send an Outline without `z` on MCP Test; if OneNote then stops re-stacking, a small follow-up story stops sending `z`. No code change in 2.13 (deferred-work: "Story 2.13 refactor sweep" entries).
+2. `noBasis` wording: reword every call site now to "checked against its current version (read internally; nothing of it is returned)", or close wording that fits each sentence. The guide skill and README are the 5.7 lane's to align.
+3. AD-7 spine amendment: waits for the next spine-sync story; the deferred entry covers it.
+4. Keep the extra userAction rewording (race case, `PathUserAction`, `RefusedHtmlUserAction`, `NoDialogUserAction`).
+
 ## Implementation Notes
 
 Oneshot: about 30 changed lines across six source/test files plus `deferred-work.md`; all text, comments or one assertion.
@@ -42,6 +49,7 @@ Oneshot: about 30 changed lines across six source/test files plus `deferred-work
 - Decision beyond the Intent's wording (low risk, same alignment): `NoDialogUserAction` keeps the inline route but now says "If the user agrees, a small image can go inline", matching recipe 4's "A client that can't show dialogs" line, so the Verification grep for the old clause finds nothing.
 - `DeclinedUserAction` also gains "Don't send the file another way unless the user asks for that", recipe 4's own words.
 - No unit test asserted any changed string; the contract snapshot strips descriptions, so neither changed.
+- After the Answers (2026-11-15): the four `noBasis` warnings (`PageWrite.CheckBasis`, `HierarchyWrite`, `SoftDeleteUseCase`, `PermanentDeleteUseCase`) and `HierarchyWrite`'s `partialBasis` (the fifth "as the server just read it" site) now say "its current version (read internally; nothing of it is returned)". No unit test pinned the old text. deferred-work l.375 resolved; the `z` entry points at a new live-probe and follow-up entry.
 
 ## Plan Change Log
 
@@ -82,3 +90,4 @@ Oneshot: about 30 changed lines across six source/test files plus `deferred-work
 - **Verification:** `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings 0 errors; `dotnet test tests/OneNoteMcp.Tests` 2886/2886; `dotnet build spikes/stress-harness -c Release` builds; `grep -rni "send it as inline" src` finds nothing.
 - **Not run (safety limits):** integration suite, stress-harness live run on MCP Test (the ticket's "0 mismatches"); no code path a read uses changed, but the live run is Phill's.
 - **Residual risks:** userAction and description text is model-facing; a model may phrase its next step differently. The `z` re-stack and the protected-section `noBasis` wording stay open as questions; the test-journal guard was already on main (8c3d852).
+- **After the Answers (2026-11-15):** `noBasis`/`partialBasis` reworded at five sites; `z` and AD-7 recorded as deferred; build and unit tests rerun (see the PR).

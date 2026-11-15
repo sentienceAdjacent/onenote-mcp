@@ -411,7 +411,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         {
             warnings.Add(new ToolWarning(
                 ToolWarnings.NoBasis,
-                $"No basis was passed, so the delete of {objectId} was checked against it as the server just read it: a change made since your own read was deleted too.",
+                $"No basis was passed, so the delete of {objectId} was checked against its current version (read internally; nothing of it is returned): a change made since your own read was deleted too.",
                 BasisUserAction));
         }
         else if (filled.Count > 0)
