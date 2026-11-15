@@ -398,7 +398,7 @@ public sealed class PermanentDeleteIntegrationTests(ITestOutputHelper output) : 
     private async Task<string> NewGroupAsync(Run run, string label)
     {
         await TestNotebook.EnsureTestTargetAsync(run.Gateway.Inner, run.NotebookId, "OpenHierarchy(5.6 probe group)", Ct);
-        var id = await run.Gateway.CreateSectionGroupAsync(run.NotebookId, $"Delete 5.6 {label} {Stamp}", Ct);
+        var id = await run.Gateway.CreateSectionGroupAsync(run.NotebookId, $"Delete 5-6 {label} {Stamp}", Ct);
         created.Add(id);
         output.WriteLine($"made section group {id} ({label})");
         return id;
