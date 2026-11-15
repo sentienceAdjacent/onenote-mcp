@@ -29,10 +29,19 @@ internal sealed class GrantDialog(HierarchyWalk walk, OnceWindows windows, Setti
 
         // Read before the dialog: no gateway call is in flight and no lock is held while the user decides.
         var (notebook, groups) = await walk.LocationAsync(section.Id, ct).ConfigureAwait(false);
+
+        // Every name is model-writable (5.6 follow-up): the dialog shows each cleaned, and the user types the shown name.
+        var question = new GrantQuestion(
+            section.Id,
+            DialogText.Shown(section.Name, out var expected),
+            DialogText.Shown(notebook?.DisplayName, out _),
+            [.. groups.Select(g => DialogText.Shown(g, out _))],
+            expected,
+            readGrants.OnceMinutes);
         GrantPromptResult answer;
         try
         {
-            answer = await prompt.AskAsync(new GrantQuestion(section.Id, section.Name, notebook?.DisplayName ?? string.Empty, groups, readGrants.OnceMinutes), ct).ConfigureAwait(false);
+            answer = await prompt.AskAsync(question, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -49,8 +58,9 @@ internal sealed class GrantDialog(HierarchyWalk walk, OnceWindows windows, Setti
                 throw ReadAccess.NotGranted(section.Id, "The grant dialog was cancelled.");
         }
 
-        // The trimmed typed text must equal the section's name, ignoring case; anything else makes no grant (AD-21).
-        if (!GrantKeys.NameMatches(answer.TypedName, section.Name))
+        // The trimmed typed text must equal the section's name as the dialog showed it, ignoring case; anything else makes
+        // no grant (AD-21). The grant itself is keyed by the section's path, never by the shown text.
+        if (!DialogText.Matches(answer.TypedName, question.ExpectedText))
         {
             throw ReadAccess.NotGranted(section.Id, "The name typed in the grant dialog didn't match the section's name, so nothing was granted.");
         }

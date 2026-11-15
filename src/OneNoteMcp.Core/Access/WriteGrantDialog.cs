@@ -5,9 +5,10 @@ namespace OneNoteMcp.Core.Access;
 /// <summary>
 /// The write-grant dialog (AD-6), raised by AD-7 step 1 through <see cref="Writes.WritePipeline"/> when a write's
 /// notebook has a path but no write grant (<see cref="WriteGrantMissing"/>). It asks the user through
-/// <see cref="IGrantPrompt.AskWriteAsync"/> to type the notebook's name, then re-reads the open notebooks
-/// (<c>GetHierarchy("", sections)</c>) and matches the typed text with <see cref="GrantKeys.NameMatches"/> against each
-/// displayed name. Exactly one match, and that match the target notebook, stores <c>{write: true, grantedVia:
+/// <see cref="IGrantPrompt.AskWriteAsync"/> to type the notebook's name as the dialog shows it
+/// (<see cref="DialogText.Shown"/>), then re-reads the open notebooks
+/// (<c>GetHierarchy("", sections)</c>) and matches the typed text with <see cref="DialogText.Matches"/> against each
+/// displayed name, cleaned the same way. Exactly one match, and that match the target notebook, stores <c>{write: true, grantedVia:
 /// elicitation}</c> through <see cref="SettingsWriter.SaveWriteGrant"/>, which keeps an existing <c>permanentDelete</c>.
 /// Anything else makes no grant and is <see cref="ErrorCode.WriteNotGranted"/>, retryable, with
 /// <see cref="WriteAccess.NotGrantedUserAction"/>; the message says why and carries the notebook's ID only (AD-9). A save
@@ -46,7 +47,10 @@ public sealed class WriteGrantDialog
         GrantPromptResult answer;
         try
         {
-            answer = await prompt.AskWriteAsync(new WriteGrantQuestion(missing.NotebookId, missing.DisplayName, missing.Path), ct).ConfigureAwait(false);
+            // The name is model-writable (5.6 follow-up): the dialog shows it cleaned, and the user types the shown name.
+            var name = DialogText.Shown(missing.DisplayName, out var expected);
+            var question = new WriteGrantQuestion(missing.NotebookId, name, DialogText.Shown(missing.Path, out _, DialogText.MaxPathLength), expected);
+            answer = await prompt.AskWriteAsync(question, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -63,9 +67,10 @@ public sealed class WriteGrantDialog
                 throw WriteAccess.NotGranted(missing.NotebookId, "the grant dialog was cancelled.");
         }
 
-        // The typed text is matched against every open notebook's displayed name, read again now (AD-6).
+        // The typed text is matched against every open notebook's displayed name, read again now (AD-6), each cleaned as the
+        // dialog shows a name, so typing what was shown matches. Two names the same once cleaned are ambiguous: no grant.
         var notebooks = OpenNotebooks.Find(await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Sections, ct).ConfigureAwait(false));
-        var matches = notebooks.Where(n => GrantKeys.NameMatches(answer.TypedName, n.DisplayName)).ToList();
+        var matches = notebooks.Where(n => DialogText.Matches(answer.TypedName, TypedForm(n.DisplayName))).ToList();
         switch (matches.Count)
         {
             case 0:
@@ -89,5 +94,12 @@ public sealed class WriteGrantDialog
             PermanentDelete: false,
             clock.GetUtcNow(),
             GrantedVia.Elicitation));
+    }
+
+    /// <summary>What the user types for <paramref name="name"/>: the dialog's shown name, without an ellipsis.</summary>
+    private static string TypedForm(string name)
+    {
+        DialogText.Shown(name, out var typed);
+        return typed;
     }
 }
