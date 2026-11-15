@@ -19,7 +19,7 @@ public static class RecycleBin
     /// </summary>
     public static string? BinId(string notebookChildrenXml)
     {
-        var root = OneNoteXml.Parse(notebookChildrenXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(notebookChildrenXml);
         return root.Elements(OneNoteXml.One + "SectionGroup").FirstOrDefault(IsBin) is { } bin
             ? (string?)bin.Attribute("ID") ?? string.Empty
             : null;
@@ -57,9 +57,10 @@ public static class RecycleBin
         return named.Count == 1 ? named[0].Id : null;
     }
 
-    /// <summary>True for the recycle-bin section group: <c>isRecycleBin</c>, or a section group named <c>OneNote_RecycleBin</c>.</summary>
+    /// <summary>
+    /// True for the recycle-bin section group: a <c>one:SectionGroup</c> with <c>isRecycleBin</c>, or named
+    /// <c>OneNote_RecycleBin</c>. Unlike <see cref="HierarchyElements.IsRecycleBin"/>, an element of another kind never counts.
+    /// </summary>
     internal static bool IsBin(XElement element) =>
-        element.Name == OneNoteXml.One + "SectionGroup"
-        && (OneNoteXml.IsTrue((string?)element.Attribute("isRecycleBin"))
-            || string.Equals((string?)element.Attribute("name"), NotebookSections.RecycleBinName, StringComparison.Ordinal));
+        HierarchyElements.KindOf(element) == HierarchyKind.SectionGroup && HierarchyElements.IsRecycleBin(element);
 }

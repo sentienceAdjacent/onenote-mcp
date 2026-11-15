@@ -41,19 +41,19 @@ public sealed record HierarchyTarget(
     /// </summary>
     public static HierarchyTarget Read(string hierarchyXml)
     {
-        var root = OneNoteXml.Parse(hierarchyXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
-        var kind = HierarchyChildren.KindOf(root);
+        var root = OneNoteXml.ParseRoot(hierarchyXml);
+        var kind = HierarchyElements.KindOf(root);
         var children = new List<HierarchyMember>();
         foreach (var child in root.Elements())
         {
-            var childKind = HierarchyChildren.KindOf(child);
+            var childKind = HierarchyElements.KindOf(child);
             var listed = kind switch
             {
                 HierarchyKind.Notebook or HierarchyKind.SectionGroup => childKind is HierarchyKind.Section or HierarchyKind.SectionGroup,
                 HierarchyKind.Section => childKind == HierarchyKind.Page,
                 _ => false,
             };
-            if (!listed || HierarchyChildren.IsRecycleBin(child) || HierarchyChildren.InRecycleBin(child))
+            if (!listed || HierarchyElements.IsRecycleBin(child) || HierarchyElements.InRecycleBin(child))
             {
                 continue;
             }
@@ -72,8 +72,8 @@ public sealed record HierarchyTarget(
             kind == HierarchyKind.Notebook ? (string?)root.Attribute("nickname") : null,
             (string?)root.Attribute("path") ?? string.Empty,
             (string?)root.Attribute("lastModifiedTime"),
-            HierarchyChildren.IsRecycleBin(root),
-            HierarchyChildren.InRecycleBin(root),
+            HierarchyElements.IsRecycleBin(root),
+            HierarchyElements.InRecycleBin(root),
             kind == HierarchyKind.Section && EncryptedSections.IsEncrypted(root),
             OneNoteXml.IsTrue((string?)root.Attribute("locked")),
             children);
@@ -87,7 +87,7 @@ public sealed record HierarchyTarget(
     /// </summary>
     public static IReadOnlyList<string> SectionPathsBelow(string hierarchyXml)
     {
-        var root = OneNoteXml.Parse(hierarchyXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(hierarchyXml);
         return [.. root.Descendants(OneNoteXml.One + "Section").Select(s => (string?)s.Attribute("path") ?? string.Empty)];
     }
 

@@ -84,7 +84,7 @@ public static class ElementHash
     /// <summary>The hash of the root element of <paramref name="xml"/>. Throws <see cref="OneNoteXmlException"/> on XML that isn't well-formed or whose root isn't in the 2013 namespace.</summary>
     public static string Compute(string xml)
     {
-        var root = OneNoteXml.Parse(xml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(xml);
         if (root.Name.Namespace != OneNoteXml.One)
         {
             throw new OneNoteXmlException($"Expected a root element in the 2013 namespace ({OneNoteXml.Namespace2013}).");

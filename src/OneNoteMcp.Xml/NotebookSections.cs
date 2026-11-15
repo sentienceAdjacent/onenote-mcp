@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 namespace OneNoteMcp.Xml;
 
 /// <summary>
@@ -35,7 +33,7 @@ public static class NotebookSections
         foreach (var section in document.Descendants(OneNoteXml.One + "Section"))
         {
             var groups = section.Ancestors(OneNoteXml.One + "SectionGroup").Reverse().ToList();
-            if (groups.Any(IsRecycleBin))
+            if (groups.Any(HierarchyElements.IsRecycleBin))
             {
                 continue;
             }
@@ -47,16 +45,9 @@ public static class NotebookSections
                 [.. groups.Select(g => (string?)g.Attribute("name") ?? string.Empty)],
                 EncryptedSections.IsEncrypted(section),
                 OneNoteXml.IsTrue((string?)section.Attribute("locked")),
-                InRecycleBin(section) || groups.Any(InRecycleBin)));
+                HierarchyElements.InRecycleBin(section) || groups.Any(HierarchyElements.InRecycleBin)));
         }
 
         return sections;
     }
-
-    private static bool IsRecycleBin(XElement group) =>
-        OneNoteXml.IsTrue((string?)group.Attribute("isRecycleBin"))
-        || string.Equals((string?)group.Attribute("name"), RecycleBinName, StringComparison.Ordinal);
-
-    private static bool InRecycleBin(XElement element) =>
-        OneNoteXml.IsTrue((string?)element.Attribute("isInRecycleBin")) || OneNoteXml.IsTrue((string?)element.Attribute("isDeletedPages"));
 }

@@ -30,6 +30,13 @@ public static class OneNoteXml
     }
 
     /// <summary>
+    /// The root element of <paramref name="xml"/>, parsed as <see cref="Parse"/> does. Throws
+    /// <see cref="OneNoteXmlException"/> when the text isn't well-formed or has no root.
+    /// </summary>
+    internal static XElement ParseRoot(string xml) =>
+        Parse(xml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+
+    /// <summary>
     /// Loads <paramref name="xml"/> the way <see cref="XDocument.Parse(string, LoadOptions)"/> does, but with DTD
     /// processing prohibited and no resolver, so a DOCTYPE throws and no entity is ever expanded (AD-16, Phill 2026-11-12,
     /// story 2.9 security review). Throws <see cref="System.Xml.XmlException"/> when the text isn't well-formed.

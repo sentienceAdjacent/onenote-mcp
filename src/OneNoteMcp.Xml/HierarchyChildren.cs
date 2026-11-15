@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 namespace OneNoteMcp.Xml;
 
 /// <summary>One live section or section group directly under a parent (<see cref="HierarchyChildren.Read"/>): its kind, <c>ID</c> and <c>name</c>, unchanged.</summary>
@@ -23,12 +21,12 @@ public static class HierarchyChildren
     /// </summary>
     public static HierarchyParent Read(string childrenScopeXml)
     {
-        var root = OneNoteXml.Parse(childrenScopeXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
+        var root = OneNoteXml.ParseRoot(childrenScopeXml);
         var children = new List<HierarchyChild>();
         foreach (var child in root.Elements())
         {
-            var kind = KindOf(child);
-            if (kind is not (HierarchyKind.Section or HierarchyKind.SectionGroup) || IsRecycleBin(child) || InRecycleBin(child))
+            var kind = HierarchyElements.KindOf(child);
+            if (kind is not (HierarchyKind.Section or HierarchyKind.SectionGroup) || HierarchyElements.IsRecycleBin(child) || HierarchyElements.InRecycleBin(child))
             {
                 continue;
             }
@@ -36,26 +34,11 @@ public static class HierarchyChildren
             children.Add(new HierarchyChild(kind, (string?)child.Attribute("ID") ?? string.Empty, (string?)child.Attribute("name") ?? string.Empty));
         }
 
-        return new HierarchyParent(KindOf(root), (string?)root.Attribute("ID") ?? string.Empty, IsRecycleBin(root), InRecycleBin(root), children);
+        return new HierarchyParent(
+            HierarchyElements.KindOf(root),
+            (string?)root.Attribute("ID") ?? string.Empty,
+            HierarchyElements.IsRecycleBin(root),
+            HierarchyElements.InRecycleBin(root),
+            children);
     }
-
-    internal static HierarchyKind KindOf(XElement element) =>
-        element.Name.Namespace != OneNoteXml.One
-            ? HierarchyKind.Other
-            : element.Name.LocalName switch
-            {
-                "Notebook" => HierarchyKind.Notebook,
-                "Section" => HierarchyKind.Section,
-                "Page" => HierarchyKind.Page,
-                "SectionGroup" => HierarchyKind.SectionGroup,
-                _ => HierarchyKind.Other,
-            };
-
-    internal static bool IsRecycleBin(XElement element) =>
-        OneNoteXml.IsTrue((string?)element.Attribute("isRecycleBin"))
-        || (KindOf(element) == HierarchyKind.SectionGroup
-            && string.Equals((string?)element.Attribute("name"), NotebookSections.RecycleBinName, StringComparison.Ordinal));
-
-    internal static bool InRecycleBin(XElement element) =>
-        OneNoteXml.IsTrue((string?)element.Attribute("isInRecycleBin")) || OneNoteXml.IsTrue((string?)element.Attribute("isDeletedPages"));
 }

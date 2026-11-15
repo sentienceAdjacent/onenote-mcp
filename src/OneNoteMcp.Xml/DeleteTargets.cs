@@ -5,7 +5,7 @@ namespace OneNoteMcp.Xml;
 /// <summary>
 /// The root of a soft delete's target read (story 5.5): its kind, <c>ID</c>, <c>name</c>, <c>path</c> and
 /// <c>lastModifiedTime</c> (the exact string OneNote wrote, AD-17), and the states AD-7 <c>SoftDelete</c> refuses on:
-/// <see cref="IsRecycleBin"/> (<c>isRecycleBin</c>, or a section group named <c>OneNote_RecycleBin</c>),
+/// <see cref="IsRecycleBin"/> (a section group with <c>isRecycleBin</c>, or named <c>OneNote_RecycleBin</c>; <see cref="RecycleBin.IsBin"/>),
 /// <see cref="InRecycleBin"/> (<c>isInRecycleBin</c> or <c>isDeletedPages</c>), <c>encrypted</c> and <c>locked</c>.
 /// </summary>
 public sealed record DeleteTarget(HierarchyKind Kind, string Id, string Name, string Path, string? LastModifiedTime, bool IsRecycleBin, bool InRecycleBin, bool Encrypted, bool Locked);
@@ -22,8 +22,8 @@ public static class DeleteTargets
     /// <summary>The root of <paramref name="hierarchyXml"/>. Throws <see cref="OneNoteXmlException"/> when it isn't well-formed or has no root.</summary>
     public static DeleteTarget Root(string hierarchyXml)
     {
-        var root = OneNoteXml.Parse(hierarchyXml).Root ?? throw new OneNoteXmlException("The XML has no root element.");
-        var kind = KindOf(root);
+        var root = OneNoteXml.ParseRoot(hierarchyXml);
+        var kind = HierarchyElements.KindOf(root);
         return new DeleteTarget(
             kind,
             (string?)root.Attribute("ID") ?? string.Empty,
@@ -31,7 +31,7 @@ public static class DeleteTargets
             (string?)root.Attribute("path") ?? string.Empty,
             (string?)root.Attribute("lastModifiedTime"),
             RecycleBin.IsBin(root),
-            OneNoteXml.IsTrue((string?)root.Attribute("isInRecycleBin")) || OneNoteXml.IsTrue((string?)root.Attribute("isDeletedPages")),
+            HierarchyElements.InRecycleBin(root),
             kind == HierarchyKind.Section && EncryptedSections.IsEncrypted(root),
             OneNoteXml.IsTrue((string?)root.Attribute("locked")));
     }
@@ -91,16 +91,4 @@ public static class DeleteTargets
 
     private static int Level(XElement page) =>
         int.TryParse((string?)page.Attribute("pageLevel"), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var level) ? level : 1;
-
-    private static HierarchyKind KindOf(XElement element) =>
-        element.Name.Namespace != OneNoteXml.One
-            ? HierarchyKind.Other
-            : element.Name.LocalName switch
-            {
-                "Notebook" => HierarchyKind.Notebook,
-                "SectionGroup" => HierarchyKind.SectionGroup,
-                "Section" => HierarchyKind.Section,
-                "Page" => HierarchyKind.Page,
-                _ => HierarchyKind.Other,
-            };
 }
