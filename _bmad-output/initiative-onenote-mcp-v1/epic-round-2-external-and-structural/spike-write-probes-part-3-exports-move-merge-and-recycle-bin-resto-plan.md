@@ -3,7 +3,7 @@ title: 'Write probes, part 3: exports, move, merge and recycle-bin restore'
 type: 'chore'
 ticket: '1'
 created: '2026-11-15'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -22,7 +22,7 @@ context:
 
 **Problem:** Entry 2 (spine amendments for round 2) can't word AD-7's `ExternalWrite` and the move, merge and restore paths of `HierarchyWrite` until the epic Notes' "Unknown, settled by entry 1" questions have a measured answer. The open ones are: the other `Publish` formats per scope, export edge cases, `OpenPackage` targets, `MergeFiles`, `MergeSections`, page, section and group moves, protected moves, recycle-bin restore, and the modal-dialog results and HRESULTs of each method.
 
-**Approach:** Extend 5.1's probe code in `tests/OneNoteMcp.Integration/WriteProbes/` (no fork) with four opt-in scenarios that the main session runs live with Phill. Every write goes through `TestNotebook`'s guard, which this spike widens only for merges, `MergeFiles`, a reused throwaway notebook and the run notebooks' recycle bins. Answers go into a findings doc, one row per question, and into the spine memlog as constraints. No `src/` change.
+**Approach:** Extend 5.1's probe code in `tests/OneNoteMcp.Integration/WriteProbes/` (no fork) with five opt-in scenarios that the main session runs live with Phill. Every write goes through `TestNotebook`'s guard, which this spike widens only for merges, `MergeFiles`, a reused throwaway notebook and the run notebooks' recycle bins. Answers go into a findings doc, one row per question, and into the spine memlog as constraints. No `src/` change.
 
 ## Boundaries & Constraints
 
@@ -36,7 +36,7 @@ context:
 - The probes rely on earlier findings and don't re-probe them. Each such finding is named in Design Notes and cited in the findings doc.
 
 **Never:**
-- Touch anything outside the two test notebooks, the throwaways and the run's own objects, or touch Ballast Vault. Never use NavigateTo or `CloseNotebook`, and never start, close or kill OneNote.
+- Touch anything outside the two test notebooks, the throwaways and the run's own objects, or touch Ballast Vault. On the Office 365 tenant, never touch any notebook except `MCP Test Tenant`. Never use NavigateTo or `CloseNotebook`, and never start, close or kill OneNote.
 - Open a protected section's `.one` backup with `OpenHierarchy` (doing so writes plaintext; 5.1 constraint 17). Packages are byte-scanned only after `expand.exe` extracts them, never by opening them in OneNote, except row O5.
 - Send `DateTime.MinValue`, or retry a write automatically.
 - Change `src/` or the spine text. Only the memlog gets lines, and entry 2 amends the ADs.
@@ -70,7 +70,22 @@ Each row is one findings-doc question. L = MCP Test, C = MCP Test Cloud, P = the
 | RP | Restore, P | A protected section soft-deleted whole, which is then locked in the recycle bin: restore it while locked; Phill then unlocks the recycled copy and the restore is tried again. Does `encrypted` survive, and do the ID and path change? L and C |
 | R5 | Restore | What triggers `0x8004202E` hrRecycleBinEditFailed: renaming a recycled section; moving a live run section into `OneNote_RecycleBin`; `UpdatePageContent` on a recycled page; reordering run pages in Deleted Pages (only if M1(b) showed omitted pages are kept) |
 | D | Modal | With File > Options open (L): a plain `GetHierarchy`, `Publish` pfPDF, `OpenPackage`, `MergeSections`, `MergeFiles`, and an M1-shape move |
+| LB | Labels | On `MCP Test Tenant`: first a baseline `Publish` of a page (pfPDF and pfOneNote) with no label. Then, once Phill has applied a sensitivity label, `Publish` of a page and of the section in all 9 formats. Which formats return `0x80042031` hrPublishFormatUnsupportedForLabels, and which succeed? (`write-probes-r2-label`) |
 | H | HRESULTs | Every code seen, per method, with its trigger, mapped to AD-9 |
+
+## Decisions (Phill, 2026-11-15, plan review, relayed by the coordinator)
+
+- Q1 (a): cross-storage moves and merges between MCP Test and MCP Test Cloud: a page move, a section move and a merge in each direction, as the last steps of the cloud run.
+- Q2 (a): reuse `MCP Test Throwaway Cloud` if it is still open.
+- Q3 (a): adopt `MCP Test Throwaway 1112-034716 a` by its exact name.
+- Q4 (a): the timed-out export (X3) runs as its own scenario, last in sitting A.
+- Q5 (changed from the recommendation): probe `0x80042031`. Phill has an Office 365 tenant. These rules come from the coordinator, for safety:
+  - The probes never touch Phill's existing tenant notebooks.
+  - At a pause, Phill creates a new notebook on the tenant, named exactly `MCP Test Tenant`, with one section. The guard adopts it by that exact name and an `https` path that isn't `d.docs.live.net`. Its own small scenario, `write-probes-r2-label`, runs at the end of sitting B.
+  - Phill applies a sensitivity label only if his tenant offers one. If it doesn't, the row is recorded as not probed, with the reason.
+  - Evidence: the paths and URLs of tenant notebooks carry the tenant's SharePoint address and Phill's account. Every row, echo line and findings entry records the notebook only as "tenant notebook", and the privacy grep must pass.
+- Q6 (a): two sittings of about 75 min, local then cloud.
+- Q7 (a): keep the full plan.
 
 </frozen-after-approval>
 
@@ -92,14 +107,16 @@ Each row is one findings-doc question. L = MCP Test, C = MCP Test Cloud, P = the
   - `MergeFilesAsync`: all four paths must be under `PublishDir`.
   - `AdoptThrowawayNotebookAsync(exactName)`: refuses unless both the name and the folder under `ThrowawayRoot` match exactly.
   - An optional allowed set for `CheckHierarchyXml`, holding only MCP Test's and MCP Test Cloud's `isRecycleBin` group and `isDeletedPages` section IDs, read live. Only R1's second call and R5 pass it.
+  - `TestNotebookGuard.IsTenantTest(name, path)`: true only for exactly `MCP Test Tenant` with an absolute `https` path whose host isn't `d.docs.live.net`. Adopting it through the throwaway mechanism lets `EnsureTargetsAsync` accept it and nothing else on the tenant.
 - [ ] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs` -- add:
   - wrappers for `MergeSectionsAsync`, `MergeFilesAsync` and `OpenPackageIntoAsync`;
   - `PublishFreshAsync` (a fresh subfolder, then the landing poll: first seen, stable, the files written);
   - `ExtractPackageAsync` (`expand.exe -F:*` into `PublishDir`);
   - `RecycleBinIdsAsync`;
   - growing `Created` from the new page IDs in a merge's destination.
-  Helper tests go in `ProbeHelpersTests.cs`.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/` -- new files `Round2ExportProbes.cs`, `Round2MergeProbes.cs`, `Round2MoveProbes.cs`, `Round2RestoreProbes.cs`, `Round2ProtectedProbes.cs` and `Round2TimeoutProbe.cs`. Their `[Fact]`s are the scenarios `write-probes-r2-local`, `-cloud`, `-protected` and `-timeout`, which together cover every Matrix row. Steps run in this order: export, open-package, merge-files, merge-sections, move, restore, then modal (L only). M1(b) runs before R1's second call and R5's reorder, and the cross-storage steps (Q1) come last.
+  - for the label scenario, a recorder redaction that replaces every `http(s)` URL, and the tenant notebook's path, with `tenant notebook`, in rows and in echo lines alike.
+  Helper tests go in `ProbeHelpersTests.cs`, and the redaction gets its own tests.
+- [ ] `tests/OneNoteMcp.Integration/WriteProbes/` -- new files `Round2ExportProbes.cs`, `Round2MergeProbes.cs`, `Round2MoveProbes.cs`, `Round2RestoreProbes.cs`, `Round2ProtectedProbes.cs`, `Round2TimeoutProbe.cs` and `Round2LabelProbe.cs`. Their `[Fact]`s are the scenarios `write-probes-r2-local`, `-cloud`, `-protected`, `-timeout` and `-label`, which together cover every Matrix row. Steps run in this order: export, open-package, merge-files, merge-sections, move, restore, then modal (L only). M1(b) runs before R1's second call and R5's reorder, and the cross-storage steps (Q1) come last.
 - [ ] Live sittings (the main session's, with Phill present, after implementation and review) -- the Sitting script below. This isn't part of implementation.
 - [ ] `epic-round-2-external-and-structural/spike-write-probes-part-3-exports-move-merge-and-recycle-bin-restore-findings.md` (after the sittings) -- follows 5.1's structure: one row per Matrix question, then HRESULTs, Not probed, Evidence gaps, "Relied on, not re-probed", Open before final, and Left behind.
 - [ ] Spine `.memlog.md` (after the sittings) -- one `constraint` line per finding that changes an AD, naming the AD.
@@ -113,21 +130,27 @@ Each row is one findings-doc question. L = MCP Test, C = MCP Test Cloud, P = the
 
 Run from the repo root with OneNote already running, with `$env:ONENOTE_MCP_INTEGRATION='1'` and `$env:ONENOTE_MCP_SCENARIO='<scenario>'`, then `dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~Round2`. Rerun a single step with `ONENOTE_MCP_PROBE_STEPS`.
 
-**Before either sitting,** Phill confirms that `MCP Test Throwaway 1112-034716 a` and `MCP Test Throwaway Cloud` are open (Q2, Q3), and leaves a page outside the probe area on screen.
+**Before either sitting,** Phill confirms that `MCP Test Throwaway 1112-034716 a` and `MCP Test Throwaway Cloud` are open (Q2, Q3), and leaves a page outside the probe area on screen. The protected scenario runs as two facts, `write-probes-r2-protected-local` and `write-probes-r2-protected-cloud`, so that each sitting runs its own pass.
 
 **Sitting A, local (about 75 min):**
 
 | Scenario | What it runs | Pauses for Phill | Estimate |
 |---|---|---|---|
 | `write-probes-r2-local` | X1, X2, O1–4, F1–3, S1–3, M1–4, R1–3, R5, then D | open File > Options, then close it (D); close the `-unpacked` notebooks and the opened backups | about 30 min |
-| `write-probes-r2-protected`, local pass | XP1–2, O5, SP, MP, RP on `MCP Test Throwaway <stamp> p` and a run section in MCP Test | protect `probe vault <stamp>`; lock; say whether a password prompt appeared (O5); unlock the recycled copy; close the opened packages | about 30 min |
+| `write-probes-r2-protected-local` | XP1–2, O5, SP, MP, RP on `MCP Test Throwaway <stamp> p` and a run section in MCP Test | protect the `probe vault` sections; lock; say whether a password prompt appeared (O5); unlock the recycled copy; close the opened packages | about 30 min |
 | `write-probes-r2-timeout` | X3 (a Word export of a 30-page section at a 1 s limit), then the `timeout-retry` step at 60 s | Cancel any dialog if the breaker trips | about 10 min |
 
-**Sitting B, cloud (about 75 min):** `write-probes-r2-cloud` (X1–2, F1, S1–3, M1–4, R1–3, R5, then the L↔C steps last per Q1), with a Sync Now check after each of its 7 steps and an OneNote-for-the-web check after M4. Then the cloud pass of `write-probes-r2-protected`: the protect, lock and unlock pauses again, plus 4 Sync Now checks.
+**Sitting B, cloud (about 75 min plus the label scenario):**
+- `write-probes-r2-cloud`: X1–2, F1, S1–3, M1–4, R1–3 and R5, then the L↔C steps last (Q1). A Sync Now check follows each step, and an OneNote-for-the-web check follows M4.
+- `write-probes-r2-protected-cloud`: the protect, lock and unlock pauses again, with a Sync Now check after each step.
+- `write-probes-r2-label` (Q5), last: Phill creates `MCP Test Tenant` on the tenant at its first pause, then applies a label, or answers `skip` if none is offered.
 
 **In total,** about 2.5 h of Phill's time. Most of it is the 25 to 30 pauses, at 1 to 2 minutes each, and the guarded reads (5.1 found reads slow with MCP Test's Ballast pages).
 
 ## Implementation Notes
+
+- Implementation writes code and unit tests only. Never set `ONENOTE_MCP_INTEGRATION` or `ONENOTE_MCP_SCENARIO`, never call OneNote, and never read or list `%APPDATA%\OneNoteMcp`, `%LOCALAPPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp-Test` on this machine. The main session runs every live sitting later.
+- Every `PauseAsync` instruction must stand on its own: what to do, in which notebook and section, and what to leave as it is. Keep step names stable, so that `ONENOTE_MCP_PROBE_STEPS` can rerun a single step.
 
 ## Plan Change Log
 
@@ -160,37 +183,6 @@ Run from the repo root with OneNote already running, with `$env:ONENOTE_MCP_INTE
 **Why `expand.exe` for packages.** A `.onepkg` is a CAB file, so scanning its raw bytes for text fails, and opening it in OneNote counts as a write. The built-in `expand.exe` extracts the package into `PublishDir` without OneNote, and then run 5's `Scan` reads the bytes. The package and the extracted files stay in `PublishDir` and are listed under Left behind, as in 5.1.
 
 **Order hazards.** If M1(b) shows that a partial page list deletes the pages it leaves out, then R1's second call and R5's reorder log `notProbed`. Otherwise they could remove other recycled pages from MCP Test's Deleted Pages.
-
-## Open Questions
-
-1. **Cross-storage moves and merges (MCP Test ↔ MCP Test Cloud).**
-   - (a) Include a page move, a section move and a merge in each direction, as the last steps of the cloud run.
-   - (b) Same-storage pairs only (L to throwaway a, C to MCP Test Cloud Throwaway).
-   Recommended: (a). Users will move content between local and OneDrive notebooks, so the move story has to know what happens. Running them last means a sync jam can't block the other rows.
-2. **The second cloud notebook.**
-   - (a) Reuse `MCP Test Throwaway Cloud`, 5.1's leftover, if it is still open.
-   - (b) Phill makes a new cloud throwaway at a pause.
-   Recommended: (a). It is already allowed by exact name and OneDrive path, and it adds no new notebook that COM can't delete.
-3. **The second local notebook.**
-   - (a) Adopt `MCP Test Throwaway 1112-034716 a` by its exact name, as the epic plans for entry 4.
-   - (b) Create a fresh throwaway.
-   Recommended: (a). Entries 4, 6 and 12 reuse it, and every new throwaway stays open forever.
-4. **X3, the timed-out export.**
-   - (a) Run it in its own scenario, last in sitting A.
-   - (b) Skip it, and let the export story poll for the file and treat a timeout as `outcomeUnknown`.
-   Recommended: (a). 5.1's R5 timed out a create safely in the same way, and E1's `FileExists` check needs to know whether a partial file can block a retry.
-5. **`0x80042031` (sensitivity labels).**
-   - (a) Not probed: labels need a business tenant with Purview, and the test notebooks are on a personal OneDrive.
-   - (b) Phill labels a page, if his account offers labels.
-   Recommended: (a).
-6. **Sitting shape.**
-   - (a) Two sittings of about 75 min: A local, B cloud.
-   - (b) One sitting of about 2.5 h.
-   Recommended: (a). 5.1's long runs lost pauses to timeouts, and one run was cut short by low memory.
-7. **Plan length** (about 5,000 tokens, over the 1,600 guide).
-   - (a) Keep the full plan.
-   - (b) Split it into an export and merge spike and a separate move and restore spike.
-   Recommended: (a). It is one guard extension and one sitting design. Splitting it would mean two guard changes and two pairs of sittings. 5.1 kept a 2,700-token plan.
 
 ## Verification
 
