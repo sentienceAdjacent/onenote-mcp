@@ -264,6 +264,8 @@ public sealed class UpdateHierarchyIntegrationTests(ITestOutputHelper output) : 
             var level = $"<one:Section xmlns:one=\"{OneNoteXml.Namespace2013}\" ID=\"{section}\"><one:Page ID=\"{p1}\" /><one:Page ID=\"{p2}\" pageLevel=\"2\" /><one:Page ID=\"{p3}\" /></one:Section>";
             await TestNotebook.UpdateHierarchyAsync(run.Gateway, level, created.ToHashSet(StringComparer.Ordinal), throwaways, "UpdateHierarchy(L6 subpage level)", Ct);
             await Task.Delay(TimeSpan.FromSeconds(2), Ct);
+            var before = HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(section, CoreScope.Children, Ct));
+            output.WriteLine($"RESULT L6 levels before the reorder: [{string.Join(", ", before.Children.Select(c => c.PageLevel))}]");
 
             var root = Ok(await ReorderTool(run).ReorderHierarchyChildren(section, [p3, p1, p2], await BasisAsync(run, section, CoreScope.Children), Ct));
 
@@ -445,7 +447,7 @@ public sealed class UpdateHierarchyIntegrationTests(ITestOutputHelper output) : 
 
     private async Task<string> CreateGroupAsync(Run run, string parentId, string name)
     {
-        var id = ObjectId(Ok(await new CreateSectionGroupTool(Runner(), CreateUseCase(run)).CreateSectionGroup(parentId, name, Ct)));
+        var id = ObjectId(Ok(await new CreateSectionGroupTool(Runner(), CreateUseCase(run)).CreateSectionGroup(parentId, name.Replace('.', '-'), Ct)));
         created.Add(id);
         return id;
     }

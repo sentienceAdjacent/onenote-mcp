@@ -128,7 +128,14 @@ public static class HierarchyUpdate
         var element = new XElement(OneNoteXml.One + ElementName(parentKind, nameof(parentKind)), new XAttribute("ID", parentId));
         foreach (var child in children)
         {
-            element.Add(new XElement(OneNoteXml.One + ElementName(child.Kind, nameof(children)), new XAttribute("ID", child.Id)));
+            var member = new XElement(OneNoteXml.One + ElementName(child.Kind, nameof(children)), new XAttribute("ID", child.Id));
+            if (child.Kind == HierarchyKind.Page && child.PageLevel > 0)
+            {
+                // Each page's level as read, unchanged: without it OneNote flattens every subpage to level 1 (sitting 2026-11-15, L6).
+                member.Add(new XAttribute("pageLevel", child.PageLevel));
+            }
+
+            element.Add(member);
         }
 
         return Serialize(element);

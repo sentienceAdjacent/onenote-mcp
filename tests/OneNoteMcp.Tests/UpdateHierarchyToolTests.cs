@@ -640,7 +640,7 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     }
 
     [Fact]
-    public async Task ReorderPages_WithWholeSubpageBlocks_IsOk_IdOnlyPages_LevelsNotSent()
+    public async Task ReorderPages_WithWholeSubpageBlocks_IsOk_EachPageKeepsItsLevel()
     {
         Grant();
         ApplyWrites();
@@ -651,11 +651,10 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         var element = XElement.Parse(Assert.Single(gateway.UpdateHierarchyCalls));
         Assert.Equal(One + "Section", element.Name);
         Assert.Equal([P3, P2, P2a, P1, P1b, P1a], element.Elements().Select(e => (string?)e.Attribute("ID")));
-        Assert.All(element.Elements(), e =>
-        {
-            Assert.Equal(One + "Page", e.Name);
-            Assert.Null(e.Attribute("pageLevel"));
-        });
+        Assert.All(element.Elements(), e => Assert.Equal(One + "Page", e.Name));
+
+        // Each page's level as read: without it OneNote flattens every subpage (sitting 2026-11-15, L6).
+        Assert.Equal(["1", "1", "2", "1", "2", "2"], element.Elements().Select(e => (string?)e.Attribute("pageLevel")));
     }
 
     [Fact]

@@ -134,15 +134,16 @@ public sealed class HierarchyUpdateXmlTests
     }
 
     [Fact]
-    public void ReorderPages_SendsNoPageLevel_AndPassesTheXsd()
+    public void ReorderPages_ResendsEachPagesOwnLevel_AndPassesTheXsd()
     {
+        // Sitting 2026-11-15 (L6): a reorder without pageLevel made OneNote flatten every subpage to level 1.
         var xml = HierarchyUpdate.Reorder(HierarchyKind.Section, SectionId, [
             new HierarchyMember(HierarchyKind.Page, PageId, "p", 1),
             new HierarchyMember(HierarchyKind.Page, SubpageId, "s", 2),
         ]);
 
-        Assert.DoesNotContain("pageLevel", xml, StringComparison.Ordinal);
-        Assert.Equal(2, XElement.Parse(xml).Elements(One + "Page").Count());
+        var pages = XElement.Parse(xml).Elements(One + "Page").ToList();
+        Assert.Equal(["1", "2"], pages.Select(p => (string?)p.Attribute("pageLevel")));
         Assert.Empty(SchemaValidation.Problems(xml));
     }
 
