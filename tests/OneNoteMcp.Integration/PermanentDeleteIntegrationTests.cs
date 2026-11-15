@@ -261,15 +261,18 @@ public sealed class PermanentDeleteIntegrationTests(ITestOutputHelper output) : 
 
     // --- P9: an empty section -------------------------------------------------------------------------------------------
 
+    /// <summary>Live 2026-11-15: Publish of an empty section failed with 0x80042006, so the tool now refuses it without calling Publish.</summary>
     [Fact]
-    public async Task P9_EmptySection_DoesPublishSucceed()
+    public async Task P9_EmptySection_IsBackupFailed_AndKept()
     {
         await using var run = await StartAsync();
         var section = await NewSectionAsync(run, "P9");
 
         var result = await Tool(run).PermanentlyDeleteHierarchyObject(section, null, Ct);
 
-        output.WriteLine($"RESULT P9: {Code(result) ?? "ok: an empty section published and was deleted"}; hresult {Hresult(result) ?? "none"}");
+        Assert.Equal("BackupFailed", Code(result));
+        Assert.True(await ExistsAsync(run, section));
+        output.WriteLine($"RESULT P9: BackupFailed without Publish; hresult {Hresult(result) ?? "none"}; section {section} still there");
     }
 
     // --- P10 (cloud): P4 and P6 on MCP Test Cloud --------------------------------------------------------------------

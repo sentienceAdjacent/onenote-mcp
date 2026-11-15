@@ -350,6 +350,43 @@ public sealed class PermanentDeleteToolTests : IDisposable
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnEmptySection_IsBackupFailed_BeforeEitherDialog_WithNoPublish_AndSaysToSoftDeleteIt(bool storedGrant)
+    {
+        // Live (2026-11-15, P9): Publish of a section with no pages fails with 0x80042006, so its delete can never run.
+        const string emptyId = "{SE000000-0000-4000-8000-000000000001}{1}{B0}";
+        gateway.Parents[emptyId] = NotebookId;
+        Section(emptyId, "Blank", string.Empty);
+        Grant(permanentDelete: storedGrant);
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "Blank"));
+
+        var error = Error(await RunAsync(emptyId, new PageWriteBasis(SectionDate), prompt), "BackupFailed");
+
+        Assert.Equal(
+            $"Section {emptyId} has no pages, and OneNote can't back up an empty section, so it can't be deleted permanently. Nothing was deleted.",
+            error.GetProperty("message").GetString());
+        Assert.Equal(PermanentDeleteWrite.EmptySectionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains("delete_hierarchy_object", PermanentDeleteWrite.EmptySectionUserAction, StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
+        Assert.Empty(holds);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task AnEmptyRecycledSection_IsBackupFailed_AndSaysToEmptyTheRecycleBin()
+    {
+        const string emptyId = "{SX000000-0000-4000-8000-000000000001}{1}{B0}";
+        gateway.Parents[emptyId] = RecycleBinId;
+        Section(emptyId, "Old blank", "isInRecycleBin=\"true\"");
+
+        var error = Error(await Tool().PermanentlyDeleteHierarchyObject(emptyId, new PageBasisArgument(SectionDate), Ct), "BackupFailed");
+
+        Assert.Equal(PermanentDeleteWrite.EmptyRecycledSectionUserAction, error.GetProperty("userAction").GetString());
+        await AssertRefusedAsync();
+    }
+
+    [Theory]
     [InlineData(false, "never appeared")]
     [InlineData(true, "stayed empty")]
     public async Task ABackupFileThatNeverLands_OrStaysEmpty_IsBackupFailed_AndNothingIsDeleted(bool empty, string why)

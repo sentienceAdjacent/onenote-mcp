@@ -89,7 +89,8 @@ public sealed record PermanentDeleteServices(
 /// (<see cref="ErrorCode.ObjectNotFound"/>); a notebook, a protected section, a non-empty group, a recycled page (each
 /// <see cref="ErrorCode.NotSupported"/>); the Deleted Pages section (<see cref="ErrorCode.NotSupported"/>, Q4 a); a locked
 /// section holding the page (<see cref="ErrorCode.SectionLocked"/>); a page with subpages
-/// (<see cref="ErrorCode.InvalidArgument"/>, with the count).</item>
+/// (<see cref="ErrorCode.InvalidArgument"/>, with the count); a section with no pages (<see cref="ErrorCode.BackupFailed"/>,
+/// since <c>Publish</c> can't back it up, so it is never called).</item>
 /// <item value="5">Step 5 (AD-17): a page compares the caller's page-XML date and <c>pageHash</c> and sends the page's
 /// hierarchy date; a section or group compares and sends its hierarchy date, the caller's string. Never <c>MinValue</c>.</item>
 /// <item>Step 6: the page snapshot; the empty group's <c>hierarchy</c> entry; a section's page entries, then its backup and
@@ -119,6 +120,14 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
 
     public const string NonEmptyGroupUserAction =
         "Only an empty section group can be deleted permanently: nothing can back up a group. Delete each section and group inside it first (each section gets its own backup), or ask the user to delete the group in OneNote.";
+
+    /// <summary>A section with no pages: OneNote's <c>Publish</c> refuses it (0x80042006, live 2026-11-15), so no backup.</summary>
+    public const string EmptySectionUserAction =
+        "An empty section can't be deleted permanently, because OneNote can't back it up. Soft-delete it instead with delete_hierarchy_object (it goes to the recycle bin), or ask the user to delete it in OneNote.";
+
+    /// <summary>The same for an empty section already in the recycle bin, which a soft delete can't move further.</summary>
+    public const string EmptyRecycledSectionUserAction =
+        "An empty section can't be deleted permanently, because OneNote can't back it up, and this one is already in the recycle bin. Ask the user to empty the recycle bin in OneNote (or delete the section from it there).";
 
     public const string SubpagesUserAction =
         "Delete or move the page's subpages first, each with its own call, or ask the user to delete the page in OneNote.";
@@ -225,6 +234,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
             case HierarchyKind.Section:
                 var pages = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Pages, ct).ConfigureAwait(false);
                 pageCount = XmlReads.Readable(() => PermanentDeleteTarget.PageIds(pages), $"GetHierarchy({objectId})").Count;
+                RefuseEmptySection(found, pageCount.Value);
                 break;
 
             case HierarchyKind.Page:
@@ -301,6 +311,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
             case HierarchyKind.Section:
                 containerXml = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Pages, ct).ConfigureAwait(false);
                 pageIds = XmlReads.Readable(() => PermanentDeleteTarget.PageIds(containerXml), $"GetHierarchy({objectId})");
+                RefuseEmptySection(found, pageIds.Count);
                 break;
 
             case HierarchyKind.Page:
@@ -577,6 +588,22 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 ErrorCode.NotSupported,
                 string.Create(CultureInfo.InvariantCulture, $"Section group {objectId} holds {beneath} section(s) or section group(s), and only an empty one can be deleted permanently, so nothing was deleted."),
                 userAction: NonEmptyGroupUserAction);
+        }
+    }
+
+    /// <summary>
+    /// A section with no pages of its own: <see cref="ErrorCode.BackupFailed"/> without calling <c>Publish</c>, which
+    /// refuses an empty section (<c>0x80042006</c>, live 2026-11-15, 5.6 plan change log), so the delete could never run.
+    /// Refused before any dialog and again under the lock.
+    /// </summary>
+    private void RefuseEmptySection(PermanentDeleteTarget found, int pageCount)
+    {
+        if (pageCount == 0)
+        {
+            throw new OneNoteException(
+                ErrorCode.BackupFailed,
+                $"Section {objectId} has no pages, and OneNote can't back up an empty section, so it can't be deleted permanently. Nothing was deleted.",
+                userAction: found.IsInRecycleBin ? EmptyRecycledSectionUserAction : EmptySectionUserAction);
         }
     }
 
