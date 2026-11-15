@@ -210,6 +210,7 @@ None runs in the build; each is an opt-in test in `tests/OneNoteMcp.Integration/
 
 ## Plan Change Log
 
+- 2026-11-15 sitting (live, MCP Test and MCP Test Cloud): L1–L12 all passed. Results: L1 recycled page keeps name, dates and pageLevel, restore makes a new page; L2 and L11 `StaleWrite`; L3 a displayed cloud page whose dates differ (page XML 04:10:28, hierarchy 04:10:26) deleted with the hierarchy date; L4 tool `NotSupported`, and the raw delete made the page vanish (old ID gone, not in Deleted Pages), local and cloud, so the refusal is needed; L5 an empty group is deleted outright (nothing in the bin); L6 a nested group's sections land in the bin, the subgroup doesn't; L7 tool `SectionLocked`, raw delete removed the group and binned the locked section; L8 tool refuses, raw delete leaves the subpage at level 1; L9 the right `recycleBinId` among 3 same-named; L10 plain and protected sections keep their IDs in the bin (protected stays encrypted and locked), restore `NotSupported`; L12 cloud page, section, group ok (Phill's web check pending). L6 and L10 first hit a one-off `StaleWrite` right after the nodes were created (a fresh node's date moves for a moment) and passed on rerun.
 ### 2026-11-13 — Rebase onto 5.4 (origin/story/5.4-update-hierarchy 889c5dc, on 5.3 92b07d3)
 
 - **Trigger:** 5.4's code landed, so 5.5's stand-ins for it (Build Directions, first item) are replaced by the real pieces. No change inside `<intent-contract>`.
