@@ -207,6 +207,7 @@ Implemented in one pass by the step-03 subagent (2026-11-13); build 0 warnings, 
 
 ## Plan Change Log
 
+- 2026-11-15 sitting (live, MCP Test and MCP Test Cloud): L1, L2, L4, L5, L7, L8 and L9 passed. L6 found a bug: a page reorder sent without `pageLevel` made OneNote flatten every subpage to level 1 (levels before [1, 2, 1], after [1, 1, 1]); fixed in bb6b085 (the reorder resends each page's level as read) and L6 then passed. Results: L3 a groups-only reorder is accepted but OneNote doesn't keep the order (`readBackDiffers`), a full reorder is kept; L4 a case-only rename reads back in the new case; L5 an unlocked protected section renames, a locked one is `SectionLocked` from the tool and `0x8004201B` from raw UpdateHierarchy; L9 a rename under File > Options is `ModalDialogOpen` `0x80042030`. A section group renamed in local MCP Test kept its old folder name on disk, so the docs' claim that a group rename ends inner protected sections' read grants is unconfirmed: check before merge. New groups in the probes are named without a period (0x80042018, see 5.3).
 ## Review Triage Log
 
 ### 2026-11-13 — Review pass
