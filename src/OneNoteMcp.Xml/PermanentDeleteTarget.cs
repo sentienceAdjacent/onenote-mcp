@@ -10,8 +10,8 @@ namespace OneNoteMcp.Xml;
 /// <see cref="IsDeletedPages"/> (<c>isDeletedPages</c>), <see cref="Encrypted"/> (a section's <c>encrypted</c>, AD-21) and
 /// <see cref="Locked"/>. Story 5.5's <see cref="DeleteTargets"/> reads much the same but folds <c>isDeletedPages</c> into
 /// <c>InRecycleBin</c>, while a permanent delete allows a recycled section and refuses Deleted Pages. Both readers share
-/// <see cref="HierarchyElements"/> (5.8 refactor sweep); merging the records themselves is an open question in
-/// <c>deferred-work.md</c> (5.6 share points), because their recycle-bin and <c>pageLevel</c> rules differ.
+/// <see cref="HierarchyElements"/> (5.8 refactor sweep); merging the records themselves, whose recycle-bin and
+/// <c>pageLevel</c> rules differ, is the backlog story "One reader for the target of a delete or change".
 /// </summary>
 public sealed record PermanentDeleteTarget(
     HierarchyKind Kind,

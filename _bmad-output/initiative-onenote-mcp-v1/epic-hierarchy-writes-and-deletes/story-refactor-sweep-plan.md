@@ -40,6 +40,12 @@ Out of scope, returned as questions (each changes behaviour or a public message)
 
 </intent-contract>
 
+## Answers (Phill, 2026-11-15, via the coordinator)
+
+1. Merge the three target readers: yes, as a small follow-up story with unit tests for the odd inputs (malformed `pageLevel` and the like); not in 5.8. Filed as the standalone backlog leaf `../backlog/story-one-reader-for-the-target-of-a-delete-or-change.md`, so epic 5 can close.
+2. Share the delete refusals: leave them separate. The cleanup note is closed (deferred-work, 5.6 share-point entry, resolved 2026-11-15).
+3. `CreatePageIntegrationTests` journal fix: deferred to the next cleanup that touches epic 2's tests; recorded in deferred-work under "Story 2.13 refactor sweep" (the epic 2 cleanup heading).
+
 ## Implementation Notes
 
 Oneshot: about 100 changed lines across nine source/test files plus `deferred-work.md`; all mechanical, behaviour-identical substitutions.
@@ -88,3 +94,4 @@ Oneshot: about 100 changed lines across nine source/test files plus `deferred-wo
 - **Verification:** `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings 0 errors; `dotnet test tests/OneNoteMcp.Tests` 2886/2886; `dotnet build spikes/stress-harness -c Release` builds; the kind-switch grep finds only `HierarchyElements.cs`.
 - **Not run (safety limits):** integration suite and the stress harness's live "0 mismatches" run on MCP Test; no read or write logic changed, but the live run is Phill's.
 - **Residual risks:** none known; every substitution is the same expression. Open questions: merging the three target records and `pageLevel` parses, and sharing the delete refusals (both change behaviour or messages).
+- **After the Answers (2026-11-15):** no code change. The reader merge is the backlog leaf `story-one-reader-for-the-target-of-a-delete-or-change.md`; the shared-refusals note is resolved ("Phill: leave separate"); the `CreatePageIntegrationTests` journal fix is a deferred-work entry under the 2.13 heading. The `PermanentDeleteTarget` doc now points at the backlog story.
