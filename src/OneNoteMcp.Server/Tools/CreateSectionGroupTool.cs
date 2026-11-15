@@ -24,6 +24,7 @@ public sealed class CreateSectionGroupTool(ToolRunner runner, CreateHierarchyUse
     [Description(
         "Writes to OneNote: adds an empty section group to a notebook or section group and returns its ID in meta.objectId (and the parent's in meta.parentId). Call it only when the user asks for a new section group. "
         + "name is one name: no path separators, no '..', no < > : \" | ? *, no control, invisible or text-direction characters, no leading or trailing space or dot, at most 128 characters. "
+        + "A section group's name can't contain '.' at all (OneNote can't create one): such a name fails with InvalidArgument, so create it without the '.' and ask the user to rename it in OneNote. "
         + "If a section group of that name (ignoring case) is already there, nothing is created: its ID is returned with the warning alreadyExisted. A section of that name there fails with InvalidArgument. "
         + "The notebook needs the user's write grant. Without one, the user may be shown a dialog asking them to type the notebook's name to grant it; if they don't, or the client can't show it, the call fails with WriteNotGranted, and only the user can grant it (never run the grant command yourself). "
         + "A parent that isn't a notebook or section group, or is in the recycle bin, fails with ObjectNotFound. "

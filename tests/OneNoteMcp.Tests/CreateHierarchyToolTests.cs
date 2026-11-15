@@ -291,6 +291,50 @@ public sealed class CreateHierarchyToolTests : IDisposable
     }
 
     [Theory]
+    [InlineData("Notes 2.0")]
+    [InlineData("Create 5.3 Group")]
+    [InlineData("v1.one")]
+    public async Task Group_ANameWithAPeriod_IsInvalidArgument_NotRetryable_BeforeTheLock_AndNoCom(string name)
+    {
+        // Sitting 2026-11-15: OpenHierarchy with cftFolder fails 0x80042018 (hrFolderDoesNotExist) for any '.' in the
+        // name. Phill chose to refuse it before COM, with advice to create it without the '.' and rename it in OneNote.
+        Grant();
+
+        var error = Error(await GroupTool().CreateSectionGroup(NotebookId, name, Ct), "InvalidArgument");
+
+        Assert.Equal(CreateHierarchyUseCase.GroupPeriodUserAction, error.GetProperty("userAction").GetString());
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+        Assert.DoesNotContain(name, error.GetRawText(), StringComparison.Ordinal);
+        AssertNoCreate();
+        Assert.Empty(holds);
+        Assert.Empty(gateway.Calls); // before settings or the hierarchy are read
+    }
+
+    [Fact]
+    public async Task Section_ANameWithAPeriod_IsStillCreated()
+    {
+        // The '.' refusal is for section groups only: OneNote creates a section (cftSection) with one.
+        Grant();
+
+        Ok(await SectionTool().CreateSection(NotebookId, "Notes 2.0", Ct));
+
+        Assert.Equal([(NotebookId, "Notes 2.0.one")], gateway.CreateSectionCalls);
+    }
+
+    [Fact]
+    public async Task Notebook_ANameWithAPeriod_IsStillCreated()
+    {
+        // The '.' refusal is for section groups only.
+        const string name = "Notes 2.0";
+        var target = FilePathGate.Canonical(Path.Combine(NotebooksFolder, name), out _)!;
+        ReadBackAt(target);
+
+        Ok(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(name, NotebooksFolder, Ct));
+
+        Assert.Equal([target], gateway.CreateNotebookCalls);
+    }
+
+    [Theory]
     [InlineData("a .one")]
     [InlineData(".one")]
     public async Task Section_BadFileName_IsInvalidArgument_BeforeTheLock(string name)

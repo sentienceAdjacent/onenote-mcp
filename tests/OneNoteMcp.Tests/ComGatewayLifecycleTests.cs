@@ -624,6 +624,23 @@ public sealed class ComGatewayLifecycleTests
         Assert.Empty(app.Calls);
     }
 
+    [Theory]
+    [InlineData("Notes 2.0")]
+    [InlineData("v1.one")]
+    public async Task CreateSectionGroup_RefusesAPeriod_WithInvalidArgument_AndTheRenameAdvice_BeforeCom(string name)
+    {
+        // Sitting 2026-11-15: OneNote's cftFolder create fails 0x80042018 for a '.' in the name (defence in depth).
+        var app = new FakeApplication { OnCall = _ => "{group}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateSectionGroupAsync("{nb}", name, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Equal(SectionFileNames.GroupPeriodUserAction, ex.UserAction);
+        Assert.False(ex.Retryable!.Value);
+        Assert.Empty(app.Calls);
+    }
+
     [Fact]
     public async Task CreateSectionGroup_RefusesAnEmptyParent_BeforeCom_AndIsNotRetriedAfterADisconnect()
     {

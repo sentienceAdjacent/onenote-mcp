@@ -310,6 +310,16 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 retryable: false));
         }
 
+        // OpenHierarchy with cftFolder fails 0x80042018 for any '.' in the name (sitting 2026-11-15).
+        if (SectionFileNames.GroupPeriodProblem(groupName) is { } period)
+        {
+            return Task.FromException<string>(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: the new section group's name {period}.",
+                userAction: SectionFileNames.GroupPeriodUserAction,
+                retryable: false));
+        }
+
         return RunAsync(
             method,
             app =>

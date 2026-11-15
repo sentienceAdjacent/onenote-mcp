@@ -12,7 +12,7 @@ namespace OneNoteMcp.Core.UseCases;
 /// (AD-7) as a <c>Create</c>.
 /// <list type="bullet">
 /// <item><b>Section and section group</b>, by parent ID plus a relative name, never an absolute path. Step 1 checks the
-/// name (<see cref="SectionFileNames"/>), then the write grant on the parent's notebook, the parent itself when it is a
+/// name (<see cref="SectionFileNames"/>; a section group's may hold no <c>.</c>, sitting 2026-11-15), then the write grant on the parent's notebook, the parent itself when it is a
 /// notebook (with AD-6's grant dialog). Step 3 reads the parent at <c>Children</c>; step 4 refuses a parent that isn't a
 /// live notebook or section group with <see cref="ErrorCode.ObjectNotFound"/>. A live child of the same kind and name
 /// (ignoring case) is returned with the warning <c>alreadyExisted</c> and no COM call; one of the other kind is refused with
@@ -42,6 +42,9 @@ public sealed class CreateHierarchyUseCase : IUseCase
     /// <summary>What to do about a name the server refuses.</summary>
     public const string NameUserAction =
         "Use a name of at most 128 characters with no path separators, no '..', no characters a Windows file name can't hold (< > : \" | ? *), no control, invisible or text-direction characters, no leading or trailing space or dot, and not a reserved name such as CON or OneNote_RecycleBin.";
+
+    /// <summary>What to do about a new section group's name with a '.', which OneNote can't create (sitting 2026-11-15).</summary>
+    public const string GroupPeriodUserAction = SectionFileNames.GroupPeriodUserAction;
 
     /// <summary>What to do when the client can't show the notebook-location dialog (story 5.3 build directions, an assumption).</summary>
     public const string NoDialogUserAction =
@@ -287,6 +290,12 @@ public sealed class CreateHierarchyUseCase : IUseCase
             if (problem is not null)
             {
                 throw BadName(Noun(kind), problem);
+            }
+
+            // A '.' in a section group's name: OneNote's cftFolder create fails with 0x80042018 (sitting 2026-11-15).
+            if (kind == HierarchyKind.SectionGroup && SectionFileNames.GroupPeriodProblem(name) is { } period)
+            {
+                throw new OneNoteException(ErrorCode.InvalidArgument, $"The new section group's name {period}, so nothing was created.", userAction: GroupPeriodUserAction, retryable: false);
             }
 
             return access.CheckContainerAsync(parentId, () => NotAContainer(parentId, "isn't inside a notebook"), ct);

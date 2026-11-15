@@ -75,7 +75,7 @@ public sealed class CreateHierarchyIntegrationTests(ITestOutputHelper output) : 
             Assert.Equal(sectionId, ObjectId(again));
             Assert.Equal("alreadyExisted", again.GetProperty("warnings")[0].GetProperty("code").GetString());
 
-            var group = Ok(await new CreateSectionGroupTool(Runner(), useCase).CreateSectionGroup(run.NotebookId, $"Create 5.3 Group {stamp}", Ct));
+            var group = Ok(await new CreateSectionGroupTool(Runner(), useCase).CreateSectionGroup(run.NotebookId, $"Create 5-3 Group {stamp}", Ct));
             var groupId = ObjectId(group);
             created.Add(groupId);
             output.WriteLine($"section group {groupId} under {run.NotebookId}");
@@ -85,7 +85,7 @@ public sealed class CreateHierarchyIntegrationTests(ITestOutputHelper output) : 
             created.Add(ObjectId(inner));
             Assert.True(await IsLiveChildAsync(run.Gateway, groupId, ObjectId(inner), "Section"));
 
-            var clash = await new CreateSectionTool(Runner(), useCase).CreateSection(run.NotebookId, $"Create 5.3 Group {stamp}", Ct);
+            var clash = await new CreateSectionTool(Runner(), useCase).CreateSection(run.NotebookId, $"Create 5-3 Group {stamp}", Ct);
             Assert.Equal("InvalidArgument", clash.StructuredContent!.Value.GetProperty("error").GetProperty("code").GetString());
         }
         finally
@@ -269,7 +269,7 @@ public sealed class CreateHierarchyIntegrationTests(ITestOutputHelper output) : 
     private static JsonElement Ok(CallToolResult result)
     {
         var root = result.StructuredContent!.Value;
-        Assert.False(result.IsError, $"the create failed: {(result.IsError == true ? root.GetProperty("error").GetProperty("code").GetString() : null)}");
+        Assert.False(result.IsError, $"the create failed: {(result.IsError == true ? root.GetProperty("error").ToString() : null)}");
         return root;
     }
 
