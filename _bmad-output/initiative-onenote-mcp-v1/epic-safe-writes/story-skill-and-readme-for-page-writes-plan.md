@@ -3,13 +3,15 @@ title: 'Skill and README for page writes'
 type: 'feature'
 ticket: '12'
 created: '2026-11-14'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '1c39a03883854c9119f9f9a3185d260e5d136db5'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -61,7 +63,7 @@ What an agent does when it follows the skill. These rows are the live check's sc
 2. (b) `SKILL.md` keeps the safety rules, tool map, error and warning rows and a short write overview; the recipes go to `plugin/skills/guide/references/page-writes.md`, which the skill says to read before any write. `PluginPackagingTests`' named-tool checks widen to `references/`.
 3. (a) Rewrite the description with write triggers, and say move, rename and section or page deletes aren't supported yet. At most 1,024 characters.
 4. (a) New top-level "Grants" and "Recovery journal" sections; "Safety model" and "Limits" updated; existing anchors keep working.
-5. Phill answered (b) always inline, with a note: he leans inline but asked whether an image added by path stays available everywhere. Re-asked in the thread with the evidence (OneNote copies a file sent by path into the notebook: 2.11's attachment came back as a `{GUID}.bin` cache, not the source path); recipe (4) waits for the follow-up answer.
+5. Phill answered (b) always inline, with a note: he leans inline but asked whether an image added by path stays available everywhere. Follow-up answer: (a) by path for a file on disk, inline only for small images already in hand.
 6. (a) The skill says to always use the newest `meta.basis`; the `z` code fix goes to 2.13.
 7. (b) A plugin session on MCP Test, plus a short README-only session.
 8. (a) Keep the plan whole.
@@ -92,9 +94,29 @@ What an agent does when it follows the skill. These rows are the live check's sc
 
 ## Implementation Notes
 
+**Build constraints (team lead, 2026-11-14, unattended build):**
+- (Superseded the same day: Phill answered Q5 (a), see Answers; recipe 4 and the matching README and `SKILL.md` lines replaced the placeholders.) Q5 was still open. Write every recipe except (4). For recipe (4) put a clearly marked placeholder section `<!-- TODO(2.12 Q5): image recipe pending Phill's answer -->` in `references/page-writes.md`, and a matching `<!-- TODO(2.12 Q5) ... -->` placeholder wherever the docs would otherwise state how an image is added (for example a README line or a `SKILL.md` row). Don't guess the answer.
+- Never touch OneNote: no live runs, no integration tests, no MCP OneNote tool calls. Never read or list `%APPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp`. Never run the grant CLI; a hook blocks any shell command text containing the CLI's name followed by "grant", so never put that phrase in a shell command.
+- Don't edit settings, `CLAUDE.md`, `tickets.toml` or the spine. Don't commit; the build session commits.
+
+**Matrix test audit.** The I/O matrix describes what an agent does when it follows the skill; the plan names it the live check's script (Verification, manual checks, hitl). No unit test can cover those rows, so they are covered only by Phill's live session; the build ran none of them (no OneNote). The doc guards in `PluginPackagingTests` (named tools in `SKILL.md` and `references/`, README tool names, purge phrases) ran and passed.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-11-14 — Review pass
+- verdicts: 9 findings — high 0, medium 5, low 4, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` README Stale edits row and `delete_page_content` row understate the stale check (`PageWrite.CheckBasis` refuses on any `lastModifiedTime` difference first) — both rows now say the page changed (its date moved, or what the write changes); the same narrow wording in `DeletePageContentTool`'s description got a `deferred-work.md` entry (Boundaries: no description edits here), and the 2.12 drift entry no longer says "no mismatch found".
+  - `[low]` `[patch]` AC3: image/ink deletes and the journal listing tool read as future work ("yet") — README delete row, Limits line and journal "Finding an entry", and `SKILL.md`'s workaround rule now state them as current limits; only hierarchy writes, permanent delete and exports keep "yet"/"planned".
+  - `[medium]` `[patch]` `references/page-writes.md` "Never … build [a basis]" contradicted the oversized-page merge — the rule now carves out merging the parts of an oversized page.
+  - `[medium]` `[patch]` recipe 5's first bullet said a protected-section write never needs the read grant, but `delete_page_content` does (`DeletePageContentTool` l.32) — the bullet now says adding needs only the write grant, and changing, removing or any `delete_page_content` also needs the read grant.
+  - `[medium]` `[patch]` the description dropped three read triggers from HEAD ("where is the OneNote backup folder", "download the missing images on that page", "which notebook is this page in") — restored; trimmed "on that page" from the To Do example and the "remove the second block" write trigger; 1,012 characters.
+  - `[medium]` `[patch]` `Timeout`, `ComUnavailable`, `Cancelled` rows said retry, but from a write's COM call they carry `outcomeUnknown: true` (`WritePipeline` l.24–26, l.197–201) — each row now adds "from a write with `outcomeUnknown: true`: re-read first, never retry blindly".
+  - `[low]` `[patch]` `NotSupported` row missed `JournalStore.Read`'s newer-`schemaVersion` case (l.108–113) — the row now names it and says relay `userAction`.
+  - `[low]` `[patch]` README Permanent delete row's "Normal deletes go to OneNote's recycle bin" misled now that `delete_page_content` (journal-backed) exists — now "The planned deletes of pages, sections and notebooks go to OneNote's recycle bin".
+  - `[low]` `[patch]` `PluginPackagingTests` failure messages named only `SKILL.md` though `NamedTools()` reads `references/*.md` too — both messages now say "or its references/*.md".
 
 ## Design Notes
 
@@ -122,6 +144,26 @@ Not for 2.12 (spine or code): the `noBasis` wording without a read grant (l.376)
 
 **Manual checks (hitl, Phill):**
 - MCP Test's write grant came from Phill's own terminal through the CLI (2026-11-11) and is still active; if `list_grants` ever shows it gone, Phill runs the `grant --write` command again himself (the agent never does).
-- A fresh Claude Code session with `claude --plugin-dir dist/onenote-<ver>-win-x64.zip`, on a throwaway page in MCP Test: the I/O matrix rows (edit, undo, remove a block, an image by path with accept and decline, an unsupported rename, the protected-section row in MCP Test's protected section). The agent should choose the tools from the skill alone.
+- A fresh Claude Code session with `claude --plugin-dir dist/onenote-<ver>-win-x64.zip`, on a throwaway page in MCP Test: the I/O matrix rows (edit, undo, remove a block, an image by path with accept and decline, then rename the source file and confirm the page still shows the image (Q5 (a): OneNote copies it into the notebook), an unsupported rename, the protected-section row in MCP Test's protected section). The agent should choose the tools from the skill alone.
 - Under Q7 (b): a session with the server registered without the plugin, given only the README: an edit and an undo.
 - Phill reads the README's new sections.
+
+## Auto Run Result
+
+**Summary.** Documentation for the page-write tools: the guide skill's description, intro, Writing pages rules, tool rows, error and warning rows now cover writes; the seven recipes live in `plugin/skills/guide/references/page-writes.md` (Q2 (b)); the README gains top-level Grants and Recovery journal sections, and its status, tables, Safety model, Limits, Uninstall, Files and How it works lines describe the built writes. Recipe 4 (images and attachments) follows Phill's Q5 follow-up answer (a), received mid-build from the team lead.
+
+**Files changed:**
+- `plugin/skills/guide/SKILL.md` — description (1,012 chars) and intro cover writes; Writing pages safety rules; write rows, `StaleWrite`, `JournalFailed`, write retry rules, every write warning, `resultNotIndexed`, `settingsInvalid`.
+- `plugin/skills/guide/references/page-writes.md` — new: the basis, page XML rules, recipes 1–7, failure handling, what this release can't do.
+- `README.md` — status, tool rows, Grants and Recovery journal sections (DPAPI and its limit, `journal.*` settings, restore), Safety model and Limits updates, Uninstall, Files, write lock.
+- `tests/OneNoteMcp.Tests/PluginPackagingTests.cs` — named-tool checks read `references/*.md` too; messages and purge-test comment updated.
+- `_bmad-output/initiative-onenote-mcp-v1/deferred-work.md` — 2.12 entries resolved; new entries for the two tool descriptions to align (`update_page_content` images, `delete_page_content` staleness), `ErrorCode` comment drift, and the pending live checks.
+- this plan — status, baseline, Answers Q5, Verification's image row, notes, triage log.
+
+**Review findings.** 9 findings, all patched (5 medium, 4 low); none deferred or rejected. The `delete_page_content` description mismatch from finding 1 is recorded in `deferred-work.md`, per Boundaries.
+
+**Follow-up review recommended: true.** Patched by verdict: high 0, medium 5, low 4. Named unverified risk: recipe 4 (images and attachments), the matching `SKILL.md` Writing pages sentence and the README Limits line were written after the Quick lens ran (Q5 answered mid-review), so no reviewer has read them; recipe 4's claim that an image sent by path survives the source file's move is still unverified live.
+
+**Verification.** `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2,273 passed, 0 failed. `pwsh -File scripts/pack-plugin.ps1` then `claude plugin validate --strict dist/stage/onenote`: passed, only the existing `ICON_MISSING` notice; the staged plugin carries `skills/guide/references/page-writes.md`. Description length 1,012 (limit 1,024). AC3 grep ("planned", "read-only", "no writes", "later", "yet"): only hierarchy writes, permanent delete and exports remain planned. Not run: the hitl live checks (Verification, manual checks), which need OneNote and Phill.
+
+**Residual risks.** AC2 (an agent following the skill alone edits and undoes) is unverified until Phill's live session; the I/O matrix has no automated coverage by design.

@@ -270,7 +270,7 @@ public sealed class PluginPackagingTests
         var named = NamedTools();
         var names = ContractToolNames();
         Assert.NotEmpty(names);
-        Assert.All(names, name => Assert.True(named.Contains(name), $"{GuideSkill} must name {ToolPrefix}{name}."));
+        Assert.All(names, name => Assert.True(named.Contains(name), $"{GuideSkill} or its references/*.md must name {ToolPrefix}{name}."));
     }
 
     [Fact]
@@ -279,14 +279,31 @@ public sealed class PluginPackagingTests
         var names = ContractToolNames().ToHashSet(StringComparer.Ordinal);
         var named = NamedTools();
         Assert.NotEmpty(named);
-        Assert.All(named, name => Assert.True(names.Contains(name), $"{GuideSkill} names '{ToolPrefix}{name}', which is not in the tool contract."));
+        Assert.All(named, name => Assert.True(names.Contains(name), $"{GuideSkill} or its references/*.md names '{ToolPrefix}{name}', which is not in the tool contract."));
     }
 
-    /// <summary>Every whole tool name the skill writes after <see cref="ToolPrefix"/>.</summary>
+    /// <summary>
+    /// Every whole tool name the skill writes after <see cref="ToolPrefix"/>, in <c>SKILL.md</c> and in the files of its
+    /// <c>references</c> folder, which the skill tells the model to read (story 2.12 Q2).
+    /// </summary>
     private static HashSet<string> NamedTools() =>
-        Regex.Matches(ReadText(GuideSkill), Regex.Escape(ToolPrefix) + @"(?<name>\w+)")
+        GuideSkillTexts()
+            .SelectMany(text => Regex.Matches(text, Regex.Escape(ToolPrefix) + @"(?<name>\w+)"))
             .Select(m => m.Groups["name"].Value)
             .ToHashSet(StringComparer.Ordinal);
+
+    private static IEnumerable<string> GuideSkillTexts()
+    {
+        yield return ReadText(GuideSkill);
+        var references = RepoPaths.Combine("plugin", "skills", "guide", "references");
+        if (Directory.Exists(references))
+        {
+            foreach (var file in Directory.EnumerateFiles(references, "*.md", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            {
+                yield return File.ReadAllText(file);
+            }
+        }
+    }
 
     private const string Readme = "README.md";
 
@@ -303,9 +320,9 @@ public sealed class PluginPackagingTests
     [Fact]
     public void Readme_DocumentsPurge_AsBuilt()
     {
-        // Story 1.13 (AD-19): purge exists, so no "(planned)" sentence may describe it. The journal itself stays
-        // planned, and its line may say that purge removes it in a sentence of its own. The README also says what
-        // purge leaves alone and that the journal holds note content.
+        // Story 1.13 (AD-19): purge exists, so no "(planned)" sentence may describe it. The journal exists too (story
+        // 2.8; the README's Recovery journal section, story 2.12). The README also says what purge leaves alone and that
+        // the journal holds note content.
         var readme = ReadText(Readme).ReplaceLineEndings("\n");
         Assert.DoesNotMatch(@"(?i)\(planned[^)]*\)\**\s*[^.\n]*purge", readme);
         Assert.DoesNotContain("by hand", readme, StringComparison.Ordinal);
