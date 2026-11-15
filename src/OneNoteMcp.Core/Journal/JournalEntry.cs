@@ -8,7 +8,7 @@ namespace OneNoteMcp.Core.Journal;
 /// <summary>
 /// One recovery-journal entry (AD-8), in AD-10's format: <c>{schemaVersion, entryId, correlationId, operation,
 /// operationClass, snapshotKind, objectId, notebookId, notebookPath, notebookName, parentId, parentNamePath, sectionKey?,
-/// protected?, title, takenAtUtc, binaryComplete, missingBinary[], xml | backupFile}</c>.
+/// protected?, recycleBinId?, title, takenAtUtc, binaryComplete, missingBinary[], xml | backupFile}</c>.
 /// <para>Optional members are left out when null, and a reader ignores members it doesn't know, so a later story can add
 /// a member to <c>schemaVersion</c> 1 without breaking older readers (epic 5.5's recycle-bin page ID).</para>
 /// <para>An entry from a password-protected section carries <see cref="SectionKey"/>; on disk its <see cref="Title"/> and
@@ -22,7 +22,7 @@ public sealed record JournalEntry
     /// <summary><see cref="SnapshotKind"/> of a page snapshot.</summary>
     public const string PageKind = "page";
 
-    /// <summary><see cref="SnapshotKind"/> of a hierarchy snapshot (story 5.4): the hierarchy XML of the node a write changed.</summary>
+    /// <summary><see cref="SnapshotKind"/> of a hierarchy snapshot (stories 5.4 and 5.5): the hierarchy XML of the node a write changed or deleted.</summary>
     public const string HierarchyKind = "hierarchy";
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
@@ -39,7 +39,7 @@ public sealed record JournalEntry
     /// <summary>The write's AD-7 class, such as <c>PageWrite</c>.</summary>
     public string OperationClass { get; init; } = string.Empty;
 
-    /// <summary><c>page</c>, <c>hierarchy</c> (story 5.4) or <c>onenoteBackup</c>.</summary>
+    /// <summary><c>page</c>, <c>hierarchy</c> (stories 5.4 and 5.5) or <c>onenoteBackup</c>.</summary>
     public string SnapshotKind { get; init; } = PageKind;
 
     /// <summary>The snapshotted object's ID: for a page, the page's; for a hierarchy entry, the node at the root of <see cref="Xml"/>.</summary>
@@ -68,6 +68,12 @@ public sealed record JournalEntry
 
     /// <summary>On disk only: the base64 DPAPI blob (current user) of the JSON <c>{title, xml}</c> of a protected entry.</summary>
     public string? Protected { get; init; }
+
+    /// <summary>
+    /// A page soft delete's only: the page's new ID in Deleted Pages, added by rewriting the entry once after the delete
+    /// (AD-8, AD-10; story 5.5). Absent when it couldn't be read back, and on every other entry.
+    /// </summary>
+    public string? RecycleBinId { get; init; }
 
     /// <summary>The page's title; a hierarchy entry's node's displayed name, as it was before the write. Absent on disk for a protected entry.</summary>
     public string? Title { get; init; }

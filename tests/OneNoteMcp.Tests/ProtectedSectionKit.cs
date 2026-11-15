@@ -180,6 +180,8 @@ internal sealed class VaultGateway : IOneNoteGateway
 
     public Task UpdateHierarchyAsync(string changesXml, CancellationToken ct) => throw new NotSupportedException();
 
+    public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct) => throw new NotSupportedException();
+
     public Task WaitForAbandonedWritesAsync(CancellationToken ct) => Task.CompletedTask;
 
     private static XElement Section(string name, string id, string path, bool encrypted, params XElement[] pages)
