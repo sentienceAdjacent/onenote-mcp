@@ -3,13 +3,13 @@ title: 'Skill, README and harness for hierarchy writes'
 type: 'feature'
 ticket: '7'
 created: '2026-11-15'
-status: 'in-progress'
+status: 'built'
 baseline_revision: '8652c1948dca9194835f4dd134f11be017cdec4d'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/CLAUDE.md'
@@ -106,9 +106,25 @@ What an agent does when it follows the skill. These rows are the live step's scr
 - Never read, list or write `%APPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp`. A hook blocks any shell command whose text holds the CLI's name followed by "grant": write docs with the file tools, never through the shell.
 - Don't edit settings, `CLAUDE.md`, `tickets.toml` or the spine. Don't commit; the build session commits.
 
+**Coordinator addition (2026-11-15, during the build).** Story 2.13 (PR #51, unmerged) rewords the code's `noBasis` warning message to "checked against its current version (read internally; nothing of it is returned)". The widened `SKILL.md` `noBasis` row says it that way, not "checked against the page as the server read it just then", so it doesn't read as a way around the read grant. The warning's code text stays 2.13's. Done in `SKILL.md`'s `noBasis` row and `references/page-writes.md` (The basis).
+
+**What the build found.** `tool-contract.json` needed no change: the snapshot strips descriptions (`ToolContractTests.StripDescriptions`), so decision 3's two description fixes don't move it, and `Tools_MatchTheContractSnapshot` passes unchanged. The harness's `ContractTools()` now reads each tool's `readOnlyHint` from the embedded contract for `contract-ok`, and the temporary-settings cleanup became `DeleteSettingsDir`, also run on the check's early exits.
+
+**Matrix test audit.** The I/O matrix describes what an agent does when it follows the skill, so, as in 2.12, it is the live step's script (hitl, Phill's sitting); no unit test can cover its rows, and the build ran none. What the build can check ran: the doc guards in `PluginPackagingTests` (every contract tool named in `SKILL.md` or `references/*.md`, none other; README names every tool; purge phrases) and the harness's fake contract runs.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-11-15 — Review pass (quick)
+- verdicts: 6 findings — high 0, medium 1, low 5, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` `SKILL.md` "In short, for the hierarchy" told Claude to pass "a page's `meta.basis`" for a page delete, which holds `elementHashes` that both delete tools refuse (`DeleteHierarchyObjectTool` l.44, `PermanentlyDeleteHierarchyObjectTool` l.30) — now `{lastModifiedTime, pageHash}` from `meta.basis`, never `elementHashes`.
+  - `[low]` `[patch]` `SKILL.md` `NotSupported` row said permanently deleting "something already in the recycle bin" is refused, and the `ObjectNotFound` row put everything in the bin under `ObjectNotFound`; for a permanent delete a recycled page and Deleted Pages are `NotSupported` (`PermanentDeleteUseCase` l.572–578, l.611–619), only the bin itself is `ObjectNotFound`, and a recycled section is allowed — both rows now say so.
+  - `[low]` `[patch]` README How it works said creates follow the basis-and-journal steps, and `SKILL.md` said to pass "each write" a basis; creates take neither (README Recovery journal, recipe 1) — README now gives creates their own sentence; `SKILL.md` says "each rename, reorder or delete" and that creates take no basis.
+  - `[low]` `[patch]` `SKILL.md` intro l.8 still said `list_grants` lists only read and write permissions — now read, write and permanent-delete.
+  - `[low]` `[patch]` harness README claimed `contract-ok` "can never reach OneNote", but nothing enforces `--contract-only` with it (a `contract-ok` run given a notebook and `--out` proceeds as a normal OneNote-reading run, which the operator asked for) — the README now states it isn't enforced; no guard added (low, and a guard is a new branch rather than a direct correction).
+  - `[low]` `[patch]` `--contract-only` refusal and README said it takes "only --exe and --exe-arg" though `Options` refuses only notebook, `--out`, diag and probe modes and ignores the rest — message and README now say exactly that.
 
 ## Design Notes
 

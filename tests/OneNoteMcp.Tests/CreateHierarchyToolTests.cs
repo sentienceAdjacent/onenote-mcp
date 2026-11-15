@@ -297,7 +297,8 @@ public sealed class CreateHierarchyToolTests : IDisposable
     public async Task Group_ANameWithAPeriod_IsInvalidArgument_NotRetryable_BeforeTheLock_AndNoCom(string name)
     {
         // Sitting 2026-11-15: OpenHierarchy with cftFolder fails 0x80042018 (hrFolderDoesNotExist) for any '.' in the
-        // name. Phill chose to refuse it before COM, with advice to create it without the '.' and rename it in OneNote.
+        // name. Phill chose to refuse it before COM, with advice to create it without the '.' and then, with the user's
+        // OK, rename it to the dotted name with rename_hierarchy_object (5.7 plan Q4 b).
         Grant();
 
         var error = Error(await GroupTool().CreateSectionGroup(NotebookId, name, Ct), "InvalidArgument");

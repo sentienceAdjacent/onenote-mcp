@@ -564,3 +564,15 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: same
   summary: Code-comment drift found while checking the docs: `ErrorCode.InvalidArgument`'s doc comment still says the undeclared-name check runs after the SDK binds the call (story 2.14 moved it before binding, AD-9), and `ErrorCode.ReadNotGranted`'s names only reads, not the writes AD-21 gates (`delete_page_content`, a basis hash, a sent `objectID`, `removeObjectIds`). Worth a line in the 2.13 refactor sweep.
   evidence: `src/OneNoteMcp.Core/ErrorCode.cs`; spine AD-9 (Envelope, 2.14 text) and AD-21 (Writes).
+
+## Story 5.7 skill, README and harness for hierarchy writes (2026-11-15)
+
+- source_plan: epic-hierarchy-writes-and-deletes/story-skill-readme-and-harness-for-hierarchy-writes-plan.md
+  summary: Live checks pending (Phill's sitting, decision 6): a fresh plugin session over every I/O-matrix row on throwaway nodes in MCP Test; a README-only session that permanently deletes a throwaway section holding one page and reports `meta.backupFile` and `meta.pageEntryIds`; the CLI permanent-delete grant and its `list_grants` row (kind `permanentDeleteNotebook`); the stress harness against the real server with OneNote running. The build ran only the fake `--contract-only` checks.
+  evidence: plan Verification, Manual checks.
+- source_plan: same
+  summary: Unproven: the create-then-rename path for a section group named with a `.` (decision 4). The build changed `create_section_group`'s refusal `userAction`, its description, the skill (recipe 1 of `references/hierarchy-writes.md`) and the README to have Claude create the group without the `.` and then, with the user's OK, rename it with `rename_hierarchy_object`. Spike evidence (5.3 plan, 2026-11-15 sitting) is a raw `UpdateHierarchy` rename only; the tool path, a re-read, OneNote's own view, a sync and a OneNote restart are unchecked until the live Dotted group row passes.
+  evidence: 5.3 plan Plan Change Log (2026-11-15 sitting); this plan's decision 4 and Manual checks.
+- source_plan: same
+  summary: Unconfirmed: whether renaming a section group in a local notebook ends the read grant of a password-protected section inside it. OneNote renamed the group's folder on disk lazily (5.4 plan, 2026-11-15 sitting) and a read grant is keyed by the section's file path, so the grant may hold until the folder moves. The README (`rename_hierarchy_object` row) and `references/hierarchy-writes.md` (recipe 2) now say it is expected to end once the folder is renamed, and that this isn't confirmed; `rename_hierarchy_object`'s tool description still says it ends the grant. Tighten the wording, or log a code fix, from the live check.
+  evidence: plan Design Notes (Unconfirmed claim); 5.4 plan l.210.
