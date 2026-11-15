@@ -79,4 +79,17 @@ public static class ToolWarnings
     /// path itself; <c>meta.parentId</c> is the section used.
     /// </summary>
     public const string RestoredElsewhere = "restoredElsewhere";
+
+    /// <summary>
+    /// A create found a live section or section group of the same kind and name (ignoring case) already under the parent,
+    /// so it made nothing and returned that object's ID in <c>meta.objectId</c> (AD-7 <c>Create</c>). Names the ID only.
+    /// </summary>
+    public const string AlreadyExisted = "alreadyExisted";
+
+    /// <summary>
+    /// <c>create_notebook</c> made the notebook, but couldn't give it its automatic write grant (AD-6 <c>grantedVia:
+    /// created</c>): the notebook couldn't be read back, OneNote put it somewhere other than the folder the server checked,
+    /// or <c>settings.json</c> couldn't be written. The create stands. Its userAction says how the user grants writes.
+    /// </summary>
+    public const string CreatedNotGranted = "createdNotGranted";
 }

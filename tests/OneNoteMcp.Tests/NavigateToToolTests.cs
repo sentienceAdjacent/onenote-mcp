@@ -117,7 +117,7 @@ public sealed class NavigateToToolTests
     }
 
     /// <summary>The write tools: not read-only, and not user-visible either (they don't take focus).</summary>
-    internal static readonly string[] WriteTools = [CreatePageTool.Name, UpdatePageContentTool.Name, DeletePageContentTool.Name, RestoreFromJournalTool.Name];
+    internal static readonly string[] WriteTools = [CreatePageTool.Name, UpdatePageContentTool.Name, DeletePageContentTool.Name, RestoreFromJournalTool.Name, CreateSectionTool.Name, CreateSectionGroupTool.Name, CreateNotebookTool.Name];
 
     [Fact]
     public void WriteTools_DontClaimToBeUserVisible()

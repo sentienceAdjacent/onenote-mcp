@@ -11,8 +11,10 @@ namespace OneNoteMcp.Core.Results;
 /// password-protected sections whose pages a broad read left out; AD-21), <see cref="Grants"/> (<c>list_grants</c>) and
 /// <see cref="PageId"/> (the page <c>create_page</c> or <c>restore_from_journal</c> made; Phill, 2026-11-10, 2.4 plan Q2),
 /// <see cref="ParentId"/> also for the section <c>restore_from_journal</c> wrote to, and <see cref="JournalEntryId"/> (the
-/// recovery-journal entry a page write took, for <c>restore_from_journal</c>; Phill, 2026-11-12, 2.11 plan Q1). They are
-/// null, and so omitted on the wire, on every other result.
+/// recovery-journal entry a page write took, for <c>restore_from_journal</c>; Phill, 2026-11-12, 2.11 plan Q1), and
+/// <see cref="ObjectId"/> (the section, section group or notebook a create made or found, with <see cref="ParentId"/> for a
+/// section or group and <see cref="Path"/>, read back, for a notebook; Phill, 2026-11-13, 5.3 plan Q5). They are null, and
+/// so omitted on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
     string CorrelationId,
@@ -28,7 +30,8 @@ public sealed record ToolMeta(
     IReadOnlyList<string>? Withheld = null,
     IReadOnlyList<GrantListing>? Grants = null,
     string? PageId = null,
-    string? JournalEntryId = null);
+    string? JournalEntryId = null,
+    string? ObjectId = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read
