@@ -112,6 +112,8 @@ What an agent does when it follows the skill. These rows are the live step's scr
 
 **Matrix test audit.** The I/O matrix describes what an agent does when it follows the skill, so, as in 2.12, it is the live step's script (hitl, Phill's sitting); no unit test can cover its rows, and the build ran none. What the build can check ran: the doc guards in `PluginPackagingTests` (every contract tool named in `SKILL.md` or `references/*.md`, none other; README names every tool; purge phrases) and the harness's fake contract runs.
 
+**Live check (2026-11-15 sitting, Phill).** All manual checks passed: the plugin session over every matrix row, the dotted group ("v12" renamed to "v1.2"; it survived a sync and a OneNote restart), the README-only permanent delete under the CLI grant (no dialog, backup and page entries reported, grant command never run), the `permanentDeleteNotebook` row in `list_grants`, and the stress harness on MCP Test (719 comparisons, 0 mismatches). The group rename moved the protected section's live path at once, so its read grant ends at the rename. Phill's follow-ups, applied here: recipe 5 asks in the chat and waits for a yes (the session skipped it); the basis section says to re-read a section just before deleting it after a page write (one `StaleWrite` in both sessions); recipe 1 says the `.` survives a rename; README and recipe 2 say a group rename ends the read grant. Filed in `backlog/`: the `z` story (2.13 probe) and the "cleaning up" bug. Details in `deferred-work.md`.
+
 ## Plan Change Log
 
 ## Review Triage Log
