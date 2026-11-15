@@ -109,7 +109,7 @@ public static class SectionFileNames
 
     /// <summary>What to do about a new section group's name with a <c>.</c> (<see cref="GroupPeriodProblem"/>).</summary>
     public const string GroupPeriodUserAction =
-        "OneNote can't create a section group whose name has a '.'. Create it with a name without the '.', then ask the user to rename it in OneNote.";
+        "OneNote can't create a section group whose name has a '.'. Create it with a name without the '.', then, if the user agrees, rename it to the name they asked for with rename_hierarchy_object.";
 
     /// <summary>
     /// Null when <paramref name="name"/> holds no <c>.</c>; otherwise why it can't be a new section group's name, as a

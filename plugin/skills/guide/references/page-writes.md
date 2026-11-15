@@ -1,6 +1,6 @@
 # Writing pages: recipes
 
-Read this before any write. The safety rules in `SKILL.md` (Writing pages) always apply. Each write tool's description is the contract for its arguments and for the XML it accepts; this file says which tool to use, in what order, and what to tell the user. Example names ("notebook A", "MCP Test", "Trip plan") are placeholders.
+Read this before any page write; for creating, renaming, reordering or deleting pages, sections, section groups and notebooks, read `references/hierarchy-writes.md`. The safety rules in `SKILL.md` (Writing) always apply. Each write tool's description is the contract for its arguments and for the XML it accepts; this file says which tool to use, in what order, and what to tell the user. Example names ("notebook A", "MCP Test", "Trip plan") are placeholders.
 
 ## Before any write
 
@@ -14,7 +14,7 @@ Read this before any write. The safety rules in `SKILL.md` (Writing pages) alway
 - `mcp__plugin_onenote_desktop__get_page_content` returns `meta.basis`: the page's date and a hash of each Outline and OE. Pass it unchanged as `basis`. The server compares it with the page as it is now: the date, and the hash of each Outline you send with an `objectID` (and of any OE you send outside an Outline, such as the title's). A change since your read fails with `StaleWrite`, and nothing is written.
 - Every successful write returns the page's new `meta.basis`. Use it for the next write to that page instead of re-reading.
 - **Always use the newest basis you have.** After a write, OneNote can change Outlines you didn't send: resending an Outline's `one:Position` re-stacks the page's Outlines (`z`), which changes the others' hashes. The write's own `meta.basis` already has the new hashes; an older basis then fails with `StaleWrite` although nobody else changed the page.
-- Never edit a basis, reuse one from another page, or build one, except to merge the parts of an oversized page (below). Without `basis`, the write is checked against the page as the server reads it just then, with the warning `noBasis`. Leave it out only for a page you've just created (recipe 7), or in a password-protected section you can't read (recipe 5).
+- Never edit a basis, reuse one from another page, or build one, except to merge the parts of an oversized page (below). Without `basis`, the write is checked against the page's current version (read internally; nothing of it is returned), not against what you last read, with the warning `noBasis`. Leave it out only for a page you've just created (recipe 7), or in a password-protected section you can't read (recipe 5).
 - A basis that lacks a hash the write needs makes the server skip that check, with the warning `partialBasis`.
 - **An oversized page** (read part by part with `mcp__plugin_onenote_desktop__read_result`): each part's `meta.basis` has the page's date and the hashes of the Outlines and OEs wholly inside that part. For a write, merge the `elementHashes` from the parts of the same `resultId` into one basis that covers every Outline you send.
 
@@ -112,8 +112,8 @@ Changing the second of two paragraphs in one Outline:
 
 **Otherwise restore from the journal:** when you no longer have the old content (a new session, or an earlier change), after a delete you can't rebuild exactly, or when the user wants the old version as a copy beside the current one.
 
-1. Call `mcp__plugin_onenote_desktop__restore_from_journal` with `entryId` = the `meta.journalEntryId` of the `update_page_content` or `delete_page_content` to undo, or the entry ID a failed write's message names. Each entry is the page as it was just before that write, so to undo several changes to one page, restore the entry of the earliest.
-2. Tell the user it's a **new** page: the restore never overwrites, so the edited page stays as it is, and they can delete whichever copy they don't want in OneNote (this release can't delete pages).
+1. Call `mcp__plugin_onenote_desktop__restore_from_journal` with `entryId` = the `meta.journalEntryId` of the `update_page_content` or `delete_page_content` to undo, or of a page's `delete_hierarchy_object` or `permanently_delete_hierarchy_object` (for a section's permanent delete, each of its `meta.pageEntryIds`; `references/hierarchy-writes.md`), or the entry ID a failed write's message names. Each entry is the page as it was just before that write, so to undo several changes to one page, restore the entry of the earliest.
+2. Tell the user it's a **new** page: the restore never overwrites, so the edited page stays as it is, and they can delete whichever copy they don't want, in OneNote or, if they ask you, with `mcp__plugin_onenote_desktop__delete_hierarchy_object` (`references/hierarchy-writes.md`, recipe 4).
 3. Say where it went. It goes into the page's own section if that still exists; else into the section at the same group/name path in the notebook; else into a section named `Recovered` in the notebook (the warning `restoredElsewhere` says which). `meta.pageId` is the new page, and `meta.parentId` its section: name it with `mcp__plugin_onenote_desktop__get_hierarchy` (`startNodeId` = that ID, `scope: self`).
 4. `binaryMissing` counts what didn't come back: images that weren't on this PC when the entry was saved, and attachments whose temporary copy OneNote has since removed. Tell the user which kinds are missing.
 
@@ -121,7 +121,7 @@ Changing the second of two paragraphs in one Outline:
 - The notebook must be open in OneNote, at the path it had (`ObjectNotFound` otherwise: relay `userAction`), and needs the user's write grant.
 - If the restore fails after it created the page, the error names that new, possibly empty page: ask the user to delete it before you try again.
 - Entries are kept for 30 days by default, and may go sooner if the journal passes its size cap. No tool lists them: an entry ID lost with the session (a new session, a restarted client) can't be looked up. So when a change matters, give the user its `meta.journalEntryId`.
-- `create_page` and `restore_from_journal` save no entry. To undo a new or restored page, ask the user to delete it in OneNote.
+- `create_page` and `restore_from_journal` save no entry. To undo a new or restored page, delete it to the recycle bin with `delete_hierarchy_object` if the user asks (`references/hierarchy-writes.md`, recipe 4), or the user deletes it in OneNote.
 
 ## 7. A new page, then its content
 
@@ -133,10 +133,10 @@ Each `create_page` call adds another page. If one fails with `outcomeUnknown: tr
 
 ## When a write fails
 
-- **`outcomeUnknown: true`:** the write may or may not have happened. Before anything else, re-read: the page with `mcp__plugin_onenote_desktop__get_page_content` after `update_page_content` or `delete_page_content`, the section's pages (`mcp__plugin_onenote_desktop__get_hierarchy`, `scope: pages`) after `create_page` or `restore_from_journal`. Tell the user what you found, and redo the change only if it's absent and they still want it. Never retry a write blindly.
+- **`outcomeUnknown: true`:** the write may or may not have happened. Before anything else, re-read: the page with `mcp__plugin_onenote_desktop__get_page_content` after `update_page_content` or `delete_page_content`, the section's pages (`mcp__plugin_onenote_desktop__get_hierarchy`, `scope: pages`) after `create_page` or `restore_from_journal`; after a hierarchy write, what `references/hierarchy-writes.md` (When a hierarchy write fails) names. Tell the user what you found, and redo the change only if it's absent and they still want it. Never retry a write blindly.
 - **Without `outcomeUnknown`:** nothing was written, except that a failed restore may name a new page it created (recipe 6). Follow the error rows in `SKILL.md`.
 - **`ComBusy`:** another write held the lock, or OneNote was busy; nothing was written. Retry once. If it's busy again, tell the user and wait for them.
 
 ## What this release can't do
 
-Renaming, moving or deleting a page, section, section group or notebook, and deleting images or ink. Tell the user this release can't do it, and that they can do it in OneNote. Never work around it (`SKILL.md`, Writing pages).
+Moving a page, section or section group to another place, deleting a notebook, and deleting images or ink. Tell the user this release can't do it, and that they can do it in OneNote. Never work around it (`SKILL.md`, Writing). Renaming a page is a title edit (recipe 1); renaming sections, section groups and notebooks, reordering, and deleting pages, sections and section groups are in `references/hierarchy-writes.md`.

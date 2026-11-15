@@ -6,6 +6,9 @@ using ModelContextProtocol.Server;
 
 namespace StressHarness;
 
+/// <summary>A tool in the embedded <c>tool-contract.json</c>: its name and whether the contract records <c>readOnlyHint: true</c>.</summary>
+internal sealed record ContractTool(string Name, bool ReadOnly);
+
 /// <summary>
 /// The cap probe's server: one stdio MCP tool, <c>filler</c>, returning exactly N characters of numbered filler lines
 /// ending in an end marker, so the probe can tell from what the model received whether it was whole or cut, and where.
@@ -13,13 +16,15 @@ namespace StressHarness;
 /// character cap. The <c>structured</c> variant returns the filler the way the real server does: the envelope
 /// <c>{ok, xml, meta, warnings}</c> as structuredContent and its JSON as the text block, so the probe can tell whether
 /// structuredContent counts toward the cap. The <c>contract-no-readonly</c> variant advertises the contract names without readOnlyHint, to test the
-/// harness's startup check. No notebook is involved.
+/// harness's startup check. The <c>contract-ok</c> variant (story 5.7) advertises the contract tools with each one's readOnlyHint as
+/// <c>tool-contract.json</c> records it, so the check passes only while <see cref="ToolClient.WriteTools"/> names every tool that
+/// isn't read-only. No notebook is involved.
 /// </summary>
 internal static class FakeServer
 {
     public const string EndMarker = "END-OF-FILLER";
 
-    public static async Task<int> RunAsync(int chars, string variant, string kind, IReadOnlyList<string> contractNames)
+    public static async Task<int> RunAsync(int chars, string variant, string kind, IReadOnlyList<ContractTool> contract)
     {
         var filler = Filler(chars, kind);
         CallToolResult result;
@@ -43,9 +48,12 @@ internal static class FakeServer
             {
                 ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult
                 {
-                    Tools = variant != "contract-no-readonly"
-                        ? [Tool("filler", readOnly: true)]
-                        : [.. contractNames.Select(n => Tool(n, readOnly: false))],
+                    Tools = variant switch
+                    {
+                        "contract-no-readonly" => [.. contract.Select(t => Tool(t.Name, readOnly: null))],
+                        "contract-ok" => [.. contract.Select(t => Tool(t.Name, readOnly: t.ReadOnly))],
+                        _ => [Tool("filler", readOnly: true)],
+                    },
                 }),
                 CallToolHandler = (_, _) => ValueTask.FromResult(result),
             },
@@ -81,12 +89,13 @@ internal static class FakeServer
         return sb.ToString();
     }
 
-    private static Tool Tool(string name, bool readOnly) => new()
+    // readOnly null: no annotations at all, so no readOnlyHint.
+    private static Tool Tool(string name, bool? readOnly) => new()
     {
         Name = name,
         Description = "Returns filler text for the output-cap probe.",
         InputSchema = JsonDocument.Parse("""{"type":"object","properties":{}}""").RootElement.Clone(),
-        Annotations = readOnly ? new ToolAnnotations { ReadOnlyHint = true } : null,
+        Annotations = readOnly is { } hint ? new ToolAnnotations { ReadOnlyHint = hint } : null,
         // STRESS_MAX_RESULT_CHARS sets Claude Code's per-tool _meta["anthropic/maxResultSizeChars"] (spike for story 1.16).
         Meta = int.TryParse(Environment.GetEnvironmentVariable("STRESS_MAX_RESULT_CHARS"), out var max)
             ? new System.Text.Json.Nodes.JsonObject { ["anthropic/maxResultSizeChars"] = max }

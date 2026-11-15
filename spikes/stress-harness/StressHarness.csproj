@@ -30,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The nine contract tool names for the startup check, from the one contract file. -->
+    <!-- The contract tool names and readOnlyHints for the startup check, from the one contract file. -->
     <EmbeddedResource Include="..\..\tests\OneNoteMcp.Tests\Contract\tool-contract.json" LogicalName="tool-contract.json" />
   </ItemGroup>
 
