@@ -3,12 +3,13 @@ title: 'Stop sending z in the Outline positions we write'
 type: 'bugfix'
 ticket: '2'
 created: '2026-11-15'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '29bb50fa47122e336708de7b0b59a654d4d59465'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -77,9 +78,25 @@ context: []
 
 ## Implementation Notes
 
+- Implemented directly, not by a subagent: this lane runs in an isolated worktree, and a fresh subagent starts outside it.
+- `SentPositions.WithoutZ` (new) and `XmlPositions.AttributeSpan` (from the whitespace before the name to past the closing quote). `UpdatePageContentWrite.Validate` sets `sentXml` last, so a cut that can't be made is `InvalidXml` before the journal and COM; `CallAsync` sends it and `AfterCallAsync` compares it.
+- Tests: `SentPositionsTests` (17 cases, one per matrix row, exact strings); `UpdatePageContentToolTests.SentPositions_ReachComWithoutZ_KeepingXAndY` and `ABadZ_IsStillInvalidXml_BeforeCom`. The two old "sent equals caller's XML" assertions (`FreshEdit_…`, `OeRemoved_ByName_IsOk`) now expect the caller's XML less ` z="1"`, written independently of `WithoutZ`. With the send reverted to the caller's XML, those three tests fail.
+- Docs: skill `page-writes.md` (The basis) and the `update_page_content` description; `deferred-work.md` marks the two `z` entries resolved in code and adds the spine and live-check entries.
+- Checks: build 0 warnings; unit tests 2905 passed; `pack-plugin.ps1` and `claude plugin validate --strict dist/stage/onenote` passed.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Quick review, pass 1 (2026-11-15): 0 high, 1 medium, 4 low, 0 false, 0 maybe-false. All patched; nothing deferred.
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---------|---------|-------|-------------------|
+| 1 | `UpdatePageContentWrite` class doc still says step 7 sends "the caller's XML unchanged" | low | patch | True at `PageWrite.cs` l.394. The Step 4, Step 7 and Read-back items now describe the cut and what is sent. |
+| 2 | Tool description says "OneNote keeps the page's stacking order", which is unproven for an added Outline and clashes with the skill | medium | patch | True: the skill says adding an Outline can change other hashes, and manual check 3 hasn't run. Now: "so resending an Outline as read doesn't re-stack the page" (Z probe 57's evidence). |
+| 3 | The new `InvalidXml` refusal has no `userAction`, so it falls back to "fix the schema", which a caller can't do; no test | low | patch | True (`ToolErrors` default). Added `SentPositionsUserAction` and a clearer message. Still untested: it needs XML that passes both gates but whose `z` the reader can't map to text, and none is known. |
+| 4 | `sentXml ?? xml` could quietly send `z` if `Validate` were ever skipped | low | patch | Unreachable today (`WritePipeline` runs `Validate` before `CallAsync`), but the fallback would hide a reorder. Replaced with `SentXml`, which throws. |
+| 5 | `deferred-work.md` l.379 says both "Resolved in code" and "stays open" | low | patch | True. Dropped the stale "stays open" sentence. |
 
 ## Design Notes
 

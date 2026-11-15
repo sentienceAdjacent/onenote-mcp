@@ -387,12 +387,14 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
 /// <item>Step 4 (<see cref="PageWriteCheck.Validate"/>): the 2013 schema gate (<see cref="ErrorCode.InvalidXml"/>, line,
 /// position and element name only; Q3); the root <c>one:Page@ID</c> is <c>pageId</c> (Q1); every sent <c>objectID</c> is
 /// on the page (<see cref="ErrorCode.UnknownObjectId"/>); removals name OEs under sent Outlines and aren't also sent;
-/// no OE is moved between Outlines (Q4); sent Outlines are whole.</item>
+/// no OE is moved between Outlines (Q4); sent Outlines are whole. Every check runs on the caller's XML; last, the text to
+/// send is made from it with <c>z</c> cut from each <c>one:Position</c> (<see cref="SentPositions.WithoutZ"/>; backlog 2).</item>
 /// <item>Step 5 (AD-17, Q5): a basis date must be step 3's instant; each sent Outline's hash, and each sent OE's outside a
 /// sent Outline (the title's), must equal step 3's, else <see cref="ErrorCode.StaleWrite"/>. A missing date or hash is
 /// <c>partialBasis</c>; no basis is <c>noBasis</c>. The caller's date, never the live one, goes to COM.</item>
-/// <item>Step 7: <c>UpdatePageContent</c> with the caller's XML unchanged (AD-4) and <c>force: false</c>.</item>
-/// <item>Read-back: <see cref="PageWriteCheck.CompareReadBack"/>; <c>readBackDiffers</c>, <c>imageLost</c>,
+/// <item>Step 7: <c>UpdatePageContent</c> with the caller's XML less each <c>one:Position</c>'s <c>z</c>, every other byte
+/// unchanged (AD-4), and <c>force: false</c>.</item>
+/// <item>Read-back: <see cref="PageWriteCheck.CompareReadBack"/> against the text sent; <c>readBackDiffers</c>, <c>imageLost</c>,
 /// <c>readBackFailed</c>, and <c>meta.basis</c> from the re-read (Q2).</item>
 /// </list>
 /// </summary>
@@ -446,12 +448,21 @@ public sealed class UpdatePageContentWrite : PageWrite
     public const string ReadBackUserAction =
         "Re-read the page (get_page_content) to see what OneNote kept. OneNote ignores some edits, such as a changed quickStyleIndex on an existing OE.";
 
+    public const string SentPositionsUserAction =
+        "Send each one:Position as get_page_content returns it, or leave out its z attribute, which the server never sends; then retry.";
+
     private readonly string xml;
     private readonly PageWriteBasis? basis;
     private readonly IReadOnlyList<string> removeObjectIds;
     private readonly HashSet<string> confirmedPaths = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<string> hashTargets = [];
     private string? expectedLastModified;
+
+    /// <summary>The text step 7 sends: <see cref="xml"/> with <c>z</c> cut from each <c>one:Position</c> (set in step 4).</summary>
+    private string? sentXml;
+
+    /// <summary><see cref="sentXml"/>; step 4 always runs before step 7, so unset is a bug, never a reason to send <c>z</c>.</summary>
+    private string SentXml => sentXml ?? throw new InvalidOperationException("Step 4 (Validate) must run before the COM call.");
 
     public UpdatePageContentWrite(
         PageWriteServices services,
@@ -543,6 +554,22 @@ public sealed class UpdatePageContentWrite : PageWrite
         }
 
         hashTargets = validation.HashTargets;
+
+        // Backlog 2 (Phill, 2026-11-15; Z probe 57): every check here ran on the caller's XML; COM gets it with z cut from
+        // each one:Position, so resending an Outline doesn't re-stack the page's Outlines and change the hashes of those
+        // not sent. The cut is by text span (AD-4); a failure here is a refusal, before the journal and COM.
+        try
+        {
+            sentXml = SentPositions.WithoutZ(xml);
+        }
+        catch (OneNoteXmlException ex)
+        {
+            // Only if the server can't map a z attribute to its text: the XML already passed the parse and schema gates.
+            throw new OneNoteException(
+                ErrorCode.InvalidXml,
+                $"The server couldn't remove z from a one:Position in the XML for page {PageId} ({ex.Message}), so nothing was written.",
+                userAction: SentPositionsUserAction);
+        }
     }
 
     /// <summary>
@@ -639,7 +666,7 @@ public sealed class UpdatePageContentWrite : PageWrite
 
     public override async Task<PageWriteResult> CallAsync(CancellationToken ct)
     {
-        await CallNamingEntryAsync(() => Services.Gateway.UpdatePageContentAsync(xml, expectedLastModified ?? string.Empty, ct)).ConfigureAwait(false);
+        await CallNamingEntryAsync(() => Services.Gateway.UpdatePageContentAsync(SentXml, expectedLastModified ?? string.Empty, ct)).ConfigureAwait(false);
         return new PageWriteResult(null, [.. Warnings]);
     }
 
@@ -647,7 +674,7 @@ public sealed class UpdatePageContentWrite : PageWrite
     {
         ArgumentNullException.ThrowIfNull(result);
         var after = await Services.Gateway.GetPageContentAsync(PageId, PageInfo.Basic, ct).ConfigureAwait(false);
-        var diffs = XmlReads.Readable(() => PageWriteCheck.CompareReadBack(xml, after, BasicXml), $"GetPageContent({PageId})");
+        var diffs = XmlReads.Readable(() => PageWriteCheck.CompareReadBack(SentXml, after, BasicXml), $"GetPageContent({PageId})");
         if (!NamesIds)
         {
             // No read grant: no basis, and the read-back's details stay inside the server; one count-free warning says so.

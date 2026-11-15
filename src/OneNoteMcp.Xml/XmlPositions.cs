@@ -80,6 +80,43 @@ internal sealed class XmlPositions
         throw new OneNoteXmlException("A start tag has no closing '>'.");
     }
 
+    /// <summary>
+    /// The span of the attribute the reader is on (after <see cref="XmlReader.MoveToAttribute(string)"/>): from the
+    /// whitespace before its name, which XML requires, to just past its value's closing quote. Cutting it leaves the
+    /// tag well-formed.
+    /// </summary>
+    public (int Start, int End) AttributeSpan(XmlReader reader)
+    {
+        var name = reader.Name;
+        var nameStart = Offset((IXmlLineInfo)reader, name);
+        if (string.CompareOrdinal(xml, nameStart, name, 0, name.Length) != 0)
+        {
+            throw new OneNoteXmlException($"A {name} attribute is not where the XML reader placed it.");
+        }
+
+        var i = SkipWhitespace(nameStart + name.Length);
+        if (i >= xml.Length || xml[i] != '=')
+        {
+            throw new OneNoteXmlException($"A {name} attribute has no '='.");
+        }
+
+        i = SkipWhitespace(i + 1);
+        var quote = i < xml.Length ? xml[i] : '\0';
+        var close = quote is '"' or '\'' ? xml.IndexOf(quote, i + 1) : -1;
+        if (close < 0)
+        {
+            throw new OneNoteXmlException($"A {name} attribute has no quoted value.");
+        }
+
+        var start = nameStart;
+        while (start > 0 && IsXmlWhitespace(xml[start - 1]))
+        {
+            start--;
+        }
+
+        return (start, close + 1);
+    }
+
     /// <summary>A parser error with its position only: the parser's message can quote content (AD-13).</summary>
     public static OneNoteXmlException NotWellFormed(XmlException ex) =>
         new($"The XML is not well-formed (line {ex.LineNumber}, position {ex.LinePosition}).", ex);
@@ -106,6 +143,18 @@ internal sealed class XmlPositions
         }
 
         return starts;
+    }
+
+    private static bool IsXmlWhitespace(char c) => c is ' ' or '\t' or '\r' or '\n';
+
+    private int SkipWhitespace(int i)
+    {
+        while (i < xml.Length && IsXmlWhitespace(xml[i]))
+        {
+            i++;
+        }
+
+        return i;
     }
 
     private int Offset(IXmlLineInfo info, string tag)
