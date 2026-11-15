@@ -42,16 +42,20 @@ public sealed class SettingsReplaceTests : IDisposable
     }
 
     [Fact]
-    public async Task ASettingsFileHeldForAMoment_StillSaves()
+    public void ASettingsFileHeldForAMoment_StillSaves()
     {
         File.WriteAllText(SettingsPath, """{"schemaVersion": 1}""");
         var writer = new SettingsWriter(new SettingsStore(SettingsPath), clock);
         var holder = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var release = Task.Run(async () =>
+
+        // A dedicated thread, not the thread pool: under a busy parallel run a pool task's 100 ms delay could fire after
+        // the writer's half-second retry window (2.11 build, 2026-11-13).
+        var release = new Thread(() =>
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(100));
-            await holder.DisposeAsync();
-        }, TestContext.Current.CancellationToken);
+            Thread.Sleep(TimeSpan.FromMilliseconds(100));
+            holder.Dispose();
+        }) { IsBackground = true };
+        release.Start();
 
         try
         {
@@ -59,7 +63,7 @@ public sealed class SettingsReplaceTests : IDisposable
         }
         finally
         {
-            await release;
+            release.Join();
         }
 
         Assert.Single(new SettingsStore(SettingsPath).Read().Notebooks);

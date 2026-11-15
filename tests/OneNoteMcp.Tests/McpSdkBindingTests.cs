@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(15, actual.Count);
+        Assert.Equal(16, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -277,7 +277,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(15, tools.Count);
+        Assert.Equal(16, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -361,9 +361,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllFifteenTools()
+    public void SnapshotToolNames_AreAllSixteenTools()
     {
-        Assert.Equal(15, SnapshotToolNames().Count);
+        Assert.Equal(16, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -387,6 +387,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.StartsWith($"{name} doesn't declare the argument \"bogusArgument\".", error.GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.CreateCalls);
+        Assert.Empty(gateway.CreateSectionCalls);
         Assert.Empty(gateway.NavigateCalls);
         Assert.Empty(gateway.UpdateCalls);
         Assert.Empty(gateway.DeleteCalls);
@@ -426,9 +427,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 36 properties in all.
-        Assert.Equal(14, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(36, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 37 properties in all.
+        Assert.Equal(15, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(37, SnapshotToolProperties().Count);
     }
 
     [Theory]
@@ -454,6 +455,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
 
         Assert.Empty(gateway.Calls);
         Assert.Empty(gateway.CreateCalls);
+        Assert.Empty(gateway.CreateSectionCalls);
         Assert.Empty(gateway.NavigateCalls);
         Assert.Empty(gateway.UpdateCalls);
         Assert.Empty(gateway.DeleteCalls);

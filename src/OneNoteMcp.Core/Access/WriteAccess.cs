@@ -52,21 +52,38 @@ public sealed class WriteAccess
         snapshot.EnsureWritable();
 
         var notebook = await walk.OwningNotebookAsync(objectId ?? string.Empty, ct).ConfigureAwait(false) ?? throw notInsideANotebook();
-        if (notebook.Path.Length == 0)
+        return Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path);
+    }
+
+    /// <summary>
+    /// Step 1 for a write to an open notebook already found by its key (<c>restore_from_journal</c>, story 2.11), with
+    /// <see cref="CheckAsync"/>'s rules and errors: settings writable, a path, a write grant on that path's key. No walk.
+    /// </summary>
+    public WriteTarget CheckNotebook(OpenNotebook notebook)
+    {
+        ArgumentNullException.ThrowIfNull(notebook);
+        var snapshot = settings();
+        snapshot.EnsureWritable();
+        return Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path);
+    }
+
+    private static WriteTarget Granted(SettingsSnapshot snapshot, string notebookId, string displayName, string path)
+    {
+        if (path.Length == 0)
         {
             throw new OneNoteException(
                 ErrorCode.WriteNotGranted,
-                $"OneNote reports no path for notebook {notebook.Id}, so it can't hold a write grant.",
+                $"OneNote reports no path for notebook {notebookId}, so it can't hold a write grant.",
                 userAction: NotGrantedUserAction);
         }
 
-        var key = GrantKeys.NotebookKey(notebook.Path);
+        var key = GrantKeys.NotebookKey(path);
         if (!snapshot.Notebooks.TryGetValue(key, out var grant) || !grant.Write)
         {
-            throw new WriteGrantMissing(notebook.Id, notebook.DisplayName, notebook.Path, key);
+            throw new WriteGrantMissing(notebookId, displayName, path, key);
         }
 
-        return new WriteTarget(notebook.Id, key);
+        return new WriteTarget(notebookId, key);
     }
 
     /// <summary>

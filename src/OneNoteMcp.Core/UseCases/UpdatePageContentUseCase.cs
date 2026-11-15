@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.Versioning;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.Writes;
@@ -31,6 +32,6 @@ public sealed class UpdatePageContentUseCase(PageWriteServices services, WritePi
         // "No read grant" means none that would let a read pass at the call's start (AD-7).
         var write = new UpdatePageContentWrite(services, context.CorrelationId, pageId ?? string.Empty, xml ?? string.Empty, basis, removeObjectIds, services.ReadAccess.Now());
         var result = await pipeline.RunAsync(context, write, ct).ConfigureAwait(false);
-        return new ToolSuccess(null, new ToolMeta(context.CorrelationId, Basis: result.Basis), result.Warnings);
+        return new ToolSuccess(null, new ToolMeta(context.CorrelationId, Basis: result.Basis, JournalEntryId: write.JournalEntryId?.ToString("D", CultureInfo.InvariantCulture)), result.Warnings);
     }
 }

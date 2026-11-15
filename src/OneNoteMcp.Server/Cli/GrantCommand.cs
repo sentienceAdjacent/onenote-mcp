@@ -189,7 +189,7 @@ public sealed class GrantCommand
         writer.SaveReadGrant(ProtectedSectionGrant.Create(section.Key, section.Name, section.Id, section.NotebookPath, now, GrantedVia.Cli, expires));
         output.WriteLine(expires is { } end
             ? $"Granted: \"{section.Name}\" can be read until {SettingsWriter.Format(end)} (UTC)."
-            : $"Granted: \"{section.Name}\" can be read until you revoke it with: OneNoteMcp grant --revoke --read-section \"{section.Name}\"");
+            : $"Granted: \"{section.Name}\" can be read until you revoke it with: OneNoteMcp grant --revoke --read-section \"<section name>\"");
         return 0;
     }
 
@@ -231,7 +231,7 @@ public sealed class GrantCommand
         }
 
         writer.SaveWriteGrant(new NotebookGrant(notebook.Key, notebook.DisplayName, notebook.Id, Write: true, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
-        output.WriteLine($"Granted: OneNoteMcp can now write to \"{notebook.DisplayName}\", until you revoke it with: OneNoteMcp grant --revoke --write \"{notebook.DisplayName}\"");
+        output.WriteLine($"Granted: OneNoteMcp can now write to \"{notebook.DisplayName}\", until you revoke it with: OneNoteMcp grant --revoke --write \"<notebook name>\"");
         return 0;
     }
 

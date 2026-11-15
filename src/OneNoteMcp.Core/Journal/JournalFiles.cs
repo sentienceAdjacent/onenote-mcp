@@ -60,6 +60,33 @@ public static partial class JournalFiles
         return "." + entryName + ".tmp";
     }
 
+    /// <summary>
+    /// The full path of entry <paramref name="entryId"/>'s file in <paramref name="folder"/>, found by its name
+    /// (<c>*-{entryId}.json.gz</c>, 32 hex digits or dashed) with no scan of the entries' contents; null when there is
+    /// none, or the folder doesn't exist (story 2.11). Temporary files never match. When more than one file matches (only
+    /// a copied file could do that), the first by ordinal name is taken. I/O failures propagate.
+    /// </summary>
+    public static string? Find(string folder, Guid entryId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(folder);
+        if (!Directory.Exists(folder))
+        {
+            return null;
+        }
+
+        string[] suffixes =
+        [
+            "-" + entryId.ToString("N", CultureInfo.InvariantCulture) + Extension,
+            "-" + entryId.ToString("D", CultureInfo.InvariantCulture) + Extension,
+        ];
+        return suffixes
+            .SelectMany(suffix => Directory.EnumerateFiles(folder, "*" + suffix, SearchOption.TopDirectoryOnly)
+                .Where(path => Path.GetFileName(path) is var name && IsEntry(name) && name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
     /// <summary>True when <paramref name="fileName"/> (a name, not a path) is a journal entry's.</summary>
     public static bool IsEntry(string fileName) => EntryPattern().IsMatch(fileName ?? string.Empty);
 

@@ -384,3 +384,33 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: epic-safe-writes/story-delete-page-content-plan.md
   summary: Cloud steps D4c/d (date-only-basis deletes on displayed and undisplayed MCP Test Cloud pages, Sync Now before and after) not run: MCP Test Cloud hadn't synced since 6:21 PM (0xE01901F7 "can't sync right now", Probes 0xE000145C "server busy"), during a Microsoft outage, hours before any cloud call. Run them in the next sitting once it syncs. At that sitting's start, check `list_grants`: if Phill's D3b Ballast Vault read grant has a lasting lifetime, revoke it before any "no read grant" check.
   evidence: sitting D4; Phill's View Sync Status screenshot, 21:15.
+- source_plan: epic-safe-writes/story-delete-page-content-plan.md
+  summary: Resolved: D4c/d ran on MCP Test Cloud (2026-11-14 sitting), with Sync Now and View Sync Status clean before and after. On both pages the date-only-basis delete was ok with `partialBasis`, removed only the target Outline, and drew no 0x80042010 and no dialog. On the displayed page (D4c) the page-XML and hierarchy dates differed by about 7 minutes before the delete, and both advanced together after it. On the undisplayed page (D4d) both dates stayed frozen, as on MCP Test (D4a/b). The D3b grant check at the sitting's start: `list_grants` held only MCP Test's write grant.
+  evidence: sitting 2026-11-14, pages "D4c displayed probe" and "D4d undisplayed probe" in MCP Test Cloud's Probes section.
+
+## Story 2.11 restore_from_journal (2026-11-12)
+
+- source_plan: epic-safe-writes/story-restore-from-journal-plan.md
+  summary: Spine sync (AD-8), not edited here: `restore_from_journal` sends only `pathCache`, never `pathSource`, and keeps an attachment or media file only when its canonical `pathCache` is a `{GUID}.bin` file directly in the current user's temp folder that exists now; anything else is dropped and counted (Q2). Images and ink keep inline `one:Data`; any object whose binary is a `one:File@path` or `one:CallbackID` is dropped and counted.
+  evidence: plan Decisions Q2; `RestoreAttachments.Keeps`, `RestoredPage.Build`.
+- source_plan: same
+  summary: Spine sync (AD-8, and the AD-7/AD-17 "never auto-retry writes" stance): when a content write that carried kept attachments fails with a definite code other than `ModalDialogOpen`, `ComBusy`, `SectionLocked` or `StaleWrite`, the server re-reads the page it just created and, only if it holds no top-level content object, sends it once more without attachments and media (`binaryMissing` says OneNote refused them). One retry of the server's own payload into its own empty page, not of a caller's write. Flag it when AD-8 is amended.
+  evidence: plan Decisions Q2 (retry guardrail); `RestoreFromJournalUseCase` step 7.
+- source_plan: same
+  summary: Spine sync (AD-8): a content write that fails after `CreateNewPage` fails with that step's code and retry rule, its message naming the (possibly empty) new page and its `userAction` saying to delete it before retrying; `outcomeUnknown` only for AD-9's ambiguous codes (Q3). The new page's top-level template objects are deleted with `DeletePageContent` before the write, which uses the new page's own date with `force: false` (Q4). An unprotected entry's chosen section that is locked is `SectionLocked`, with no fall-through (Q6).
+  evidence: plan Decisions Q3, Q4, Q6.
+- source_plan: same
+  summary: Spine sync (AD-9): warnings gain `binaryMissing` (counts by kind: image, ink, attachment, media, other) and `restoredElsewhere` (says `parentNamePath` or `Recovered`, never the path); success `meta` of `update_page_content` and `delete_page_content` gains `journalEntryId` (Q1 (a)), and a failure after their snapshot names the entry in its message (error `meta` stays `{correlationId}`). `restore_from_journal` returns `meta.pageId` and `meta.parentId`.
+  evidence: plan Decisions Q1; `ToolMeta.JournalEntryId`, `ToolWarnings`.
+- source_plan: same
+  summary: Spine sync (AD-7 `Create` row; epic 5 entry 3): the gateway now has `CreateSectionAsync(parentId, sectionFileName)`, `OpenHierarchy` with `cftSection` by parent ID only, its relative name checked before COM (`SectionFileNames.Problem`: ends `.one`, no `..`, `\`, `/`, invalid characters or reserved device names). Epic 5 adds section-group and notebook siblings.
+  evidence: plan Decisions Q5; `IOneNoteGateway.CreateSectionAsync`.
+- source_plan: same
+  summary: Not decided by the plan, chosen in the build: a snapshot that doesn't parse, has a DOCTYPE or isn't a `one:Page` is `JournalFailed`; one that parses but fails the AD-16 schema gate is `InvalidXml` (positions and element names only). The new page is created `blankPageWithTitle` when the snapshot has a `one:Title`, else `blankPageNoTitle`. A `parentNamePath` matching more than one live section falls through to `Recovered`. Confirm or amend with the spine sync.
+  evidence: `RestoreFromJournalUseCase.Validate`, `CallAsync`, `Target`.
+- source_plan: same
+  summary: Later-session lookup (Q1 (a)): a journal listing tool, so a caller that lost `meta.journalEntryId` (another session, a client restart) can find an entry by page or time. Out of scope for 2.11.
+  evidence: plan Decisions Q1.
+- source_plan: same
+  summary: Live probe pending: `RestoreAttachmentProbe` (`ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter RestoreAttachmentProbe`) records `RESULT restore-attachment: kept|dropped|error <hex>`: whether OneNote accepts an `InsertedFile` with only `pathCache`. Also unchecked live: whether `Path.GetTempPath()` and OneNote's `pathCache` agree in form (an 8.3 short temp path would make the Q2 rule drop every attachment; safe, but worth seeing), and the template-deletion step on a section with a page template.
+  evidence: plan Verification, manual checks.
