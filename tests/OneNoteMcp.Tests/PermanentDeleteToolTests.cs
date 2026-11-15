@@ -851,24 +851,24 @@ public sealed class PermanentDeleteToolTests : IDisposable
             + "<one:Page ID=\"A\" pageLevel=\"1\" /><one:Page ID=\"B\" pageLevel=\"2\" /><one:Page ID=\"C\" pageLevel=\"3\" />"
             + "<one:Page ID=\"D\" pageLevel=\"2\" /><one:Page ID=\"E\" pageLevel=\"1\" /></one:Section>";
 
-        Assert.Equal(expected, PermanentDeleteTarget.Subpages(xml, page));
-        Assert.Null(PermanentDeleteTarget.Subpages(xml, "Z"));
-        Assert.Equal(["A", "B", "C", "D", "E"], PermanentDeleteTarget.PageIds(xml));
+        Assert.Equal(expected, HierarchyTarget.Page(xml, page)?.Subpages);
+        Assert.Null(HierarchyTarget.Page(xml, "Z"));
+        Assert.Equal(["A", "B", "C", "D", "E"], PermanentDeleteReads.PageIds(xml));
     }
 
     [Fact]
     public void Target_ReadsTheRefusalAttributes_AndARecycleBinByItsName()
     {
-        var bin = PermanentDeleteTarget.Read($"<one:SectionGroup {Ns} ID=\"G\" name=\"OneNote_RecycleBin\" />");
-        var deleted = PermanentDeleteTarget.Read($"<one:Section {Ns} ID=\"S\" name=\"Deleted Pages\" isInRecycleBin=\"true\" isDeletedPages=\"true\" lastModifiedTime=\"{SectionDate}\" />");
-        var vault = PermanentDeleteTarget.Read($"<one:Section {Ns} ID=\"V\" name=\"Vault\" encrypted=\"1\" locked=\"true\" />");
+        var bin = HierarchyTarget.Read($"<one:SectionGroup {Ns} ID=\"G\" name=\"OneNote_RecycleBin\" />");
+        var deleted = HierarchyTarget.Read($"<one:Section {Ns} ID=\"S\" name=\"Deleted Pages\" isInRecycleBin=\"true\" isDeletedPages=\"true\" lastModifiedTime=\"{SectionDate}\" />");
+        var vault = HierarchyTarget.Read($"<one:Section {Ns} ID=\"V\" name=\"Vault\" encrypted=\"1\" locked=\"true\" />");
 
         Assert.True(bin.IsRecycleBin);
         Assert.Equal((true, true, SectionDate), (deleted.IsInRecycleBin, deleted.IsDeletedPages, deleted.LastModifiedTime));
         Assert.False(deleted.IsRecycleBin);
         Assert.Equal((true, true), (vault.Encrypted, vault.Locked));
-        Assert.Equal(0, PermanentDeleteTarget.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\" />"));
-        Assert.Equal(2, PermanentDeleteTarget.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\"><one:SectionGroup ID=\"H\"><one:Section ID=\"S\" /></one:SectionGroup></one:SectionGroup>"));
+        Assert.Equal(0, PermanentDeleteReads.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\" />"));
+        Assert.Equal(2, PermanentDeleteReads.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\"><one:SectionGroup ID=\"H\"><one:Section ID=\"S\" /></one:SectionGroup></one:SectionGroup>"));
     }
 
     // --- Helpers --------------------------------------------------------------------------------------------------------

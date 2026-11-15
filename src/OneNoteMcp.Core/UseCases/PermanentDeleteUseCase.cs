@@ -159,7 +159,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     private readonly DateTimeOffset callStart;
     private readonly List<ToolWarning> warnings = [];
     private bool confirmed;
-    private PermanentDeleteTarget? target;
+    private HierarchyTarget? target;
     private HierarchyNode? section;
     private string? basicXml;
     private string? containerXml;
@@ -233,7 +233,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
 
             case HierarchyKind.Section:
                 var pages = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Pages, ct).ConfigureAwait(false);
-                pageCount = XmlReads.Readable(() => PermanentDeleteTarget.PageIds(pages), $"GetHierarchy({objectId})").Count;
+                pageCount = XmlReads.Readable(() => PermanentDeleteReads.PageIds(pages), $"GetHierarchy({objectId})").Count;
                 RefuseEmptySection(found, pageCount.Value);
                 break;
 
@@ -310,7 +310,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
 
             case HierarchyKind.Section:
                 containerXml = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Pages, ct).ConfigureAwait(false);
-                pageIds = XmlReads.Readable(() => PermanentDeleteTarget.PageIds(containerXml), $"GetHierarchy({objectId})");
+                pageIds = XmlReads.Readable(() => PermanentDeleteReads.PageIds(containerXml), $"GetHierarchy({objectId})");
                 RefuseEmptySection(found, pageIds.Count);
                 break;
 
@@ -482,8 +482,8 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     {
         var self = await ReadTargetAsync(ct).ConfigureAwait(false);
         var pages = await services.Gateway.GetHierarchyAsync(objectId, HierarchyScope.Pages, ct).ConfigureAwait(false);
-        var before = XmlReads.Readable(() => PermanentDeleteTarget.PageDates(containerXml ?? string.Empty), $"GetHierarchy({objectId})");
-        var after = XmlReads.Readable(() => PermanentDeleteTarget.PageDates(pages), $"GetHierarchy({objectId})");
+        var before = XmlReads.Readable(() => PermanentDeleteReads.PageDates(containerXml ?? string.Empty), $"GetHierarchy({objectId})");
+        var after = XmlReads.Readable(() => PermanentDeleteReads.PageDates(pages), $"GetHierarchy({objectId})");
         if (!string.Equals(self.LastModifiedTime, target?.LastModifiedTime, StringComparison.Ordinal) || !before.SequenceEqual(after))
         {
             throw new OneNoteException(
@@ -535,10 +535,10 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
 
     // --- Helpers --------------------------------------------------------------------------------------------------------
 
-    private async Task<PermanentDeleteTarget> ReadTargetAsync(CancellationToken ct)
+    private async Task<HierarchyTarget> ReadTargetAsync(CancellationToken ct)
     {
         var self = await services.Gateway.GetHierarchyAsync(objectId, HierarchyScope.Self, ct).ConfigureAwait(false);
-        return XmlReads.Readable(() => PermanentDeleteTarget.Read(self), $"GetHierarchy({objectId})");
+        return XmlReads.Readable(() => HierarchyTarget.Read(self), $"GetHierarchy({objectId})");
     }
 
     /// <summary>
@@ -546,7 +546,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     /// (<see cref="ErrorCode.ObjectNotFound"/>), a notebook, a password-protected section, the Deleted Pages section (each
     /// <see cref="ErrorCode.NotSupported"/>; AD-7, AD-21, Q4 a).
     /// </summary>
-    private void RefuseUndeletable(PermanentDeleteTarget found)
+    private void RefuseUndeletable(HierarchyTarget found)
     {
         if (found.IsRecycleBin)
         {
@@ -581,7 +581,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     /// <summary>A section group with any section or section group beneath it (<paramref name="groupPagesXml"/>, its <c>pages</c>-scope read): <see cref="ErrorCode.NotSupported"/>.</summary>
     private void RefuseNonEmptyGroup(string groupPagesXml)
     {
-        var beneath = XmlReads.Readable(() => PermanentDeleteTarget.ContainersBeneath(groupPagesXml), $"GetHierarchy({objectId})");
+        var beneath = XmlReads.Readable(() => PermanentDeleteReads.ContainersBeneath(groupPagesXml), $"GetHierarchy({objectId})");
         if (beneath > 0)
         {
             throw new OneNoteException(
@@ -596,7 +596,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     /// refuses an empty section (<c>0x80042006</c>, live 2026-11-15, 5.6 plan change log), so the delete could never run.
     /// Refused before any dialog and again under the lock.
     /// </summary>
-    private void RefuseEmptySection(PermanentDeleteTarget found, int pageCount)
+    private void RefuseEmptySection(HierarchyTarget found, int pageCount)
     {
         if (pageCount == 0)
         {
@@ -608,9 +608,9 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     }
 
     /// <summary>A page in the recycle bin, or in a section that is: <see cref="ErrorCode.NotSupported"/> (COM can't, <c>0x8004200C</c>).</summary>
-    private void RefuseRecycledPage(PermanentDeleteTarget found, HierarchyNode owner)
+    private void RefuseRecycledPage(HierarchyTarget found, HierarchyNode owner)
     {
-        if (found.IsInRecycleBin || found.IsDeletedPages || owner.InRecycleBin)
+        if (found.InRecycleBin || owner.InRecycleBin)
         {
             throw new OneNoteException(
                 ErrorCode.NotSupported,
@@ -635,7 +635,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     /// </summary>
     private void RefuseSubpages(string sectionPagesXml, string? sectionId)
     {
-        var subpages = XmlReads.Readable(() => PermanentDeleteTarget.Subpages(sectionPagesXml, objectId), $"GetHierarchy({sectionId})")
+        var subpages = XmlReads.Readable(() => HierarchyTarget.Page(sectionPagesXml, objectId)?.Subpages, $"GetHierarchy({sectionId})")
             ?? throw NotATarget("isn't listed in its section");
         if (subpages > 0)
         {
@@ -653,7 +653,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     /// would get word-for-word the same dialog.
     /// </summary>
     private bool SharesItsShownName(string sectionPagesXml, string shown) =>
-        XmlReads.Readable(() => PermanentDeleteTarget.PageNames(sectionPagesXml), $"GetHierarchy({objectId})")
+        XmlReads.Readable(() => PermanentDeleteReads.PageNames(sectionPagesXml), $"GetHierarchy({objectId})")
             .Any(page => !string.Equals(page.Id, objectId, StringComparison.Ordinal)
                 && string.Equals(DialogText.Shown(page.Name, out _), shown, StringComparison.OrdinalIgnoreCase));
 

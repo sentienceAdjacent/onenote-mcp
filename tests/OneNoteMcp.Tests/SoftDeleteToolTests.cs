@@ -518,6 +518,19 @@ public sealed class SoftDeleteToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ASectionCarryingIsRecycleBin_IsRefusedAsTheRecycleBin()
+    {
+        // OneNote never writes isRecycleBin on a section; the one reader's rule (isRecycleBin on any element) refuses it.
+        Self(SectionId, Section(SectionId, "Open", "isRecycleBin=\"true\""));
+        Pages(SectionId, Section(SectionId, "Open", $"isRecycleBin=\"true\" lastModifiedTime=\"{SectionDate}\"", inner: openPages));
+
+        var error = Error(await Tool().DeleteHierarchyObject(SectionId, new DeleteBasisArgument(SectionDate), Ct), "ObjectNotFound");
+
+        Assert.Contains("is a notebook's recycle bin", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task AnUnknownId_IsObjectNotFound_BeforeTheLock()
     {
         Error(await Tool().DeleteHierarchyObject("{00000000-0000-4000-8000-00000000DEAD}{1}{B0}", null, Ct), "ObjectNotFound");

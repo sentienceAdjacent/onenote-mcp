@@ -3,13 +3,13 @@ title: 'One reader for the target of a delete or change'
 type: 'refactor'
 ticket: '1'
 created: '2026-11-15'
-status: 'ready-for-dev'
+status: 'built'
 baseline_revision: 'f200db7886db1854580e3124a4d3756757a6c1f8'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -61,15 +61,15 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Xml/HierarchyElements.cs` -- add `PageLevel(XElement)`: `NumberStyles.Integer`, invariant, values below 1 and unreadable → 1 -- the one parse.
-- [ ] `src/OneNoteMcp.Xml/HierarchyTarget.cs` (new) -- move `HierarchyMember` and `HierarchyTarget` here; replace stored `InRecycleBin` with `IsInRecycleBin` + `IsDeletedPages` and a computed `InRecycleBin`; move `SectionPage` here and add `Page(sectionPagesXml, pageId)` over the root's direct `one:Page` children; children use `HierarchyElements.PageLevel` -- the one reader.
-- [ ] `src/OneNoteMcp.Xml/HierarchyUpdate.cs` -- keep only `HierarchyUpdate`.
-- [ ] `src/OneNoteMcp.Xml/DeleteTargets.cs` -- delete `DeleteTarget`, `Root`, `Page`, `Level`; fix the summary.
-- [ ] `src/OneNoteMcp.Xml/PermanentDeleteTarget.cs` → `PermanentDeleteReads.cs` -- delete the record, `Read`, `Subpages`, `Level`; the four helpers become the static class `PermanentDeleteReads`.
-- [ ] `src/OneNoteMcp.Core/UseCases/SoftDeleteUseCase.cs`, `PermanentDeleteUseCase.cs`, `RestoreFromJournalUseCase.cs` -- read through `HierarchyTarget.Read` / `HierarchyTarget.Page`; `RefuseRecycledPage` may read `found.InRecycleBin` (same test).
-- [ ] `tests/OneNoteMcp.Tests/HierarchyTargetTests.cs` (new) -- the I/O matrix as theories on `Read`, children and `Page` (level and subpage count around odd levels).
-- [ ] `tests/OneNoteMcp.Tests/SoftDeleteReadsTests.cs`, `PermanentDeleteToolTests.cs` -- retarget the existing reader tests to `HierarchyTarget`; keep their cases.
-- [ ] `tests/OneNoteMcp.Tests/` (the soft-delete tool tests) -- one fake-gateway test: a section carrying `isRecycleBin="true"` is refused as the recycle bin and nothing is deleted.
+- [x] `src/OneNoteMcp.Xml/HierarchyElements.cs` -- add `PageLevel(XElement)`: `NumberStyles.Integer`, invariant, values below 1 and unreadable → 1 -- the one parse.
+- [x] `src/OneNoteMcp.Xml/HierarchyTarget.cs` (new) -- move `HierarchyMember` and `HierarchyTarget` here; replace stored `InRecycleBin` with `IsInRecycleBin` + `IsDeletedPages` and a computed `InRecycleBin`; move `SectionPage` here and add `Page(sectionPagesXml, pageId)` over the root's direct `one:Page` children; children use `HierarchyElements.PageLevel` -- the one reader.
+- [x] `src/OneNoteMcp.Xml/HierarchyUpdate.cs` -- keep only `HierarchyUpdate`.
+- [x] `src/OneNoteMcp.Xml/DeleteTargets.cs` -- delete `DeleteTarget`, `Root`, `Page`, `Level`; fix the summary.
+- [x] `src/OneNoteMcp.Xml/PermanentDeleteTarget.cs` → `PermanentDeleteReads.cs` -- delete the record, `Read`, `Subpages`, `Level`; the four helpers become the static class `PermanentDeleteReads`.
+- [x] `src/OneNoteMcp.Core/UseCases/SoftDeleteUseCase.cs`, `PermanentDeleteUseCase.cs`, `RestoreFromJournalUseCase.cs` -- read through `HierarchyTarget.Read` / `HierarchyTarget.Page`; `RefuseRecycledPage` may read `found.InRecycleBin` (same test).
+- [x] `tests/OneNoteMcp.Tests/HierarchyTargetTests.cs` (new) -- the I/O matrix as theories on `Read`, children and `Page` (level and subpage count around odd levels).
+- [x] `tests/OneNoteMcp.Tests/SoftDeleteReadsTests.cs`, `PermanentDeleteToolTests.cs` -- retarget the existing reader tests to `HierarchyTarget`; keep their cases.
+- [x] `tests/OneNoteMcp.Tests/` (the soft-delete tool tests) -- one fake-gateway test: a section carrying `isRecycleBin="true"` is refused as the recycle bin and nothing is deleted.
 
 **Acceptance Criteria:**
 - Given the merged reader, when the solution builds, then no `DeleteTarget` record, `DeleteTargets.Root`, `DeleteTargets.Page`, `PermanentDeleteTarget.Read` or `.Subpages` remains, and `SoftDeleteUseCase`, `PermanentDeleteUseCase` and `HierarchyWrite` read targets only through `HierarchyTarget`.
@@ -77,9 +77,22 @@ context: []
 
 ## Implementation Notes
 
+- Done as planned in 13 source/test files. `PermanentDeleteTarget.cs` was replaced by `PermanentDeleteReads.cs`. `HierarchyTarget.cs` holds `HierarchyMember`, `SectionPage` and `HierarchyTarget`. `HierarchyUpdate.cs` keeps only `HierarchyUpdate`. `HierarchyWrite.cs` and the integration tests were not edited.
+- `SoftDeleteReadsTests.Root_ReadsKindDateAndTheRecycleBinStates` compared a whole `DeleteTarget`. It now compares a tuple of the same nine fields with the same values, because `HierarchyTarget` carries a `Children` list, so comparing whole records no longer works.
+- New tests: `HierarchyTargetTests.cs` (35 cases, covering every matrix row) and `SoftDeleteToolTests.ASectionCarryingIsRecycleBin_IsRefusedAsTheRecycleBin`.
+- One change on XML OneNote never writes isn't in the matrix's Change column. `PermanentDeleteTarget` parsed `pageLevel` with `NumberStyles.None`, so it read `"0"` as 0. A permanent delete of a page at level `"0"` followed by a page at level 1 used to be refused for subpages; it now goes ahead. Decision 1 covers this (values below 1 read as 1). `HierarchyTargetTests.Page_CountsSubpages_WithTheSameLevelParse` pins it at the Xml level.
+- Verification: build 0 warnings 0 errors. Unit tests 2922/2922 (2886 at baseline + 36). The plan's `git grep` prints nothing. Integration tests were compiled, not run.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Pass 1 (quick lens): 2 findings, high 0, medium 0, low 2, false 0, maybe-false 0. No patches, no deferrals.
+
+| # | Finding | Verdict | Route | Evidence |
+|---|---|---|---|---|
+| 1 | The matrix row "`pageLevel` below 1" omits that `permanently_delete` also read `"0"` as 0, so its subpage refusal moves for a level-0 page | low | rejected | Real: `NumberStyles.None` parses `"0"`. The behaviour is the approved Decision 1 and is pinned at the Xml level. The only fix would edit this plan's frozen matrix. Recorded in Implementation Notes for the owner. |
+| 2 | AC 1 says the three use cases read targets "only through `HierarchyTarget`", but `PageWrite.cs:125` (a soft-deleted page's node) and `HierarchyWrite.cs:648` (the grant check's section) read through `HierarchyNode.Root` | low | rejected | Both predate this change. `HierarchyNode` is out of scope by the plan's Never list. The ticket's verify line ("the three call sites use the one reader") holds for the target records. The only fix would edit the plan's wording. |
 
 ## Design Notes
 
