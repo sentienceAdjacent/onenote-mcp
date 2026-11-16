@@ -730,7 +730,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     /// doesn't drop it (2.7 Q3). Activation re-reads settings, then runs the connecting process check
     /// (<see cref="IProcessProbe.IsOneNoteRunning"/>, where that unreadable WER process does count as a crash), the
     /// window check (<see cref="IProcessProbe.HasOneNoteWindow"/>, unless silent activation is allowed), the integrity
-    /// check and <c>CoCreateInstance</c>, in that order.
+    /// check and <c>CoCreateInstance</c>, in that order. An integrity report that lists no <c>ONENOTE.EXE</c> means
+    /// OneNote exited after the earlier checks: not running, unless silent activation is allowed (backlog 4).
     /// </summary>
     private async Task<(StaThread Worker, GatewaySettings Settings)> EnsureActivatedAsync(CancellationToken ct)
     {
@@ -779,11 +780,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 worker.Post(worker.ReleaseApplication);
                 if (!settings.AllowSilentActivation)
                 {
-                    var crashing = probe.IsOneNoteCrashing();
-                    throw new OneNoteException(
-                        ErrorCode.OneNoteNotRunning,
-                        crashing ? CrashingMessage : "OneNote is not running. Start OneNote desktop, then retry.",
-                        userAction: crashing ? CrashingUserAction : null);
+                    throw NotRunningFailure();
                 }
             }
             else if (!settings.AllowSilentActivation && !probe.HasOneNoteWindow())
@@ -795,6 +792,14 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             }
 
             var integrity = probe.CheckIntegrity();
+            if (integrity.OneNote.Count == 0 && !settings.AllowSilentActivation)
+            {
+                // OneNote exited after the running and window checks (backlog 4). An empty list would match, and
+                // CoCreateInstance would then start a hidden copy: report it as not running instead (AD-3).
+                worker.Post(worker.ReleaseApplication);
+                throw NotRunningFailure();
+            }
+
             if (!integrity.Matches)
             {
                 throw new OneNoteException(
@@ -942,6 +947,19 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     }
 
     private static string Seconds(TimeSpan timeout) => timeout.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// <see cref="ErrorCode.OneNoteNotRunning"/> for activation: with the crash wording while Windows Error Reporting
+    /// handles a crashed <c>ONENOTE.EXE</c>, else the plain message and the code's default userAction (AD-3).
+    /// </summary>
+    private OneNoteException NotRunningFailure()
+    {
+        var crashing = probe.IsOneNoteCrashing();
+        return new OneNoteException(
+            ErrorCode.OneNoteNotRunning,
+            crashing ? CrashingMessage : "OneNote is not running. Start OneNote desktop, then retry.",
+            userAction: crashing ? CrashingUserAction : null);
+    }
 
     private static OneNoteException PoisonedFailure() => new(
         ErrorCode.ComBusy,

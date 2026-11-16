@@ -136,6 +136,6 @@ public sealed class ComGatewayTests
     {
         public bool IsOneNoteRunning() => running;
 
-        public IntegrityReport CheckIntegrity() => new(0x2000, []);
+        public IntegrityReport CheckIntegrity() => new(0x2000, [new OneNoteIntegrity(1, 0x2000)]);
     }
 }
