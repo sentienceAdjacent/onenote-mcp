@@ -62,6 +62,8 @@ after = [4]
 hitl = true
 risk = "high"
 unknown = "Whether a section or section group moves across notebooks through UpdateHierarchy, and whether a group move syncs on OneDrive; entry 1 settles both."
+notes = ["3.2 (Phill 2026-11-16): H2 keeps Q9 and Q14, so a protected section, or a group holding one, never moves and no read grant or protected journal entry is re-keyed; a move that would put a section on a SectionKey holding a read grant is refused InvalidArgument, as a rename is. J1: a section or group leaving a cloud notebook for another notebook's section group is refused before COM with a userAction to move it to that notebook's root first. J3: 0x80042018 on a group move is NotSupported. J4: moves into, out of or of a locked section are SectionLocked. J5: a 10 s settle under the write lock after a move that crosses storage or leaves a cloud notebook. Spine AD-7 Moves."]
+
 
 [[entry]]
 id = 5
@@ -103,11 +105,13 @@ id = 7
 type = "story"
 title = "publish: notebooks and section groups"
 description = "Extends publish to a notebook, as a .onepkg that counts as done only once the file is on disk, refusing a section group before COM (Q7), with E8's rule for protected sections inside the notebook; it also exports entry 4's second test notebook, which holds no protected section, and entry 8 opens that package."
-verify = "On MCP Test a notebook exports to a .onepkg under the export root with meta.outputPath, a section group is refused before COM, the second test notebook exports with no refusal, and an integration test shows MCP Test, which holds the locked protected section, refused with ReadNotGranted without that section's read grant (Q1); unit tests cover the unlocked path."
+verify = "On MCP Test a notebook exports to a .onepkg under the export root with meta.outputPath, a section group is refused before COM, a notebook in any other format is refused before COM, the second test notebook exports with no refusal, and an integration test shows MCP Test, which holds the locked protected section, exporting as a package with no read grant (3.2 H1); unit tests cover the refusals."
 covers = ["E1", "E2", "E8"]
 after = [13]
 hitl = false
 risk = "medium"
+notes = ["3.2 H1 (Phill 2026-11-16): a notebook package needs no read grant, since spike 3.1 found protected sections encrypted inside packages; this relaxes Q1 for packages only, and section and page exports keep it. Notebook export is package-only (approved rule); any other notebook format is refused before COM (spine AD-11)."]
+
 
 [[entry]]
 id = 8
