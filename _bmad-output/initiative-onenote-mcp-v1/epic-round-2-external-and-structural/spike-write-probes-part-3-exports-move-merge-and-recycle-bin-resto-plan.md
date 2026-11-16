@@ -185,6 +185,20 @@ Run from the repo root with OneNote already running, with `$env:ONENOTE_MCP_INTE
 - **X3 (timeout):** a 30-page Word export passed the 1 s limit with the file already complete (13,514 bytes, no growth); a retry to the same path is `0x8004201A` hrFileAlreadyExists and leaves it untouched.
 - **Also at this sitting:** backlog 2's live check passed, and the "cleaning up" bug reproduced: a connected server that has made a call keeps ONENOTE.EXE alive after its window closes (it ended one second after the server closed).
 
+## Sitting B results so far (2026-11-16, Phill; rows in `write-probes-r2-cloud-20261116-*.jsonl`, times UTC)
+
+- **Run 1, cloud (stamp 1116-154342).** The first attempt timed out at its first pause with no answer and changed nothing. On the rerun, `export-check-sync` also timed out unanswered (the run went on); Phill's later Sync Now and web check covered it, since nothing in between wrote to the cloud. The same goes for `move-check-sync`, which came straight after the M4 web check.
+  - **Merge sections:** S2 (to the cloud throwaway) gave `0x8004201F` hrMergeFailed. S3's target shows the merged pages on the web. Sync was up to date.
+  - **Move:** M3 section into a group gave hrSectionDoesNotExist, and the section stayed. Section to the throwaway's root: ok. M4: group into group ok; group to the throwaway gave hrFolderDoesNotExist, and the group stayed. Phill checked all of this on the web.
+  - **Restore:** R3 soft delete and restore ok. R5: rename a recycled section ok; move a section into the recycle bin ok; update a recycled page gave hrPageReadOnly; reorder deleted pages ok. Phill saw a dialog flash past; OneNote didn't restart.
+  - **Q1 cross-storage:** page local→cloud ok (new ID), then section local→cloud ok (same ID, 237 ms). About 2 s later, while the cross-storage merge was being set up, **ONENOTE.EXE crashed** (17:04:07, APPCRASH in `mso20win32client.dll`, exception `0x0304969d`). OneNote relaunched itself at 17:04:12 with no safe-start prompt, and the breaker stopped the run.
+    - Afterwards the moved section never synced: `0xE000089E bb8p1` on the section and `0xE0000057 bhhdz` on its page, with the notebook showing "Incomplete sync".
+    - Deleting the section in OneNote only moved it to Deleted Notes, and the errors stayed. Emptying the notebook recycle bin cleared them.
+- **Run 1, cross-storage rerun (1116-170839).** Cloud-to-local ran first, with a 10 s settle and a read after each move; the merge was off. Page cloud→local ok (new ID); **section cloud→local gave hrSectionDoesNotExist**; page local→cloud ok; section local→cloud ok. No crash, and the sync was clean for this run group. Phill saw a dialog come and go.
+- **Run 1, merge alone (1116-171415).** No moves. Merge cloud→local ok: 3 pages, subpage included, 3.3 s. Merge local→cloud ok: 3 pages, 0.2 s. Both sources were kept, there was no crash, and the sync was clean.
+- **What the Q1 rows suggest.** Neither the cross-storage section move nor the cross-storage merge crashed on its own. The crash came when writes started about 1 s after a local→cloud section move, and that is one run's evidence. Pages move both ways; sections move only local→cloud.
+- **Run 2, protected-cloud (1116-172138).** Setup was done, and the run was waiting at the protect pause when Claude Code's low-memory guard stopped the test process. OneNote was not affected. Restart it when Phill says Ready.
+
 ## Plan Change Log
 
 ## Review Triage Log
