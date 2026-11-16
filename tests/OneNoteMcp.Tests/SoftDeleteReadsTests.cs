@@ -87,11 +87,13 @@ public sealed class SoftDeleteReadsTests
     [Fact]
     public void Root_ReadsKindDateAndTheRecycleBinStates()
     {
-        var section = DeleteTargets.Root($$"""<one:Section {{Ns}} name="Vault" ID="{S}" path="C:\n\Vault.one" lastModifiedTime="2026-11-13T10:00:00.000Z" encrypted="true" locked="true" />""");
-        var bin = DeleteTargets.Root($$"""<one:SectionGroup {{Ns}} name="OneNote_RecycleBin" ID="{RB}" />""");
-        var deletedPages = DeleteTargets.Root($$"""<one:Section {{Ns}} name="Deleted Pages" ID="{DP}" isDeletedPages="true" />""");
+        var section = HierarchyTarget.Read($$"""<one:Section {{Ns}} name="Vault" ID="{S}" path="C:\n\Vault.one" lastModifiedTime="2026-11-13T10:00:00.000Z" encrypted="true" locked="true" />""");
+        var bin = HierarchyTarget.Read($$"""<one:SectionGroup {{Ns}} name="OneNote_RecycleBin" ID="{RB}" />""");
+        var deletedPages = HierarchyTarget.Read($$"""<one:Section {{Ns}} name="Deleted Pages" ID="{DP}" isDeletedPages="true" />""");
 
-        Assert.Equal(new DeleteTarget(HierarchyKind.Section, "{S}", "Vault", @"C:\n\Vault.one", "2026-11-13T10:00:00.000Z", false, false, true, true), section);
+        Assert.Equal(
+            (HierarchyKind.Section, "{S}", "Vault", @"C:\n\Vault.one", "2026-11-13T10:00:00.000Z", false, false, true, true),
+            (section.Kind, section.Id, section.Name, section.Path, section.LastModifiedTime, section.IsRecycleBin, section.InRecycleBin, section.Encrypted, section.Locked));
         Assert.True(bin.IsRecycleBin);
         Assert.True(deletedPages.InRecycleBin);
     }
@@ -109,11 +111,11 @@ public sealed class SoftDeleteReadsTests
             </one:Section>
             """;
 
-        Assert.Equal(new SectionPage("Top", "2026-11-13T10:00:01.000Z", 1, 2), DeleteTargets.Page(pages, "{P1}"));
-        Assert.Equal(1, DeleteTargets.Page(pages, "{P2}")!.Subpages);
-        Assert.Equal(new SectionPage("Next", "2026-11-13T10:00:04.000Z", 1, 0), DeleteTargets.Page(pages, "{P4}"));
-        Assert.Equal(0, DeleteTargets.Page(pages, "{P5}")!.Subpages);
-        Assert.Null(DeleteTargets.Page(pages, "{P9}"));
+        Assert.Equal(new SectionPage("Top", "2026-11-13T10:00:01.000Z", 1, 2), HierarchyTarget.Page(pages, "{P1}"));
+        Assert.Equal(1, HierarchyTarget.Page(pages, "{P2}")!.Subpages);
+        Assert.Equal(new SectionPage("Next", "2026-11-13T10:00:04.000Z", 1, 0), HierarchyTarget.Page(pages, "{P4}"));
+        Assert.Equal(0, HierarchyTarget.Page(pages, "{P5}")!.Subpages);
+        Assert.Null(HierarchyTarget.Page(pages, "{P9}"));
     }
 
     [Fact]
