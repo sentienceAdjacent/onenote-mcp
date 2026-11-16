@@ -397,7 +397,48 @@ public sealed class ComGatewayLifecycleTests
     {
         bool? HasWindow(int pid) => unreadable.Contains(pid) ? null : withWindow.Contains(pid);
 
-        Assert.Equal(expected, ProcessProbe.AnyWithWindow(pids, HasWindow));
+        Assert.Equal(expected, ProcessProbe.AnyWithWindow(pids, HasWindow, canSeeWindows: () => true));
+    }
+
+    [Fact]
+    public void ProcessProbe_AnyWithWindow_CountsAsOpen_WhenThisProcessCanSeeNoWindowsAtAll()
+    {
+        // Fable F4 (Phill, 2026-11-16): a server on another desktop or window station sees no top-level windows, so
+        // "no window" there means "can't tell". That fails open: never refuse a OneNote the server can't see.
+        Assert.True(ProcessProbe.AnyWithWindow([1, 2], _ => false, canSeeWindows: () => false));
+    }
+
+    [Fact]
+    public void ProcessProbe_AnyWithWindow_LooksForWindowsOnlyWhenNoOneNoteHasOne()
+    {
+        var looked = 0;
+        bool CanSee()
+        {
+            looked++;
+            return true;
+        }
+
+        Assert.True(ProcessProbe.AnyWithWindow([1], _ => true, CanSee));
+        Assert.True(ProcessProbe.AnyWithWindow([1], _ => null, CanSee));
+        Assert.False(ProcessProbe.AnyWithWindow([], _ => false, CanSee));
+        Assert.Equal(0, looked);
+
+        Assert.False(ProcessProbe.AnyWithWindow([1], _ => false, CanSee));
+        Assert.Equal(1, looked);
+    }
+
+    [Fact]
+    public void ProcessProbe_CanSeeAnyWindow_IsTrueOnADesktopWithWindows()
+    {
+        var hwnd = MinimisedWindow.Create();
+        try
+        {
+            Assert.True(ProcessProbe.CanSeeAnyWindow());
+        }
+        finally
+        {
+            MinimisedWindow.DestroyWindow(hwnd);
+        }
     }
 
     [Fact]

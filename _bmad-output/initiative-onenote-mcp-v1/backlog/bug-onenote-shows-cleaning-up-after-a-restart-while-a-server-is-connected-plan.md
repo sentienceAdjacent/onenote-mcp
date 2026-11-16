@@ -150,3 +150,23 @@ Pass 1 (quick lens, 2026-11-15): 6 findings. Verdicts: high 0, medium 1, low 4, 
 | 4 | The window check and the running check use different process sets (two-process and crashed-window cases) | medium | defer | True and fails open, as Q5 decided. Literally consistent with the intent's per-process wording; which process COM binds to is unprobed. Entry added to `deferred-work.md`. The Fable review raised the same point (F3). |
 | 5 | No evidence of the Fable review; Execution boxes unticked | false | reject | The Fable review ran in parallel with this lens; its findings go to Phill. Ticking the boxes would be an edit to this plan, which the triage rules reject. |
 | 6 | README "For agents" step 1 checks only `Get-Process ONENOTE` | low | patch | True. Now asks for a window (`MainWindowHandle -ne 0`, minimised is fine). |
+
+Fable final review of the AD-3 amendment (`model: fable`, `effort: low`, read-only, bmad-review with also_consider and the reviewer-gate checklist). 15 findings: 0 high, 5 medium, 10 low. I verified each, confirmed 14 and dropped 1. Phill's picks, 2026-11-16: apply all 14 confirmed; F4 is fixed in code.
+
+| # | Finding | Verdict | Phill | Applied |
+|---|---|---|---|---|
+| F1 | "Never keeps OneNote alive past its own shutdown" was unmeasured and too strong | medium | apply | Now reads "Expected to". Names the two exceptions: a call in flight, and an abandoned thread. A Deferred row covers the live check. |
+| F2 | The spine said nothing about a `callbackID` across a release | medium | apply | Deferred row added (manual check 5), with the `binaryUnavailable` fallback. |
+| F3 | The spine read per process; the code checks the whole session | medium | apply | The rule now says "some `ONENOTE.EXE` in this session has an open window". A Deferred row covers the two-process and crashed-window cases. |
+| F4 | A server on another desktop sees no windows and would refuse an open OneNote | medium | fix in code | `ProcessProbe.CanSeeAnyWindow` (`EnumWindows`): when no OneNote has a window and this process sees no windows at all, every OneNote counts as having one. Tests through the probe seam (`AnyWithWindow` with `canSeeWindows`). Spine and README worded to match. Memlog entry 277. |
+| F5 | Silent activation under a 5 s release wasn't addressed | medium | apply | The cost figure is scoped to "against a running OneNote", with a silent-activation sentence. The risk row now covers the 5 s default and a leftover instance. |
+| F6 | The 15–20 ms figure was an estimate | low | apply | Now marked "estimated"; only the 9 ms is logged. |
+| F7 | The per-call window check's cost wasn't stated | low | apply | Estimated 2–3 ms per call while a reference is held, not measured. |
+| F8 | "Start a hidden copy" was stated as fact | low | apply | "Might … unprobed (see Deferred)". |
+| F9 | AD-9's `OneNoteNotRunning` row named only the process check | low | apply | The source is now "not running, crashed, or closing (no open window)". |
+| F10 | The skill row contradicts `NoWindowUserAction` | low | apply | `SKILL.md`: "or follow the error's `userAction`". |
+| F11 | The upper cap of the range was missing | low | apply | AD-3 gives 1–2,147,483. New AD-10 `timeouts{}` range line. |
+| F12 | Dates (2026-11-16 against local 11-15); spine `updated` field | -- | dropped | The ticket's Notes and Phill's decisions say 2026-11-16. `updated` is bumped when Phill approves an amendment, as the memlog shows. |
+| F13 | The sitting had no citation or evidence level | low | apply | Cites the backlog 3 ticket's Notes: "one machine, one run, observed with clock times, not logged". |
+| F14 | Prevents didn't name the new purpose | low | apply | Adds "OneNote kept running after the user closes it". |
+| F15 | Dense bullet, fragments, vague wording | low | apply | Split into a heading bullet with sub-bullets. The rejected signals point to the memlog. The message's content and "exits" are named. |
