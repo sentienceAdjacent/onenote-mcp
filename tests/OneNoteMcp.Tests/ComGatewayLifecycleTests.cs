@@ -303,6 +303,175 @@ public sealed class ComGatewayLifecycleTests
         Assert.Single(app.Calls);
     }
 
+    // --- No open window (backlog 3) -----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task NoWindow_IsOneNoteNotRunning_NothingCreated_NoIntegrityCheck()
+    {
+        // A closing (or still starting, or COM-started) ONENOTE.EXE: connecting would pin it, or start a hidden copy.
+        var probe = new TestProbe { HasWindow = false };
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(), app.Factory);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(ErrorCode.OneNoteNotRunning, ex.Code);
+        Assert.Equal(ComGateway.NoWindowMessage, ex.Message);
+        Assert.Equal(ComGateway.NoWindowUserAction, ex.UserAction);
+        Assert.Equal(0, app.Activations);
+        Assert.Equal(0, probe.IntegrityChecks);
+    }
+
+    [Fact]
+    public async Task NoWindow_WithAllowSilentActivation_Activates()
+    {
+        var probe = new TestProbe { HasWindow = false };
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(silent: true), app.Factory);
+
+        Assert.Equal("<ok/>", await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+        Assert.Equal("<ok/>", await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+        Assert.Equal(1, app.Activations);
+        Assert.Equal(2, app.Calls.Count);
+    }
+
+    [Fact]
+    public async Task WindowCloses_UnderALiveReference_ReferenceIsDropped_AndNothingIsCreated()
+    {
+        var probe = new TestProbe();
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(), app.Factory);
+        await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+        Assert.True(gateway.HasApplication);
+
+        probe.HasWindow = false;
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(ErrorCode.OneNoteNotRunning, ex.Code);
+        Assert.Equal(ComGateway.NoWindowMessage, ex.Message);
+        await WaitUntil(() => !gateway.HasApplication);
+        Assert.Equal(1, app.Activations);
+        Assert.Single(app.Calls);
+
+        // The window is back (OneNote restarted, or it was still starting): the next call connects again.
+        probe.HasWindow = true;
+        Assert.Equal("<ok/>", await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+        Assert.Equal(2, app.Activations);
+    }
+
+    [Fact]
+    public async Task WindowCloses_WithAllowSilentActivation_LiveReferenceIsKept()
+    {
+        var probe = new TestProbe();
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(silent: true), app.Factory);
+        await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+
+        probe.HasWindow = false;
+        Assert.Equal("<ok/>", await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(1, app.Activations);
+        Assert.Equal(2, app.Calls.Count);
+    }
+
+    [Fact]
+    public async Task NotRunning_KeepsItsOwnMessage_WithoutAskingForAWindow()
+    {
+        var probe = new TestProbe { Running = false, HasWindow = false };
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(), app.Factory);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(ErrorCode.OneNoteNotRunning, ex.Code);
+        Assert.NotEqual(ComGateway.NoWindowMessage, ex.Message);
+        Assert.Equal(0, probe.WindowChecks);
+    }
+
+    [Theory]
+    [InlineData(new[] { 1, 2 }, new[] { 2 }, new int[0], true)] // one of two has a window
+    [InlineData(new[] { 1, 2 }, new int[0], new int[0], false)] // none has one: closing, starting or COM-started
+    [InlineData(new[] { 1 }, new int[0], new[] { 1 }, true)] // unreadable counts as open: never refuse on doubt
+    [InlineData(new int[0], new int[0], new int[0], false)] // no OneNote at all
+    public void ProcessProbe_AnyWithWindow_FailsOpen(int[] pids, int[] withWindow, int[] unreadable, bool expected)
+    {
+        bool? HasWindow(int pid) => unreadable.Contains(pid) ? null : withWindow.Contains(pid);
+
+        Assert.Equal(expected, ProcessProbe.AnyWithWindow(pids, HasWindow, canSeeWindows: () => true));
+    }
+
+    [Fact]
+    public void ProcessProbe_AnyWithWindow_CountsAsOpen_WhenThisProcessCanSeeNoWindowsAtAll()
+    {
+        // Fable F4 (Phill, 2026-11-16): a server on another desktop or window station sees no top-level windows, so
+        // "no window" there means "can't tell". That fails open: never refuse a OneNote the server can't see.
+        Assert.True(ProcessProbe.AnyWithWindow([1, 2], _ => false, canSeeWindows: () => false));
+    }
+
+    [Fact]
+    public void ProcessProbe_AnyWithWindow_LooksForWindowsOnlyWhenNoOneNoteHasOne()
+    {
+        var looked = 0;
+        bool CanSee()
+        {
+            looked++;
+            return true;
+        }
+
+        Assert.True(ProcessProbe.AnyWithWindow([1], _ => true, CanSee));
+        Assert.True(ProcessProbe.AnyWithWindow([1], _ => null, CanSee));
+        Assert.False(ProcessProbe.AnyWithWindow([], _ => false, CanSee));
+        Assert.Equal(0, looked);
+
+        Assert.False(ProcessProbe.AnyWithWindow([1], _ => false, CanSee));
+        Assert.Equal(1, looked);
+    }
+
+    [Fact]
+    public void ProcessProbe_CanSeeAnyWindow_IsTrueOnADesktopWithWindows()
+    {
+        var hwnd = MinimisedWindow.Create();
+        try
+        {
+            Assert.True(ProcessProbe.CanSeeAnyWindow());
+        }
+        finally
+        {
+            MinimisedWindow.DestroyWindow(hwnd);
+        }
+    }
+
+    [Fact]
+    public void ProcessProbe_HasMainWindow_CountsAMinimisedWindow()
+    {
+        // A real top-level window of this process, created minimised (a tool window, so nothing shows in the taskbar):
+        // a minimised OneNote must still count as open. MainWindowHandle wants unowned and IsWindowVisible.
+        var hwnd = MinimisedWindow.Create();
+        try
+        {
+            Assert.True(MinimisedWindow.IsIconic(hwnd));
+            Assert.Equal(true, ProcessProbe.HasMainWindow(Environment.ProcessId));
+        }
+        finally
+        {
+            MinimisedWindow.DestroyWindow(hwnd);
+        }
+    }
+
+    [Fact]
+    public void ProcessProbe_HasMainWindow_IsFalseForAProcessThatHasGone()
+    {
+        Assert.Equal(false, ProcessProbe.HasMainWindow(int.MaxValue));
+    }
+
+    [Fact]
+    public void ProcessProbe_HasWindow_DefaultsToTrue_ForOtherProbes()
+    {
+        // PinnedOneNoteProbe and any probe that predates backlog 3 keep today's behaviour.
+        IProcessProbe probe = new LegacyProbe();
+        Assert.True(probe.HasOneNoteWindow());
+    }
+
     // --- Integrity ----------------------------------------------------------------------------------------------
 
     [Fact]
@@ -420,6 +589,82 @@ public sealed class ComGatewayLifecycleTests
 
         await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
         Assert.Equal(2, app.Activations);
+    }
+
+    [Fact]
+    public async Task Idle_Burst_ActivatesOnce()
+    {
+        // One tool's COM calls (a search post-filter, a write pipeline) come milliseconds apart: one activation.
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = Gateway(app, Settings(idleMs: 2000));
+
+        for (var i = 0; i < 20; i++)
+        {
+            await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+        }
+
+        Assert.Equal(1, app.Activations);
+        Assert.Equal(20, app.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Idle_Gap_ReactivatesThroughEveryActivationCheck()
+    {
+        var probe = new TestProbe();
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = Gateway(app, Settings(idleMs: 150), probe);
+
+        await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+        await WaitUntil(() => !gateway.HasApplication);
+        await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+
+        Assert.Equal(2, app.Activations);
+        Assert.Equal(2, probe.IntegrityChecks);
+        Assert.Equal(2, probe.WindowChecks); // the connecting window check, once per activation
+    }
+
+    [Fact]
+    public async Task Idle_NeverReleasesDuringALongCall()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var entered = new ManualResetEventSlim(false);
+        var app = new FakeApplication
+        {
+            OnCall = _ =>
+            {
+                entered.Set();
+                gate.Wait();
+                return "<ok/>";
+            },
+        };
+        using var gateway = Gateway(app, Settings(idleMs: 100));
+
+        var call = gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct);
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5), Ct));
+        await Task.Delay(400, Ct);
+        Assert.True(gateway.HasApplication);
+
+        gate.Set();
+        Assert.Equal("<ok/>", await call);
+        await WaitUntil(() => !gateway.HasApplication);
+    }
+
+    [Fact]
+    public async Task Idle_ReleaseRacingTheNextCall_NeverFailsIt()
+    {
+        // Gaps scattered around a 15 ms grace (about the timer's resolution): some calls start just as the release is
+        // queued and find the reference released under them.
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = Gateway(app, Settings(idleMs: 15));
+
+        for (var i = 0; i < 120; i++)
+        {
+            Assert.Equal("<ok/>", await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+            await Task.Delay(i % 4 * 8, Ct); // 0, 8, 16, 24 ms
+        }
+
+        Assert.Equal(120, app.Calls.Count);
+        Assert.True(app.Activations > 1, $"expected releases between calls, got {app.Activations} activation(s)");
     }
 
     [Fact]
@@ -1376,10 +1621,48 @@ public sealed class ComGatewayLifecycleTests
             Entries.Add((logLevel, formatter(state, exception)));
     }
 
+    private static class MinimisedWindow
+    {
+        private const uint WsOverlappedWindow = 0x00CF0000;
+        private const uint WsVisible = 0x10000000;
+        private const uint WsMinimize = 0x20000000;
+        private const uint WsExToolWindow = 0x00000080;
+
+        public static IntPtr Create()
+        {
+            var hwnd = CreateWindowEx(WsExToolWindow, "STATIC", "backlog-3 minimised test window", WsOverlappedWindow | WsVisible | WsMinimize, 0, 0, 200, 100, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            Assert.NotEqual(IntPtr.Zero, hwnd);
+            return hwnd;
+        }
+
+        [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+
+        [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsIconic(IntPtr hwnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DestroyWindow(IntPtr hwnd);
+    }
+
+    private sealed class LegacyProbe : IProcessProbe
+    {
+        public bool IsOneNoteRunning() => true;
+
+        public IntegrityReport CheckIntegrity() => new(0x2000, []);
+    }
+
     private sealed class TestProbe : IProcessProbe
     {
         private int integrityChecks;
+        private int windowChecks;
         private volatile bool running = true;
+        private volatile bool hasWindow = true;
 
         public bool Running
         {
@@ -1401,6 +1684,21 @@ public sealed class ComGatewayLifecycleTests
         public bool IsOneNoteStillRunning() => StillRunning ?? Running;
 
         public bool IsOneNoteCrashing() => Crashing;
+
+        /// <summary>Whether a session <c>ONENOTE.EXE</c> has an open window (backlog 3). True by default.</summary>
+        public bool HasWindow
+        {
+            get => hasWindow;
+            set => hasWindow = value;
+        }
+
+        public int WindowChecks => Volatile.Read(ref windowChecks);
+
+        public bool HasOneNoteWindow()
+        {
+            Interlocked.Increment(ref windowChecks);
+            return HasWindow;
+        }
 
         public IntegrityReport CheckIntegrity()
         {

@@ -215,7 +215,7 @@ On `ok: false`, read `error.code`, `error.retryable` and `error.userAction`.
 
 | Code | What to do |
 | --- | --- |
-| `OneNoteNotRunning` | Ask the user to start OneNote desktop. Never start it yourself. |
+| `OneNoteNotRunning` | Ask the user to start OneNote desktop, or follow the error's `userAction`. Never start it yourself. |
 | `ModalDialogOpen` | Ask the user to close the open dialog in OneNote, then retry. |
 | `SectionLocked` | Ask the user to unlock the section in OneNote, then retry. If they say it's already unlocked, pass on the error's `userAction`: it names the OneNote option that keeps protected sections from add-ins. Never change that option yourself. |
 | `ComBusy` | OneNote is busy or syncing. Retry once now; then ask the user to wait and tell you when to try again. |

@@ -56,7 +56,7 @@ The plugin also installs a `guide` skill that teaches Claude to use the tools we
 ## Requirements
 
 - Windows 10 or 11
-- **OneNote desktop** (Microsoft 365, `ONENOTE.EXE`), **running**. The Windows 10 "OneNote for Windows" store app has no COM API.
+- **OneNote desktop** (Microsoft 365, `ONENOTE.EXE`), **running in a window** (minimised is fine). The Windows 10 "OneNote for Windows" store app has no COM API.
 - Claude Code (recommended), or any MCP client that can run a local stdio server
 - Run the server at the same privilege level as OneNote, normally *not* as administrator
 
@@ -285,7 +285,7 @@ Large results are held in the server's memory only and vanish when it exits, so 
 
 Follow these steps in order, and stop to report to the user if any check fails:
 
-1. Confirm the OS is Windows. Check that `ONENOTE.EXE` exists (normally `C:\Program Files\Microsoft Office\root\Office16\ONENOTE.EXE`), and that OneNote is running (`Get-Process ONENOTE`).
+1. Confirm the OS is Windows. Check that `ONENOTE.EXE` exists (normally `C:\Program Files\Microsoft Office\root\Office16\ONENOTE.EXE`), and that OneNote is running in a window (`Get-Process ONENOTE | Where-Object MainWindowHandle -ne 0` returns it; minimised is fine).
 2. Confirm the shell is **not** elevated: `([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrator')` must be `False`.
 3. Install by one route:
    - **Claude Code plugin** (recommended): run `claude plugin marketplace add sentienceAdjacent/plugins` and then `claude plugin install onenote@sentienceadjacent` in a shell (the user can type the `/plugin` commands above instead). Ask the user to restart Claude Code so the tools load.
@@ -312,6 +312,7 @@ MCP client ──stdio──► OneNoteMcp.exe ──COM (one STA thread)──�
 
 - **One server process per client:** several can run at once.
 - **COM calls go one at a time,** with timeouts. If OneNote restarts, the server reconnects.
+- **The server lets go of OneNote 5 seconds after its last call.** While it holds on, closing OneNote's window doesn't end `ONENOTE.EXE`, and starting OneNote again then shows "OneNote is cleaning up". The delay is `timeouts.idleReleaseSeconds` in `settings.json` (whole seconds, default `5`). Above about 10, that message can come back when you restart OneNote soon after closing it. A OneNote with no open window counts as not running, so the server doesn't connect to one that is closing. That covers a OneNote that is still starting, or one another program started without a window. A minimised window counts as open, and the server doesn't refuse a OneNote it can't see at all (as when the server runs on another desktop). With `allowSilentActivation` on, the server connects anyway.
 - **Writes go one at a time on the whole PC,** under a machine-wide lock that every server process shares, so two sessions never write at once; a write that can't get the lock in time fails with `ComBusy`, and nothing is written. Reads never wait for it. Each edit or delete of page content runs the same steps in order: check the grant, take the lock, read the page, validate, compare with the basis Claude sent, save the snapshot to the journal, write, read the page back, release the lock. Renames, reorders and deletes of sections, section groups and pages follow the same steps on the node they change: a permanent delete also checks your confirmation or permanent-delete grant first, and saves a section's pages and its backup before the delete; a rename or reorder reads the node back afterwards. A create checks the grant (none for a new notebook) and takes the lock too, but has no basis to compare and saves nothing to the journal.
 - **Large results stay in memory,** in each server process, keyed by a `resultId`. The server indexes them by the exact character positions of their elements and serves parts by those positions, so it never re-serialises XML. `read_result` reads only that memory and never calls OneNote. Logs record a stored result's ID and size, never its content.
 

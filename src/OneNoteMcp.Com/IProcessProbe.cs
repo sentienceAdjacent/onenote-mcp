@@ -31,6 +31,16 @@ public interface IProcessProbe
     /// <summary>True when an <c>ONENOTE.EXE</c> in this session counts as crashing (see <see cref="IsOneNoteRunning"/>).</summary>
     bool IsOneNoteCrashing() => false;
 
+    /// <summary>
+    /// True when an <c>ONENOTE.EXE</c> in this session has an open window: a visible top-level window it owns, minimised
+    /// or not (<see cref="Process.MainWindowHandle"/>). One without (closing, still starting, or started for COM with
+    /// <c>-Embedding</c>) doesn't count as running unless <c>allowSilentActivation</c> is on (AD-3, backlog 3). Fails open:
+    /// a window that can't be read counts as open, and so does every OneNote when this process can see no top-level
+    /// windows at all (another desktop or window station). Never touches COM. The default keeps a probe that doesn't
+    /// look at windows on the old behaviour.
+    /// </summary>
+    bool HasOneNoteWindow() => true;
+
     /// <summary>Compares this process's integrity level with every <c>ONENOTE.EXE</c> in this session. Never touches COM.</summary>
     IntegrityReport CheckIntegrity();
 }
@@ -131,6 +141,76 @@ public sealed class ProcessProbe : IProcessProbe
         }
 
         return null;
+    }
+
+    public bool HasOneNoteWindow() => AnyWithWindow(SessionProcessIds("ONENOTE"), HasMainWindow, CanSeeAnyWindow);
+
+    /// <summary>
+    /// Whether any of <paramref name="processIds"/> has an open window. Each doubt counts as open, so it never refuses a
+    /// normally open OneNote: <paramref name="hasWindow"/> returning null (unreadable), and, when no OneNote shows a window,
+    /// <paramref name="canSeeWindows"/> returning false. A server on another desktop or window station sees no top-level
+    /// windows at all, so there "no window" can't be told apart from "can't see" (Fable F4, Phill 2026-11-16).
+    /// </summary>
+    internal static bool AnyWithWindow(IEnumerable<int> processIds, Func<int, bool?> hasWindow, Func<bool> canSeeWindows)
+    {
+        ArgumentNullException.ThrowIfNull(processIds);
+        ArgumentNullException.ThrowIfNull(hasWindow);
+        ArgumentNullException.ThrowIfNull(canSeeWindows);
+        var any = false;
+        foreach (var pid in processIds)
+        {
+            any = true;
+            if (hasWindow(pid) ?? true)
+            {
+                return true;
+            }
+        }
+
+        return any && !canSeeWindows();
+    }
+
+    /// <summary>True when <c>EnumWindows</c> finds at least one top-level window, visible or not, on this thread's desktop.</summary>
+    internal static bool CanSeeAnyWindow()
+    {
+        var found = false;
+        NativeMethods.EnumWindowsProc stopAtFirst = (_, _) =>
+        {
+            found = true;
+            return false; // stop enumerating
+        };
+        NativeMethods.EnumWindows(stopAtFirst, IntPtr.Zero);
+        GC.KeepAlive(stopAtFirst);
+        return found;
+    }
+
+    /// <summary>
+    /// <see cref="Process.MainWindowHandle"/> of a fresh <see cref="Process"/>: the first top-level window of the process
+    /// that has no owner and is visible (<c>IsWindowVisible</c>, which a minimised window is). Null when it can't be read;
+    /// false for a process that has gone.
+    /// </summary>
+    internal static bool? HasMainWindow(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return process.MainWindowHandle != IntPtr.Zero;
+        }
+        catch (ArgumentException)
+        {
+            return false; // exited between listing and looking
+        }
+        catch (InvalidOperationException)
+        {
+            return false; // exited between listing and looking
+        }
+        catch (Win32Exception)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
     }
 
     public IntegrityReport CheckIntegrity()
@@ -344,6 +424,15 @@ public sealed class ProcessProbe : IProcessProbe
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool GetTokenInformation(SafeAccessTokenHandle tokenHandle, int tokenInformationClass, IntPtr tokenInformation, int tokenInformationLength, out int returnLength);
+
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr param);
+
+        /// <summary>Calls <paramref name="callback"/> for each top-level window on this thread's desktop until it returns false.</summary>
+        [DllImport("user32.dll")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool EnumWindows(EnumWindowsProc callback, IntPtr param);
 
         /// <summary>Returns an NTSTATUS: 0 on success; <c>STATUS_INFO_LENGTH_MISMATCH</c> with the size needed for a short buffer.</summary>
         [DllImport("ntdll.dll")]

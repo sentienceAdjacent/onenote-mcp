@@ -7,7 +7,7 @@ paradigm: 'hexagonal (ports and adapters) with a single-STA actor per process'
 scope: 'Local stdio MCP server that reads and manages OneNote desktop notebooks over COM, plus its Claude Code plugin (skill + server config)'
 status: final
 created: '2026-11-03'
-updated: '2026-11-12'
+updated: '2026-11-16'
 binds: [all]
 sources:
   - _bmad-output/initiative-onenote-mcp-v1/epic-read-only-release/spike-what-can-the-onenote-desktop-com-api-do-on-this-machine-findings.md
@@ -67,7 +67,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 ### AD-3 — Gateway lifecycle [ADOPTED]
 
 - **Binds:** Com, Core
-- **Prevents:** hangs; OneNote starting silently; the server disturbing the user's OneNote.
+- **Prevents:** hangs; OneNote starting silently; the server disturbing the user's OneNote; OneNote kept running after the user closes it.
 - **Rule:**
   - **Timeouts:**
     - Every COM call has a timeout: 30 s by default, 300 s for `Publish`.
@@ -88,12 +88,33 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - **Activation:**
     - If `ONENOTE.EXE` is not running, return `OneNoteNotRunning`, unless `allowSilentActivation` is set.
     - An `ONENOTE.EXE` that has crashed doesn't count as running, though it stays listed while Windows Error Reporting writes its dump. Without that rule, a reconnect's activation started a hidden `ONENOTE.EXE -Embedding` that the user had to end before OneNote would start (spike 2.2, Failure modes). Story 2.7 built the detection: an `ONENOTE.EXE` that a `WerFault.exe` or `WerFaultSecure.exe` in this session targets (`-p <pid>`) isn't running, and a live reference to it is dropped. A WER process whose command line can't be read counts every OneNote as crashing only when connecting (a first activation or a reconnect); a live reference's per-call check ignores it, so a working connection keeps going (Phill, 2026-11-12, 2.7 plan Q3). The exception: with `allowSilentActivation` on, a reconnect after a crash may start a windowless instance, as that setting allows for any activation.
+    - **No open window** (Phill, 2026-11-16, backlog 3). Unless `allowSilentActivation` is on, OneNote counts as running only while some `ONENOTE.EXE` in this session has an open window.
+      - What counts as an open window: `Process.MainWindowHandle` isn't zero, meaning a top-level window of the process that has no owner and is visible. A minimised window counts. An `ONENOTE.EXE` without one is closing, still starting, or was started for COM.
+      - Why: a call made while a closed OneNote shuts down (about 12 s) would otherwise connect to it and keep it alive. It might also start a hidden copy; that is unprobed (see Deferred).
+      - The connecting check refuses with `OneNoteNotRunning`, before the integrity check and `CoCreateInstance`. Its message says that OneNote is closing or starting. Its `userAction` says to wait, then make sure OneNote is open in a window.
+      - A live reference's per-call check drops the reference, and the call then fails the same way. That check adds one process listing and one window enumeration to every call while a reference is held: an estimated 2–3 ms, not measured in the server.
+      - The rule fails open, so a doubt never refuses a normally open OneNote:
+        - a window that can't be read counts as open;
+        - when this process can see no top-level windows at all (a server on another desktop or window station), every `ONENOTE.EXE` counts as having one (Fable F4, Phill 2026-11-16).
+      - The check covers the whole session. The window may belong to a different `ONENOTE.EXE` from the one the running check counted: a crashed one, or a new one started while an old one is still closing (see Deferred).
+      - The memlog records the signals not used: a window class, `-Embedding` on the command line, and the ROT.
     - Check the integrity level at startup and at every activation. A mismatch returns `IntegrityMismatch` and never calls COM.
   - **Modal dialogs:** with File > Options open, of the page methods only `UpdatePageContent` failed, with `0x80042030` (`ModalDialogOpen`, AD-9). `DeletePageContent`, `CreateNewPage`, `GetPageContent`, `FindPages` and `GetHierarchy` went through (spike 2.2 constraint 8). No pipeline checks for a dialog up front; the error comes from the call.
     - Hierarchy methods (spike 5.1 constraint 11), with File > Options or a section's password dialog open, alike: `UpdateHierarchy` failed `0x80042030` and applied nothing; `GetHierarchy`, `OpenHierarchy` create and `DeleteHierarchy` soft and permanent went through and applied (only page deletes were tried); `Publish` returned `0x80042006`, cause unclear. So, of the methods tried, only the two update methods returned `ModalDialogOpen` under these dialogs.
     - Two dialogs block the call instead of returning an error: "OneNote is syncing changes" and "We couldn't find that file." (`Publish` into a missing folder; AD-7 creates the folder first). Each surfaces as `Timeout`, so a write is `outcomeUnknown` (AD-9).
     - Other dialogs weren't tried (see Deferred).
-  - **Idle:** release the COM reference after 5 minutes idle.
+  - **Idle:** release the COM reference after `timeouts.idleReleaseSeconds` with no call: 5 s by default (Phill, 2026-11-16, backlog 3).
+    - Why: a held reference keeps `ONENOTE.EXE` alive after the user closes its window. Restarting OneNote then starts a second `ONENOTE.EXE`, which shows "OneNote is cleaning up" and exits.
+      - Source: the 2026-11-16 sitting, recorded in the backlog 3 ticket's Notes. One machine, one run, observed with clock times, not logged.
+      - With no server, OneNote ended about 12 s after its window closed. When the server was ended, the pinned process ended within 1 s.
+    - At 5 s, the server is expected to let a closed OneNote end within its own ~12 s shutdown. That hasn't been checked at a sitting yet (see Deferred). Two exceptions:
+      - a call in flight holds the reference until it returns, up to 30 s (300 s for `Publish`);
+      - an abandoned thread holds its own reference until its call returns.
+
+      One tool's COM calls come milliseconds apart, so they still share one activation.
+    - Cost of a re-activation against a running OneNote: it runs every activation rule above, an estimated 15–20 ms in all. 9 ms is `CoCreateInstance` (spike 1, logged); the rest, the process checks and the integrity check, wasn't measured.
+    - With `allowSilentActivation` on and OneNote closed, each gap may instead start a windowless instance (511 ms in spike 1); see Deferred.
+    - The setting keeps its range: whole seconds, from 1 to 2,147,483 (AD-10). Values above about 10 s can bring the dialog back. The write probes set a day, to pin one activation.
   - Never kill or close OneNote.
 
 ### AD-4 — Raw XML is the content contract [ADOPTED]
@@ -337,7 +358,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 | Code | Source | Retryable |
 | --- | --- | --- |
-| `OneNoteNotRunning` | process check | yes |
+| `OneNoteNotRunning` | process check (AD-3): not running, crashed, or closing (no open window) | yes |
 | `IntegrityMismatch` | integrity check | no |
 | `ComUnavailable` | `0x800706BA`, `RPC_E_DISCONNECTED`, too many abandoned threads; `0x80080005` CO_E_SERVER_EXEC_FAILURE after the integrity check passed (`userAction`: restart OneNote) | read yes; write no (`outcomeUnknown`) |
 | `ComBusy` | `0x80010001` / RETRYLATER after backoff; `0x8004201D` hrNotYetSynchronized; `0x80042024` hrRecordingInProgress; write-lock timeout; abandoned write outstanding | yes |
@@ -376,6 +397,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - Re-read at every access check.
     - A grant applies to the open notebook whose `NotebookKey` equals its key. `list_grants` shows each grant as `active` (an open notebook matches) or `notebookNotOpen`, and each read grant as `active`, `sectionNotOpen` or `expired`. Entries are never pruned automatically; only `grant --revoke` removes one. The one exception: a grant writer drops `protectedSections{}` entries whose `expiresAt` has passed, inside its read-modify-write.
     - `schemaVersion` 1 is this path-keyed shape, `results{}`, `search{}`, `readGrants{}` and `protectedSections{}` included. No earlier shape was released, and no released server writes `settings.json`, so there is no migration. The released 0.4.x reader already ignores members it doesn't know (`SettingsStore.Validate` reads only known keys); story 1.20 confirms it with a test.
+    - `timeouts{}` range, as whole numbers of seconds: 1–2,147,483 for each of `callSeconds`, `publishSeconds`, `activationSeconds` and `idleReleaseSeconds`. Their defaults and meaning are in AD-3 (idle release 5 s).
     - `results{}` ranges, as whole numbers: `inlineMaxChars` 20,000–380,000 (default 100,000), `ttlMinutes` 1–1,440 (default 30), `maxStoreMB` 16–4,096 (default 256). A value out of range makes the file `SettingsInvalid`, like every other field; reads then use the defaults.
     - `search{}` range, as a whole number: `cacheMaxMB` 0–1,024 (default 64), the page-text cache's cap (AD-12); 0 turns the cache off. Out of range makes the file `SettingsInvalid`, as for `results{}`.
     - `readGrants{}` range, as a whole number: `onceMinutes` 1–60 (default 5), the window of AD-21's `once` read grant (Phill, 2026-11-07). Out of range makes the file `SettingsInvalid`, as for `results{}`.
@@ -763,7 +785,10 @@ flowchart LR
 | Modal dialogs other than File > Options and the section password dialog | Not probed (spikes 2.2, 5.1). The password dialog behaved like File > Options for every hierarchy method tried (spike 5.1 constraint 11), and, of the methods tried, neither blocked more than the two update methods. A section or section-group delete under a dialog wasn't tried. Another dialog may block more methods. AD-9 maps `0x80042030` to `ModalDialogOpen` whichever method returns it, so nothing waits on this |
 | A basis date newer than the page's | Not probed: spike 2.2 sent only stale and equal dates. The server's own comparison (AD-7 step 5) refuses a basis date that differs from step 3's read, newer included, with `StaleWrite` before COM, so OneNote's handling only matters if that check is ever skipped |
 | OneNote elevated while the server isn't | Untested. AD-3's integrity check refuses either way |
-| A windowless OneNote left running after silent activation and idle release | Only possible when `allowSilentActivation` is on. The README notes it. With no OneNote running the integrity check passes trivially, so a failed silent launch that returns `0x80080005` gets the restart advice |
+| A windowless OneNote left running after silent activation and idle release | Only possible when `allowSilentActivation` is on. The README notes it. With no OneNote running the integrity check passes trivially, so a failed silent launch that returns `0x80080005` gets the restart advice. Since backlog 3 the idle release defaults to 5 s, so with OneNote closed every gap over 5 s either starts a windowless instance again (511 ms in spike 1) or finds the earlier one still running; which of the two happens isn't known. If the setting is later turned off while such an instance runs, the no-window rule refuses it, and the error's advice to wait won't help: the user has to start OneNote or end the instance |
+| The 5 s idle release and the no-window rule, live (AD-3, backlog 3) | Not yet checked at a sitting (backlog 3 plan, manual checks 1–4). Open questions: whether OneNote ends within about 15 s of its window closing while a server holds a reference until 5 s after its last call; whether a call during that shutdown is refused without starting a hidden copy; and whether a minimised OneNote keeps working |
+| A `callbackID` across a release (AD-3, backlog 3) | Unprobed. With a 5 s idle release, a page read and a later `get_binary_page_content` usually run under different activations. A `callbackID` has an object ID's shape (`{GUID}{31}{B0}`), so it is probably stored rather than tied to one session. Backlog 3 plan, manual check 5. If it fails, the read degrades to `binaryUnavailable` (AD-4), and the binary read would need a fresh page read first |
+| The no-window check with two `ONENOTE.EXE` processes (AD-3, backlog 3) | Fails open, as decided. The check covers the whole session. While an old OneNote is still closing without a window, a new one that has a window lets a call connect, and COM may bind to the closing one. A crashed OneNote's visible window can also satisfy the check. Which process COM binds to is unprobed (backlog 3 plan, manual check 3). The alternative is to refuse while any running `ONENOTE.EXE` is windowless (`deferred-work.md`, backlog 3 entry) |
 | Attachment (`InsertedFile`) reads on cloud notebooks | Not probed. The AD-4 degrade rule applies |
 | Text blocks between 383,893 and 500,000 characters | Unmeasured with `maxResultSizeChars`. AD-20 caps `inlineMaxChars` at 380,000, the largest measured whole delivery. Raise the cap only after a probe, which epic 2 runs before any story raises it |
 | A header line over the inline threshold | Not seen in the stress-harness runs of stories 1.18 (617 comparisons, largest text block 100,000 characters) and 1.20 (617 and 620 comparisons, none over 100,000); AD-20 unchanged. `ToolRunner` warns (`text block over the inline threshold`, IDs and sizes only) if it happens; then amend AD-20 to store lists such as `meta.filtered` with the result |
