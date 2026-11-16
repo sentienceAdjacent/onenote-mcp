@@ -73,6 +73,12 @@ Each row is one findings-doc question. L = local, C = cloud. F/V means the foreg
 | D | Modal | With File > Options open (L): `SyncHierarchy` (MCP Test), `OpenHierarchy` `cftNone` on closed `o1`, then `CloseNotebook` on `o1` if it opened, else on `c`. HRESULT, and whether each was applied |
 | H | HRESULTs | Every code seen, per method, with its trigger, mapped to AD-9 |
 
+## Decisions (Phill, 2026-11-16, after the build, relayed by the coordinator)
+
+- **Sitting length: accepted.** As built, sitting A has about 24 pauses and sitting B about 19 (the plan said 14 and 13), because each step has a pause before it and a report pause after it.
+- **"Only `cftNone`" covers notebook-level opens.** The guarded `cftSection` and `cftFolder` setup creates, in the run's notebooks and in throwaways `c` and Cloud, are allowed. The `probe pend <stamp>` sections they leave in `c` and Cloud go under Left behind.
+- **O3: the probe closes what a probe URL opened.** This widens the close set under Always. `CloseNotebook` may also close a notebook whose `path` is this run's stamped probe URL (`https://d.docs.live.net/<MCP Test Cloud's cid>/Documents/probe … <stamp>`, with the run's exact stamp). The guard refuses every other notebook as before: a probe URL with another stamp, a non-probe URL, and both test notebooks. O3 uses a guarded close in place of the pause that asked Phill to close the notebook by hand. A pause remains only for when that close fails.
+
 </frozen-after-approval>
 
 ## Open Questions
@@ -180,6 +186,15 @@ Run from the repo root with OneNote already running, `$env:ONENOTE_MCP_INTEGRATI
 - 2026-11-16, after review pass 1: the 11 patches above were applied. `dotnet build OneNoteMcp.slnx -warnaserror` gives 0 warnings. `OneNoteMcp.Tests` passes 2965 of 2965, as at the baseline. `OneNoteMcp.Integration`, with no integration variables set, passes 340 and skips 94; the baseline was 217 passed and 92 skipped. The two new skips are the hitl scenarios.
   - **Matrix test audit.** Every Matrix row is a live probe step in `app-state-local` or `app-state-cloud`, and those skip by design without OneNote and Phill. The unit tests cover what can run here: the guard's refusals and look-alikes for close and open, the `force=false` and `cftNone` call shapes, redaction, the fill-series rule, the view snapshot, the synthetic ID, the grant file and the junction helpers. The rows themselves are checked at the sittings.
   - **Pauses** grew from the planned 14 and 13 to about 24 and 19 (Sitting script), because each step has a pause that says what is about to happen and a pause where Phill reports.
+
+- 2026-11-16, Phill's O3 decision applied:
+  - `TestNotebookGuard.CheckClose` now also allows a notebook whose `path` passes `IsProbeUrl` with MCP Test Cloud's cid and the run folder's exact stamp. Without a valid run folder it allows none.
+  - `UrlCreateAsync` closes each notebook a probe URL opened through `CloseRowAsync`, which runs the cloud settle. The `url-create-close-by-hand` pause now runs only for a notebook whose close failed.
+  - Nine new guard tests:
+    - this run's stamped URL is allowed, both with a trailing slash and with the cid in another case;
+    - six refusals: another stamp, a stamp look-alike, a non-probe URL, another account, a deeper folder, another host;
+    - no run folder, MCP Test Cloud and MCP Test are refused.
+  - Build: 0 warnings. `OneNoteMcp.Tests`: 2965 passed. `OneNoteMcp.Integration`: 349 passed, 94 skipped.
 
 ## Plan Change Log
 

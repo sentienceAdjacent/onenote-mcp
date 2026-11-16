@@ -578,6 +578,31 @@ public sealed class TestNotebookGuardTests
     public void CheckClose_RunNotebook_NeedsARealRunFolder(string? runRoot) =>
         Assert.Throws<InvalidOperationException>(() => Close(AppStateNotebooks(), "{O1}", runRoot));
 
+    [Theory] // Phill 2026-11-16 (O3): a notebook opened from this run's stamped probe URL may be closed
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/probe missing 1116-120000/")]
+    [InlineData("https://d.docs.live.net/0123456789abcdef/Documents/probe empty 1116-120000")] // the cid ignoring case, no trailing slash
+    public void CheckClose_AllowsThisRunsStampedProbeUrl(string path) =>
+        Close(AppStateNotebooks(("whatever OneNote named it", "{U}", path)), "{U}");
+
+    [Theory]
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/probe empty 1116-130000/")] // another run's stamp
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/probe empty 1116-1200001/")] // a stamp look-alike
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/Notes 1116-120000/")] // not a probe URL
+    [InlineData("https://d.docs.live.net/FEDCBA9876543210/Documents/probe empty 1116-120000/")] // another account
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/Sub/probe empty 1116-120000/")] // deeper
+    [InlineData("https://contoso.sharepoint.com/Documents/probe empty 1116-120000/")] // another host
+    public void CheckClose_RefusesOtherProbeUrls(string path) =>
+        Assert.Throws<InvalidOperationException>(() => Close(AppStateNotebooks(("whatever OneNote named it", "{U}", path)), "{U}"));
+
+    [Fact]
+    public void CheckClose_ProbeUrl_NeedsARunFolder_AndNeverReachesTheTestNotebooks()
+    {
+        var notebooks = AppStateNotebooks(("whatever OneNote named it", "{U}", "https://d.docs.live.net/0123456789ABCDEF/Documents/probe empty 1116-120000/"));
+        Assert.Throws<InvalidOperationException>(() => Close(notebooks, "{U}", runRoot: null)); // no run, no stamp
+        Assert.Throws<InvalidOperationException>(() => Close(notebooks, "{C}")); // MCP Test Cloud, with the probe URL rule active
+        Assert.Throws<InvalidOperationException>(() => Close(notebooks, "{T}")); // MCP Test
+    }
+
     private static readonly string[] Recorded = [Root + @"\" + NameB, Root + @"\" + NameC, CloudThrowawayPath];
 
     private static void Open(string path, string notebooksXml, string? runRoot = RunRoot, string[]? recorded = null, bool allowOpenTest = false) =>

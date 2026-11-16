@@ -1167,8 +1167,9 @@ internal static partial class TestNotebookGuard
     /// Refuses a <c>CloseNotebook</c> unless <paramref name="notebookId"/> is an open notebook (a section's or page's ID
     /// never is) that is neither test notebook and is one of: throwaway <c>b</c> or <c>c</c> by exact name, in its own
     /// folder of that name directly in <paramref name="throwawayRoot"/> (<see cref="ClosableAdoptedNames"/>); the cloud
-    /// throwaway (<see cref="IsCloudThrowaway"/>); or a notebook whose path lies in <paramref name="runProbeRoot"/>, when
-    /// that is a run's probe folder.
+    /// throwaway (<see cref="IsCloudThrowaway"/>); a notebook whose path lies in <paramref name="runProbeRoot"/>, when
+    /// that is a run's probe folder; or (Phill, 2026-11-16, O3) a notebook whose path is this run's stamped probe URL in
+    /// MCP Test Cloud's OneDrive (<see cref="IsProbeUrl"/> with the run folder's exact stamp).
     /// </summary>
     public static void CheckClose(string method, string notebooksXml, string notebookId, string testFolder, string throwawayRoot, string? runProbeRoot)
     {
@@ -1186,14 +1187,16 @@ internal static partial class TestNotebookGuard
             ?? throw new InvalidOperationException($"Refusing {method}: {notebookId} is not an open notebook.");
         var name = (string?)notebook.Attribute("name");
         var path = (string?)notebook.Attribute("path");
+        var run = runProbeRoot is not null && IsRunProbeRoot(runProbeRoot, throwawayRoot) ? runProbeRoot : null;
         if (IsAdoptedClosable(name, path, throwawayRoot)
             || IsCloudThrowaway(name, path)
-            || (runProbeRoot is not null && IsRunProbeRoot(runProbeRoot, throwawayRoot) && IsUnderRunProbeRoot(path, runProbeRoot)))
+            || (run is not null && IsUnderRunProbeRoot(path, run))
+            || (run is not null && IsProbeUrl(path, CloudCid(notebooksXml), RunStamp(run)))) // Phill 2026-11-16: O3's notebook, this run's stamp only
         {
             return;
         }
 
-        throw new InvalidOperationException($"Refusing {method}: notebook {notebookId} is not throwaway b or c, the cloud throwaway, or a notebook in this run's probe folder.");
+        throw new InvalidOperationException($"Refusing {method}: notebook {notebookId} is not throwaway b or c, the cloud throwaway, a notebook in this run's probe folder, or one opened from this run's probe URL.");
     }
 
     /// <summary>

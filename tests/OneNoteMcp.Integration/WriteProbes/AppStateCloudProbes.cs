@@ -101,15 +101,30 @@ public sealed class AppStateCloudProbes(ITestOutputHelper output)
             s.Recorder.Row("o3-empty", "O3", "OpenHierarchy(cftNone)", null, null, new { notProbed = "pause skipped: the empty OneDrive folder wasn't made" });
         }
 
-        // The guard never closes a notebook opened from a probe URL (the plan's close set): Phill closes it by hand.
-        var opened = new[] { missingRow.Notebook, emptyRow?.Notebook }.OfType<NodeInfo>().ToList();
-        if (opened.Count > 0)
+        // Phill 2026-11-16: a notebook opened from this run's stamped probe URL is closed by the guarded close
+        // (TestNotebookGuard.CheckClose); a pause asks Phill to close it by hand only if that close fails.
+        var opened = new[] { (Probe: "o3-missing", Row: missingRow), (Probe: "o3-empty", Row: emptyRow) }
+            .Where(o => o.Row?.Notebook is not null)
+            .Select(o => (o.Probe, Notebook: o.Row!.Notebook!))
+            .ToList();
+        var stillOpen = new List<NodeInfo>();
+        foreach (var (probe, notebook) in opened)
         {
+            var close = await AppState.CloseRowAsync(c, $"{probe}-close", "O3", notebook.Id!, args: new { notebook = "opened from a probe URL" });
+            if (!close.Closed)
+            {
+                stillOpen.Add(notebook);
+            }
+        }
+
+        if (stillOpen.Count > 0)
+        {
+            var names = string.Join(", ", stillOpen.Select(n => ProbeSession.Label(n.Name, n.Path)));
             await s.PauseAsync(
                 "url-create-close-by-hand",
-                $"OneNote opened a notebook from a probe URL: {string.Join(", ", opened.Select(n => $"\"{n.Name}\""))}. In OneNote, right-click it in the notebook list and choose Close This Notebook. "
+                $"The probe couldn't close the notebook OneNote opened from a probe URL: {names}. In OneNote, right-click it in the notebook list and choose Close This Notebook. "
                 + "Close nothing else. Then continue.");
-            s.Recorder.Row("o3-closed-by-hand", "O3", "-", null, null, new { stillOpen = (await s.NotebooksAsync()).Elements(ProbeSession.One + "Notebook").Count(n => opened.Any(o => o.Id == (string?)n.Attribute("ID"))) });
+            s.Recorder.Row("o3-closed-by-hand", "O3", "-", null, null, new { stillOpen = (await s.NotebooksAsync()).Elements(ProbeSession.One + "Notebook").Count(n => stillOpen.Any(o => o.Id == (string?)n.Attribute("ID"))) });
         }
 
         await s.PauseAsync(
