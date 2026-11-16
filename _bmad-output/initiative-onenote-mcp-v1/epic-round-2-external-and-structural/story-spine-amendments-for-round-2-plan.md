@@ -3,7 +3,7 @@ title: 'Spine amendments for round 2'
 type: 'chore'
 ticket: '2'
 created: '2026-11-16'
-status: 'in-review'
+status: built
 baseline_revision: 'afe31018cde0dcef7594cfacde0353ae7873a50f'
 route: 'full'
 route_source: 'auto'
@@ -64,6 +64,15 @@ context:
 - **J9, a.** One story.
 - **J10, a.** `move_hierarchy_object(objectId, parentId, position?, basis?)`, `merge_sections`, `restore_from_recycle_bin`, `publish`, `open_package`.
 
+## Decisions after the Fable review (Phill, 2026-11-16, low effort; all fixes approved)
+
+- **M1.** The protected refusal (H2, `NotSupported`) is checked first; `SectionLocked` applies only to a locked move target or merge destination. This narrows approved rule 2 and J4: moves out of or of a locked section are still refused before COM, as `NotSupported`.
+- **M2.** The settle widens to any section or section-group move that touches a cloud notebook, within one included.
+- **Addition 1, reversed.** Moves and merges into a protected section need the write grant only, like `create_page`; the rows show the content stays encrypted.
+- **Addition 2, approved.** Restoring a protected section needs the write grant only, and only to its original parent, never a caller-named target.
+- **Additions 3–6** accepted as written; **J6** widened to `delete_page_content`.
+- **M3–M5, L1–L9** applied as the review proposed (no policy change).
+
 </frozen-after-approval>
 
 ## Code Map
@@ -94,7 +103,7 @@ context:
 - [x] spine Deferred -- resolve l.762 (move and merge semantics), l.764 (per H2), Q5/E4 (`MergeFiles` not exposed, dated Decision). Add: notebook PDF/XPS/EMF worked on cloud once (Imp. 8); hrMergeFailed's cause; the settle's length unmeasured; cloud→local section move to a root unprobed; moving a locked section unprobed; `OpenPackage` on cloud and opened-package `locked` one local run; labels unprobed.
 - [x] `deferred-work.md` -- "Resolved (rule)" for l.238, l.469's move half, l.535, naming the entry that builds each.
 - [x] lint; fix findings.
-- [ ] (orchestrating session) Fable final review at `effort: low`, Phill's fixes and approval, memlog `event`, `updated`.
+- [x] (orchestrating session) Fable final review at `effort: low`, Phill's fixes and approval, memlog `event`, `updated`.
 
 **Acceptance Criteria:**
 - Given the amended spine, when each of the six approved rules and the 3.9 Decision is traced, then each is in the AD named above with its evidence.
@@ -113,9 +122,13 @@ context:
 - Epic file: E8's sentence and four dated Decisions (H1, H2, J1, J6). `tickets.toml`: entry 7's `verify` now expects MCP Test to export as a package with no read grant (H1), and entries 7 and 12 gained `notes`.
 - Lint: only the known `{pid}` false positive.
 
+- 2026-11-16, after the Fable review (low effort, run by the orchestrating session): Phill's four decisions (M1, M2, addition 1 reversed, addition 2 approved) and fixes M3–M5, L1–L9 applied to AD-3, AD-7, AD-8, AD-9, AD-11, AD-21 and Deferred (a new row for a section's EMF); the epic file's E5 and E8; `tickets.toml` entries 4 and 12 notes; deferred-work's l.238 builder note. Story 3.4 builds the notebook re-resolve for the move tool (both notebooks), and 3.12 extends it to every other write. Eight memlog lines: seven decisions and the closing event. Spine `status: final`, `updated: 2026-11-16`.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-16, Fable final review at `effort: low` (orchestrating session): findings M1–M5 and L1–L9, plus two lane additions to rule on. Phill's verdicts: M1, M2 decided; addition 1 reversed; addition 2 approved with the original-parent limit; M3–M5 and L1–L9 approved as fixes. All applied; none deferred.
 
 ## Design Notes
 
