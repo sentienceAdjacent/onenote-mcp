@@ -148,6 +148,14 @@ Run from the repo root with OneNote already running, with `$env:ONENOTE_MCP_INTE
 
 **In total,** about 2.5 h of Phill's time. Most of it is the 25 to 30 pauses, at 1 to 2 minutes each, and the guarded reads (5.1 found reads slow with MCP Test's Ballast pages).
 
+**Sitting B, revised after sitting A (2026-11-16):**
+
+1. `write-probes-r2-cloud` as planned; `MergeFiles` (F1) and `pfOneNote2007` (X1) are skipped and logged notProbed.
+2. `write-probes-r2-protected-cloud` as planned; the locked moves are skipped (they crashed locally).
+3. `write-probes-r2-protected-local` again, for sitting A's leftovers: O5 (open XP1's and XP2's packages) and RP (protected restore). It rebuilds its sections, so Phill protects eight sections and locks them once more.
+4. `write-probes-r2-local` with `ONENOTE_MCP_PROBE_STEPS=modal-options,close-opened`, for D's move with File > Options open (lost to the crash). `MergeFiles` is skipped there too.
+5. `write-probes-r2-label` last; `pfOneNote2007` is skipped on the tenant notebook.
+
 ## Implementation Notes
 
 - Implementation writes code and unit tests only. Never set `ONENOTE_MCP_INTEGRATION` or `ONENOTE_MCP_SCENARIO`, never call OneNote, and never read or list `%APPDATA%\OneNoteMcp`, `%LOCALAPPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp-Test` on this machine. The main session runs every live sitting later.

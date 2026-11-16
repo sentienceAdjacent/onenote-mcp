@@ -106,6 +106,15 @@ public sealed class Round2LabelProbe(ITestOutputHelper output)
             {
                 foreach (var format in Round2ExportProbes.AllFormats)
                 {
+                    if (format == PublishFormat.pfOneNote2007)
+                    {
+                        // Sitting A (2026-11-16): Publish(pfOneNote2007) ended ONENOTE.EXE every time, so it is never sent to
+                        // the tenant notebook either.
+                        s.Recorder.Row($"lb-{scope}-{format}", Q, $"Publish({format})", new { scope, labelled = true }, null, new { notProbed = "pfOneNote2007 crashes OneNote (sitting A); not sent" });
+                        summary.Add(new { scope, format = format.ToString(), Outcome = "notProbed", HResult = (string?)null, landed = false });
+                        continue;
+                    }
+
                     var landing = await s.PublishFreshAsync($"lb-{scope}-{format}-{stamp}", id, format, $"probe-lb-{scope}{Round2ExportProbes.Extension(format)}");
                     s.Recorder.Row($"lb-{scope}-{format}", Q, $"Publish({format})", new { scope, labelled = true }, landing.Attempt, landing.Summary);
                     summary.Add(new { scope, format = format.ToString(), landing.Attempt.Outcome, landing.Attempt.HResult, landed = landing.Landing.TargetExists });
