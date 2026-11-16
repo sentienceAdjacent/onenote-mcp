@@ -84,6 +84,8 @@ context: []
 - Docs: skill `page-writes.md` (The basis) and the `update_page_content` description; `deferred-work.md` marks the two `z` entries resolved in code and adds the spine and live-check entries.
 - Checks: build 0 warnings; unit tests 2905 passed; `pack-plugin.ps1` and `claude plugin validate --strict dist/stage/onenote` passed.
 
+**Live check (2026-11-16 sitting, Phill): passed.** Built server (451aeb4), a new page in MCP Test section `NoZ check 56` with Outlines A (z=0), B (z=1) and a page-level image (z=2). (1) B resent exactly as read, `z="1"` included: nothing moved (A's hash and every `z` unchanged). (2) The image resent exactly as read (`one:CallbackID`, `z="2"`): accepted, nothing moved. (3) A new Outline C with `z="5"` landed on top (z=3) and one without `z` (D) on top (z=4); the others' `z` and hashes stayed. Learned: a page-level image has no entry in `meta.basis.elementHashes` (logged in deferred-work).
+
 ## Plan Change Log
 
 ## Review Triage Log
