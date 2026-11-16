@@ -187,9 +187,18 @@ internal static class Round2ProtectedProbes
             xp2 = await PackageAsync(c, $"xp2-{label}", pkg, "locked");
             await MergeAsync(c, $"sp-{label}-locked-source", vaults["sc"], plains["sc"]);
             await MergeAsync(c, $"sp-{label}-locked-destination", plains["sd"], vaults["sb"]);
-            await PageMoveAsync(c, $"mp-{label}-page-out-locked", vaults["md"], vaults["md"].Titles[1], plains["md"]);
-            await PageMoveAsync(c, $"mp-{label}-page-in-locked", plains["md"], plains["md"].Titles[1], vaults["md"]);
-            await SectionMovesAsync(c, $"mp-{label}-section-locked", vaults["mf"], group);
+            if (Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_LOCKED_MOVES") == "1")
+            {
+                await PageMoveAsync(c, $"mp-{label}-page-out-locked", vaults["md"], vaults["md"].Titles[1], plains["md"]);
+                await PageMoveAsync(c, $"mp-{label}-page-in-locked", plains["md"], plains["md"].Titles[1], vaults["md"]);
+                await SectionMovesAsync(c, $"mp-{label}-section-locked", vaults["mf"], group);
+            }
+            else
+            {
+                // Sitting A (2026-11-16): moving a page out of a locked section (UpdateHierarchy, shape c) ended ONENOTE.EXE.
+                // The other locked moves aren't sent either: the server refuses writes to locked sections anyway.
+                s.Recorder.Row($"mp-{label}-locked", Q, "UpdateHierarchy", null, null, new { notProbed = "moving a page out of a locked section crashed OneNote (sitting A); locked moves not re-sent" });
+            }
         }));
 
         if (openPackages)

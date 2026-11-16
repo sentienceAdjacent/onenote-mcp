@@ -338,17 +338,10 @@ internal static class Round2MoveProbes
             var merge = await s.MergeSectionsAsync(mergeSrc, mergeDst);
             s.Recorder.Row($"{p}-merge-sections", Q, "MergeSections", null, merge, new { destination = await Round2MergeProbes.NodeAndPagesAsync(s, c.T, mergeDst) });
 
-            if (baseFile.Landed is { } baseLanded && client is not null && server is not null)
-            {
-                var targetFolder = ProbeSession.FreshFolder(ProbeSession.PublishDir, $"{p}-target-{st}");
-                var target = Path.Combine(targetFolder, Path.GetFileName(baseLanded));
-                var files = await s.MergeFilesAsync(baseLanded, client, server, target);
-                s.Recorder.Row($"{p}-merge-files", Q, "MergeFiles", null, files, new { landing = await ProbeSession.PollLandingAsync(targetFolder, target, TimeSpan.FromSeconds(ProbeSession.FailedLandingPollSeconds)) });
-            }
-            else
-            {
-                s.Recorder.Row($"{p}-merge-files", Q, "MergeFiles", null, null, new { notProbed = "the base file didn't publish before the dialog opened" });
-            }
+            // Sitting A (2026-11-16): MergeFiles ended ONENOTE.EXE every time (F1, its replay, and here with Options open),
+            // and the crashes brought up OneNote's safe-start prompt. Never sent again (Round2MergeProbes.MergeFilesAsync too).
+            _ = (baseFile, client, server);
+            s.Recorder.Row($"{p}-merge-files", Q, "MergeFiles", null, null, new { notProbed = "MergeFiles crashes OneNote (sitting A, three times); not re-sent" });
 
             await MovePageAsync(c, $"{p}-move", c.MoveShape ?? "a", c.T, mvSrc, c.T, mvDst, mvPages[0], $"probe md mv p {st}");
         }

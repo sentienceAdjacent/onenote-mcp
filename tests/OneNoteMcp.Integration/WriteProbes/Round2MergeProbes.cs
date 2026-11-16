@@ -19,6 +19,14 @@ internal static class Round2MergeProbes
     {
         var s = c.S;
         var label = c.T.Label;
+        if (Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_MERGEFILES") != "1")
+        {
+            // Sitting A (2026-11-16): MergeFiles ended ONENOTE.EXE every time it was called (three times), and the
+            // crashes brought up OneNote's safe-start prompt. Not sent again unless asked for explicitly.
+            s.Recorder.Row($"f-{label}", "MergeFiles", "MergeFiles", null, null, new { notProbed = "MergeFiles crashes OneNote (sitting A, three times); not re-sent" });
+            return;
+        }
+
         var name = $"probe mf {c.Stamp}";
         var (section, pages) = await Round2.SectionAsync(c, c.Run, name, [$"probe mf p1 {c.Stamp}"]);
         var page = pages[0];

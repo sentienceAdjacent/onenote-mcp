@@ -164,6 +164,19 @@ Run from the repo root with OneNote already running, with `$env:ONENOTE_MCP_INTE
   - **Setup soft deletes** send the hierarchy date (5.1 constraint 1) after a 2 s settle (constraint 2), and throw rather than send `MinValue`. `CreateProbePageAsync`'s setup `UpdatePageContent` now sends the new page's own page-XML date too (it sent `MinValue` in 5.1).
   - **Label privacy.** URL redaction is on before the first row, and also covers the pause file and console. The label row logs the section's attribute names, never values, and the pause asks Phill whether the label encrypts, not its name: either could identify the organisation.
 
+## Sitting A results (2026-11-16, Phill; raw rows in `%LOCALAPPDATA%\OneNoteMcp-Test\probes\write-probes-r2-*-20261116-*.jsonl`, for the findings doc)
+
+- **Three calls end ONENOTE.EXE (`0x800706BE` RPC_S_CALL_FAILED within 2-3 s), each reproduced:** `Publish(pfOneNote2007)` of a page (twice: first run and a replay Phill watched); `MergeFiles` on three published copies of one section (three times: F1, its replay, and in D with File > Options open); `UpdateHierarchy` moving a page out of a **locked** section (MP, shape c, once). OneNote relaunched itself after most crashes; after crash 2's replay it didn't, and on the next starts it showed its safe-start prompt ("We couldn't start OneNote the last time we tried", offering Delete Notebook Cache) twice. The probes now skip all three (`ONENOTE_MCP_PROBE_FORMATS`, `ONENOTE_MCP_PROBE_MERGEFILES=1` and `ONENOTE_MCP_PROBE_LOCKED_MOVES=1` re-enable them).
+- **X1 (local):** page and section publish ok in PDF, XPS, Word, MHTML, HTML, EMF and OneNotePackage; a notebook only as OneNotePackage (others `0x80042006`/`0x80042014`).
+- **O1-O3:** `OpenPackage` ok into an empty folder, a folder with a marker file, and a filled folder.
+- **S1/S2:** `MergeSections` within MCP Test and to throwaway a both `0x8004201F` hrMergeFailed; S3 (an opened `.one` backup into an empty run section) ok; in D (Options open) a run-section merge was ok.
+- **M1-M4:** a page move with shape (a) alone moves it with a new ID, and M1(b) showed omitted pages are kept; a parent page moved with its subpage (M1d); page to throwaway a ok (M2); section into a group ok; section to throwaway a's root raised OneNote's "hasn't finished downloading" dialog (Phill chose Continue) and the call returned `0x80042004` hrSectionDoesNotExist; section groups moved within and across notebooks ok (M4).
+- **R1-R3, R5:** a recycled page is restored by the section's XML (new ID, leaves Deleted Pages), also into a named section in the same and another notebook; a recycled section is restored into its group; renaming a recycled section, moving a live section into `OneNote_RecycleBin` and reordering Deleted Pages all succeeded (no `0x8004202E`); `UpdatePageContent` on a recycled page is `0x8004200C` hrPageReadOnly.
+- **D (File > Options open):** `GetHierarchy`, `Publish(pfPDF)`, `OpenPackage` and `MergeSections` all succeeded; the M1-shape move didn't run (crash before it): an evidence gap.
+- **Protected (local, partial):** unlocked: XP1 package, merges both ways, page moves out and in, section moves to a group and to another notebook all ok; locked: XP2 package ok, both merges `0x8004201B` hrSectionEncryptedAndLocked; locked moves crash (above). O5 (opening the packages) and RP (restore) didn't run: moved to sitting B.
+- **X3 (timeout):** a 30-page Word export passed the 1 s limit with the file already complete (13,514 bytes, no growth); a retry to the same path is `0x8004201A` hrFileAlreadyExists and leaves it untouched.
+- **Also at this sitting:** backlog 2's live check passed, and the "cleaning up" bug reproduced: a connected server that has made a call keeps ONENOTE.EXE alive after its window closes (it ended one second after the server closed).
+
 ## Plan Change Log
 
 ## Review Triage Log

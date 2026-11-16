@@ -357,12 +357,21 @@ internal static class Round2ExportProbes
         var packages = new List<object>();
         foreach (var (scope, id) in scopes)
         {
-            foreach (var format in X1Formats)
+            var only = Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_FORMATS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var format in X1Formats.Where(f => only is null || only.Contains(f.ToString())))
             {
                 var probe = $"x1-{label}-{scope}-{format}";
                 if (id is null)
                 {
                     s.Recorder.Row(probe, "Export", $"Publish({format})", new { scope }, null, new { notProbed = "no throwaway notebook is open (a test notebook is never published whole: it holds Ballast Vault)" });
+                    continue;
+                }
+
+                if (format == PublishFormat.pfOneNote2007 && only is null)
+                {
+                    // Sitting A (2026-11-16): Publish(pfOneNote2007) of a page in MCP Test ended ONENOTE.EXE (RPC_S_CALL_FAILED
+                    // after about 3 s; the breaker stopped the run). Not sent again, so the rest of the sitting can run.
+                    s.Recorder.Row(probe, "Export", $"Publish({format})", new { scope }, null, new { notProbed = "crashed OneNote on a page at sitting A's first run (0x800706BE); not re-sent" });
                     continue;
                 }
 
