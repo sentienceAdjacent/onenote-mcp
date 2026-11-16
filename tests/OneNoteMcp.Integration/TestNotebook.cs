@@ -34,6 +34,12 @@ internal sealed class TestNotebook
     /// <summary>Story 5.1's OneDrive throwaway notebook. Phill creates it; the suite only finds it, then deletes it.</summary>
     public const string CloudThrowawayName = "MCP Test Throwaway Cloud";
 
+    /// <summary>
+    /// Spike 3.1 (Q5): the one notebook the label probe may touch on Phill's Office 365 tenant. Phill creates it; the
+    /// suite adopts it by this exact name and an <c>https</c> path off OneDrive personal (<see cref="TestNotebookGuard.IsTenantTest"/>).
+    /// </summary>
+    public const string TenantNotebookName = "MCP Test Tenant";
+
     private TestNotebook(string folder, string notebookId, string sectionId, string pageId)
     {
         Folder = folder;
@@ -178,17 +184,34 @@ internal sealed class TestNotebook
     /// made, never the MCP Test or MCP Test Cloud notebook (<see cref="TestNotebookGuard.CheckHierarchyXml"/>), and each
     /// must be inside a test or throwaway notebook, or gone from every notebook (a probe of a stale ID).
     /// </summary>
+    /// <remarks>
+    /// Spike 3.1: with <paramref name="allowRecycleBins"/> (only R1's second call and R5), the XML may also name MCP
+    /// Test's and MCP Test Cloud's own <c>OneNote_RecycleBin</c> group and Deleted Pages sections, read live here
+    /// (<see cref="TestNotebookGuard.RecycleBinIds"/>); never a throwaway's, never anything else.
+    /// </remarks>
     public static async Task UpdateHierarchyAsync(
         ComGateway gateway,
         string xml,
         IReadOnlySet<string> created,
         IReadOnlyDictionary<string, IReadOnlySet<string>> throwawayNotebookIds,
         string method,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool allowRecycleBins = false)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         var notebooks = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
-        var ids = TestNotebookGuard.CheckHierarchyXml(method, xml, TestNotebookGuard.TestNotebookIds(notebooks, ResolveFolder(Environment.GetEnvironmentVariable)), created);
+        var testIds = TestNotebookGuard.TestNotebookIds(notebooks, ResolveFolder(Environment.GetEnvironmentVariable));
+        HashSet<string>? recycleBins = null;
+        if (allowRecycleBins)
+        {
+            recycleBins = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var id in testIds)
+            {
+                recycleBins.UnionWith(TestNotebookGuard.RecycleBinIds(await gateway.GetHierarchyAsync(id, CoreScope.Sections, ct)));
+            }
+        }
+
+        var ids = TestNotebookGuard.CheckHierarchyXml(method, xml, testIds, created, recycleBins);
         await GuardedAsync(
             gateway,
             ids,
@@ -228,6 +251,10 @@ internal sealed class TestNotebook
     /// Story 5.1's guarded <c>Publish</c>: the source must pass the <see cref="WriteAsync{T}"/> checks, and
     /// <paramref name="targetPath"/> must be under <paramref name="publishRoot"/>.
     /// </summary>
+    /// <remarks>
+    /// Spike 3.1 (X3): <paramref name="callGateway"/>, when given, makes the <c>Publish</c> call itself through a second
+    /// gateway with a shorter call limit, after <paramref name="gateway"/> ran the guard's reads at the normal limit.
+    /// </remarks>
     public static Task PublishAsync(
         ComGateway gateway,
         string sourceId,
@@ -235,13 +262,14 @@ internal sealed class TestNotebook
         PublishFormat format,
         string publishRoot,
         IReadOnlyDictionary<string, IReadOnlySet<string>> throwawayNotebookIds,
-        CancellationToken ct)
+        CancellationToken ct,
+        ComGateway? callGateway = null)
     {
         var method = $"Publish({format})";
         TestNotebookGuard.EnsureUnder(method, targetPath, publishRoot);
-        return WriteAsync(
+        return GuardedAsync(
             gateway,
-            sourceId,
+            [sourceId],
             app =>
             {
                 app.Publish(sourceId, targetPath, format, string.Empty);
@@ -249,7 +277,77 @@ internal sealed class TestNotebook
             },
             method,
             ct,
-            throwawayNotebookIds);
+            throwawayNotebookIds,
+            created: null,
+            callGateway);
+    }
+
+    /// <summary>
+    /// Spike 3.1's guarded <c>MergeSections</c>. The destination must be an object this run made, inside a test or
+    /// throwaway notebook. The source must be one too, or else an ID in <paramref name="opened"/> (recorded only when
+    /// <see cref="OpenBackupAsync"/> opened a file under <paramref name="publishRoot"/>) whose live <c>path</c> is still
+    /// under <paramref name="publishRoot"/>. Neither may be a test notebook itself (<see cref="TestNotebookGuard.CheckMerge"/>).
+    /// </summary>
+    public static async Task MergeSectionsAsync(
+        ComGateway gateway,
+        string sourceId,
+        string destinationId,
+        IReadOnlySet<string> created,
+        IReadOnlySet<string> opened,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> throwawayNotebookIds,
+        string publishRoot,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "MergeSections";
+        var notebooks = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
+        var fromOpened = TestNotebookGuard.CheckMerge(Method, sourceId, destinationId, TestNotebookGuard.TestNotebookIds(notebooks, ResolveFolder(Environment.GetEnvironmentVariable)), created, opened);
+        if (fromOpened)
+        {
+            TestNotebookGuard.EnsureOpenedFrom(Method, await gateway.GetHierarchyAsync(sourceId, CoreScope.Self, ct), publishRoot);
+        }
+
+        await GuardedAsync(
+            gateway,
+            fromOpened ? [destinationId] : [sourceId, destinationId],
+            app =>
+            {
+                app.MergeSections(sourceId, destinationId);
+                return true;
+            },
+            Method,
+            ct,
+            throwawayNotebookIds,
+            created: null);
+    }
+
+    /// <summary>Spike 3.1's guarded <c>MergeFiles</c>: all four paths must be under <paramref name="publishRoot"/>.</summary>
+    public static Task MergeFilesAsync(ComGateway gateway, string baseFile, string clientFile, string serverFile, string targetFile, string publishRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "MergeFiles";
+        TestNotebookGuard.CheckMergeFiles(Method, [baseFile, clientFile, serverFile, targetFile], publishRoot);
+        return gateway.InvokeAsync(
+            app =>
+            {
+                app.MergeFiles(baseFile, clientFile, serverFile, targetFile);
+                return true;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+    }
+
+    /// <summary>
+    /// Spike 3.1 (Q3 a): adopts an earlier run's local throwaway notebook that is still open, by its exact name. Refuses
+    /// (throws) unless exactly one open notebook has that <c>name</c> and its folder, directly in
+    /// <see cref="ThrowawayRoot"/>, has that name too (<see cref="TestNotebookGuard.FindThrowawayByExactName"/>).
+    /// Returns its ID, or null when no notebook of that name is open.
+    /// </summary>
+    public static async Task<string?> AdoptThrowawayNotebookAsync(ComGateway gateway, string exactName, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        return TestNotebookGuard.FindThrowawayByExactName(await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct), ThrowawayRoot, exactName);
     }
 
     /// <summary>
@@ -383,10 +481,11 @@ internal sealed class TestNotebook
         string method,
         CancellationToken ct,
         IReadOnlyDictionary<string, IReadOnlySet<string>>? throwawayNotebookIds,
-        IReadOnlySet<string>? created)
+        IReadOnlySet<string>? created,
+        ComGateway? callGateway = null)
     {
         await EnsureTargetsAsync(gateway, targetIds, method, ct, throwawayNotebookIds, created);
-        return await gateway.InvokeAsync(write, ct, retryOnDisconnect: false, method: method);
+        return await (callGateway ?? gateway).InvokeAsync(write, ct, retryOnDisconnect: false, method: method);
     }
 
     /// <summary>
@@ -591,12 +690,155 @@ internal static partial class TestNotebookGuard
                 && names.Contains(name!)
                 && names.Any(n => string.Equals(n, leaf, StringComparison.OrdinalIgnoreCase));
             var cloud = IsCloudThrowaway(name, path) && names.Contains(name!);
-            if (!local && !cloud)
+            var tenant = IsTenantTest(name, path) && names.Contains(name!); // spike 3.1 (Q5): adopted like a throwaway
+            if (!local && !cloud && !tenant)
             {
                 throw new InvalidOperationException($"Refusing: notebook {id} is not a throwaway notebook with a name this run gave it.");
             }
 
             ids.Add(id);
+        }
+
+        return ids;
+    }
+
+    // --- Spike 3.1: the tenant notebook, adoption by exact name, merges and recycle bins ------------------------------
+
+    /// <summary>
+    /// The tenant notebook of the label probe (Q5): <c>name</c> exactly <see cref="TestNotebook.TenantNotebookName"/>, and
+    /// an absolute <c>https</c> path with no user info whose host isn't <see cref="CloudHost"/> (OneDrive personal). Its
+    /// tenant's other notebooks never match, since the name is exact.
+    /// </summary>
+    public static bool IsTenantTest(string? name, string? path) =>
+        name == TestNotebook.TenantNotebookName
+        && !string.IsNullOrEmpty(path)
+        && Uri.TryCreate(path, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps
+        && string.IsNullOrEmpty(uri.UserInfo)
+        && !string.IsNullOrEmpty(uri.Host)
+        && !string.Equals(uri.Host, CloudHost, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Q3 a: the ID of the open local throwaway whose <c>name</c> is exactly <paramref name="exactName"/> and whose
+    /// folder, directly in <paramref name="root"/>, is named <paramref name="exactName"/> too (ignoring case, as Windows
+    /// paths do). Null when no notebook has that name. Throws when the name is not a throwaway name, when the notebook
+    /// with that name sits anywhere else, or when more than one notebook has it.
+    /// </summary>
+    public static string? FindThrowawayByExactName(string notebooksXml, string root, string exactName)
+    {
+        EnsureThrowawayLeaf(exactName);
+        var named = XDocument.Parse(notebooksXml).Root!.Elements(One + "Notebook")
+            .Where(n => (string?)n.Attribute("name") == exactName)
+            .ToList();
+        if (named.Count == 0)
+        {
+            return null;
+        }
+
+        var path = (string?)named[0].Attribute("path");
+        if (named.Count > 1
+            || !IsLocalThrowaway(exactName, path, root)
+            || !string.Equals(Path.GetFileName(TrimPath(path!)), exactName, StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrEmpty((string?)named[0].Attribute("ID")))
+        {
+            throw new InvalidOperationException($"Refusing to adopt \"{exactName}\": it is not one local throwaway notebook in its own folder of that name.");
+        }
+
+        return (string?)named[0].Attribute("ID");
+    }
+
+    /// <summary>
+    /// Refuses a <c>MergeSections</c> unless the destination is in <paramref name="created"/>, and the source is in
+    /// <paramref name="created"/> or in <paramref name="opened"/>; neither may be empty, the same, or a test notebook.
+    /// Returns true when the source is allowed only as an opened backup (its path must then be checked live).
+    /// </summary>
+    public static bool CheckMerge(string method, string sourceId, string destinationId, IReadOnlyCollection<string> testNotebookIds, IReadOnlySet<string> created, IReadOnlySet<string> opened)
+    {
+        ArgumentNullException.ThrowIfNull(testNotebookIds);
+        ArgumentNullException.ThrowIfNull(created);
+        ArgumentNullException.ThrowIfNull(opened);
+        if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(destinationId) || sourceId == destinationId)
+        {
+            throw new InvalidOperationException($"Refusing {method}: the source and destination must be two different IDs.");
+        }
+
+        if (testNotebookIds.Contains(sourceId) || testNotebookIds.Contains(destinationId))
+        {
+            throw new InvalidOperationException($"Refusing {method}: it names the MCP Test or MCP Test Cloud notebook itself.");
+        }
+
+        if (!created.Contains(destinationId))
+        {
+            throw new InvalidOperationException($"Refusing {method}: destination {destinationId} was not created by this run.");
+        }
+
+        if (created.Contains(sourceId))
+        {
+            return false;
+        }
+
+        if (opened.Contains(sourceId))
+        {
+            return true;
+        }
+
+        throw new InvalidOperationException($"Refusing {method}: source {sourceId} was neither created nor opened from the publish folder by this run.");
+    }
+
+    /// <summary>A <c>MergeFiles</c> call's paths: exactly four (base, client, server, target), each strictly under <paramref name="publishRoot"/>.</summary>
+    public static void CheckMergeFiles(string method, IReadOnlyList<string> paths, string publishRoot)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        if (paths.Count != 4)
+        {
+            throw new InvalidOperationException($"Refusing {method}: it takes four paths.");
+        }
+
+        foreach (var path in paths)
+        {
+            EnsureUnder(method, path, publishRoot);
+        }
+    }
+
+    /// <summary>Refuses unless the root of <paramref name="selfXml"/> (a self-scope read) has a <c>path</c> under <paramref name="publishRoot"/>.</summary>
+    public static void EnsureOpenedFrom(string method, string selfXml, string publishRoot)
+    {
+        var path = (string?)XDocument.Parse(selfXml).Root?.Attribute("path");
+        if (string.IsNullOrEmpty(path))
+        {
+            throw new InvalidOperationException($"Refusing {method}: the opened source has no path.");
+        }
+
+        EnsureUnder(method, path, publishRoot);
+    }
+
+    /// <summary>
+    /// The IDs of a notebook's own recycle bin: its <c>isRecycleBin</c> section group and the <c>isDeletedPages</c>
+    /// sections inside it. Nothing else (not the recycled sections themselves).
+    /// </summary>
+    public static IReadOnlySet<string> RecycleBinIds(string notebookTreeXml)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var root = XDocument.Parse(notebookTreeXml).Root!;
+        if (root.Name != One + "Notebook")
+        {
+            return ids;
+        }
+
+        foreach (var bin in root.Elements(One + "SectionGroup").Where(g => (string?)g.Attribute("isRecycleBin") == "true"))
+        {
+            if ((string?)bin.Attribute("ID") is { Length: > 0 } binId)
+            {
+                ids.Add(binId);
+            }
+
+            foreach (var deleted in bin.Elements(One + "Section").Where(s => (string?)s.Attribute("isDeletedPages") == "true"))
+            {
+                if ((string?)deleted.Attribute("ID") is { Length: > 0 } id)
+                {
+                    ids.Add(id);
+                }
+            }
         }
 
         return ids;
@@ -664,9 +906,10 @@ internal static partial class TestNotebookGuard
     /// <summary>
     /// Refuses <c>UpdateHierarchy</c> XML unless it names at least one <c>ID</c> and every <c>ID</c> in it (found by
     /// pattern, so malformed XML is checked too) is in <paramref name="created"/> and is neither test notebook. A
-    /// well-formed document's root must carry an <c>ID</c>. Returns the IDs in document order.
+    /// well-formed document's root must carry an <c>ID</c>. Returns the IDs in document order. Spike 3.1: an ID in
+    /// <paramref name="recycleBins"/> (a test notebook's recycle-bin group or Deleted Pages, read live) passes too.
     /// </summary>
-    public static IReadOnlyList<string> CheckHierarchyXml(string method, string xml, IReadOnlyCollection<string> testNotebookIds, IReadOnlySet<string> created)
+    public static IReadOnlyList<string> CheckHierarchyXml(string method, string xml, IReadOnlyCollection<string> testNotebookIds, IReadOnlySet<string> created, IReadOnlySet<string>? recycleBins = null)
     {
         ArgumentNullException.ThrowIfNull(xml);
         ArgumentNullException.ThrowIfNull(testNotebookIds);
@@ -684,7 +927,7 @@ internal static partial class TestNotebookGuard
                 throw new InvalidOperationException($"Refusing {method}: the XML names the MCP Test or MCP Test Cloud notebook ({id}).");
             }
 
-            if (!created.Contains(id))
+            if (!created.Contains(id) && recycleBins?.Contains(id) != true)
             {
                 throw new InvalidOperationException($"Refusing {method}: {id} was not created by this run.");
             }

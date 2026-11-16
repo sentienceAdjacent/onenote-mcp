@@ -168,7 +168,7 @@ internal sealed class ProbeSession : IDisposable
     public void Finish()
     {
         Recorder.Row("hresult-summary", "HRESULTs", "summary", null, null, Recorder.HResults.ToDictionary(p => p.Key, p => p.Value.ToArray()));
-        Assert.True(errors.Count == 0, "Probe steps failed (see the log):\n" + string.Join('\n', errors));
+        Assert.True(errors.Count == 0, Recorder.RedactLine("Probe steps failed (see the log):\n" + string.Join('\n', errors)));
     }
 
     // --- Calls ----------------------------------------------------------------------------------------------------
@@ -532,10 +532,13 @@ internal sealed class ProbeSession : IDisposable
             Ct,
             Throwaways);
         Created.Add(pageId);
+
+        // Spike 3.1: the new page's own page-XML date, never DateTime.MinValue (the plan's Never list).
+        var date = ProbeXml.ParseUtc(ProbeXml.Lmt(await PageAsync(pageId)) ?? throw new InvalidOperationException("The new page has no lastModifiedTime."));
         var setup = await TryWriteAnyAsync(
             pageId,
             "UpdatePageContent(setup)",
-            app => app.UpdatePageContent(ProbeXml.Page(pageId, ProbeXml.Title(title) + ProbeXml.Outline(null, ProbeXml.Oe(null, "probe text"))), DateTime.MinValue, XMLSchema.xs2013, force: false));
+            app => app.UpdatePageContent(ProbeXml.Page(pageId, ProbeXml.Title(title) + ProbeXml.Outline(null, ProbeXml.Oe(null, "probe text"))), date, XMLSchema.xs2013, force: false));
         await CheckTimeoutAsync("UpdatePageContent-setup", setup);
         if (!setup.Ok)
         {
@@ -548,15 +551,18 @@ internal sealed class ProbeSession : IDisposable
     /// <summary>The attempt a write returns, without calling COM, when something in its probe area stays on screen.</summary>
     public static Attempt NotShownRefusal { get; } = new("not-run", null, null, null, 0, "something in the probe area was still on screen (EnsureNothingShownAsync)");
 
-    /// <summary>A guarded <c>UpdateHierarchy</c>, after the shown check on the XML's root, stopping the scenario on a timeout.</summary>
-    public async Task<Attempt> UpdateHierarchyAsync(string xml, string method = "UpdateHierarchy")
+    /// <summary>
+    /// A guarded <c>UpdateHierarchy</c>, after the shown check on the XML's root, stopping the scenario on a timeout.
+    /// <paramref name="allowRecycleBins"/>: spike 3.1's R1 second call and R5 only (see <see cref="TestNotebook.UpdateHierarchyAsync"/>).
+    /// </summary>
+    public async Task<Attempt> UpdateHierarchyAsync(string xml, string method = "UpdateHierarchy", bool allowRecycleBins = false)
     {
         if (RootId(xml) is { } root && !await EnsureNothingShownAsync(root, "UpdateHierarchy"))
         {
             return NotShownRefusal;
         }
 
-        return await TryGuardedAsync(method, () => TestNotebook.UpdateHierarchyAsync(Gateway, xml, Created, Throwaways, method, Ct));
+        return await TryGuardedAsync(method, () => TestNotebook.UpdateHierarchyAsync(Gateway, xml, Created, Throwaways, method, Ct, allowRecycleBins));
     }
 
     /// <summary>
@@ -646,6 +652,11 @@ internal sealed class ProbeSession : IDisposable
 
         var (attempt, id) = await TryValueAsync(() => TestNotebook.OpenBackupAsync(Gateway, opened, PublishDir, Ct));
         await CheckTimeoutAsync("OpenHierarchy-backup", attempt);
+        if (attempt.Ok && !string.IsNullOrEmpty(id))
+        {
+            Opened.Add(id); // spike 3.1: TestNotebook.OpenBackupAsync refused any path outside PublishDir
+        }
+
         return (attempt, id, opened);
     }
 
@@ -772,6 +783,269 @@ internal sealed class ProbeSession : IDisposable
         internal static extern nint GetForegroundWindow();
     }
 
+    // --- Spike 3.1: merges, exports, packages, adoption and recycle bins -------------------------------------------
+
+    /// <summary>
+    /// What <see cref="OpenBackupAsync"/> opened from <see cref="PublishDir"/> this run (a section, or an unpacked
+    /// notebook). A <c>MergeSections</c> source may be one of these instead of a <see cref="Created"/> ID; nothing else
+    /// adds to it.
+    /// </summary>
+    public HashSet<string> Opened { get; } = new(StringComparer.Ordinal);
+
+    private readonly List<ComGateway> sideGateways = [];
+
+    /// <summary>X1: how long a <c>Publish</c> that returned ok is watched for its files to land and settle.</summary>
+    public const int LandingPollSeconds = 120;
+
+    /// <summary>How long a <c>Publish</c> that failed is watched, in case it wrote something anyway.</summary>
+    public const int FailedLandingPollSeconds = 5;
+
+    private const int LandingPollMs = 250;
+
+    /// <summary>
+    /// X3: a second gateway with its own call limit (<paramref name="callSeconds"/>) and its own crash breaker, for the one
+    /// call that is meant to time out. Its timeout poisons only its own STA thread; the session's gateway and breaker
+    /// carry on. Disposed with the session.
+    /// </summary>
+    public ComGateway CreateSideGateway(int callSeconds)
+    {
+        var settings = Path.Combine(settingsDir, string.Create(CultureInfo.InvariantCulture, $"settings-side-{sideGateways.Count}.json"));
+        File.WriteAllText(settings, string.Create(CultureInfo.InvariantCulture, $$"""{ "schemaVersion": 1, "allowSilentActivation": false, "timeouts": { "callSeconds": {{callSeconds}}, "idleReleaseSeconds": 86400 } }"""));
+        var gateway = new ComGateway(new PinnedOneNoteProbe(), new SettingsStore(settings));
+        sideGateways.Add(gateway);
+        return gateway;
+    }
+
+    /// <summary>
+    /// One guarded <c>Publish</c> into a fresh, empty subfolder of <see cref="PublishDir"/> named after
+    /// <paramref name="folderName"/>, after the shown check; then the landing poll (<see cref="PollLandingAsync"/>): up to
+    /// <see cref="LandingPollSeconds"/> after an ok, <see cref="FailedLandingPollSeconds"/> after a failure, unless
+    /// <paramref name="poll"/> says otherwise. A blocked call stops the scenario unless <paramref name="stopOnTimeout"/>
+    /// is false (X3, whose timeout is the point). <paramref name="callGateway"/>: see <see cref="CreateSideGateway"/>.
+    /// </summary>
+    public async Task<PublishLanding> PublishFreshAsync(string folderName, string sourceId, PublishFormat format, string fileName, ComGateway? callGateway = null, bool stopOnTimeout = true, TimeSpan? poll = null)
+    {
+        Directory.CreateDirectory(PublishDir);
+        var folder = FreshFolder(PublishDir, folderName);
+        var path = Path.Combine(folder, fileName);
+        Attempt attempt;
+        if (!await EnsureNothingShownAsync(sourceId, "Publish"))
+        {
+            attempt = NotShownRefusal;
+        }
+        else
+        {
+            attempt = await TryAsync(() => TestNotebook.PublishAsync(Gateway, sourceId, path, format, PublishDir, Throwaways, Ct, callGateway));
+            if (stopOnTimeout)
+            {
+                await CheckTimeoutAsync($"Publish-{format}", attempt);
+            }
+        }
+
+        var landing = await PollLandingAsync(folder, path, poll ?? TimeSpan.FromSeconds(attempt.Ok ? LandingPollSeconds : FailedLandingPollSeconds));
+        return new PublishLanding(format.ToString(), attempt, path, Path.GetRelativePath(PublishDir, folder), landing);
+    }
+
+    /// <summary>
+    /// Polls <paramref name="folder"/> every 250 ms until its files have stopped changing for a second
+    /// (<see cref="LandingTracker"/>) or <paramref name="limit"/> passes. Times are from the start of the poll, that is,
+    /// from the moment the call returned.
+    /// </summary>
+    public static async Task<LandingPoll> PollLandingAsync(string folder, string target, TimeSpan limit)
+    {
+        var tracker = new LandingTracker(Path.GetFileName(target));
+        var watch = Stopwatch.StartNew();
+        while (!tracker.Observe(Snapshot(folder), watch.ElapsedMilliseconds) && watch.Elapsed < limit)
+        {
+            await Task.Delay(LandingPollMs, Ct);
+        }
+
+        return tracker.Result(watch.ElapsedMilliseconds);
+    }
+
+    /// <summary>Every file and folder under <paramref name="folder"/>, relative, sorted, with its size (-1 for a folder). Empty when it doesn't exist.</summary>
+    internal static IReadOnlyList<FileEntry> Snapshot(string folder)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return [];
+        }
+
+        var entries = new List<FileEntry>();
+        foreach (var entry in Directory.EnumerateFileSystemEntries(folder, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                entries.Add(new FileEntry(Path.GetRelativePath(folder, entry), Directory.Exists(entry) ? -1 : new FileInfo(entry).Length));
+            }
+            catch (IOException)
+            {
+                // Written or moved while listing: the next poll sees it.
+            }
+        }
+
+        return entries.OrderBy(e => e.Path, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// A new, empty folder <paramref name="name"/> in <paramref name="root"/>: <c>name</c>, else <c>name-2</c>,
+    /// <c>name-3</c>…, so every <c>Publish</c> lands in a folder of its own and any extra file it writes shows.
+    /// </summary>
+    internal static string FreshFolder(string root, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Contains("..", StringComparison.Ordinal) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new InvalidOperationException($"Refusing: \"{name}\" is not a single folder name.");
+        }
+
+        for (var i = 1; ; i++)
+        {
+            var candidate = Path.Combine(root, i == 1 ? name : string.Create(CultureInfo.InvariantCulture, $"{name}-{i}"));
+            if (!Directory.Exists(candidate) && !File.Exists(candidate))
+            {
+                Directory.CreateDirectory(candidate);
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts a <c>.onepkg</c> (a CAB file) with Windows' own <c>expand.exe -F:*</c> into <paramref name="destination"/>,
+    /// without OneNote. Both must be under <see cref="PublishDir"/>, and the destination must be absent or empty.
+    /// Records the exit code and the files written, never the tool's output (it names local paths).
+    /// </summary>
+    public static Task<ExtractResult> ExtractPackageAsync(string package, string destination) => ExtractPackageAsync(package, destination, PublishDir);
+
+    internal static async Task<ExtractResult> ExtractPackageAsync(string package, string destination, string root)
+    {
+        const string Method = "expand";
+        TestNotebookGuard.EnsureUnder(Method, package, root);
+        TestNotebookGuard.EnsureUnder(Method, destination, root);
+        if (Directory.Exists(destination) && Directory.EnumerateFileSystemEntries(destination).Any())
+        {
+            throw new InvalidOperationException($"Refusing {Method}: {destination} is not empty.");
+        }
+
+        Directory.CreateDirectory(destination);
+        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "expand.exe"))
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        start.ArgumentList.Add("-F:*");
+        start.ArgumentList.Add(package);
+        start.ArgumentList.Add(destination);
+
+        var watch = Stopwatch.StartNew();
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("expand.exe didn't start.");
+        var stdout = process.StandardOutput.ReadToEndAsync(Ct);
+        var stderr = process.StandardError.ReadToEndAsync(Ct);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        limit.CancelAfter(TimeSpan.FromSeconds(120));
+        try
+        {
+            await process.WaitForExitAsync(limit.Token);
+        }
+        catch (OperationCanceledException) when (!Ct.IsCancellationRequested)
+        {
+            process.Kill(entireProcessTree: true);
+            return new ExtractResult(null, watch.ElapsedMilliseconds, Snapshot(destination), TimedOut: true);
+        }
+
+        await Task.WhenAll(stdout, stderr);
+        return new ExtractResult(process.ExitCode, watch.ElapsedMilliseconds, Snapshot(destination), TimedOut: false);
+    }
+
+    /// <summary>A guarded <c>MergeSections</c> (<see cref="TestNotebook.MergeSectionsAsync"/>), after the shown checks; the destination's new pages join <see cref="Created"/>.</summary>
+    public async Task<Attempt> MergeSectionsAsync(string sourceId, string destinationId)
+    {
+        if (!await EnsureNothingShownAsync(destinationId, "MergeSections")
+            || (Created.Contains(sourceId) && !await EnsureNothingShownAsync(sourceId, "MergeSections")))
+        {
+            return NotShownRefusal;
+        }
+
+        var before = PageIds(await TreeAsync(destinationId));
+        var attempt = await TryGuardedAsync("MergeSections", () => TestNotebook.MergeSectionsAsync(Gateway, sourceId, destinationId, Created, Opened, Throwaways, PublishDir, Ct));
+        Created.UnionWith(NewPageIds(before, await TreeAsync(destinationId)));
+        return attempt;
+    }
+
+    /// <summary>The IDs of the pages directly in <paramref name="section"/>.</summary>
+    internal static HashSet<string> PageIds(XElement section) =>
+        section.Elements(section.Name.Namespace + "Page").Select(p => (string?)p.Attribute("ID")).OfType<string>().ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>The pages directly in <paramref name="section"/> whose IDs aren't in <paramref name="before"/>: a merge's new pages, which join <see cref="Created"/>.</summary>
+    internal static IReadOnlyList<string> NewPageIds(IReadOnlySet<string> before, XElement section) =>
+        PageIds(section).Where(id => !before.Contains(id)).Order(StringComparer.Ordinal).ToList();
+
+    /// <summary>A guarded <c>MergeFiles</c> (<see cref="TestNotebook.MergeFilesAsync"/>): every path under <see cref="PublishDir"/>.</summary>
+    public Task<Attempt> MergeFilesAsync(string baseFile, string clientFile, string serverFile, string targetFile) =>
+        TryGuardedAsync("MergeFiles", () => TestNotebook.MergeFilesAsync(Gateway, baseFile, clientFile, serverFile, targetFile, PublishDir, Ct));
+
+    /// <summary>
+    /// <c>OpenPackage</c> of <paramref name="package"/> into <paramref name="destination"/> (both under
+    /// <see cref="PublishDir"/>, as is the path OneNote reports), with whether the foreground window kept focus (O4).
+    /// </summary>
+    public async Task<(Attempt Attempt, string? PathOut, bool FocusKept)> OpenPackageIntoAsync(string package, string destination)
+    {
+        var focus = Foreground();
+        var (attempt, pathOut) = await TryValueAsync(() => TestNotebook.OpenPackageAsync(Gateway, package, destination, PublishDir, Ct));
+        var kept = focus == Foreground();
+        await CheckTimeoutAsync("OpenPackage", attempt);
+        return (attempt, pathOut, kept);
+    }
+
+    /// <summary>
+    /// Q3 a: adopts an earlier run's local throwaway by its exact name (<see cref="TestNotebook.AdoptThrowawayNotebookAsync"/>).
+    /// Only the notebook itself joins <see cref="Created"/>, not what an earlier run left in it. Null when it isn't open.
+    /// </summary>
+    public async Task<string?> AdoptThrowawayAsync(string exactName)
+    {
+        var id = await TestNotebook.AdoptThrowawayNotebookAsync(Gateway, exactName, Ct);
+        if (id is not null)
+        {
+            AllowThrowawayName(id, exactName);
+            Created.Add(id);
+        }
+
+        return id;
+    }
+
+    /// <summary>
+    /// Q5: adopts <c>MCP Test Tenant</c> (<see cref="TestNotebookGuard.IsTenantTest"/>) like a throwaway, so the guard
+    /// accepts it and nothing else on the tenant. Returns its ID and path, or nulls unless exactly one such notebook is open.
+    /// </summary>
+    public async Task<(string? Id, string? Path)> AdoptTenantAsync()
+    {
+        var matches = (await NotebooksAsync()).Elements(One + "Notebook")
+            .Where(n => TestNotebookGuard.IsTenantTest((string?)n.Attribute("name"), (string?)n.Attribute("path")))
+            .ToList();
+        if (matches.Count != 1 || (string?)matches[0].Attribute("ID") is not { Length: > 0 } id)
+        {
+            return (null, null);
+        }
+
+        AllowThrowawayName(id, TestNotebook.TenantNotebookName); // admits it to EnsureTargetsAsync only; never to Created
+        return (id, (string?)matches[0].Attribute("path"));
+    }
+
+    /// <summary>A notebook's own recycle bin, read live: its <c>OneNote_RecycleBin</c> group ID and its Deleted Pages section IDs.</summary>
+    public async Task<(string? Bin, IReadOnlyList<string> DeletedPages)> RecycleBinAsync(string notebookId) =>
+        RecycleBin(await TreeAsync(notebookId, CoreScope.Sections));
+
+    internal static (string? Bin, IReadOnlyList<string> DeletedPages) RecycleBin(XElement notebook)
+    {
+        var bin = notebook.Elements(notebook.Name.Namespace + "SectionGroup").FirstOrDefault(g => (string?)g.Attribute("isRecycleBin") == "true");
+        return ((string?)bin?.Attribute("ID"), bin?.Elements(notebook.Name.Namespace + "Section")
+            .Where(s => (string?)s.Attribute("isDeletedPages") == "true")
+            .Select(s => (string?)s.Attribute("ID"))
+            .OfType<string>()
+            .ToList() ?? []);
+    }
+
     // --- Reads ----------------------------------------------------------------------------------------------------
 
     public async Task<string> PageXmlAsync(string pageId, XMLSchema schema = XMLSchema.xs2013, PageInfo info = PageInfo.piBasic) =>
@@ -850,11 +1124,11 @@ internal sealed class ProbeSession : IDisposable
     public async Task<bool> PauseAsync(string step, string instruction)
     {
         var file = Path.Combine(ProbeRecorder.ProbesDir, PauseFileName);
-        var text = $"[{Scenario} / {step}]\n{instruction}\n\nWhen done, delete this file. To skip this step, replace this file's content with: skip\n";
+        var text = Recorder.RedactLine($"[{Scenario} / {step}]\n{instruction}\n\nWhen done, delete this file. To skip this step, replace this file's content with: skip\n");
         await File.WriteAllTextAsync(file, text, Ct);
         Recorder.Row(step, "hitl", "pause", null, null, new { instruction });
         Echo($"PAUSE ({file}): {instruction}");
-        Console.WriteLine($"PAUSE [{Scenario} / {step}]: {instruction}");
+        Console.WriteLine(Recorder.RedactLine($"PAUSE [{Scenario} / {step}]: {instruction}"));
 
         var limit = TimeSpan.FromSeconds(
             int.TryParse(Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_PAUSE_SECONDS"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var s) && s > 0 ? s : 1800);
@@ -901,7 +1175,7 @@ internal sealed class ProbeSession : IDisposable
     {
         try
         {
-            output.WriteLine(ProbeRecorder.Redact(line));
+            output.WriteLine(Recorder.RedactLine(line)); // spike 3.1: URLs too, once the label scenario turns that on
         }
         catch (InvalidOperationException)
         {
@@ -911,6 +1185,11 @@ internal sealed class ProbeSession : IDisposable
 
     public void Dispose()
     {
+        foreach (var side in sideGateways)
+        {
+            side.Dispose();
+        }
+
         Gateway.Dispose();
         Recorder.Dispose();
         try
@@ -925,3 +1204,78 @@ internal sealed class ProbeSession : IDisposable
         }
     }
 }
+
+/// <summary>Spike 3.1: one file or folder in a publish folder (relative path; -1 bytes for a folder).</summary>
+internal sealed record FileEntry(string Path, long Bytes);
+
+/// <summary>
+/// Spike 3.1's landing poll, pure (unit-tested): fed one snapshot of a publish folder per poll, it records when anything
+/// first appeared, every change (time, files, bytes, the target's bytes), and calls the folder stable once it is
+/// non-empty, holds no empty file, and hasn't changed for <paramref name="stableForMs"/>.
+/// </summary>
+internal sealed class LandingTracker(string targetName, long stableForMs = 1000)
+{
+    private readonly List<LandingChange> changes = [];
+    private IReadOnlyList<FileEntry>? last;
+    private long lastChangeMs;
+    private long? firstSeenMs;
+    private long? stableMs;
+
+    /// <summary>Takes one snapshot at <paramref name="ms"/>; true once the folder is stable (stop polling).</summary>
+    public bool Observe(IReadOnlyList<FileEntry> snapshot, long ms)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Count > 0)
+        {
+            firstSeenMs ??= ms;
+        }
+
+        if (last is null || !snapshot.SequenceEqual(last))
+        {
+            last = snapshot;
+            lastChangeMs = ms;
+            changes.Add(new LandingChange(ms, snapshot.Count(e => e.Bytes >= 0), snapshot.Where(e => e.Bytes > 0).Sum(e => e.Bytes), TargetBytes(snapshot)));
+            return false;
+        }
+
+        if (snapshot.Count > 0 && snapshot.All(e => e.Bytes != 0) && ms - lastChangeMs >= stableForMs)
+        {
+            stableMs = lastChangeMs;
+            return true;
+        }
+
+        return false;
+    }
+
+    public LandingPoll Result(long polledMs)
+    {
+        var files = last ?? [];
+        var target = TargetBytes(files);
+        return new LandingPoll(firstSeenMs, stableMs, stableMs is not null, polledMs, target is not null, target, files, changes);
+    }
+
+    private long? TargetBytes(IReadOnlyList<FileEntry> snapshot) =>
+        snapshot.FirstOrDefault(e => string.Equals(e.Path, targetName, StringComparison.OrdinalIgnoreCase) && e.Bytes >= 0)?.Bytes;
+}
+
+/// <summary>One change the landing poll saw: when, how many files, their bytes, and the target file's bytes (null: absent).</summary>
+internal sealed record LandingChange(long Ms, int Files, long Bytes, long? TargetBytes);
+
+/// <summary>
+/// The landing poll's answer for one <c>Publish</c>: when the first file appeared and when the folder settled (ms after
+/// the call returned; null: never), whether the target file exists and its size, what the folder holds, and each change.
+/// </summary>
+internal sealed record LandingPoll(long? FirstSeenMs, long? StableMs, bool Stable, long PolledMs, bool TargetExists, long? TargetBytes, IReadOnlyList<FileEntry> Files, IReadOnlyList<LandingChange> Changes);
+
+/// <summary>One fresh-folder <c>Publish</c> (<see cref="ProbeSession.PublishFreshAsync"/>): the format, the attempt, the target path, the folder (relative to the publish folder) and the landing poll.</summary>
+internal sealed record PublishLanding(string Format, Attempt Attempt, string Path, string Folder, LandingPoll Landing)
+{
+    /// <summary>The target path, when the call returned ok and the file is there.</summary>
+    public string? Landed => Attempt.Ok && Landing.TargetExists ? Path : null;
+
+    /// <summary>What a row logs: everything but the absolute path.</summary>
+    public object Summary => new { format = Format, file = System.IO.Path.GetFileName(Path), folder = Folder, landing = Landing };
+}
+
+/// <summary><c>expand.exe</c>'s result: its exit code (null: killed at the 120 s limit), the time taken, and the files it wrote.</summary>
+internal sealed record ExtractResult(int? ExitCode, long Ms, IReadOnlyList<FileEntry> Files, bool TimedOut);

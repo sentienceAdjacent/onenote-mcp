@@ -123,7 +123,7 @@ internal static class HierarchyProbes
     /// the cloud-jam repro's R0-R5, so run 2 doubles as a wider repro: if it comes back, the first failing check names
     /// the step.
     /// </summary>
-    private static Func<Task> SyncChecked(ProbeSession s, ProbeTarget t, string step, string stamp, Func<Task> body) => async () =>
+    internal static Func<Task> SyncChecked(ProbeSession s, ProbeTarget t, string step, string stamp, Func<Task> body) => async () =>
     {
         await body();
         if (t.Cloud)

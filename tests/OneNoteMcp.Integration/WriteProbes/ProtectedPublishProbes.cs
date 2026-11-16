@@ -165,7 +165,7 @@ public sealed class ProtectedPublishProbes(ITestOutputHelper output)
     /// Reads <paramref name="path"/> (shared, read-only; never through OneNote) and counts each probe string in UTF-16LE
     /// and UTF-8. Records counts and a hash, never the bytes.
     /// </summary>
-    private static object Scan(string path, IReadOnlyList<string> titles)
+    internal static object Scan(string path, IReadOnlyList<string> titles)
     {
         if (!File.Exists(path))
         {

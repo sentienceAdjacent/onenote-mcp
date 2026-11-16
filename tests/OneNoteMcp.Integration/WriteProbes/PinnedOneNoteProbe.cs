@@ -10,8 +10,14 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// Why: on 2026-11-10 a probe call crashed OneNote. The crashed process stayed alive while Windows Error Reporting
 /// wrote its dump, so <see cref="ProcessProbe"/> still reported OneNote running, and the gateway's reconnect started a
 /// hidden <c>ONENOTE.EXE -Embedding</c>. Here, a changed process set or a second activation trips the breaker: from
-/// then on OneNote reads as not running (silent activation is off, so the gateway refuses every call) and the
-/// integrity check fails before <c>CoCreateInstance</c>.
+/// then on OneNote reads as not running (silent activation is off, so the gateway refuses every call). A tripped
+/// integrity check lists no OneNote, so the gateway stops before <c>CoCreateInstance</c> with
+/// <c>OneNoteNotRunning</c>, not <c>IntegrityMismatch</c> (backlog 4).
+/// </para>
+/// <para>
+/// This probe compares process IDs only: it doesn't apply <see cref="ProcessProbe"/>'s Windows Error Reporting and
+/// window checks. A crashed <c>ONENOTE.EXE</c> that is still listed therefore passes its running check, and the
+/// breaker trips at the reconnect's integrity check instead.
 /// </para>
 /// </summary>
 internal sealed class PinnedOneNoteProbe : IProcessProbe
@@ -51,7 +57,8 @@ internal sealed class PinnedOneNoteProbe : IProcessProbe
             Trip("the gateway tried to reconnect (OneNote likely crashed)");
         }
 
-        // No server level reads as a mismatch, so the gateway stops before CoCreateInstance.
+        // No OneNote listed reads as not running, so the gateway stops before CoCreateInstance. No server level keeps it
+        // a mismatch even if a session ever turns silent activation on.
         return tripped is null ? inner.CheckIntegrity() : new IntegrityReport(null, []);
     }
 

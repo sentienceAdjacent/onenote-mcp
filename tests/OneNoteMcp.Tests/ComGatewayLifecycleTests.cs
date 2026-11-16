@@ -491,6 +491,65 @@ public sealed class ComGatewayLifecycleTests
         Assert.Contains("server=Medium onenote=[42:High]", ex.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)] // the crash breaker's report, or a server level that can't be read
+    [InlineData(true)] // OneNote exited after the running and window checks: a "match" with nothing to match
+    public async Task IntegrityCheckFindsNoOneNote_IsOneNoteNotRunning_NothingCreated(bool serverReadable)
+    {
+        var probe = new TestProbe { Integrity = new IntegrityReport(serverReadable ? 0x2000 : null, []) };
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(), app.Factory);
+
+        var ex = await Record.ExceptionAsync(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        var error = Assert.IsType<OneNoteException>(ex);
+        Assert.Equal(ErrorCode.OneNoteNotRunning, error.Code);
+        Assert.Equal("OneNote is not running. Start OneNote desktop, then retry.", error.Message);
+        Assert.Null(error.UserAction);
+        Assert.Equal(0, app.Activations);
+        Assert.Equal(1, probe.IntegrityChecks);
+    }
+
+    [Fact]
+    public async Task IntegrityCheckFindsNoOneNote_WhileOneCrashes_UsesTheCrashWording()
+    {
+        var probe = new TestProbe { Integrity = new IntegrityReport(0x2000, []), Crashing = true };
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(), app.Factory);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(ErrorCode.OneNoteNotRunning, ex.Code);
+        Assert.Equal(ComGateway.CrashingMessage, ex.Message);
+        Assert.Equal(ComGateway.CrashingUserAction, ex.UserAction);
+        Assert.Equal(0, app.Activations);
+    }
+
+    [Fact]
+    public async Task IntegrityCheckFindsNoOneNote_WithAllowSilentActivation_Activates()
+    {
+        var probe = new TestProbe { Integrity = new IntegrityReport(0x2000, []) };
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(silent: true), app.Factory);
+
+        Assert.Equal("<ok/>", await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+        Assert.Equal(1, app.Activations);
+    }
+
+    [Fact]
+    public async Task IntegrityCheckFindsNoOneNote_UnreadableServer_WithAllowSilentActivation_IsStillAMismatch()
+    {
+        var probe = new TestProbe { Integrity = new IntegrityReport(null, []) };
+        var app = new FakeApplication { OnCall = _ => "<ok/>" };
+        using var gateway = new ComGateway(probe, () => Settings(silent: true), app.Factory);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, Ct));
+
+        Assert.Equal(ErrorCode.IntegrityMismatch, ex.Code);
+        Assert.Contains("server=unreadable onenote=[]", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(0, app.Activations);
+    }
+
     [Fact]
     public void IntegrityReport_UnreadableLevel_IsAMismatch()
     {
