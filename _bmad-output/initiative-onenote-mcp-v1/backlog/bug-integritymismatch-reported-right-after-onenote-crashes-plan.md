@@ -3,12 +3,13 @@ title: 'Report OneNoteNotRunning when the integrity check finds no OneNote'
 type: 'bugfix'
 ticket: '4'
 created: '2026-11-16'
-status: 'draft'
+status: 'built'
+baseline_revision: 'b9d0698bfd9903cf9a6da67f9b9ce83b9c82f8ef'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -37,6 +38,12 @@ context: []
 | Unreadable server, silent on | report `(null, [])`; silent on | `IntegrityMismatch`, as today | unchanged |
 | Real mismatch | report `(Medium, [42:High])` | `IntegrityMismatch`, as today | unchanged |
 
+## Decisions
+
+- Scope (Phill, 2026-11-16): the fix goes in the gateway only. `PinnedOneNoteProbe` gets no behaviour change, only its comments.
+- Spine (Phill, 2026-11-16): no amendment. AD-3's rule that a OneNote that isn't running gives `OneNoteNotRunning` already covers this; the fix enforces it at a second point.
+- Spike 3.1 findings (2026-11-16): already corrected on `story/3.1-write-probes-part-3` (9a99233). This work doesn't touch that branch.
+
 </frozen-after-approval>
 
 ## Code Map
@@ -62,20 +69,27 @@ context: []
 
 ## Implementation Notes
 
+- Implemented directly in the build lane, not by a fresh subagent, so the red run could be watched first-hand. Red: 3 of the 5 new tests failed on the base (`(null, [])` gave `IntegrityMismatch`, and `(0x2000, [])` activated, as did the crashing case). The two silent-on guards passed, as expected. Full suite with them: 2962 passed, 3 failed.
+- `ComGateway.cs`: `NotRunningFailure()` now holds the not-running throw that the connecting check used, so both sites share the message, `userAction` and `IsOneNoteCrashing()` choice. The new check sits right after `CheckIntegrity()`.
+- `FixedProbe` in `ComGatewayTests.cs` and `GetHierarchyToolTests.cs` lists one Medium OneNote. `PinnedOneNoteProbe` has comment changes only.
+- Green: `dotnet build OneNoteMcp.slnx -warnaserror` gave 0 warnings; `dotnet test tests/OneNoteMcp.Tests` gave 2965 passed (2960 before, plus 5 new). The integration tests weren't run: they need OneNote.
+- Matrix: row 1 is covered by the theory's false row; row 2 by its true row and `..._WhileOneCrashes_UsesTheCrashWording`; row 3 by `..._WithAllowSilentActivation_Activates`; row 4 by `..._UnreadableServer_WithAllowSilentActivation_IsStillAMismatch`; row 5 by the existing `IntegrityMismatch_IsFast_AndComIsNeverCreated`. All passed.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Pass 1 (lens: quick). Verdicts: 0 high, 0 medium, 1 low, 0 false, 0 maybe-false.
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---------|---------|-------|-------------------|
+| 1 | The new theory checks the code and `userAction` but not the plain not-running message. That literal moved into `NotRunningFailure()`, and no gateway-level test pins it, so a wording change or the wrong branch would pass | low | patch | Confirmed: only `GetHierarchyToolTests.cs:80/92` uses the string, and that test builds the exception itself. The fix is a direct one-line assertion, so it is kept. Patched: the theory now asserts the message. Build 0 warnings; 2965 passed |
 
 ## Design Notes
 
 Why the gateway, not just the harness: changing only `PinnedOneNoteProbe` would relabel the spike's message but leave the production race, `(Medium, [])`, where AD-3's "never start OneNote silently" is broken. Checking for no OneNote before `Matches` fixes both. The breaker stays safe with silent activation on, because `(null, [])` is still a mismatch there.
 
 The ticket's Verify case ("a fake probe that returns no processes") already passes today when the connecting check itself sees none (`NotRunning_IsOneNoteNotRunning_NothingCreated_NoIntegrityCheck`). The failing case is the one where OneNote disappears after that check, which is what the new theory pins down. Checked at planning on the base revision, with a throwaway copy of the theory that was then reverted: `(null, [])` gave `IntegrityMismatch`, and `(0x2000, [])` threw nothing and activated. Both rows fail.
-
-## Open Questions
-
-1. **Spine wording.** AD-3 (line 89) already says not running gives `OneNoteNotRunning`, and AD-9's cause column says "process check (AD-3)". The fix enforces that rule at a second point and adds no new code or cause. Options: (a) no spine change; (b) add one sentence to AD-3 after line 101: "If the integrity check lists no `ONENOTE.EXE` (it exited after the running check), the call returns `OneNoteNotRunning` and COM isn't called, unless `allowSilentActivation` is set", and change AD-9's row to "process check (AD-3): not running, crashed, closing (no open window), or gone by the integrity check". (b) needs a Fable review and Phill's approval.
-2. **Spike 3.1 findings.** Rows 83 and 147 of the draft findings, on `story/3.1-write-probes-part-3`, say a production race caused the misreport. The text actually came from the harness breaker. Options: (a) correct them on that branch before its findings are final; (b) leave them, with this plan as the correction.
 
 ## Verification
 
