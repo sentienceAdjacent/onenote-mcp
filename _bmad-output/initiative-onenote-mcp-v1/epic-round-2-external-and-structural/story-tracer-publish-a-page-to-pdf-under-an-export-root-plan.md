@@ -3,7 +3,8 @@ title: 'Tracer: publish a page to PDF under an export root'
 type: 'feature'
 ticket: '3'
 created: '2026-11-16'
-status: 'draft'
+status: 'in-progress'
+baseline_revision: '38e5b542af0f279a37ea40b984ae736bfa039710'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -50,13 +51,21 @@ Steps 3–4 run under the lock: the section re-read (locked is `SectionLocked`),
 | Happy | MCP Test page, new `x.pdf` under a root | file on disk; `meta.outputPath` | none |
 | Outside root | path not under any root (`..`, a junction out, another drive) | nothing written | `ExportPathNotAllowed` |
 | Exists | target file exists (step 1 or under the lock) | untouched | `FileExists` |
-| Bad path | UNC, device, a relative path (see OQ1), invalid characters, a stream (`:`) | — | `InvalidArgument` |
+| Bad path | UNC, device, drive-relative (`C:x`), invalid characters, a stream (`:`), not ending `.pdf` | — | `InvalidArgument` |
+| Relative name | `x.pdf` or `sub\x.pdf` | resolved under the first root, then checked as above | as above |
 | Protected, no grant | page in an encrypted section, locked or not | nothing read further | `ReadNotGranted` |
 | Protected, granted, locked | — | — | `SectionLocked`, before COM |
 | Protected, granted, unlocked | — | file written | ok + `exportNotEncrypted` |
 | Not a page | section, group or notebook ID | — | `NotSupported` |
 | Never lands or keeps growing | Publish returns, file absent or growing | — | `Timeout`, `outcomeUnknown`, path named |
 | COM fails | `0x8004201A` / others | — | the mapped code (`FileExists`), path named |
+
+## Decisions (Phill, 2026-11-16, plan approved with every recommendation)
+
+- **Q1, b.** `path` is an absolute path, or a path relative to the first `exportRoots` entry, resolved against it before the canonical check.
+- **Q2, a.** `path` must end in `.pdf` (ignoring case); anything else is `InvalidArgument` before COM.
+- **Q3, a.** The integration test reads a Ballast Vault page ID while the Vault is unlocked, then pauses for Phill to press Ctrl+Alt+L, then runs both refusals live: `ReadNotGranted` with no read grant, and `SectionLocked` with one. Nothing is published in either case.
+- **Q4, a.** The full plan is kept, over the 1,600-token guide.
 
 </frozen-after-approval>
 
@@ -87,7 +96,7 @@ Steps 3–4 run under the lock: the section re-read (locked is `SectionLocked`),
 - [ ] `src/OneNoteMcp.Server/Tools/PublishTool.cs` (new) + `ServerSetup.cs` -- `publish(objectId, path, format = "pdf")`, with `format` a single-value enum (`PublishFormatArgument`). Its description gives the export roots and says to tell the user `meta.outputPath`. `ReadOnly=false, Destructive=false, Idempotent=false, OpenWorld=false`.
 - [ ] `ToolMeta.cs`, `ToolWarnings.cs`, `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `Directory.Build.props` -- the meta and warning; the snapshot regenerated; the version per AD-14 (0.9 is unreleased, so check the bump against the last tag, `v0.8.0-rc.2`).
 - [ ] `tests/OneNoteMcp.Tests/PublishToolTests.cs` (new) + `ComGatewayTests.cs` -- every matrix row on `FakeGateway` with a temp root, including the unlocked granted path with its warning, a junction that leads out, a step-4 `FileExists` race, a never-lands `Timeout` naming the path, and a raw `(ExportFormat)8` refused before COM.
-- [ ] `tests/OneNoteMcp.Integration/PublishIntegrationTests.cs` (new) -- temp `settings.json` with `exportRoots` set to a temp dir; a guarded gateway allows only test notebooks. It covers PDF lands, `ExportPathNotAllowed`, and `FileExists`. The Vault case is per OQ3.
+- [ ] `tests/OneNoteMcp.Integration/PublishIntegrationTests.cs` (new) -- temp `settings.json` with `exportRoots` set to a temp dir; a guarded gateway allows only test notebooks. It covers PDF lands, `ExportPathNotAllowed`, and `FileExists`. The Vault case follows Decision Q3, using a pause file as `WriteProbes/ProbeSession.PauseAsync` does.
 - [ ] `_bmad-output/.../research-onemore-lessons.md` -- row 28: OneMore's export path (above).
 
 **Acceptance Criteria:**
@@ -110,12 +119,9 @@ The landing wait runs inside step 7 (after `Publish` returns, before success), s
 - `dotnet build OneNoteMcp.slnx -warnaserror` -- expected: 0 warnings.
 - `dotnet test tests/OneNoteMcp.Tests` -- expected: all pass, the contract snapshot included.
 
-**Sitting steps (main session with Phill; this lane never runs them):**
-- S1: MCP Test open, with the Ballast Vault unlocked if OQ3 is (a). Run `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~PublishIntegrationTests`. Phill presses Ctrl+Alt+L at the pause. Expected: all pass, and only temp files are written.
+- TDD: write each new test first and watch it fail before writing the code that makes it pass.
+- `dotnet test tests/OneNoteMcp.Integration` with no integration variables -- expected: it builds, and every live test is skipped.
+
+**Sitting steps (main session with Phill; the build never runs them, never sets the integration variable, never touches OneNote, and never reads OneNoteMcp's own app-data folders):**
+- S1: MCP Test open, with the Ballast Vault unlocked. Run `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~PublishIntegrationTests`. Phill presses Ctrl+Alt+L at the pause. Expected: all pass, and only temp files are written.
 - S2: register the dev build (`claude mcp add --scope user onenote-dev -- "<path>\OneNoteMcp.exe"`), ask for an MCP Test page as PDF, open the reported file, then delete it.
-
-## Open Questions
-
-1. **Path argument.** (a) Absolute only. (b) Absolute, or relative to the first `exportRoots` entry. (c) Optional too, defaulting to `<cleaned page title>.pdf` (OneMore's style). Recommended: (b).
-2. **Extension.** (a) Must end `.pdf`, otherwise `InvalidArgument`. (b) The server appends `.pdf` when it is missing. (c) Any name. Recommended: (a).
-3. **Locked-Vault integration case.** OneNote hides a locked section's pages, so the test needs a page ID read while the Vault is unlocked. (a) Read the ID unlocked, pause for Ctrl+Alt+L, then run both refusals. The parent walk on a locked page is unprobed, and a locked page move crashed OneNote in 3.1. (b) Unit tests only for both protected refusals, with `verify` amended. (c) Live `ReadNotGranted` against the Vault left unlocked (no grant), and `SectionLocked` in unit tests only. Recommended: (a).
