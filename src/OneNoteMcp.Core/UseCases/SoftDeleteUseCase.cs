@@ -103,7 +103,7 @@ public sealed class SoftDeleteUseCase : IUseCase
 
         // The target's kind decides the steps: a notebook is refused here, before any grant dialog (AD-7).
         var selfXml = await pageServices.Gateway.GetHierarchyAsync(objectId, HierarchyScope.Self, ct).ConfigureAwait(false);
-        var self = XmlReads.Readable(() => DeleteTargets.Root(selfXml), "GetHierarchy");
+        var self = XmlReads.Readable(() => HierarchyTarget.Read(selfXml), "GetHierarchy");
         switch (self.Kind)
         {
             case HierarchyKind.Notebook:
@@ -210,7 +210,7 @@ public sealed class SoftDeleteUseCase : IUseCase
             var section = OwningSection ?? throw new InvalidOperationException("Step 3 hasn't read the section.");
 
             var pages = await Services.Gateway.GetHierarchyAsync(section.Id, HierarchyScope.Pages, ct).ConfigureAwait(false);
-            listed = XmlReads.Readable(() => DeleteTargets.Page(pages, PageId), "GetHierarchy");
+            listed = XmlReads.Readable(() => HierarchyTarget.Page(pages, PageId), "GetHierarchy");
 
             notebookId = (await new HierarchyWalk(Services.Gateway).OwningNotebookAsync(section.Id, ct).ConfigureAwait(false))?.Id;
             binBefore = notebookId is null ? [] : await DeletedPagesAsync(Services.Gateway, notebookId, ct).ConfigureAwait(false);
@@ -315,7 +315,7 @@ public sealed class SoftDeleteUseCase : IUseCase
     {
         private readonly List<ToolWarning> warnings = [];
         private string? xml;
-        private DeleteTarget? node;
+        private HierarchyTarget? node;
         private IReadOnlyList<string> pageIds = [];
         private string? expected;
 
@@ -338,7 +338,7 @@ public sealed class SoftDeleteUseCase : IUseCase
         public override async Task ReadAsync(CancellationToken ct)
         {
             var read = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Pages, ct).ConfigureAwait(false);
-            node = XmlReads.Readable(() => DeleteTargets.Root(read), "GetHierarchy");
+            node = XmlReads.Readable(() => HierarchyTarget.Read(read), "GetHierarchy");
             pageIds = XmlReads.Readable(() => DeleteTargets.PageIds(read), "GetHierarchy");
             xml = read;
         }

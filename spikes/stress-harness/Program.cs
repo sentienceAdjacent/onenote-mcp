@@ -43,16 +43,19 @@ static async Task<int> MainAsync(string[] args)
         return ProbeSync.Run(options.NotebookId!, options.ProbePage);
     }
 
-    var contract = ContractToolNames();
+    var contractTools = ContractTools();
     if (options.FakeServerChars is { } chars)
     {
-        return await FakeServer.RunAsync(chars, options.FakeVariant, options.FakeFiller, contract);
+        return await FakeServer.RunAsync(chars, options.FakeVariant, options.FakeFiller, contractTools);
     }
 
-    // --out must resolve outside the repo, checked before anything starts. The diag modes write no files.
-    var outDir = options.IsDiag ? "" : Path.GetFullPath(options.Out!);
+    var contract = contractTools.Select(t => t.Name).ToList();
+
+    // --out must resolve outside the repo, checked before anything starts. The diag modes and --contract-only write no files.
+    var writesFiles = !options.IsDiag && !options.ContractOnly;
+    var outDir = writesFiles ? Path.GetFullPath(options.Out!) : "";
     var roots = RepoPaths.Roots();
-    if (!options.IsDiag && roots.Any(r => RepoPaths.IsInside(outDir, r)))
+    if (writesFiles && roots.Any(r => RepoPaths.IsInside(outDir, r)))
     {
         throw new RefusalException(Exit.Usage, "--out resolves inside the repo; choose a folder outside it");
     }
@@ -85,9 +88,9 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (sixteen since story 2.11 added restore_from_journal), each
-    // readOnlyHint: true except navigate_to, the one user-visible tool, and the write tools, none of which the harness
-    // ever calls (ToolClient refuses them).
+    // Startup check, before any read: exactly the contract tools (twenty-three since story 5.6 added
+    // permanently_delete_hierarchy_object), each readOnlyHint: true except navigate_to, the one user-visible tool, and the
+    // write tools, none of which the harness ever calls (ToolClient refuses them).
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();
     var unexpected = names.Count(n => !contract.Contains(n, StringComparer.Ordinal));
@@ -96,7 +99,16 @@ static async Task<int> MainAsync(string[] args)
     if (unexpected > 0 || missing > 0 || notReadOnly > 0 || names.Count != contract.Count)
     {
         Console.Error.WriteLine($"refused: tools/list is not exactly the {contract.Count} contract tools, each with readOnlyHint but {ToolClient.NavigateTo} and the write tools (listed {names.Count}, unexpected {unexpected}, missing {missing}, not read-only {notReadOnly})");
+        DeleteSettingsDir(settingsDir);
         return Exit.UnexpectedTools;
+    }
+
+    // --contract-only (story 5.7): the check passed; stop before anything looks for OneNote, so a fake run never reaches it.
+    if (options.ContractOnly)
+    {
+        Console.WriteLine($"contract ok: {contract.Count} tools");
+        DeleteSettingsDir(settingsDir);
+        return Exit.Ok;
     }
 
     var probe = new ProcessProbe();
@@ -120,19 +132,25 @@ static async Task<int> MainAsync(string[] args)
     }
     finally
     {
-        try
+        DeleteSettingsDir(settingsDir);
+    }
+}
+
+// The server's temporary settings folder; best effort, as a server still exiting may hold its file.
+static void DeleteSettingsDir(string settingsDir)
+{
+    try
+    {
+        if (Directory.Exists(settingsDir))
         {
-            if (Directory.Exists(settingsDir))
-            {
-                Directory.Delete(settingsDir, recursive: true);
-            }
+            Directory.Delete(settingsDir, recursive: true);
         }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
+    }
+    catch (IOException)
+    {
+    }
+    catch (UnauthorizedAccessException)
+    {
     }
 }
 
@@ -217,11 +235,17 @@ static async Task<string> ResolveNotebookAsync(ComGateway gateway, Options optio
     return (string)matches[0].Attribute("ID")!;
 }
 
-static IReadOnlyList<string> ContractToolNames()
+static IReadOnlyList<ContractTool> ContractTools()
 {
     using var stream = typeof(Options).Assembly.GetManifestResourceStream("tool-contract.json")
         ?? throw new InvalidOperationException("tool-contract.json is not embedded");
     using var doc = JsonDocument.Parse(stream);
-    return [.. doc.RootElement.GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!)];
+    return
+    [
+        .. doc.RootElement.GetProperty("tools").EnumerateArray().Select(t => new ContractTool(
+            t.GetProperty("name").GetString()!,
+            t.TryGetProperty("annotations", out var a) && a.ValueKind == JsonValueKind.Object
+                && a.TryGetProperty("readOnlyHint", out var r) && r.ValueKind == JsonValueKind.True)),
+    ];
 }
 

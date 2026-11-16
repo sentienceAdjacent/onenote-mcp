@@ -122,7 +122,7 @@ public sealed class CreateHierarchyIntegrationTests(ITestOutputHelper output) : 
         var notebooks = await run.Gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, Ct);
         Assert.Single(TestNotebookGuard.ThrowawayNotebookIds(notebooks, root, new Dictionary<string, IReadOnlySet<string>> { [notebookId] = new HashSet<string>([name]) }));
 
-        var store = new SettingsStore(run.SettingsPath);
+        var store = Store(run.SettingsPath);
         var listed = await new ListGrantsUseCase(run.Gateway, store.Read, TimeProvider.System).ExecuteAsync(new ToolCallContext("it"), Ct);
         var grant = Assert.Single(listed.Meta.Grants!, g => g.Key == GrantKeys.NotebookKey(path));
         Assert.Equal(ListGrantsUseCase.WriteNotebookKind, grant.Kind);
@@ -227,7 +227,7 @@ public sealed class CreateHierarchyIntegrationTests(ITestOutputHelper output) : 
         Directory.CreateDirectory(tempDir);
         var settingsPath = Path.Combine(tempDir, "settings.json");
         File.WriteAllText(settingsPath, """{ "schemaVersion": 1 }""");
-        var store = new SettingsStore(settingsPath);
+        var store = Store(settingsPath);
         var gateway = new ComGateway(new ProcessProbe(), store);
         try
         {
@@ -245,9 +245,16 @@ public sealed class CreateHierarchyIntegrationTests(ITestOutputHelper output) : 
         }
     }
 
+    /// <summary>
+    /// The store over the run's temporary <c>settings.json</c>, with its journal in the same temporary folder, never the
+    /// user's (5.4 build incident; as <c>UpdateHierarchyIntegrationTests</c> does).
+    /// </summary>
+    private static SettingsStore Store(string settingsPath) =>
+        new(settingsPath, Path.Combine(Path.GetDirectoryName(settingsPath)!, "journal"));
+
     private static CreateHierarchyUseCase UseCase(Run run)
     {
-        var store = new SettingsStore(run.SettingsPath);
+        var store = Store(run.SettingsPath);
         return new CreateHierarchyUseCase(
             run.Gateway,
             new WriteAccess(run.Gateway, store.Read),

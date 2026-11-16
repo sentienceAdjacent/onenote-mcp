@@ -66,8 +66,13 @@ internal sealed class ToolClient(McpClient client)
     /// <summary>The user-visible tool (story 1.21, AD-11). The harness never calls it: every call path refuses it.</summary>
     public const string NavigateTo = "navigate_to";
 
-    /// <summary>The write tools (story 2.4 on). The harness never calls them either: it only reads.</summary>
-    public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal) { "create_page", "update_page_content", "delete_page_content", "restore_from_journal" };
+    /// <summary>The write tools (story 2.4 on; epic 5's hierarchy writes since story 5.7). The harness never calls them either: it only reads.</summary>
+    public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "create_page", "update_page_content", "delete_page_content", "restore_from_journal",
+        "create_section", "create_section_group", "create_notebook", "rename_hierarchy_object", "reorder_hierarchy_children",
+        "delete_hierarchy_object", "permanently_delete_hierarchy_object",
+    };
 
     /// <summary>The tools that may lack readOnlyHint: the user-visible one and the writes. Every other contract tool must be read-only.</summary>
     public static bool MayWrite(string tool) => string.Equals(tool, NavigateTo, StringComparison.Ordinal) || WriteTools.Contains(tool);

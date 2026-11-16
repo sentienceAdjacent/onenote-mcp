@@ -57,6 +57,9 @@ Sources studied: the repo at commit `10d4a90a63853c08859497bbfa9fad587e46b581` (
 
 - **Concurrency.** OneMore passes `DateTime.MinValue` with `force:true` and retries failed writes on a fresh connection. That suits a single interactive user. Ours are concurrent agents with a journal, so we keep AD-7's basis check, AD-17, and no automatic write retry. OneMore's practice means our path is untested, not wrong.
 - **Lifetime.** OneMore creates a short-lived `Application` per command. We keep one STA-owned reference per process (AD-2), released when idle (AD-3).
+  - Since backlog 3 (2026-11-16), the idle release comes after 5 s, not 5 minutes, because a held reference keeps a closed OneNote alive. OneMore's `OneNote.Dispose` warns about the same thing: "DO NOT call this otherwise OneNote will not shutdown properly" (Design "COM Layer").
+  - We took OneMore's test for an interactive OneNote: an `ONENOTE.EXE` whose `MainWindowHandle` isn't zero (`OneMoreCli/OneNoteLauncher.cs`, `OneMoreCalendar/OneNoteProvider.cs` at commit `e17456e7`). Without a window, OneNote counts as not running. Their reason: "a headless server started first can prevent a subsequent interactive launch from ever taking over".
+  - OneMore's `Helpers/Office/Outlook.cs` notes that an `-Embedding` instance "can be taken over by a later UI launch". So we don't read that flag.
 - **Binding.** OneMore uses the PIA on .NET Framework 4.8. We hand-declare `IApplication` (AD-1, proven in story 1.2).
 
 ## Where to look first when stuck

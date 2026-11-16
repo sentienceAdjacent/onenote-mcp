@@ -24,7 +24,8 @@ internal sealed record Options
     public const string Usage =
         """
         usage: StressHarness (--notebook <ID> | --notebook-name <nickname>) --out <dir outside the repo> [options]
-               StressHarness --fake-server <chars> [--fake-variant filler|structured|contract-no-readonly] [--fake-filler words|xml]
+               StressHarness --fake-server <chars> [--fake-variant filler|structured|contract-no-readonly|contract-ok] [--fake-filler words|xml]
+               StressHarness --contract-only [--exe <path>] [--exe-arg <arg>]...
 
           --notebook <ID>           the notebook to test, by OneNote ID
           --notebook-name <name>    the notebook to test, by nickname or name (resolved here, never echoed)
@@ -41,6 +42,7 @@ internal sealed record Options
           --probe-sync              with --notebook <ID> [--page <ID>]: SyncHierarchy image-download probe (no server)
           --probe-navigate          with --notebook <ID> [--page <ID>]: NavigateTo image-download probe (no server; takes focus)
           --fake-server <chars>     run as a one-tool MCP server returning <chars> (13 or more) of filler (the cap probe)
+          --contract-only           run only the startup contract check against the server, then exit (no notebook, no --out)
         """;
 
     public string? NotebookId { get; init; }
@@ -69,6 +71,9 @@ internal sealed record Options
     public string FakeVariant { get; init; } = "filler";
 
     public string FakeFiller { get; init; } = "words";
+
+    /// <summary>Run only the startup contract check, then exit before anything looks for OneNote (story 5.7).</summary>
+    public bool ContractOnly { get; init; }
 
     /// <summary>Diagnose one page's get_page_content (Basic) mismatch: prints positions, codepoints and element names only.</summary>
     public string? DiagPage { get; init; }
@@ -132,6 +137,7 @@ internal sealed record Options
                 "--probe-navigate" => o with { ProbeNavigate = true },
                 "--page" => o with { ProbePage = Next() },
                 "--fake-variant" => o with { FakeVariant = Next() },
+                "--contract-only" => o with { ContractOnly = true },
                 // The unknown argument itself is never echoed: it could be a name typed in the wrong place.
                 _ => throw new RefusalException(Exit.Usage, $"unknown argument at position {i + 1}"),
             };
@@ -140,14 +146,30 @@ internal sealed record Options
         o = o with { ExeArgs = exeArgs };
         if (o.FakeServerChars is not null)
         {
-            if (o.FakeVariant is not ("filler" or "structured" or "contract-no-readonly"))
+            if (o.ContractOnly)
             {
-                throw new RefusalException(Exit.Usage, "--fake-variant must be filler, structured or contract-no-readonly");
+                throw new RefusalException(Exit.Usage, "--contract-only can't be combined with --fake-server");
+            }
+
+            if (o.FakeVariant is not ("filler" or "structured" or "contract-no-readonly" or "contract-ok"))
+            {
+                throw new RefusalException(Exit.Usage, "--fake-variant must be filler, structured, contract-no-readonly or contract-ok");
             }
 
             if (o.FakeFiller is not ("words" or "xml"))
             {
                 throw new RefusalException(Exit.Usage, "--fake-filler must be words or xml");
+            }
+
+            return o;
+        }
+
+        if (o.ContractOnly)
+        {
+            // The check needs only the server: anything that reads a notebook or writes a file runs without it.
+            if (o.NotebookId is not null || o.NotebookName is not null || o.Out is not null || o.IsDiag || o.ProbeSync || o.ProbeNavigate)
+            {
+                throw new RefusalException(Exit.Usage, "--contract-only takes no notebook, --out, diag or probe mode; pass only --exe and --exe-arg");
             }
 
             return o;

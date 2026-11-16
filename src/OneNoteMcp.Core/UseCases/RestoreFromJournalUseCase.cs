@@ -143,7 +143,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
         {
             try
             {
-                return entry.Xml is { } xml && DeleteTargets.Root(xml).Kind == HierarchyKind.SectionGroup;
+                return entry.Xml is { } xml && HierarchyTarget.Read(xml).Kind == HierarchyKind.SectionGroup;
             }
             catch (OneNoteXmlException)
             {

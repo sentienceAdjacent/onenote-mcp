@@ -100,7 +100,7 @@ public sealed class UpdatePageContentToolTests : IDisposable
         var root = Ok(await Tool().UpdatePageContent(PageId, sent, BasisArgument(date: "2026-11-12T00:00:00Z"), cancellationToken: Ct));
 
         var (xml, date) = Assert.Single(gateway.UpdateCalls);
-        Assert.Equal(sent, xml);
+        Assert.Equal(sent.Replace(" z=\"1\"", string.Empty, StringComparison.Ordinal), xml); // Backlog 2: the caller's XML, less z.
         Assert.Equal("2026-11-12T00:00:00Z", date);
         Assert.Equal(0, root.GetProperty("warnings").GetArrayLength());
         var basis = root.GetProperty("meta").GetProperty("basis");
@@ -203,7 +203,35 @@ public sealed class UpdatePageContentToolTests : IDisposable
         var root = Ok(await Tool().UpdatePageContent(PageId, sent, BasisArgument(), [G(42)], Ct));
 
         Assert.Empty(Codes(root));
-        Assert.Equal(sent, Assert.Single(gateway.UpdateCalls).PageXml);
+        Assert.Equal(sent.Replace(" z=\"1\"", string.Empty, StringComparison.Ordinal), Assert.Single(gateway.UpdateCalls).PageXml);
+    }
+
+    [Fact]
+    public async Task SentPositions_ReachComWithoutZ_KeepingXAndY()
+    {
+        // Backlog 2 (Z probe 57): Outline B as read carries z="1"; the new Outline's Position has none.
+        var outlineB = EditedOutlineB();
+        Assert.Contains("z=\"1\"", outlineB, StringComparison.Ordinal);
+        var sent = Sent(outlineB + "<one:Outline><one:Position x=\"36.0\" y=\"300.0\" /><one:OEChildren><one:OE><one:T>new</one:T></one:OE></one:OEChildren></one:Outline>");
+        AfterWrite(p => SetText(p, 41, "changed"));
+
+        Ok(await Tool().UpdatePageContent(PageId, sent, BasisArgument(), cancellationToken: Ct));
+
+        var positions = XDocument.Parse(Assert.Single(gateway.UpdateCalls).PageXml).Descendants(One + "Position").ToList();
+        Assert.Equal(2, positions.Count);
+        Assert.All(positions, p => Assert.Null(p.Attribute("z")));
+        Assert.Equal(["36.0|200.0", "36.0|300.0"], positions.Select(p => $"{(string?)p.Attribute("x")}|{(string?)p.Attribute("y")}"));
+    }
+
+    [Fact]
+    public async Task ABadZ_IsStillInvalidXml_BeforeCom()
+    {
+        // Backlog 2: the schema gate runs on the caller's XML, before z is cut.
+        var sent = Sent(EditedOutlineB().Replace("z=\"1\"", "z=\"-1\"", StringComparison.Ordinal));
+
+        Error(await Tool().UpdatePageContent(PageId, sent, BasisArgument(), cancellationToken: Ct), "InvalidXml");
+
+        await AssertRefusedAsync();
     }
 
     [Fact]

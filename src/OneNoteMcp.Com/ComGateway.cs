@@ -34,9 +34,12 @@ namespace OneNoteMcp.Com;
 /// <item>Busy is retried with backoff until just before the deadline, then returns <see cref="ErrorCode.ComBusy"/>, so
 /// busy never poisons a worker. <c>0x8004201D</c> returns <see cref="ErrorCode.ComBusy"/> at once.</item>
 /// <item>Activation: process check (unless <c>allowSilentActivation</c>; an <c>ONENOTE.EXE</c> Windows Error Reporting is
-/// handling doesn't count as running), integrity check, then <c>CoCreateInstance</c>
-/// on the worker under <c>timeouts.activation</c>. Settings are re-read at every activation.</item>
-/// <item>The COM reference is released after <c>timeouts.idleRelease</c> with no call.</item>
+/// handling doesn't count as running, nor, unless <c>allowSilentActivation</c>, one with no open window), integrity
+/// check, then <c>CoCreateInstance</c> on the worker under <c>timeouts.activation</c>. Settings are re-read at every
+/// activation.</item>
+/// <item>The COM reference is released after <c>timeouts.idleRelease</c> with no call (5 s by default), or by the next
+/// call's check once OneNote has no open window: a held reference keeps a closed OneNote alive (backlog 3). Nothing
+/// watches the window between calls.</item>
 /// </list>
 /// Failures map through <see cref="HResultMap"/> (AD-9). It never kills or closes OneNote.
 /// </summary>
@@ -721,18 +724,21 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     }
 
     /// <summary>
-    /// Returns the live worker with a COM reference, activating one if needed. The per-call process check
-    /// (<see cref="IProcessProbe.IsOneNoteStillRunning"/>) drops a reference to an OneNote that has gone or that WER
-    /// names as crashed; a WER process whose command line can't be read doesn't drop it (2.7 Q3). Activation re-reads
-    /// settings, then runs the connecting process check (<see cref="IProcessProbe.IsOneNoteRunning"/>, where that
-    /// unreadable WER process does count as a crash), the integrity check and <c>CoCreateInstance</c>, in that order.
+    /// Returns the live worker with a COM reference, activating one if needed. The per-call check
+    /// (<see cref="LiveReferenceUsable"/>) drops a reference to an OneNote that has gone, that WER names as crashed, or,
+    /// unless silent activation is allowed, that has no open window; a WER process whose command line can't be read
+    /// doesn't drop it (2.7 Q3). Activation re-reads settings, then runs the connecting process check
+    /// (<see cref="IProcessProbe.IsOneNoteRunning"/>, where that unreadable WER process does count as a crash), the
+    /// window check (<see cref="IProcessProbe.HasOneNoteWindow"/>, unless silent activation is allowed), the integrity
+    /// check and <c>CoCreateInstance</c>, in that order.
     /// </summary>
     private async Task<(StaThread Worker, GatewaySettings Settings)> EnsureActivatedAsync(CancellationToken ct)
     {
         var (worker, settings) = LiveWorker();
-        if (worker.HasApplication && !probe.IsOneNoteStillRunning())
+        if (worker.HasApplication && !LiveReferenceUsable(settings))
         {
-            // OneNote closed or crashed: the reference is dead. Release it on its own thread; activation decides what happens next.
+            // OneNote closed, crashed, or lost its window (it is shutting down): holding on would keep it alive. Release
+            // the reference on its own thread; activation decides what happens next.
             worker.Post(worker.ReleaseApplication);
         }
         else if (worker.HasApplication)
@@ -760,7 +766,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             (worker, _) = LiveWorker();
             settings = readSettings();
 
-            if (worker.HasApplication && probe.IsOneNoteStillRunning())
+            if (worker.HasApplication && LiveReferenceUsable(settings))
             {
                 // Another call activated while this one waited: that reference is live, so it gets the per-call check,
                 // not the connecting one (2.7 Q3). Still adopt the settings just read.
@@ -779,6 +785,13 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                         crashing ? CrashingMessage : "OneNote is not running. Start OneNote desktop, then retry.",
                         userAction: crashing ? CrashingUserAction : null);
                 }
+            }
+            else if (!settings.AllowSilentActivation && !probe.HasOneNoteWindow())
+            {
+                // Running without a window: closing (connecting would keep it alive, or start a hidden copy), still
+                // starting, or started for COM. Not running, unless silent activation is allowed (AD-3, backlog 3).
+                worker.Post(worker.ReleaseApplication);
+                throw new OneNoteException(ErrorCode.OneNoteNotRunning, NoWindowMessage, userAction: NoWindowUserAction);
             }
 
             var integrity = probe.CheckIntegrity();
@@ -940,6 +953,22 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>The userAction that goes with <see cref="CrashingMessage"/>, so the model waits for the crashed copy to close.</summary>
     internal const string CrashingUserAction = "Wait until the crashed OneNote has closed, start OneNote desktop, then retry.";
+
+    /// <summary>The not-running message for an <c>ONENOTE.EXE</c> with no open window (AD-3, backlog 3).</summary>
+    internal const string NoWindowMessage =
+        "OneNote is running without an open window (it is closing, still starting, or was started without one), so the server didn't connect to it.";
+
+    /// <summary>The userAction that goes with <see cref="NoWindowMessage"/>.</summary>
+    internal const string NoWindowUserAction =
+        "Wait a few seconds for OneNote to finish closing or starting, make sure OneNote desktop is open in a window (minimised is fine), then retry.";
+
+    /// <summary>
+    /// The per-call check of a live reference (AD-3): OneNote still runs (<see cref="IProcessProbe.IsOneNoteStillRunning"/>)
+    /// and, unless silent activation is allowed, still has a window. Without one it is shutting down, and the reference
+    /// would keep it alive (backlog 3).
+    /// </summary>
+    private bool LiveReferenceUsable(GatewaySettings settings) =>
+        probe.IsOneNoteStillRunning() && (settings.AllowSilentActivation || probe.HasOneNoteWindow());
 
     private static OneNoteException BadExpectedDate(string method, string what = "page") => new(
         ErrorCode.InvalidArgument,
