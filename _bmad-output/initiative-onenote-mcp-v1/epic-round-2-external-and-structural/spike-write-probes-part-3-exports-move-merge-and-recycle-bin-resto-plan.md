@@ -3,7 +3,7 @@ title: 'Write probes, part 3: exports, move, merge and recycle-bin restore'
 type: 'chore'
 ticket: '1'
 created: '2026-11-15'
-status: 'in-progress'
+status: built
 baseline_revision: '2843d5df33dc1bd9f90ce45abf5286ca2b4de2ae'
 route: 'full'
 route_source: 'auto'
