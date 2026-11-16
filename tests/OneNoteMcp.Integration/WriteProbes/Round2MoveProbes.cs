@@ -97,7 +97,7 @@ internal static class Round2MoveProbes
             var checkedIt = await s.PauseAsync(
                 $"m4-{label}-web-check",
                 $"First, in OneNote desktop, press Sync Now (Shift+F9) on {TestNotebook.CloudNotebookName} and on {TestNotebook.CloudThrowawayName}, and wait until File > Info > View Sync Status shows each as up to date "
-                + "(tell the team lead about any error, with its code). Then, in a browser, open them in OneNote for the web. Tell the team lead: is \"probe mv g1 {st}\" (with its section \"probe mv g1 s {st}\") now inside "
+                + $"(tell the team lead about any error, with its code). Then, in a browser, open them in OneNote for the web. Tell the team lead: is \"probe mv g1 {st}\" (with its section \"probe mv g1 s {st}\") now inside "
                 + $"\"probe mv g2 {st}\" in \"probe run {st}\"? And in \"{TestNotebook.CloudThrowawayName}\", is \"probe mv g3 {st}\" (with its section) at the notebook's top level? "
                 + "Don't change anything. Then continue.");
             s.Recorder.Row($"m4-{label}-web-check", "Move", "-", null, null, new { phillChecked = checkedIt, answer = "relayed by the team lead into the findings doc" });
@@ -265,18 +265,48 @@ internal static class Round2MoveProbes
         var localRun = await HierarchyProbes.RunGroupAsync(s, local, st);
         var runs = new Dictionary<string, string>(StringComparer.Ordinal) { ["local"] = localRun, ["cloud"] = c.Run };
 
-        foreach (var (from, to) in new[] { (local, cloud), (cloud, local) })
+        // Sitting B (2026-11-16): ONENOTE.EXE crashed (mso20win32client.dll) about 2 s after the local-to-cloud section
+        // move, while the cross-storage merge was being set up. So cloud-to-local runs first, each move is followed by a
+        // settle and a read (a crash then trips the breaker on that read, pinning it to the move), and the cross-storage
+        // merge runs only with ONENOTE_MCP_PROBE_CROSS_MERGE=1.
+        var crossMerge = Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_CROSS_MERGE") == "1";
+        var crossMoves = Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_CROSS_MOVES") != "0"; // "0": the merge alone
+        foreach (var (from, to) in new[] { (cloud, local), (local, cloud) })
         {
             var dir = $"{from.Label[0]}{to.Label[0]}"; // "lc" or "cl"
+            if (!crossMoves)
+            {
+                s.Recorder.Row($"q1-moves-{from.Label}-to-{to.Label}", "Move", "UpdateHierarchy", null, null, new { notProbed = "ONENOTE_MCP_PROBE_CROSS_MOVES=0: the merge runs alone" });
+                goto Merge;
+            }
+
             var (pSrc, pPages) = await Round2.SectionAsync(c, runs[from.Label], $"probe xs {dir} src {st}", [$"probe xs {dir} p {st}"]);
             var (pDst, _) = await Round2.SectionAsync(c, runs[to.Label], $"probe xs {dir} dst {st}", [$"probe xs {dir} t1 {st}"]);
             await MovePageAsync(c, $"q1-page-{from.Label}-to-{to.Label}", c.MoveShape ?? "c", from, pSrc, to, pDst, pPages[0], $"probe xs {dir} p {st}");
+            await SettleAsync(s, $"q1-page-{from.Label}-to-{to.Label}");
 
             var (sec, _) = await Round2.SectionAsync(c, runs[from.Label], $"probe xs {dir} sec {st}", [$"probe xs {dir} sec p1 {st}"]);
             await MoveNodeAsync(c, $"q1-section-{from.Label}-to-{to.Label}", "Section", from, sec, runs[from.Label], to, "SectionGroup", runs[to.Label]);
+            await SettleAsync(s, $"q1-section-{from.Label}-to-{to.Label}");
+
+        Merge:
+            if (!crossMerge)
+            {
+                s.Recorder.Row($"q1-merge-{from.Label}-to-{to.Label}", "MergeSections", "MergeSections", new { shape = "across storage", from = from.Label, to = to.Label }, null, new { notProbed = "OneNote crashed during this case's setup in sitting B; set ONENOTE_MCP_PROBE_CROSS_MERGE=1 to run it" });
+                continue;
+            }
 
             await Round2MergeProbes.MergeRowAsync(c, $"q1-merge-{from.Label}-to-{to.Label}", "across storage", from, runs[from.Label], to, runs[to.Label], $"x{dir}");
+            await SettleAsync(s, $"q1-merge-{from.Label}-to-{to.Label}");
         }
+    }
+
+    /// <summary>Waits 10 s after a cross-storage move, then reads the notebook list: a crash the move set off trips the breaker here.</summary>
+    private static async Task SettleAsync(ProbeSession s, string after)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(10));
+        _ = await s.NotebooksAsync();
+        s.Recorder.Row($"{after}-settled", "Move", "GetHierarchy", null, null, new { after, settledSeconds = 10, oneNoteAlive = true });
     }
 
     /// <summary>
