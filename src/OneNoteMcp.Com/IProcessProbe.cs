@@ -31,6 +31,15 @@ public interface IProcessProbe
     /// <summary>True when an <c>ONENOTE.EXE</c> in this session counts as crashing (see <see cref="IsOneNoteRunning"/>).</summary>
     bool IsOneNoteCrashing() => false;
 
+    /// <summary>
+    /// True when an <c>ONENOTE.EXE</c> in this session has an open window: a visible top-level window it owns, minimised
+    /// or not (<see cref="Process.MainWindowHandle"/>). One without (closing, still starting, or started for COM with
+    /// <c>-Embedding</c>) doesn't count as running unless <c>allowSilentActivation</c> is on (AD-3, backlog 3). Fails open:
+    /// a window that can't be read counts as open. Never touches COM. The default keeps a probe that doesn't look at
+    /// windows on the old behaviour.
+    /// </summary>
+    bool HasOneNoteWindow() => true;
+
     /// <summary>Compares this process's integrity level with every <c>ONENOTE.EXE</c> in this session. Never touches COM.</summary>
     IntegrityReport CheckIntegrity();
 }
@@ -131,6 +140,49 @@ public sealed class ProcessProbe : IProcessProbe
         }
 
         return null;
+    }
+
+    public bool HasOneNoteWindow() => AnyWithWindow(SessionProcessIds("ONENOTE"), HasMainWindow);
+
+    /// <summary>
+    /// Whether any of <paramref name="processIds"/> has an open window. <paramref name="hasWindow"/> returns null when it
+    /// can't tell, which counts as open, so a doubt never refuses a normally open OneNote.
+    /// </summary>
+    internal static bool AnyWithWindow(IEnumerable<int> processIds, Func<int, bool?> hasWindow)
+    {
+        ArgumentNullException.ThrowIfNull(processIds);
+        ArgumentNullException.ThrowIfNull(hasWindow);
+        return processIds.Any(pid => hasWindow(pid) ?? true);
+    }
+
+    /// <summary>
+    /// <see cref="Process.MainWindowHandle"/> of a fresh <see cref="Process"/>: the first top-level window of the process
+    /// that has no owner and is visible (<c>IsWindowVisible</c>, which a minimised window is). Null when it can't be read;
+    /// false for a process that has gone.
+    /// </summary>
+    internal static bool? HasMainWindow(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return process.MainWindowHandle != IntPtr.Zero;
+        }
+        catch (ArgumentException)
+        {
+            return false; // exited between listing and looking
+        }
+        catch (InvalidOperationException)
+        {
+            return false; // exited between listing and looking
+        }
+        catch (Win32Exception)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
     }
 
     public IntegrityReport CheckIntegrity()

@@ -3,13 +3,13 @@ title: "Release OneNote sooner so a restart doesn't show 'cleaning up'"
 type: 'bugfix'
 ticket: '3'
 created: '2026-11-15'
-status: 'ready-for-dev'
+status: 'built'
 baseline_revision: 'cb6eb3a672b12b36c3a6d2c4521c2686e343ebd1'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -128,6 +128,25 @@ Residual risk: a closing OneNote that keeps some visible window would still coun
 
 ## Implementation Notes
 
+- Implemented directly, not by a subagent. The lane's hard rules apply: never touch OneNote, and never run the integration tests or the server. A fresh subagent wouldn't carry them, and the dispatch may not add them.
+- `IProcessProbe.HasOneNoteWindow()` defaults to `true`, so `PinnedOneNoteProbe` (the integration probes) keeps today's behaviour. `ProcessProbe` uses `AnyWithWindow` over `HasMainWindow`; a process that has gone gives `false`, and one that can't be read gives `null`, which counts as open.
+- `ComGateway`: `LiveReferenceUsable(settings)` serves the per-call check and the re-check after the activation lock. A windowless OneNote is refused with `OneNoteNotRunning`, `NoWindowMessage` and `NoWindowUserAction`, after the crash check and before the integrity check.
+- The minimised-window evidence is a real test: a minimised `STATIC` tool window of the test process makes `HasMainWindow` true. Before that, a PowerShell check gave a WinForms form a handle while minimised and 0 once hidden.
+- Race test: a 1 ms grace never fired between back-to-back calls, because of the timer resolution. It now uses a 15 ms grace with 0–24 ms gaps.
+- Docs: AD-3 (Activation and Idle), the spine memlog (decision 276, through `memlog.py`), the README (Requirements, How it works), and the OneMore research note. The skill's `OneNoteNotRunning` row is unchanged, because the error's own `userAction` covers the closing case.
+- Verified: `dotnet build OneNoteMcp.slnx -warnaserror` gave 0 warnings and 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2957 passed.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Pass 1 (quick lens, 2026-11-15): 6 findings. Verdicts: high 0, medium 1, low 4, false 1, maybe-false 0.
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---|---|---|---|
+| 1 | `LifecycleScenarioTests.Scenario_Restart_ReadSucceedsViaReconnect` no longer reaches the reconnect path | low | patch | True. The 5 s idle release, or the window check, drops the reference before the restart. The reconnect path is still covered by the unit tests. Renamed to `..._ReadSucceedsAfterOneNoteRestarts` and the summary says why. Not run (integration). |
+| 2 | Class summary says the reference is released "at once" when the window goes | low | patch | True: it is checked only at the next call. Comment corrected. |
+| 3 | `EnsureActivatedAsync` summary omits the window checks | low | patch | True. Summary now names `LiveReferenceUsable` and the window check's place in the order. |
+| 4 | The window check and the running check use different process sets (two-process and crashed-window cases) | medium | defer | True and fails open, as Q5 decided. Literally consistent with the intent's per-process wording; which process COM binds to is unprobed. Entry added to `deferred-work.md`. The Fable review raised the same point (F3). |
+| 5 | No evidence of the Fable review; Execution boxes unticked | false | reject | The Fable review ran in parallel with this lens; its findings go to Phill. Ticking the boxes would be an edit to this plan, which the triage rules reject. |
+| 6 | README "For agents" step 1 checks only `Get-Process ONENOTE` | low | patch | True. Now asks for a window (`MainWindowHandle -ne 0`, minimised is fine). |

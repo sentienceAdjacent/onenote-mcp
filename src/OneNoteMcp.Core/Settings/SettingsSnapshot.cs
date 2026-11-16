@@ -17,13 +17,18 @@ public enum SettingsStatus
 }
 
 /// <summary>COM timeouts (AD-3). JSON shape: <c>"timeouts": {"callSeconds", "publishSeconds", "activationSeconds", "idleReleaseSeconds"}</c>.</summary>
+/// <remarks>
+/// <c>IdleRelease</c> defaults to 5 s (backlog 3): the reference keeps <c>ONENOTE.EXE</c> alive after its window closes,
+/// and 5 s stays inside OneNote's own ~12 s shutdown. Above about 10 s, restarting OneNote right after closing it can
+/// show "OneNote is cleaning up". The range stays as it is: the write probes pin one activation with a day.
+/// </remarks>
 public sealed record Timeouts(TimeSpan Call, TimeSpan Publish, TimeSpan Activation, TimeSpan IdleRelease)
 {
     public static Timeouts Default { get; } = new(
         TimeSpan.FromSeconds(30),
         TimeSpan.FromSeconds(300),
         TimeSpan.FromSeconds(10),
-        TimeSpan.FromSeconds(300));
+        TimeSpan.FromSeconds(5));
 }
 
 /// <summary>Recovery journal location and retention (AD-8). JSON shape: <c>"journal": {"path", "retentionDays", "maxSizeMB"}</c>.</summary>

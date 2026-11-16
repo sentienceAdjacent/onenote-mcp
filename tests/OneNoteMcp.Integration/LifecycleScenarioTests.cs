@@ -159,9 +159,13 @@ public sealed class LifecycleScenarioTests : IDisposable
         Assert.Equal(ErrorCode.ModalDialogOpen, ex.Code);
     }
 
-    /// <summary>Phill closes OneNote and starts it again within 120 s of the test starting.</summary>
+    /// <summary>
+    /// Phill closes OneNote and starts it again within 120 s of the test starting. Since backlog 3 the 5 s idle release,
+    /// or the per-call window check, drops the reference before the restart, so the second read is a fresh activation,
+    /// not a reconnect; the reconnect retry itself is covered by the unit tests (<c>ComGatewayLifecycleTests</c>).
+    /// </summary>
     [Fact]
-    public async Task Scenario_Restart_ReadSucceedsViaReconnect()
+    public async Task Scenario_Restart_ReadSucceedsAfterOneNoteRestarts()
     {
         RequireScenario("restart");
         RequireRunningOneNote();
