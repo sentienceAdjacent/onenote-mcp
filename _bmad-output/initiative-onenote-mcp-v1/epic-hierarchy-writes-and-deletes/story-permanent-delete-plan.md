@@ -3,7 +3,7 @@ title: 'Permanent delete'
 type: 'feature'
 ticket: '6'
 created: '2026-11-13'
-status: 'built'
+status: done
 baseline_revision: 'a9da2f7d6de9136a52dd99f847e90b979ffff077'
 route: 'full'
 route_source: 'auto'

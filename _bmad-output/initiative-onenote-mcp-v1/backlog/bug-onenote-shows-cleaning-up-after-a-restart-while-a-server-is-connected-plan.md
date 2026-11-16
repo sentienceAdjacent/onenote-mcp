@@ -3,7 +3,7 @@ title: "Release OneNote sooner so a restart doesn't show 'cleaning up'"
 type: 'bugfix'
 ticket: '3'
 created: '2026-11-15'
-status: 'built'
+status: done
 baseline_revision: 'cb6eb3a672b12b36c3a6d2c4521c2686e343ebd1'
 route: 'full'
 route_source: 'auto'

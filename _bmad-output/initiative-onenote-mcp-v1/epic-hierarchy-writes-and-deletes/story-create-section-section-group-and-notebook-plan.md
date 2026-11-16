@@ -3,7 +3,7 @@ title: 'Create: section, section group and notebook'
 type: 'feature'
 ticket: '3'
 created: '2026-11-12'
-status: 'built'
+status: done
 baseline_revision: '008ad0a2dfc611c89d1eb6a6f03504bd3efa3f96'
 route: 'full'
 route_source: 'auto'
