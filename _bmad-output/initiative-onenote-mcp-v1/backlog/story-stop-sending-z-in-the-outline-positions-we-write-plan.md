@@ -3,7 +3,7 @@ title: 'Stop sending z in the Outline positions we write'
 type: 'bugfix'
 ticket: '2'
 created: '2026-11-15'
-status: 'built'
+status: done
 baseline_revision: '29bb50fa47122e336708de7b0b59a654d4d59465'
 route: 'full'
 route_source: 'auto'
