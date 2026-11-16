@@ -3,7 +3,7 @@ title: 'Rename and reorder: update_hierarchy'
 type: 'feature'
 ticket: '4'
 created: '2026-11-13'
-status: 'built'
+status: done
 baseline_revision: '7f762657fab50c8c8b80f6ec1a27629aad0e5de6'
 route: 'full'
 route_source: 'auto'

@@ -26,6 +26,7 @@ after = [1]
 hitl = true
 risk = "high"
 unknown = "What the spike finds, and Phill's answers."
+notes = ["Phill approved all six spike 3.1 sitting-A rules for this story's spine amendments (2026-11-16): Publish(pfOneNote2007) refused; moves out of a locked section refused; notebook export is package-only; a recycle-bin parent is refused outside restore; a page move warns that subpages stay behind; partial-copy results are reported as outcomeUnknown. The evidence is in the 3.1 findings' Implications section."]
 
 [[entry]]
 id = 3
@@ -123,7 +124,7 @@ risk = "medium"
 id = 9
 type = "story"
 title = "merge_files"
-description = "MergeFiles through ExternalWrite with entry 3's export-root code for its target, and the inputs and errors (hrMergeFailed 0x8004201F) entry 2 specifies, built only if entry 1 shows a result the user would want (Q5)."
+description = "DROPPED (Phill, 2026-11-16; see the epic's Notes). MergeFiles through ExternalWrite with entry 3's export-root code for its target, and the inputs and errors (hrMergeFailed 0x8004201F) entry 2 specifies, built only if entry 1 shows a result the user would want (Q5)."
 verify = "On MCP Test a merge of three .one files made the way entry 1's findings describe writes its target under the export root with meta.outputPath, and a target outside every root returns ExportPathNotAllowed."
 covers = ["E4"]
 after = [8]
@@ -138,7 +139,7 @@ title = "Skill, README and harness for round 2"
 description = "The guide skill's recipes for exports (telling the user meta.outputPath, and exporting a section group section by section, Q7), move, merge and, if it shipped, recycle-bin restore; the README sections on export roots (editing exportRoots, a Documents folder synced to OneDrive, unencrypted exports of protected content, closing an opened package); the stress harness's write-tool list and contract check for the new tools; and one live run of the protected-section allowed paths with Phill unlocking the section."
 verify = "Plugin validation and the harness pass; an agent following the README exports an MCP Test page and, if entry 5 shipped, restores a soft-deleted one; and with Phill unlocking MCP Test's protected section, each round-2 tool gives the result E8's rule sets."
 covers = ["E1", "E7", "E8", "E9"]
-after = [9]
+after = [8]
 hitl = true
 risk = "medium"
 

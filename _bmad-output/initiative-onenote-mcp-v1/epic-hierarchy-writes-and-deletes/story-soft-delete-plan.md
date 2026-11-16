@@ -3,7 +3,7 @@ title: 'Soft delete'
 type: 'feature'
 ticket: '5'
 created: '2026-11-13'
-status: 'built'
+status: done
 baseline_revision: '47224c5489ce8ae6d97e6af2596138396bdf61b8'
 route: 'full'
 route_source: 'auto'

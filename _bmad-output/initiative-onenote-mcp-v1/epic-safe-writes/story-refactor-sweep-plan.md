@@ -3,7 +3,7 @@ title: 'Refactor sweep (epic 2)'
 type: 'refactor'
 ticket: '13'
 created: '2026-11-15'
-status: 'built'
+status: done
 baseline_revision: '8652c1948dca9194835f4dd134f11be017cdec4d'
 route: 'oneshot'
 route_source: 'auto'

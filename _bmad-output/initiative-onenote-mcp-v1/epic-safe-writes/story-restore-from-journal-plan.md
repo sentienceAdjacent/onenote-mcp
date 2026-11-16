@@ -3,7 +3,7 @@ title: 'restore_from_journal'
 type: 'feature'
 ticket: '11'
 created: '2026-11-12'
-status: 'built'
+status: done
 baseline_revision: '171021992c9c209810695d2fee682c9aeccd58fa'
 route: 'full'
 route_source: 'auto'

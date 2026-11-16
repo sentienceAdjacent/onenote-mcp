@@ -3,7 +3,7 @@ title: 'One reader for the target of a delete or change'
 type: 'refactor'
 ticket: '1'
 created: '2026-11-15'
-status: 'built'
+status: done
 baseline_revision: 'f200db7886db1854580e3124a4d3756757a6c1f8'
 route: 'full'
 route_source: 'auto'
