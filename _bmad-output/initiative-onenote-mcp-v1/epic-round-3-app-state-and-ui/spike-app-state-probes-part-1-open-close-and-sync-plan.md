@@ -3,7 +3,7 @@ title: 'App-state probes, part 1: open, close and sync'
 type: 'chore'
 ticket: '1'
 created: '2026-11-16'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -76,25 +76,14 @@ Each row is one findings-doc question. L = local, C = cloud. F/V means the foreg
 
 ## Open Questions
 
-1. **When to build, and on what.** Epic 3 isn't done, which gates every round-3 entry (Phill, 2026-11-12). Spike 3.1's harness changes (`AdoptThrowawayAsync`, `CreateSideGateway`, the redaction, the guard's adoption by exact name), which this plan builds on, are only on `story/3.1-write-probes-part-3`, not on `main`.
-   - (a) Approve the plan now, implement once 3.1 merges, and hold the sittings until the gate clears.
-   - (b) Implement now, branching from 3.1's branch and rebasing when it merges. The sittings still wait.
-   - (c) Ask Phill to lift the gate for this spike, so it runs straight after 3.1's sitting B.
-2. **C6, closing the last open notebook.** It can't be done without closing Phill's own notebooks and both test notebooks.
-   - (a) Log it `notProbed` by design. C4, the notebook the only window shows, is the nearest probe.
-   - (b) At a pause, Phill closes every other notebook himself, then the probe closes `c`, then he reopens them all.
-3. **C3, a close while offline.**
-   - (a) Probe it in the cloud sitting. Phill turns the network off for about 2 min, on the cloud throwaway only.
-   - (b) Skip it, and log it `notProbed`.
-4. **O3's empty OneDrive folder.**
-   - (a) At a pause, Phill makes an empty folder `probe empty <stamp>` in OneDrive Documents. Afterwards he deletes it, and any notebook it became; if a notebook opened, the probe closes it first.
-   - (b) Probe only the missing URL.
-5. **Sittings.**
-   - (a) Two of about 60 min each: local, then cloud, as in 3.1.
-   - (b) One of about 2 h.
-6. **Plan size.** At about 5,500 tokens, the plan is over the 1,600-token target.
-   - (a) Keep the full plan, as 3.1 did (its Q7).
-   - (b) Split it into a local spike and a cloud spike.
+None open. Phill answered all six on 2026-11-16 (the 4.1 Inbox thread), each with the recommended choice, and approved the plan:
+
+1. **When to build:** (a). The plan is approved now. It is implemented once 3.1 merges into `main`, and the sittings wait until the epic-3 gate clears.
+2. **C6, closing the last open notebook:** (a). It is logged `notProbed` by design, and C4 is the nearest probe.
+3. **C3, a close while offline:** (a). It is probed in the cloud sitting, with the network off for about 2 min and only on the cloud throwaway.
+4. **O3's empty OneDrive folder:** (a). Phill makes `probe empty <stamp>` at a pause and deletes it afterwards.
+5. **Sittings:** (a). Two of about 60 min each, local then cloud.
+6. **Plan size:** (a). The full plan is kept.
 
 ## Code Map
 
@@ -173,6 +162,8 @@ Run from the repo root with OneNote already running, `$env:ONENOTE_MCP_INTEGRATI
 ## Implementation Notes
 
 ## Plan Change Log
+
+- 2026-11-16: Phill approved the plan, choosing the recommended answer to each of Q1 to Q6. Status is `ready-for-dev`, and the build waits for 3.1 to merge.
 
 ## Review Triage Log
 
