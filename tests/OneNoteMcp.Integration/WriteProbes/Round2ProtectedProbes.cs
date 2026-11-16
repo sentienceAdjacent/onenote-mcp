@@ -304,7 +304,11 @@ internal static class Round2ProtectedProbes
             return;
         }
 
-        // Moving may give it a new ID (as protecting does): find it again by name first.
+        // Moving may give it a new ID (as protecting does): find it again by name first. Sitting B (2026-11-16): sent
+        // straight after the move into the group, the cloud move to the other notebook raised OneNote's modal "can't
+        // copy or move this section because it has been deleted by a user of this notebook" and blocked 180 s, so
+        // let the first move settle before reading it back.
+        await Task.Delay(TimeSpan.FromSeconds(10));
         await ResolveAsync(c.S, vault);
         await Round2MoveProbes.MoveNodeAsync(c, $"{probe}-to-notebook", "Section", c.T, vault.Id!, group, c.Other, "Notebook", c.Other.NotebookId);
     }
