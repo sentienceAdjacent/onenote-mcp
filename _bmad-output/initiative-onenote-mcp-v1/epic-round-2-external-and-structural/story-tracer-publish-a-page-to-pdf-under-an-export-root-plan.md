@@ -3,13 +3,13 @@ title: 'Tracer: publish a page to PDF under an export root'
 type: 'feature'
 ticket: '3'
 created: '2026-11-16'
-status: 'in-progress'
+status: 'built'
 baseline_revision: '38e5b542af0f279a37ea40b984ae736bfa039710'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -88,16 +88,16 @@ Steps 3–4 run under the lock: the section re-read (locked is `SectionLocked`),
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/ExportFormat.cs` (new) -- `enum ExportFormat { OneNote, Pdf }` -- Core can't see Com's internal enum; 3.13 adds members, and there is never a OneNote2007 member.
-- [ ] `IOneNoteGateway.cs`, `ComGateway.cs`, `FakeGateway.cs`, the integration `GuardedGateway`s -- `PublishAsync(objectId, targetPath, ExportFormat format, ct)`. Com maps `OneNote`→`pfOneNote` and `Pdf`→`pfPDF`; any other value is `NotSupported` before COM. Fake records the format. -- One port method per COM method (AD-5).
-- [ ] `src/OneNoteMcp.Core/Writes/PublishedFile.cs` (new) + `SectionBackup.cs` -- extract the landing wait; it returns why it failed (never appeared, empty, growing, still open), and each caller maps that to its own code. -- Reuse, not a fork.
-- [ ] `src/OneNoteMcp.Core/Writes/ExportTarget.cs` (new) -- `Resolve(raw, ExportRoots)` gives the canonical path or throws (`InvalidArgument`, `ExportPathNotAllowed`, `FileExists`). Roots are made canonical too; containment is root + separator, `OrdinalIgnoreCase`; the root itself is never a target; a `:` after the drive is refused.
-- [ ] `src/OneNoteMcp.Core/UseCases/PublishUseCase.cs` (new) -- `IUseCase`, `OperationName = "publish"`, class `ExternalWrite`, with a nested `PublishPage : WriteOperation<…>` that follows the Always steps.
-- [ ] `src/OneNoteMcp.Server/Tools/PublishTool.cs` (new) + `ServerSetup.cs` -- `publish(objectId, path, format = "pdf")`, with `format` a single-value enum (`PublishFormatArgument`). Its description gives the export roots and says to tell the user `meta.outputPath`. `ReadOnly=false, Destructive=false, Idempotent=false, OpenWorld=false`.
-- [ ] `ToolMeta.cs`, `ToolWarnings.cs`, `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `Directory.Build.props` -- the meta and warning; the snapshot regenerated; the version per AD-14 (0.9 is unreleased, so check the bump against the last tag, `v0.8.0-rc.2`).
-- [ ] `tests/OneNoteMcp.Tests/PublishToolTests.cs` (new) + `ComGatewayTests.cs` -- every matrix row on `FakeGateway` with a temp root, including the unlocked granted path with its warning, a junction that leads out, a step-4 `FileExists` race, a never-lands `Timeout` naming the path, and a raw `(ExportFormat)8` refused before COM.
-- [ ] `tests/OneNoteMcp.Integration/PublishIntegrationTests.cs` (new) -- temp `settings.json` with `exportRoots` set to a temp dir; a guarded gateway allows only test notebooks. It covers PDF lands, `ExportPathNotAllowed`, and `FileExists`. The Vault case follows Decision Q3, using a pause file as `WriteProbes/ProbeSession.PauseAsync` does.
-- [ ] `_bmad-output/.../research-onemore-lessons.md` -- row 28: OneMore's export path (above).
+- [x] `src/OneNoteMcp.Core/ExportFormat.cs` (new) -- `enum ExportFormat { OneNote, Pdf }` -- Core can't see Com's internal enum; 3.13 adds members, and there is never a OneNote2007 member.
+- [x] `IOneNoteGateway.cs`, `ComGateway.cs`, `FakeGateway.cs`, the integration `GuardedGateway`s -- `PublishAsync(objectId, targetPath, ExportFormat format, ct)`. Com maps `OneNote`→`pfOneNote` and `Pdf`→`pfPDF`; any other value is `NotSupported` before COM. Fake records the format. -- One port method per COM method (AD-5).
+- [x] `src/OneNoteMcp.Core/Writes/PublishedFile.cs` (new) + `SectionBackup.cs` -- extract the landing wait; it returns why it failed (never appeared, empty, growing, still open), and each caller maps that to its own code. -- Reuse, not a fork.
+- [x] `src/OneNoteMcp.Core/Writes/ExportTarget.cs` (new) -- `Resolve(raw, ExportRoots)` gives the canonical path or throws (`InvalidArgument`, `ExportPathNotAllowed`, `FileExists`). Roots are made canonical too; containment is root + separator, `OrdinalIgnoreCase`; the root itself is never a target; a `:` after the drive is refused.
+- [x] `src/OneNoteMcp.Core/UseCases/PublishUseCase.cs` (new) -- `IUseCase`, `OperationName = "publish"`, class `ExternalWrite`, with a nested `PublishPage : WriteOperation<…>` that follows the Always steps.
+- [x] `src/OneNoteMcp.Server/Tools/PublishTool.cs` (new) + `ServerSetup.cs` -- `publish(objectId, path, format = "pdf")`, with `format` a single-value enum (`PublishFormatArgument`). Its description gives the export roots and says to tell the user `meta.outputPath`. `ReadOnly=false, Destructive=false, Idempotent=false, OpenWorld=false`.
+- [x] `ToolMeta.cs`, `ToolWarnings.cs`, `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `Directory.Build.props` -- the meta and warning; the snapshot regenerated; the version per AD-14 (0.9 is unreleased, so check the bump against the last tag, `v0.8.0-rc.2`).
+- [x] `tests/OneNoteMcp.Tests/PublishToolTests.cs` (new) + `ComGatewayTests.cs` -- every matrix row on `FakeGateway` with a temp root, including the unlocked granted path with its warning, a junction that leads out, a step-4 `FileExists` race, a never-lands `Timeout` naming the path, and a raw `(ExportFormat)8` refused before COM.
+- [x] `tests/OneNoteMcp.Integration/PublishIntegrationTests.cs` (new) -- temp `settings.json` with `exportRoots` set to a temp dir; a guarded gateway allows only test notebooks. It covers PDF lands, `ExportPathNotAllowed`, and `FileExists`. The Vault case follows Decision Q3, using a pause file as `WriteProbes/ProbeSession.PauseAsync` does.
+- [x] `_bmad-output/.../research-onemore-lessons.md` -- row 28: OneMore's export path (above).
 
 **Acceptance Criteria:**
 - Given an MCP Test page and the default settings, when Claude Code calls `publish`, then a PDF exists at `meta.outputPath` under `Documents\OneNote Exports` (created if missing), and Phill opens it.
@@ -105,9 +105,23 @@ Steps 3–4 run under the lock: the section re-read (locked is `SectionLocked`),
 
 ## Implementation Notes
 
+- **Order inside step 1** (`PublishPage.AuthorizeAsync`): empty `objectId` (`InvalidArgument`), a format but PDF (`NotSupported`), the `self` read (not a page: `NotSupported`), `EnsureWritable`, `ExportTarget.Resolve`, the walk to the section, then the read grant at the call's start. Step 3 walks the page to its section again (it may have moved since step 1). Under the lock (`Validate`), the protected check runs again on that section (a section protected, or a page moved into one, since step 1 needs the grant too) before the locked check, then the path is resolved again with step 1's roots and must come out identical (else `ExportPathNotAllowed`), then the folder is created. A folder that can't be created is `Internal`, naming only the exception type and the page ID, never the path, with no inner exception (Internal errors are logged in full, AD-13).
+- **A relative name** needs a first root that canonicalises; otherwise it is `ExportPathNotAllowed` ("the first export root isn't a usable local folder"), naming no root.
+- **The landing wait** is `PublishedFile.WaitAsync`, returning a `LandingFailure`; `SectionBackup` maps it to `BackupFailed` with the same wording as before, and `publish` to `Timeout` (made `outcomeUnknown` by the pipeline). Its limit is `timeouts.publishSeconds` from step 1's settings read, counted from the `Publish` call's start.
+- **`ExportTarget`**: a `:` anywhere but index 1 is `InvalidArgument`; every `FilePathGate` refusal (a junction to a network path included) is `InvalidArgument`; a followed link whose target isn't a `.pdf` is `ExportPathNotAllowed`; anything at the path, raw or canonical (a file, a folder, a dangling link) is `FileExists`. Messages name the caller's path and the canonical path only, never a root.
+- **Tests that needed touching** beyond the plan's list: `ComGatewayLifecycleTests` (the four existing `Publish` calls take `ExportFormat.OneNote`), `McpSdkBindingTests` (tool count 23 → 24, schema properties 53 → 56), `ToolContractTests` and `NavigateToToolTests` (the tool lists), and `PluginPackagingTests`: `GuideSkill_MentionsEveryContractTool` and `Readme_NamesEveryContractTool` would fail on `publish`, which this plan keeps out of the skill and README (entry 10), so they skip the tools in `DocumentedByRound2Entry10` (`publish`), and a new test checks every name in that set is in the contract. Entry 10 empties the set. `PermanentDeleteToolTests` (the `SectionBackup` tests) are unchanged.
+- **Version**: `<Version>` stays `0.9.0-rc.1`; 0.9 is already a minor bump over the last tag `v0.8.0-rc.2`, and the snapshot's `contractVersion` stays `0.9`. Every tool's output schema gained `meta.outputPath`.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-16, quick lens, iteration 0: 0 high, 2 medium, 3 low, 0 false, 0 maybe-false. Every finding was patched; nothing was deferred.
+  - **medium, patch.** A page moved between step 1 and the lock was checked against its old section, because step 3 re-read that section by ID. A move into a protected or locked section in that window would export plaintext with no read grant, or reach `0x80042014`. Fix: step 3 re-walks the page.
+  - **medium, patch.** The folder-creation `Internal` put the output path in its message and inner exception. `ToolRunner.LogInternal` logs the whole exception, so the path reached the log, against AD-13. Fix: no path and no inner exception.
+  - **low, patch.** A first export root that `FilePathGate` refuses (a UNC-redirected Documents) made every relative name `InvalidArgument`, blaming the caller's path. Fix: `ExportPathNotAllowed`, naming the root as the problem.
+  - **low, patch.** Nothing asserted that `SectionBackup` still sends `ExportFormat.OneNote`. Fix: one assertion.
+  - **low, patch.** Two branches had no test: a link whose target isn't a `.pdf`, and a section that became protected under the lock. Fix: tests added. The dangling-link branch was left, being a direct check.
 
 ## Design Notes
 

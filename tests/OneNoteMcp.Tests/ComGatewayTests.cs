@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
 using Xunit;
+using PublishFormat = OneNoteMcp.Com.Interop.PublishFormat;
 
 namespace OneNoteMcp.Tests;
 
@@ -131,6 +132,36 @@ public sealed class ComGatewayTests
     [InlineData(HierarchyScope.Pages, 4)]
     public void MapScope_MatchesTypeLibraryValues(HierarchyScope scope, int expected) =>
         Assert.Equal(expected, (int)ComGateway.MapScope(scope));
+
+    [Theory]
+    [InlineData(ExportFormat.OneNote, (int)PublishFormat.pfOneNote)]
+    [InlineData(ExportFormat.Pdf, (int)PublishFormat.pfPDF)]
+    public async Task Publish_MapsEachCoreFormat_ToItsComFormat(ExportFormat format, int expectedValue)
+    {
+        var expected = (PublishFormat)expectedValue;
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = new ComGateway(new FixedProbe(true), () => app);
+
+        await gateway.PublishAsync("{p}", @"C:\exports\x.pdf", format, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["{p}", @"C:\exports\x.pdf", expected, string.Empty], app.Calls.Single(c => c.Method == "Publish").Args);
+    }
+
+    [Theory]
+    [InlineData(8)] // pfOneNote2007's value, which ends ONENOTE.EXE (AD-11)
+    [InlineData(2)]
+    [InlineData(-1)]
+    public async Task Publish_AValueThatIsntAnExportFormat_IsNotSupported_BeforeCom(int raw)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = new ComGateway(new FixedProbe(true), () => app);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(
+            () => gateway.PublishAsync("{p}", @"C:\exports\x.pdf", (ExportFormat)raw, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.NotSupported, ex.Code);
+        Assert.Empty(app.Calls);
+    }
 
     private sealed class FixedProbe(bool running) : IProcessProbe
     {

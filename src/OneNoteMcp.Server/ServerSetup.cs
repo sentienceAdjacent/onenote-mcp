@@ -187,6 +187,15 @@ public static class ServerSetup
             sp.GetRequiredService<SectionBackup>()));
         services.AddSingleton<PermanentDeleteUseCase>();
 
+        // Story 3.3: publish (AD-7 ExternalWrite, 600 s deadline): a page as PDF under an export root, re-reading
+        // exportRoots and timeouts.publishSeconds from settings.json at every call; the landing wait runs on the system clock.
+        services.AddSingleton(sp => new PublishUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            sp.GetRequiredService<WritePipeline>(),
+            TimeProvider.System));
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -211,7 +220,8 @@ public static class ServerSetup
             .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options)
             .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
-            .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options);
+            .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<PublishTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.

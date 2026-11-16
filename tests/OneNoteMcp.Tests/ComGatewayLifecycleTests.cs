@@ -1161,7 +1161,7 @@ public sealed class ComGatewayLifecycleTests
         var app = new FakeApplication { OnCall = _ => string.Empty };
         using var gateway = Gateway(app, Settings());
 
-        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct);
+        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", ExportFormat.OneNote, Ct);
 
         Assert.Equal(["{s}", @"C:\journal\backups\x.one", PublishFormat.pfOneNote, string.Empty], app.Calls.Single(c => c.Method == "Publish").Args);
     }
@@ -1178,7 +1178,7 @@ public sealed class ComGatewayLifecycleTests
         var app = new FakeApplication { OnCall = _ => string.Empty };
         using var gateway = Gateway(app, Settings());
 
-        var error = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", path, Ct));
+        var error = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", path, ExportFormat.OneNote, Ct));
 
         Assert.Equal(ErrorCode.InvalidArgument, error.Code);
         Assert.Empty(app.Calls);
@@ -1193,7 +1193,7 @@ public sealed class ComGatewayLifecycleTests
             new Timeouts(TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(1)),
             AllowSilentActivation: false));
 
-        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct);
+        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", ExportFormat.OneNote, Ct);
 
         Assert.Single(app.Calls, c => c.Method == "Publish");
     }
@@ -1205,7 +1205,7 @@ public sealed class ComGatewayLifecycleTests
         var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
         using var gateway = Gateway(app, Settings());
 
-        var publish = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct));
+        var publish = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", ExportFormat.OneNote, Ct));
 
         Assert.Equal(ErrorCode.ComUnavailable, publish.Code);
         Assert.Single(app.Calls, c => c.Method == "Publish");

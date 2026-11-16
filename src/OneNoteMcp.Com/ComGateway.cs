@@ -476,7 +476,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
-    public Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    public Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct)
     {
         const string method = nameof(IApplication.Publish);
         if (string.IsNullOrEmpty(objectId))
@@ -484,6 +484,16 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             return Task.FromException(new OneNoteException(
                 ErrorCode.InvalidArgument,
                 $"{method} wasn't sent: no object ID was given.",
+                retryable: false));
+        }
+
+        // AD-11: only the formats Core names reach COM; any other value (pfOneNote2007's 8 included, which ends
+        // ONENOTE.EXE) is refused here.
+        if (ToPublishFormat(format) is not { } publishFormat)
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.NotSupported,
+                string.Create(CultureInfo.InvariantCulture, $"{method} wasn't sent: export format {(int)format} isn't supported."),
                 retryable: false));
         }
 
@@ -500,13 +510,21 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             method,
             app =>
             {
-                app.Publish(objectId, targetPath, PublishFormat.pfOneNote, string.Empty);
+                app.Publish(objectId, targetPath, publishFormat, string.Empty);
                 return true;
             },
             CallKind.Write,
             ct,
             publish: true);
     }
+
+    /// <summary>Com's format for Core's <paramref name="format"/>, or null for a value that isn't a member (AD-5, AD-11).</summary>
+    private static PublishFormat? ToPublishFormat(ExportFormat format) => format switch
+    {
+        ExportFormat.OneNote => PublishFormat.pfOneNote,
+        ExportFormat.Pdf => PublishFormat.pfPDF,
+        _ => null,
+    };
 
     /// <summary>Why <paramref name="path"/> can't be a <c>Publish</c> target, or null: it must be a fully qualified local file path (<c>C:\…</c>), not UNC, a device path or a URL.</summary>
     private static string? LocalFileProblem(string? path)

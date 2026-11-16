@@ -253,6 +253,7 @@ public sealed class PermanentDeleteToolTests : IDisposable
         Assert.Equal((SectionId, SectionDate, true), Assert.Single(gateway.DeleteHierarchyCalls));
         var publish = Assert.Single(gateway.PublishCalls);
         Assert.Equal(SectionId, publish.ObjectId);
+        Assert.Equal(ExportFormat.OneNote, publish.Format); // the backup stays pfOneNote (story 3.3's format argument)
         var meta = root.GetProperty("meta");
         var backupFile = meta.GetProperty("backupFile").GetString()!;
         Assert.Equal(Path.GetFileName(backupFile), backupFile);
