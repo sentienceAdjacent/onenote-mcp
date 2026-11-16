@@ -197,7 +197,25 @@ Run from the repo root with OneNote already running, with `$env:ONENOTE_MCP_INTE
 - **Run 1, cross-storage rerun (1116-170839).** Cloud-to-local ran first, with a 10 s settle and a read after each move; the merge was off. Page cloud→local ok (new ID); **section cloud→local gave hrSectionDoesNotExist**; page local→cloud ok; section local→cloud ok. No crash, and the sync was clean for this run group. Phill saw a dialog come and go.
 - **Run 1, merge alone (1116-171415).** No moves. Merge cloud→local ok: 3 pages, subpage included, 3.3 s. Merge local→cloud ok: 3 pages, 0.2 s. Both sources were kept, there was no crash, and the sync was clean.
 - **What the Q1 rows suggest.** Neither the cross-storage section move nor the cross-storage merge crashed on its own. The crash came when writes started about 1 s after a local→cloud section move, and that is one run's evidence. Pages move both ways; sections move only local→cloud.
-- **Run 2, protected-cloud (1116-172138).** Setup was done, and the run was waiting at the protect pause when Claude Code's low-memory guard stopped the test process. OneNote was not affected. Restart it when Phill says Ready.
+- **Run 2, protected-cloud.**
+  - **Attempt 1 (1116-172138):** stopped by Claude Code's low-memory guard at the protect pause; OneNote not affected.
+  - **Attempt 2 (1116-180353):** all 8 sections were protected and unlocked, and XP1, SP and the page moves were ok, as was the section move into a group. The next call, moving that section into MCP Test Throwaway Cloud, blocked 180 s behind OneNote's modal "OneNote can't copy or move this section because it has been deleted by a user of this notebook." (Phill's screenshot), and the run stopped.
+  - **Probe change (d600914):** a 10 s settle before the cross-notebook move.
+  - **Attempt 3 (1116-191000), passed.**
+    - Unlocked cases, all ok: XP1 package; SP both directions; MP page out and in; section into a group; section into the other cloud notebook (0.8 s, after the settle).
+    - Locked cases (after Ctrl+Alt+L): XP2 package ok. SP with a locked source or target gave `hrSectionEncryptedAndLocked` (a clean refusal). MP locked moves are not probed (they crashed in sitting A).
+    - RP: a soft delete, then a restore with `UpdateHierarchy`, ok (0.2 s each).
+- **Run 3, protected-local.**
+  - **Attempt 1 (1116-194216):** one section ("me") wasn't protected, so the probe ran nothing.
+  - **Attempt 2 (1116-195431), passed.** All 7 unlocked cases were ok, including the cross-notebook section move after the settle. The locked cases matched the cloud run (XP2 ok; SP `hrSectionEncryptedAndLocked`).
+  - **O5:** both packages opened (`OpenHierarchy` of the unpacked folder; `OpenPackage` itself opened no notebook) with **no password prompt**. The protected section in each copy shows **locked** ("This section is password protected"), whether it was packaged unlocked (XP1) or locked (XP2). The pause's "-unpacked" wording was wrong: the copies are named `o5-local-xp1/xp2-<stamp>`.
+  - **RP:** soft delete and restore ok.
+- **Run 4, local with File > Options open (1116-201111), passed.** `GetHierarchy`, `Publish(pfPDF)`, `OpenPackage` and `MergeSections` all ran normally. The page move (`UpdateHierarchy`) gave `0x80042030` hrAppInModalUI. `MergeFiles` is not probed.
+- **Run 5, tenant label (MCP Test Tenant on Phill's Office 365 work account), passed with Q5 not probed.**
+  - The guard found the notebook and its section (path redacted).
+  - The unlabelled baseline was ok: page `Publish` to pfPDF and to pfOneNote.
+  - The tenant offers **no sensitivity labels**: Phill saw no Sensitivity option. The label pause was skipped, so `0x80042031` stays unprobed.
+
 
 ## Plan Change Log
 
