@@ -42,15 +42,61 @@ internal sealed partial class ProbeRecorder : IDisposable
 
     /// <summary>
     /// Replaces a OneDrive account ID with <c>&lt;cid&gt;</c>: in a <c>d.docs.live.net/&lt;cid&gt;/</c> path, a
-    /// <c>cid=</c> query value and a <c>&lt;cid&gt;!&lt;n&gt;</c> resource ID. Case-insensitive.
+    /// <c>cid=</c> query value and a <c>&lt;cid&gt;!&lt;n&gt;</c> resource ID. Case-insensitive. Spike 4.1: also this
+    /// machine's <c>%LOCALAPPDATA%</c> path, and any <c>\\localhost\X$</c> share (<see cref="RedactLocalPaths"/>).
     /// </summary>
-    public static string Redact(string text)
+    public static string Redact(string text) => Redact(text, LocalAppData);
+
+    /// <summary><see cref="Redact(string)"/> with the <c>%LOCALAPPDATA%</c> path given (unit-tested with a made-up one).</summary>
+    internal static string Redact(string text, string? localAppData)
     {
         ArgumentNullException.ThrowIfNull(text);
         text = DocsPath().Replace(text, "${host}<cid>");
         text = CidQuery().Replace(text, "${key}<cid>");
-        return ResourceId().Replace(text, "<cid>!");
+        text = ResourceId().Replace(text, "<cid>!");
+        return RedactLocalPaths(text, localAppData);
     }
+
+    private static readonly string LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+    /// <summary>What <c>%LOCALAPPDATA%</c> (it holds the user name) becomes in rows and echo lines.</summary>
+    public const string LocalAppDataPlaceholder = "%LOCALAPPDATA%";
+
+    /// <summary>What a <c>\\localhost\X$</c> share prefix becomes (spike 4.1, O10).</summary>
+    public const string AdminSharePlaceholder = @"\\localhost\<drive>$";
+
+    /// <summary>
+    /// Spike 4.1: replaces <paramref name="localAppData"/> (ignoring case, as written or JSON-escaped) with
+    /// <see cref="LocalAppDataPlaceholder"/>, its <c>\\localhost\X$\…</c> form with
+    /// <c>\\localhost\&lt;drive&gt;$\%LOCALAPPDATA%</c>, and then any other <c>\\localhost\X$</c> prefix with
+    /// <see cref="AdminSharePlaceholder"/>. Escaped forms are replaced by escaped placeholders, so a JSON row stays valid.
+    /// </summary>
+    internal static string RedactLocalPaths(string text, string? localAppData)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (!string.IsNullOrEmpty(localAppData))
+        {
+            var plain = localAppData.TrimEnd('\\', '/');
+            var forms = new List<(string From, string To)>();
+            if (plain.Length > 2 && plain[1] == ':')
+            {
+                var unc = $@"\\localhost\{plain[0]}${plain[2..]}";
+                forms.Add((unc, AdminSharePlaceholder + @"\" + LocalAppDataPlaceholder));
+            }
+
+            forms.Add((plain, LocalAppDataPlaceholder));
+            foreach (var (from, to) in forms)
+            {
+                text = text.Replace(Escaped(from), Escaped(to), StringComparison.OrdinalIgnoreCase); // JSON first: its form is longer
+                text = text.Replace(from, to, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        text = EscapedAdminShare().Replace(text, Escaped(AdminSharePlaceholder).Replace("$", "$$", StringComparison.Ordinal));
+        return AdminShare().Replace(text, AdminSharePlaceholder.Replace("$", "$$", StringComparison.Ordinal));
+    }
+
+    private static string Escaped(string value) => value.Replace(@"\", @"\\", StringComparison.Ordinal);
 
     /// <summary>What every URL and tenant path becomes once <see cref="RedactUrlsFromNowOn"/> is on (spike 3.1, Q5).</summary>
     public const string TenantPlaceholder = "tenant notebook";
@@ -150,6 +196,12 @@ internal sealed partial class ProbeRecorder : IDisposable
 
     [GeneratedRegex(@"https?://(?:[^""\\\r\n<>]|\\u[0-9a-fA-F]{4}|\\/)*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Url();
+
+    [GeneratedRegex(@"\\\\localhost\\[a-z]\$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex AdminShare();
+
+    [GeneratedRegex(@"\\\\\\\\localhost\\\\[a-z]\$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex EscapedAdminShare();
 }
 
 /// <summary>One COM call's result: <c>ok</c>, <c>error</c> (with the HRESULT) or <c>refused</c> (by the guard, before COM).</summary>

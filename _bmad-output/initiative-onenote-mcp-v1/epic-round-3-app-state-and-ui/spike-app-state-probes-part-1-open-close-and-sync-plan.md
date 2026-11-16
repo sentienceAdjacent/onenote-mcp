@@ -3,12 +3,13 @@ title: 'App-state probes, part 1: open, close and sync'
 type: 'chore'
 ticket: '1'
 created: '2026-11-16'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '62afdfff4e3cb3bbe916f2a0d67fc42aeca737fe'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-2-external-and-structural/spike-write-probes-part-3-exports-move-merge-and-recycle-bin-resto-plan.md'
@@ -106,8 +107,8 @@ None open. Phill answered all six on 2026-11-16 (the 4.1 Inbox thread), each wit
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/OneNoteMcp.Integration/TestNotebook.cs` and `TestNotebookGuardTests.cs`: add `CloseNotebookAsync`, `OpenExistingAsync`, `SyncHierarchyAsync` and `RunProbeRoot` to the guard, with the allowed sets under Always. Add a pure helper that maps `\\localhost\X$\…` to `X:\…`, and the optional root on `CreateThrowawayNotebookAsync`. Write one unit test per refusal and per look-alike: MCP Test, MCP Test Cloud, throwaway `a`, a name prefix with the wrong folder, a `..` path, a cid other than MCP Test Cloud's, a section ID passed to close, and `cftNone` that can't be changed.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs`: add these, with unit tests in `ProbeHelpersTests.cs` for the pure parts (redaction, fill-series stop rule, view chain, synthetic ID):
+- [x] `tests/OneNoteMcp.Integration/TestNotebook.cs` and `TestNotebookGuardTests.cs`: add `CloseNotebookAsync`, `OpenExistingAsync`, `SyncHierarchyAsync` and `RunProbeRoot` to the guard, with the allowed sets under Always. Add a pure helper that maps `\\localhost\X$\…` to `X:\…`, and the optional root on `CreateThrowawayNotebookAsync`. Write one unit test per refusal and per look-alike: MCP Test, MCP Test Cloud, throwaway `a`, a name prefix with the wrong folder, a `..` path, a cid other than MCP Test Cloud's, a section ID passed to close, and `cftNone` that can't be changed.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs`: add these, with unit tests in `ProbeHelpersTests.cs` for the pure parts (redaction, fill-series stop rule, view chain, synthetic ID):
   - wrappers for the three calls;
   - `ViewAsync`, which returns the foreground handle and process, and the `isCurrentlyViewed` notebook, section and page with redacted names;
   - `FillSeriesAsync(notebookId, limit)`;
@@ -115,7 +116,7 @@ None open. Phill answered all six on 2026-11-16 (the 4.1 Inbox thread), each wit
   - `MakeJunction` and `RemoveJunction`, which use `cmd /c mklink /J` and remove the link without following it;
   - `ProbeGrantsAsync`, which writes a second settings file in the session's temp folder and runs `ListGrantsUseCase` on it;
   - `ObservePauseAsync(step, whatYouWillSee)`.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/AppStateLocalProbes.cs` (scenario `app-state-local`) and `AppStateCloudProbes.cs` (`app-state-cloud`) cover every Matrix row in the order of the Sitting script. `cleanup` is its own step, and can be rerun with `ONENOTE_MCP_PROBE_STEPS=cleanup`.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/AppStateLocalProbes.cs` (scenario `app-state-local`) and `AppStateCloudProbes.cs` (`app-state-cloud`) cover every Matrix row in the order of the Sitting script. `cleanup` is its own step, and can be rerun with `ONENOTE_MCP_PROBE_STEPS=cleanup`.
 - [ ] Live sittings (the main session's, with Phill, after review) follow the Sitting script. They aren't part of implementation.
 - [ ] `epic-round-3-app-state-and-ui/spike-app-state-probes-part-1-open-close-and-sync-findings.md` (after the sittings) follows 3.1's structure: one row per Matrix question, then HRESULTs, "What entry 2's notebook test needs", "Can a URL open, and can it create", Not probed, Evidence gaps, "Relied on, not re-probed", Open before final, and Left behind.
 - [ ] Spine `.memlog.md` (after the sittings): one `constraint` line per finding that changes an AD, naming the AD.
@@ -129,11 +130,11 @@ None open. Phill answered all six on 2026-11-16 (the 4.1 Inbox thread), each wit
 
 ## Sitting script
 
-Run from the repo root with OneNote already running, `$env:ONENOTE_MCP_INTEGRATION='1'` and `$env:ONENOTE_MCP_SCENARIO='<scenario>'`, then `dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~AppState`. To rerun one step, set `ONENOTE_MCP_PROBE_STEPS`.
+Run from the repo root with OneNote already running, `$env:ONENOTE_MCP_INTEGRATION='1'` and `$env:ONENOTE_MCP_SCENARIO='<scenario>'`, then `dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~AppState`. To rerun steps of an earlier run, set `ONENOTE_MCP_PROBE_STEPS` and `ONENOTE_MCP_PROBE_STAMP=<stamp>` (the run's stamp is echoed at the start and given in any timeout pause). With `STEPS` and no `STAMP`, the run stops before any OneNote call and lists the run folders.
 
 **Before either sitting,** Phill checks that `MCP Test Throwaway 1112-034716 b`, `… c` and `MCP Test Throwaway Cloud` are open, and that OneNote has a single window showing MCP Test > Seed.
 
-**Sitting A, local (`app-state-local`, about 60 min, about 14 pauses):**
+**Sitting A, local (`app-state-local`, about 60–75 min).** As built, there are about 24 pauses on the normal path: 8 that say what is about to happen, 11 where Phill reports what he saw (most take seconds), and 5 where he acts (show a page, open and close Options). A shown-check pause or a by-hand reopen adds one where needed.
 
 | Step | Rows | What Phill will see, and does |
 |---|---|---|
@@ -150,7 +151,7 @@ Run from the repo root with OneNote already running, `$env:ONENOTE_MCP_INTEGRATI
 | `modal` | D | He opens File > Options at the first pause and closes it at the second. If a call blocks, he closes Options, and `cleanup` is rerun |
 | `late-files`, `cleanup` | L | The run's notebooks vanish. He confirms `b` and `c` are open |
 
-**Sitting B, cloud (`app-state-cloud`, about 60 min, about 13 pauses).** A Sync Now check follows each step.
+**Sitting B, cloud (`app-state-cloud`, about 60–75 min).** As built, there are about 19 pauses on the normal path: 2 that say what is about to happen, 5 report, 5 action (show a page, make the empty folder, check OneDrive on the web, network off, network on) and about 7 Sync Now checks. A by-hand close or reopen adds one where needed. A Sync Now check follows each step.
 - `sync-cloud` (S1 C).
 - `already-open-cloud` (O4 C): first he shows MCP Test > Seed, then reports whether OneNote switched.
 - `url-create` (O3): he checks OneDrive on the web, and makes and later deletes `probe empty <stamp>` (Q4).
@@ -161,11 +162,47 @@ Run from the repo root with OneNote already running, `$env:ONENOTE_MCP_INTEGRATI
 
 ## Implementation Notes
 
+- 2026-11-16, implemented (code and unit tests only; nothing ran against OneNote, and no `ONENOTE_MCP_*` variable was set). `dotnet build OneNoteMcp.slnx -warnaserror` passes; `OneNoteMcp.Tests` 2965 passed; `OneNoteMcp.Integration` 339 passed, 94 skipped (both new scenarios among them). Judgement calls the plan didn't settle:
+  - **Run notebooks in the guard.** `TestNotebookGuard.ThrowawayNotebookIds` now also accepts a throwaway-named notebook directly in a run's probe folder (`IsRunProbeThrowaway`: `…\probes\app-state\<MMdd-HHmmss>\`), so `o1`–`o4` take the guarded setup writes like any throwaway. The close and open guards key on the path instead (`IsUnderRunProbeRoot`, any depth, `\\localhost\X$` mapped back, any `..` segment refused), as Design Notes says. The run folder is passed in, never held in static state.
+  - **`b` and `c`** are named in `TestNotebookGuard.ClosableAdoptedNames` (exact, with the folder of that name in the throwaway root); throwaway `a` is refused. A recorded path passes `OpenExistingAsync` only if it is also `b`'s or `c`'s folder or the cloud throwaway's URL.
+  - **Call shapes.** `TestNotebook.CloseCall`, `OpenExistingCall` and `SyncCall` are the only COM call sites; a `DispatchProxy` stand-in for `IApplication` checks that COM gets `force=false` and `cftNone`, and reflection checks that neither wrapper has a `force` or create-type parameter.
+  - **S2's closed-ID half** runs in `fresh`, after `o2`'s close: `sync-local` comes before any run notebook exists.
+  - **One watch pause and one report pause per step**, not per call; the watch pause names every notebook the step closes or reopens, read live (name and folder). C4 and C2's reopen say in the report pause that the notebook comes back next. About 20 pauses in sitting A, not 14.
+  - **C2's timing.** The other notebooks' IDs and the view are read before the edit; the edit and the close then run back to back (`CloseRowAsync`'s `justBefore`). A close that blocks to the timeout stops the scenario with the usual `call-timeout` row and Cancel pause; rerun the remaining steps.
+  - **Misplaced Sections** are read as any hierarchy element whose name contains "Misplaced" (a full sections-scope read), with only probe-named children named; Phill also looks.
+  - **O3.** The close guard's set doesn't include a notebook opened from a probe URL, so if one opens, a pause asks Phill to close it by hand; the same pause that has him delete `probe empty <stamp>` covers `probe missing <stamp>` if it appeared.
+  - **Setup creates.** `o1` gets a section and page, `o3` a section group with a section (O8's folder), `o4` one section (O7), and `c` and the cloud throwaway a `probe pend …` section and page each (C2, C3), all through the existing guarded `cftSection`/`cftFolder` creates. Read "Never … a create type other than `cftNone`" as covering notebook-level opens only. The `probe pend …` sections stay in `c` and the cloud throwaway: Left behind.
+  - **Reruns.** A step of an earlier run needs `ONENOTE_MCP_PROBE_STAMP=<stamp>` with `ONENOTE_MCP_PROBE_STEPS`, so it reuses that run's folder. `ONENOTE_MCP_PROBE_STEPS` without the stamp stops before any COM call, listing the run folders under `probes\app-state`. The stamp is echoed at the start and printed in the timeout pause. `cleanup` reopens only what was open when the run began (b, c; the cloud throwaway only from `app-state-cloud`) and names any earlier run folder that still has open notebooks.
+  - **Shared settle.** `Round2MoveProbes.SettleAsync` moved to `ProbeSession.SettleAsync(after, question)`; 3.1's rows keep the question `Move`.
+  - **Redaction.** `ProbeRecorder.Redact` now also writes this machine's `%LOCALAPPDATA%` as `%LOCALAPPDATA%`, its UNC form as `\\localhost\<drive>$\%LOCALAPPDATA%`, and any other `\\localhost\X$` as `\\localhost\<drive>$`, in plain and JSON-escaped text.
+  - **View snapshot.** It reads the viewed notebook at sections scope and only the viewed section's pages (MCP Test's Ballast pages make a whole pages-scope read slow); the foreground process is `ONENOTE`, `test host`, `other` or `none`; no window title is read.
+
+- 2026-11-16, after review pass 1: the 11 patches above were applied. `dotnet build OneNoteMcp.slnx -warnaserror` gives 0 warnings. `OneNoteMcp.Tests` passes 2965 of 2965, as at the baseline. `OneNoteMcp.Integration`, with no integration variables set, passes 340 and skips 94; the baseline was 217 passed and 92 skipped. The two new skips are the hitl scenarios.
+  - **Matrix test audit.** Every Matrix row is a live probe step in `app-state-local` or `app-state-cloud`, and those skip by design without OneNote and Phill. The unit tests cover what can run here: the guard's refusals and look-alikes for close and open, the `force=false` and `cftNone` call shapes, redaction, the fill-series rule, the view snapshot, the synthetic ID, the grant file and the junction helpers. The rows themselves are checked at the sittings.
+  - **Pauses** grew from the planned 14 and 13 to about 24 and 19 (Sitting script), because each step has a pause that says what is about to happen and a pause where Phill reports.
+
 ## Plan Change Log
 
 - 2026-11-16: Phill approved the plan, choosing the recommended answer to each of Q1 to Q6. Status is `ready-for-dev`, and the build waits for 3.1 to merge.
 
 ## Review Triage Log
+
+- 2026-11-16, pass 1 (lens `quick`; 12 findings): high 0, medium 5, low 6, false 0, maybe-false 0, plus 1 low rejected. 11 patched, 0 deferred.
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---|---|---|---|
+| 1 | C5's grant file keys grants by the raw path; Core matches `NotebookKey` (trailing separator trimmed), so the cloud grant always reads `notebookNotOpen` | medium | patch | `OpenNotebooks.cs:21` keys open notebooks with `GrantKeys.NotebookKey`, and `GrantSettingsJson` wrote `path` as given. Patched: key with `NotebookKey`, plus a test |
+| 2 | C5 cloud's after-reopen read used a new grant list built from the reopened path | medium | patch | `ReopenUrlAsync` called `GrantTargetsAsync(c, reopened)`, so a changed path would match by construction. Patched: reuse the list from `PendingCloudAsync` |
+| 3 | The fill series stops at 16 s on three matching 0/0 reads, before a cloud notebook fills | medium | patch | `FillSchedule.Settled` counted the fixed reads. Patched: a read doesn't settle while it is empty or below the counts before the close, until the limit |
+| 4 | D can close `c` with the shown check off while `c` is still on screen from C4 | medium | patch | Nothing between C4's reopen and D took `c` off screen. Patched: a shown check on `c` and `o1` before the Options pause |
+| 5 | D's rows lack the focus-and-view snapshot that Always requires | low | patch | `d-sync`, `d-open` and `d-close` called the wrappers directly. Patched: snapshots before and after |
+| 6 | A `cleanup` rerun without the stamp cleans a new empty folder and leaves the run's notebooks open | medium | patch | `Begin` made a fresh folder whenever `ONENOTE_MCP_PROBE_STAMP` was unset. Patched: a step-filtered run without the stamp stops before COM and names the variable, and the stamp appears in the echo and in the timeout pause |
+| 7 | Cloud steps return early after a cloud write and skip the Sync Now check | low | patch | `PendingCloudAsync` and `OfflineAsync` returned after `PendingPageAsync`. Patched: the check runs on those paths too |
+| 8 | Two pauses name a notebook from a convention or a constant, not a live read | low | patch | `JunctionUncAsync` used `RunName("o1")`; `ReopenUrlAsync` and cleanup used `CloudThrowawayName`. Patched: the live and recorded names |
+| 9 | C2 records a guard refusal as OneNote refusing | low | patch | The result `refuses` fired on `Outcome == "refused"`. Patched: a separate `guardRefused` |
+| 10 | The C6 row is filed under question `Close`, not `C6` | low | patch | `Recorder.Row("c6", "Close", …)`. Patched |
+| 11 | Cleanup reopens `b`, `c` and the cloud throwaway whatever their state when found; the local run can reopen the cloud one without its safeguards | low | patch | `AdoptAsync` didn't keep the found state. Patched: only what was found open is reopened, and the local scenario never touches the cloud throwaway |
+| 12 | The `SyncHierarchy` guard has no refusal unit test | low | reject | `SyncHierarchyAsync` reuses 5.1's `EnsureTargetsAsync` unchanged, and its pure parts are already tested. A refusal test would need a seam for the gateway's live read, which is more than a direct correction, and the gap is unlikely to bite |
 
 ## Design Notes
 
@@ -185,6 +222,14 @@ Run from the repo root with OneNote already running, `$env:ONENOTE_MCP_INTEGRATI
 - The Defects page: `NavigateToUrl` seems to set off a notebook sync that blocks later calls. That belongs to entry 12, but it is why S1 records F/V.
 
 **Why the guard keys on the probe folder, not on names.** A notebook opened from a section-group folder, a junction or a UNC path gets a name OneNote picks. Its path, mapped back from the UNC form, still lies in the probe folder, so the guard's rule for closing it doesn't depend on that name.
+
+**For the build (coordinator, 2026-11-16, after 3.1 merged as `7ce394f`).**
+- Implementation writes code and unit tests only. Never set `ONENOTE_MCP_INTEGRATION` or `ONENOTE_MCP_SCENARIO`, never call OneNote, and never read or list `%APPDATA%\OneNoteMcp`, `%LOCALAPPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp-Test` on this machine. The main session runs the sittings later, once the epic-3 gate clears.
+- Reuse 3.1's harness as merged on `main` (Code Map line numbers came from its branch; find the symbols by name). That includes `CreateSideGateway`, the `ONENOTE_MCP_PROBE_*` switches (`STEPS`, `PAUSE_SECONDS`, and 3.1's opt-in pattern for risky cases, `Round2MoveProbes.cs` `crossMerge`), and the cross-storage settle (`Round2MoveProbes.SettleAsync`: 10 s, then a notebook-list read so that a crash trips the breaker there). Move the settle somewhere both can share rather than copy it.
+- 3.1's lessons:
+  - **Settle after every cloud close or open** (C2 C, C3, O2, O3, O4 C, cleanup) before the next write or close (3.1 findings, Implication 16: OneNote crashed about 2 s after a cross-storage move, and a cloud move straight after another blocked 180 s; with a 10 s settle neither recurred).
+  - **Every pause names the exact notebook, read live** by its `name` (and its folder for local ones), never a name guessed from a convention: 3.1's closing pause named "-unpacked" notebooks that `OpenPackage` never made (3.1 findings, O1–O2).
+  - **The crash breaker stops the scenario.** A tripped breaker ends the run at the next step (`StepAsync`); a guard read straight after each close and open (the settle's read) is where a crash is caught. The breaker's `IntegrityMismatch` text after a crash is the harness's, not OneNote's (3.1 findings, "What the next call reported").
 
 **Order hazards.** O7's creates come first, so that L runs at least 5 min later. Every O-row that targets `o1` needs `o1` closed. D runs last before `cleanup`, because a close that blocks under the dialog stops the scenario.
 

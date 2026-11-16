@@ -498,6 +498,245 @@ public sealed class TestNotebookGuardTests
         Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{TT}", ["MCP Test Throwaway x"])))); // a name the run never gave it
     }
 
+    // --- Spike 4.1: CloseNotebook, OpenHierarchy cftNone, SyncHierarchy ---------------------------------------------
+
+    private const string RunRoot = Root + @"\probes\app-state\1116-120000";
+    private const string TestFolder = Root + @"\MCP Test";
+    private const string NameA = "MCP Test Throwaway 1112-034716 a";
+    private const string NameB = "MCP Test Throwaway 1112-034716 b";
+    private const string NameC = "MCP Test Throwaway 1112-034716 c";
+    private const string CloudThrowawayPath = "https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud/";
+
+    /// <summary>MCP Test, Personal (OneDrive), MCP Test Cloud, throwaways a, b and c, the cloud throwaway, and two run notebooks.</summary>
+    private static string AppStateNotebooks(params (string Name, string Id, string Path)[] extra) => CloudNotebooks(
+        [
+            ("MCP Test Cloud", "{C}", CloudPath),
+            (NameA, "{A}", Root + @"\" + NameA),
+            (NameB, "{B}", Root + @"\" + NameB),
+            (NameC, "{CC}", Root + @"\" + NameC),
+            ("MCP Test Throwaway Cloud", "{X}", CloudThrowawayPath),
+            ("MCP Test Throwaway 1116-120000 o1", "{O1}", RunRoot + @"\MCP Test Throwaway 1116-120000 o1"),
+            ("probe sg 1116-120000", "{SG}", RunRoot + @"\MCP Test Throwaway 1116-120000 o3\probe sg 1116-120000"),
+            .. extra,
+        ]);
+
+    private static void Close(string notebooksXml, string id, string? runRoot = RunRoot) =>
+        TestNotebookGuard.CheckClose("CloseNotebook", notebooksXml, id, TestFolder, Root, runRoot);
+
+    [Theory]
+    [InlineData("{B}")] // throwaway b, by exact name in its own folder
+    [InlineData("{CC}")] // throwaway c
+    [InlineData("{X}")] // the cloud throwaway
+    [InlineData("{O1}")] // a run notebook
+    [InlineData("{SG}")] // a section-group folder opened as a notebook: OneNote picked its name; its path is in the run folder
+    public void CheckClose_AllowsTheAllowedSet(string id) => Close(AppStateNotebooks(), id);
+
+    [Theory]
+    [InlineData(RunRoot + @"\probe junction 1116-120000")] // through the junction
+    [InlineData(@"\\localhost\C$\Users\me\AppData\Local\OneNoteMcp-Test\probes\app-state\1116-120000\MCP Test Throwaway 1116-120000 o1")] // the UNC form
+    [InlineData(@"\\LOCALHOST\c$\users\me\appdata\local\onenotemcp-test\probes\app-state\1116-120000\x\")] // ignoring case
+    public void CheckClose_RunFolderPathsInAnyForm(string path) =>
+        Close(AppStateNotebooks(("whatever OneNote named it", "{J}", path)), "{J}");
+
+    [Theory]
+    [InlineData("{T}")] // MCP Test
+    [InlineData("{C}")] // MCP Test Cloud
+    [InlineData("{A}")] // throwaway a: never closed
+    [InlineData("{P}")] // any other notebook
+    [InlineData("{NOPE}")] // not open
+    [InlineData("")]
+    public void CheckClose_RefusesOutsideTheAllowedSet(string id) =>
+        Assert.Throws<InvalidOperationException>(() => Close(AppStateNotebooks(), id));
+
+    [Theory]
+    [InlineData(NameB, @"D:\Notebooks\MCP Test Throwaway 1112-034716 b")] // b's name, the wrong folder
+    [InlineData(NameB, Root + @"\MCP Test Throwaway 1112-034716 c")] // b's name in c's folder
+    [InlineData(NameB, Root + @"\Sub\MCP Test Throwaway 1112-034716 b")] // nested deeper
+    [InlineData("MCP Test Throwaway 1112-034716 b2", Root + @"\MCP Test Throwaway 1112-034716 b2")] // a name prefix
+    [InlineData("MCP Test Throwaway 1116-120000 o1", RunRoot + @"\..\..\..\MCP Test")] // a .. path out of the run folder
+    [InlineData("MCP Test Throwaway 1116-120000 o1", RunRoot + @"\x\..\o1")] // any .. segment
+    [InlineData("MCP Test Throwaway 1116-120000 o1", Root + @"\probes\app-state\1116-130000\MCP Test Throwaway 1116-120000 o1")] // another run's folder
+    [InlineData("MCP Test Throwaway 1116-120000 o1", RunRoot)] // the run folder itself
+    [InlineData("MCP Test Throwaway 1116-120000 o1", @"\\server\C$\Users\me\AppData\Local\OneNoteMcp-Test\probes\app-state\1116-120000\o1")] // another server
+    [InlineData("MCP Test Throwaway Cloud", "https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud 2/")] // cloud look-alike
+    public void CheckClose_RefusesLookAlikes(string name, string path) =>
+        Assert.Throws<InvalidOperationException>(() => Close(AppStateNotebooks((name, "{L}", path)), "{L}"));
+
+    [Fact]
+    public void CheckClose_RefusesASectionId()
+    {
+        var notebooks = AppStateNotebooks();
+        Assert.Throws<InvalidOperationException>(() => Close(notebooks, "{S}")); // a section's ID is never an open notebook
+        Assert.Throws<InvalidOperationException>(() => Close(notebooks, "{b}")); // IDs compare exactly
+    }
+
+    [Theory]
+    [InlineData(null)] // no run folder: run notebooks can't be closed
+    [InlineData(Root + @"\probes\app-state\not-a-stamp")]
+    [InlineData(Root + @"\probes\1116-120000")]
+    [InlineData(@"D:\Elsewhere\1116-120000")]
+    public void CheckClose_RunNotebook_NeedsARealRunFolder(string? runRoot) =>
+        Assert.Throws<InvalidOperationException>(() => Close(AppStateNotebooks(), "{O1}", runRoot));
+
+    private static readonly string[] Recorded = [Root + @"\" + NameB, Root + @"\" + NameC, CloudThrowawayPath];
+
+    private static void Open(string path, string notebooksXml, string? runRoot = RunRoot, string[]? recorded = null, bool allowOpenTest = false) =>
+        TestNotebookGuard.CheckOpen("OpenHierarchy(cftNone)", path, notebooksXml, TestFolder, Root, runRoot, recorded ?? Recorded, allowOpenTest);
+
+    [Theory]
+    [InlineData(RunRoot + @"\MCP Test Throwaway 1116-120000 o2")]
+    [InlineData(RunRoot + @"\probe missing 1116-120000")] // need not exist
+    [InlineData(RunRoot + @"\probe no parent 1116-120000\probe child 1116-120000")]
+    [InlineData(RunRoot + @"\probe junction 1116-120000")]
+    [InlineData(@"\\localhost\C$\Users\me\AppData\Local\OneNoteMcp-Test\probes\app-state\1116-120000\MCP Test Throwaway 1116-120000 o1")]
+    [InlineData(Root + @"\" + NameB)] // recorded b
+    [InlineData(Root + @"\mcp test throwaway 1112-034716 c\")] // recorded c, ignoring case and the trailing separator
+    [InlineData(CloudThrowawayPath)] // recorded cloud throwaway
+    [InlineData("https://d.docs.live.net/0123456789abcdef/Documents/probe missing 1116-120000/")] // O3: MCP Test Cloud's account, this run's stamp
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/probe empty 1116-120000")]
+    public void CheckOpen_AllowsTheAllowedSet(string path) => Open(path, AppStateNotebooks());
+
+    [Theory]
+    [InlineData(RunRoot + @"\..\..\..\MCP Test")] // a .. path
+    [InlineData(RunRoot + @"\x\..\o1")]
+    [InlineData(Root + @"\probes\app-state\1116-130000\o1")] // another run's folder
+    [InlineData(RunRoot)] // the run folder itself
+    [InlineData(Root + @"\" + NameA)] // throwaway a, never recorded
+    [InlineData(Root + @"\MCP Test Throwaway 1112-034716 b2")] // a name prefix
+    [InlineData(@"D:\Notebooks\MCP Test Throwaway 1112-034716 b")] // b's name in the wrong folder
+    [InlineData(TestFolder)] // MCP Test, without O4's flag
+    [InlineData(CloudPath)] // MCP Test Cloud, without O4's flag
+    [InlineData(@"D:\Notebooks\Work")] // any other notebook
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/Personal/")]
+    [InlineData("https://d.docs.live.net/FEDCBA9876543210/Documents/probe missing 1116-120000/")] // a cid other than MCP Test Cloud's
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/probe missing 1116-130000/")] // another run's stamp
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/missing 1116-120000/")] // not a probe name
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/x/probe missing 1116-120000/")] // deeper
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Pictures/probe missing 1116-120000/")] // not Documents
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/../Documents/probe missing 1116-120000/")]
+    [InlineData("http://d.docs.live.net/0123456789ABCDEF/Documents/probe missing 1116-120000/")] // not https
+    [InlineData("https://onedrive.live.com/0123456789ABCDEF/Documents/probe missing 1116-120000/")] // another host
+    [InlineData(@"\\server\C$\Users\me\AppData\Local\OneNoteMcp-Test\probes\app-state\1116-120000\o1")]
+    [InlineData("")]
+    public void CheckOpen_RefusesOutsideTheAllowedSet(string path) =>
+        Assert.Throws<InvalidOperationException>(() => Open(path, AppStateNotebooks()));
+
+    [Fact]
+    public void CheckOpen_ARecordedPathMustStillBeBsCsOrTheCloudThrowaways()
+    {
+        string[] recorded = [TestFolder, Root + @"\" + NameA, @"D:\Notebooks\Work"];
+        foreach (var path in recorded)
+        {
+            Assert.Throws<InvalidOperationException>(() => Open(path, AppStateNotebooks(), recorded: recorded));
+        }
+
+        Assert.Throws<InvalidOperationException>(() => Open(Root + @"\" + NameB, AppStateNotebooks(), recorded: [])); // b's folder, but not recorded
+    }
+
+    [Fact]
+    public void CheckOpen_O4_TestNotebooksOnlyWhileOpen()
+    {
+        Open(TestFolder, AppStateNotebooks(), allowOpenTest: true);
+        Open(CloudPath, AppStateNotebooks(), allowOpenTest: true);
+        Open(CloudPath.ToLowerInvariant().TrimEnd('/'), AppStateNotebooks(), allowOpenTest: true);
+
+        var withoutTest = $$"""<one:Notebooks xmlns:one="{{Ns}}"><one:Notebook name="Personal" ID="{P}" path="D:\Notebooks\Personal" /></one:Notebooks>""";
+        Assert.Throws<InvalidOperationException>(() => Open(TestFolder, withoutTest, allowOpenTest: true)); // MCP Test closed
+        Assert.Throws<InvalidOperationException>(() => Open(CloudPath, withoutTest, allowOpenTest: true)); // MCP Test Cloud closed
+        Assert.Throws<InvalidOperationException>(() => Open(@"D:\Notebooks\Personal", withoutTest, allowOpenTest: true)); // the flag is for test notebooks only
+    }
+
+    [Fact]
+    public void CheckOpen_O3_NeedsMcpTestCloudOpenAndARunFolder()
+    {
+        const string Url = "https://d.docs.live.net/0123456789ABCDEF/Documents/probe missing 1116-120000/";
+        var withoutCloud = CloudNotebooks();
+        Assert.Throws<InvalidOperationException>(() => Open(Url, withoutCloud)); // no cid to compare
+        Assert.Throws<InvalidOperationException>(() => Open(Url, AppStateNotebooks(), runRoot: null)); // no stamp
+        Assert.Throws<InvalidOperationException>(() => Open(RunRoot + @"\o1", AppStateNotebooks(), runRoot: null));
+    }
+
+    [Theory]
+    [InlineData(@"\\localhost\C$\Users\me\x", @"C:\Users\me\x")]
+    [InlineData(@"\\LocalHost\d$\x\", @"D:\x\")]
+    [InlineData(@"\\localhost\C$", @"C:\")]
+    public void MapLocalhostAdminShare_MapsTheAdminShare(string unc, string local) =>
+        Assert.Equal(local, TestNotebookGuard.MapLocalhostAdminShare(unc));
+
+    [Theory]
+    [InlineData(@"\\server\C$\x")]
+    [InlineData(@"\\localhost\share\x")]
+    [InlineData(@"\\localhost\CD$\x")]
+    [InlineData(@"C:\x")]
+    [InlineData("https://d.docs.live.net/x/")]
+    [InlineData(null)]
+    public void MapLocalhostAdminShare_LeavesAnythingElse(string? path) =>
+        Assert.Null(TestNotebookGuard.MapLocalhostAdminShare(path));
+
+    [Theory]
+    [InlineData(RunRoot, true)]
+    [InlineData(RunRoot + @"\", true)]
+    [InlineData(Root + @"\probes\app-state\1116-12000", false)] // not a stamp
+    [InlineData(Root + @"\probes\app-state\1116-120000\x", false)] // deeper
+    [InlineData(Root + @"\probes\app-state\..\app-state\1116-120000", false)]
+    [InlineData(@"D:\probes\app-state\1116-120000", false)]
+    [InlineData(@"probes\app-state\1116-120000", false)]
+    public void IsRunProbeRoot_OnlyAStampFolderInAppState(string path, bool expected) =>
+        Assert.Equal(expected, TestNotebookGuard.IsRunProbeRoot(path, Root));
+
+    [Fact]
+    public void ThrowawayNotebookIds_AcceptsARunNotebookByItsName()
+    {
+        var notebooks = AppStateNotebooks();
+
+        Assert.Equal(["{O1}"], TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{O1}", ["MCP Test Throwaway 1116-120000 o1"]))));
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.ThrowawayNotebookIds(notebooks, Root, Names(("{SG}", ["probe sg 1116-120000"])))); // not a throwaway name: the guard's writes key on names
+    }
+
+    [Fact]
+    public void NotebooksUnder_TheRunFoldersNotebooksWhateverTheirNames() =>
+        Assert.Equal(["{O1}", "{SG}"], TestNotebookGuard.NotebooksUnder(AppStateNotebooks(), RunRoot).Select(n => n.Id).Order(StringComparer.Ordinal));
+
+    [Fact]
+    public void CloudCid_IsMcpTestCloudsAccount()
+    {
+        Assert.Equal("0123456789ABCDEF", TestNotebookGuard.CloudCid(AppStateNotebooks()));
+        Assert.Null(TestNotebookGuard.CloudCid(CloudNotebooks()));
+    }
+
+    [Fact]
+    public void Calls_CloseSendsForceFalse_OpenSendsCftNone_SyncSendsTheId()
+    {
+        var app = RecordingApplication.Create();
+        var recorder = (RecordingApplication)(object)app;
+
+        TestNotebook.CloseCall(app, "{B}");
+        Assert.Equal("CloseNotebook", recorder.Calls[^1].Method);
+        Assert.Equal(new object?[] { "{B}", false }, recorder.Calls[^1].Args);
+
+        Assert.Equal("{OPENED}", TestNotebook.OpenExistingCall(app, @"C:\x"));
+        Assert.Equal("OpenHierarchy", recorder.Calls[^1].Method);
+        Assert.Equal(@"C:\x", recorder.Calls[^1].Args[0]);
+        Assert.Equal(string.Empty, recorder.Calls[^1].Args[1]);
+        Assert.Equal(OneNoteMcp.Com.Interop.CreateFileType.cftNone, recorder.Calls[^1].Args[3]);
+
+        TestNotebook.SyncCall(app, "{S}");
+        Assert.Equal("SyncHierarchy", recorder.Calls[^1].Method);
+        Assert.Equal(new object?[] { "{S}" }, recorder.Calls[^1].Args);
+        Assert.Equal(3, recorder.Calls.Count); // nothing else was called
+    }
+
+    [Fact]
+    public void Wrappers_HaveNoForceOrCreateTypeParameter()
+    {
+        var close = typeof(TestNotebook).GetMethod(nameof(TestNotebook.CloseNotebookAsync))!;
+        var open = typeof(TestNotebook).GetMethod(nameof(TestNotebook.OpenExistingAsync))!;
+
+        Assert.DoesNotContain(close.GetParameters(), p => p.ParameterType == typeof(bool));
+        Assert.DoesNotContain(open.GetParameters(), p => p.ParameterType == typeof(OneNoteMcp.Com.Interop.CreateFileType));
+        Assert.DoesNotContain(close.GetParameters(), p => p.Name?.Contains("force", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
     [Fact]
     public void ResolveFolder_DefaultsUnderLocalAppData_OutsideOneNoteMcp()
     {
@@ -510,4 +749,25 @@ public sealed class TestNotebookGuardTests
     [Fact]
     public void ResolveFolder_HonoursTheOverride() =>
         Assert.Equal(@"D:\Scratch\MCP Test", TestNotebook.ResolveFolder(v => v == TestNotebook.FolderOverrideVariable ? @"D:\Scratch\MCP Test\" : null));
+}
+
+/// <summary>Spike 4.1: a stand-in <c>IApplication</c> that records each call's name and arguments (no COM).</summary>
+public class RecordingApplication : System.Reflection.DispatchProxy
+{
+    public List<(string Method, object?[] Args)> Calls { get; } = [];
+
+    internal static OneNoteMcp.Com.Interop.IApplication Create() => Create<OneNoteMcp.Com.Interop.IApplication, RecordingApplication>();
+
+    protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
+    {
+        ArgumentNullException.ThrowIfNull(targetMethod);
+        args ??= [];
+        if (targetMethod.Name == "OpenHierarchy")
+        {
+            args[2] = "{OPENED}"; // the out ID
+        }
+
+        Calls.Add((targetMethod.Name, (object?[])args.Clone()));
+        return null;
+    }
 }

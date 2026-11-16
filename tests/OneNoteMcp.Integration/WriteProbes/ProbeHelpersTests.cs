@@ -476,4 +476,298 @@ public sealed class ProbeHelpersTests
               <one:Section name="probe label" ID="{S}" />
             </one:Notebook>
             """)));
+
+    // --- Spike 4.1 ------------------------------------------------------------------------------------------------
+
+    // A made-up %LOCALAPPDATA%; the real user name never lands in the repo.
+    private const string LocalAppData = @"C:\Users\someone\AppData\Local";
+
+    [Theory]
+    [InlineData(@"C:\Users\someone\AppData\Local\OneNoteMcp-Test\probes\app-state\1116-120000\o1", @"%LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state\1116-120000\o1")]
+    [InlineData(@"c:\users\SOMEONE\appdata\local\x", @"%LOCALAPPDATA%\x")] // ignoring case
+    [InlineData("""{"path":"C:\\Users\\someone\\AppData\\Local\\OneNoteMcp-Test\\x"}""", """{"path":"%LOCALAPPDATA%\\OneNoteMcp-Test\\x"}""")] // JSON-escaped
+    [InlineData(@"\\localhost\C$\Users\someone\AppData\Local\OneNoteMcp-Test\x", @"\\localhost\<drive>$\%LOCALAPPDATA%\OneNoteMcp-Test\x")]
+    [InlineData("""{"path":"\\\\localhost\\C$\\Users\\someone\\AppData\\Local\\x"}""", """{"path":"\\\\localhost\\<drive>$\\%LOCALAPPDATA%\\x"}""")]
+    [InlineData(@"\\localhost\D$\Other\x", @"\\localhost\<drive>$\Other\x")] // any admin share
+    [InlineData("""{"p":"\\\\LOCALHOST\\d$\\Other"}""", """{"p":"\\\\localhost\\<drive>$\\Other"}""")]
+    [InlineData(@"C:\Users\other\AppData\Local\x", @"C:\Users\other\AppData\Local\x")] // another user's folder isn't this machine's
+    [InlineData(@"\\server\C$\x", @"\\server\C$\x")]
+    public void Redact_LocalAppDataAndAdminShares(string input, string expected) =>
+        Assert.Equal(expected, ProbeRecorder.Redact(input, LocalAppData));
+
+    [Fact]
+    public void Redact_KeepsAJsonRowValid()
+    {
+        var row = System.Text.Json.JsonSerializer.Serialize(new { path = @"\\localhost\C$\Users\someone\AppData\Local\OneNoteMcp-Test\o1", other = @"C:\Users\someone\AppData\Local\x", cloud = "https://d.docs.live.net/0123456789ABCDEF/Documents/x/" });
+        var redacted = ProbeRecorder.Redact(row, LocalAppData);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(redacted);
+        Assert.Equal(@"\\localhost\<drive>$\%LOCALAPPDATA%\OneNoteMcp-Test\o1", doc.RootElement.GetProperty("path").GetString());
+        Assert.Equal(@"%LOCALAPPDATA%\x", doc.RootElement.GetProperty("other").GetString());
+        Assert.Equal("https://d.docs.live.net/<cid>/Documents/x/", doc.RootElement.GetProperty("cloud").GetString());
+        Assert.DoesNotContain("someone", redacted, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static FillPoint Point(long ms, int? sections, int? pages, string? error = null) => new(ms, sections, pages, error);
+
+    [Fact]
+    public void FillSchedule_FixedReadsFirst()
+    {
+        var points = new List<FillPoint>();
+        var times = new List<long>();
+        while (FillSchedule.NextAtMs(points, 30_000) is { } at && points.Count < 7)
+        {
+            times.Add(at);
+            points.Add(Point(at, 1, 1));
+        }
+
+        Assert.Equal([0L, 500, 1000, 2000, 4000, 8000, 16000], times);
+    }
+
+    [Fact]
+    public void FillSchedule_StopsAfterTheFixedReads_WhenTheLastThreeMatch()
+    {
+        var points = FillSchedule.FixedMs.Select((ms, i) => Point(ms, i < 3 ? 0 : 2, i < 3 ? 0 : 5)).ToList();
+
+        Assert.True(FillSchedule.Settled(points));
+        Assert.Null(FillSchedule.NextAtMs(points, 180_000));
+        Assert.True(FillSchedule.Settled(points, (2, 5))); // back to the counts before the close
+        Assert.False(FillSchedule.Settled(points, (2, 9))); // a stall below them isn't settled
+        Assert.Equal(26_000, FillSchedule.NextAtMs(points, 180_000, (2, 9)));
+    }
+
+    [Fact]
+    public void FillSchedule_EmptyReads_NeverSettle_TheSeriesRunsToTheLimit()
+    {
+        var points = FillSchedule.FixedMs.Select(ms => Point(ms, 0, 0)).ToList(); // a cloud notebook not yet filled
+
+        Assert.False(FillSchedule.Settled(points));
+        while (FillSchedule.NextAtMs(points, 180_000) is { } at)
+        {
+            points.Add(Point(at, 0, 0));
+        }
+
+        Assert.Equal(176_000, points[^1].Ms); // every 10 s after 16 s, up to the 180 s limit
+        Assert.False(FillSchedule.Settled(points));
+    }
+
+    [Fact]
+    public void FillSchedule_EveryTenSeconds_UntilThreeMatch_NeverPastTheLimit()
+    {
+        var points = FillSchedule.FixedMs.Select((ms, i) => Point(ms, i, i)).ToList(); // still filling
+
+        Assert.False(FillSchedule.Settled(points));
+        Assert.Equal(26_000, FillSchedule.NextAtMs(points, 30_000));
+        points.Add(Point(26_000, 9, 9));
+        Assert.Null(FillSchedule.NextAtMs(points, 30_000)); // 36 s is past the local limit
+        Assert.Equal(36_000, FillSchedule.NextAtMs(points, 180_000)); // the cloud's 180 s allows it
+        points.Add(Point(36_000, 9, 9));
+        Assert.Equal(46_000, FillSchedule.NextAtMs(points, 180_000)); // two match; a third is needed
+        points.Add(Point(46_000, 9, 9));
+        Assert.Null(FillSchedule.NextAtMs(points, 180_000));
+    }
+
+    [Fact]
+    public void FillSchedule_ErrorsNeverSettle()
+    {
+        Assert.False(FillSchedule.Settled([Point(0, null, null, "ObjectNotFound"), Point(500, null, null, "ObjectNotFound"), Point(1000, null, null, "ObjectNotFound")]));
+        Assert.False(FillSchedule.Settled([Point(0, 1, 1), Point(500, 1, 1)])); // two reads aren't three
+    }
+
+    [Fact]
+    public void FillSchedule_Count_LeavesOutTheRecycleBin()
+    {
+        var notebook = XElement.Parse($$"""
+            <one:Notebook xmlns:one="{{Ns}}" ID="{N}">
+              <one:Section ID="{S1}"><one:Page ID="{P1}" /><one:Page ID="{P2}" /><one:Page ID="{P3}" isInRecycleBin="true" /></one:Section>
+              <one:SectionGroup ID="{G}"><one:Section ID="{S2}"><one:Page ID="{P4}" /></one:Section></one:SectionGroup>
+              <one:SectionGroup ID="{BIN}" isRecycleBin="true"><one:Section ID="{DP}" isDeletedPages="true"><one:Page ID="{P5}" /></one:Section></one:SectionGroup>
+            </one:Notebook>
+            """);
+
+        Assert.Equal((2, 3), FillSchedule.Count(notebook));
+    }
+
+    private static readonly XElement ViewNotebooks = XElement.Parse($$"""
+        <one:Notebooks xmlns:one="{{Ns}}">
+          <one:Notebook name="Personal Diary" ID="{P}" path="D:\Notebooks\Personal Diary" isCurrentlyViewed="true" />
+          <one:Notebook name="MCP Test" ID="{T}" path="C:\x\MCP Test" />
+        </one:Notebooks>
+        """);
+
+    [Fact]
+    public void ViewSnapshot_AnotherNotebook_IsNeverNamed()
+    {
+        var view = ProbeView.Snapshot(42, "ONENOTE", ViewNotebooks, null, null);
+
+        Assert.Equal(new ViewSnapshot(42, "ONENOTE", ProbeView.OtherNotebook, null, null), view);
+    }
+
+    [Fact]
+    public void ViewSnapshot_ATestNotebook_NamesTheChain()
+    {
+        var notebooks = XElement.Parse(ViewNotebooks.ToString().Replace("isCurrentlyViewed=\"true\" ", string.Empty, StringComparison.Ordinal).Replace("ID=\"{T}\"", "ID=\"{T}\" isCurrentlyViewed=\"true\"", StringComparison.Ordinal));
+        var tree = XElement.Parse($$"""
+            <one:Notebook xmlns:one="{{Ns}}" name="MCP Test" ID="{T}" isCurrentlyViewed="true">
+              <one:Section name="Seed" ID="{S}" isCurrentlyViewed="true"><one:Page name="Seed page" ID="{PG}" isCurrentlyViewed="true" /><one:Page name="other" ID="{PG2}" /></one:Section>
+              <one:Section name="Other" ID="{S2}" />
+            </one:Notebook>
+            """);
+
+        Assert.Equal(new ViewSnapshot(1, "test host", "MCP Test", "Seed", "Seed page"), ProbeView.Snapshot(1, "test host", notebooks, tree, null));
+        Assert.Equal(new ViewSnapshot(1, "other", "MCP Test", null, null), ProbeView.Snapshot(1, "other", notebooks, null, null)); // not read further
+    }
+
+    [Fact]
+    public void ViewSnapshot_NothingViewed() =>
+        Assert.Equal(new ViewSnapshot(0, "none", null, null, null), ProbeView.Snapshot(0, "none", XElement.Parse($$"""<one:Notebooks xmlns:one="{{Ns}}" />"""), null, null));
+
+    [Theory]
+    [InlineData("ONENOTE", "ONENOTE")]
+    [InlineData("onenote", "ONENOTE")]
+    [InlineData("testhost", "test host")]
+    [InlineData("explorer", "other")]
+    [InlineData("Code", "other")]
+    [InlineData(null, "none")]
+    public void ProcessLabel_OnlyOneNoteAndTheTestHostAreNamed(string? process, string expected) =>
+        Assert.Equal(expected, ProbeView.ProcessLabel(process, "testhost"));
+
+    [Theory]
+    [InlineData("MCP Test", null, true)]
+    [InlineData("MCP Test Cloud", null, true)]
+    [InlineData("MCP Test Throwaway 1112-034716 b", null, true)]
+    [InlineData("MCP Test Throwaway Cloud", null, true)]
+    [InlineData("probe sg 1116-120000", @"C:\L\OneNoteMcp-Test\probes\app-state\1116-120000\o3\probe sg 1116-120000", true)] // a run notebook, whatever its name
+    [InlineData("Personal Diary", @"D:\Notebooks\Personal Diary", false)]
+    [InlineData("MCP Testing", null, false)]
+    public void IsLoggable_TestThrowawayAndRunNotebooksOnly(string name, string? path, bool expected) =>
+        Assert.Equal(expected, ProbeView.IsLoggable(name, path, @"C:\L\OneNoteMcp-Test\probes\app-state\1116-120000"));
+
+    [Fact]
+    public void CompareIds_KeptLostGainedAndClosed()
+    {
+        var before = new Dictionary<string, HashSet<string>>
+        {
+            ["MCP Test"] = ["{T}", "{S}"],
+            ["MCP Test Throwaway 1112-034716 c"] = ["{C}", "{CS}"],
+            ["MCP Test Cloud"] = ["{X}"],
+        };
+        var after = new Dictionary<string, HashSet<string>>
+        {
+            ["MCP Test"] = ["{T}", "{S}"],
+            ["MCP Test Throwaway 1112-034716 c"] = ["{C}", "{NEW}"],
+        };
+
+        Assert.Equal(
+            [
+                new IdsKept("MCP Test", true, true, 2, 2, 0, 0),
+                new IdsKept("MCP Test Cloud", false, false, 1, 0, 1, 0),
+                new IdsKept("MCP Test Throwaway 1112-034716 c", true, false, 2, 2, 1, 1),
+            ],
+            ProbeView.CompareIds(before, after));
+    }
+
+    [Fact]
+    public void SyntheticId_IsANewNotebookShapedId()
+    {
+        var a = ProbeSession.SyntheticId();
+
+        Assert.Matches(@"^\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}\{1\}\{B0\}$", a);
+        Assert.NotEqual(a, ProbeSession.SyntheticId());
+    }
+
+    [Fact]
+    public void GrantSettingsJson_IsReadByCoresSettingsStore()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "onenote-mcp-probe-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var file = Path.Combine(dir, "settings.json");
+            File.WriteAllText(file, ProbeView.GrantSettingsJson([(@"C:\L\MCP Test Throwaway 1112-034716 b", "MCP Test Throwaway 1112-034716 b"), ("https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud/", "MCP Test Throwaway Cloud")], new DateTime(2026, 11, 16, 12, 0, 0, DateTimeKind.Utc)));
+            var snapshot = new OneNoteMcp.Core.Settings.SettingsStore(file).Read();
+
+            Assert.Equal(OneNoteMcp.Core.Settings.SettingsStatus.Ok, snapshot.Status);
+            Assert.Equal(2, snapshot.NotebookEntries.Count(g => g.Write && !g.PermanentDelete));
+            Assert.Contains(snapshot.NotebookEntries, g => g.Key == @"C:\L\MCP Test Throwaway 1112-034716 b");
+            Assert.Contains(snapshot.NotebookEntries, g => g.Key == "https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud"); // NotebookKey: no trailing '/'
+            Assert.DoesNotContain(snapshot.NotebookEntries, g => g.Key.EndsWith('/') || g.Key.EndsWith('\\'));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Misplaced_NamesOnlyProbeChildren_InLoggableNotebooks()
+    {
+        var all = XElement.Parse($$"""
+            <one:Notebooks xmlns:one="{{Ns}}">
+              <one:Notebook name="MCP Test Throwaway 1112-034716 c" ID="{C}" path="C:\L\c">
+                <one:SectionGroup name="Misplaced Sections" ID="{M}"><one:Section name="probe pend local 1116-120000" ID="{S1}" /><one:Section name="Seed" ID="{S2}" /></one:SectionGroup>
+              </one:Notebook>
+              <one:Notebook name="Personal Diary" ID="{P}" path="D:\N\Personal Diary">
+                <one:SectionGroup name="Misplaced Sections" ID="{M2}"><one:Section name="probe x" ID="{S3}" /></one:SectionGroup>
+              </one:Notebook>
+            </one:Notebooks>
+            """);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(ProbeView.Misplaced(all, null));
+
+        Assert.Contains("probe pend local 1116-120000", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Personal Diary", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("probe x", json, StringComparison.Ordinal); // in another notebook: counted, not named
+        Assert.DoesNotContain("Seed", json, StringComparison.Ordinal);
+        Assert.Contains(ProbeView.OtherNotebook, json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Junctions_MadeAndRemovedWithoutFollowingThem()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "onenote-mcp-probe-tests", Guid.NewGuid().ToString("N"));
+        var target = Path.Combine(root, "probe target");
+        var link = Path.Combine(root, "probe junction");
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(target, "keep.txt"), "x");
+        try
+        {
+            Junctions.Make(link, target, root);
+            Assert.True(Junctions.IsJunction(link));
+            Assert.True(File.Exists(Path.Combine(link, "keep.txt"))); // it points at the target
+
+            Assert.Throws<InvalidOperationException>(() => Junctions.Remove(target, root)); // a real folder is refused
+            Assert.True(Junctions.Remove(link, root));
+            Assert.False(Directory.Exists(link));
+            Assert.True(File.Exists(Path.Combine(target, "keep.txt"))); // the target and its files stay
+            Assert.False(Junctions.Remove(link, root)); // nothing there any more
+        }
+        finally
+        {
+            if (Junctions.IsJunction(link))
+            {
+                Directory.Delete(link, recursive: false);
+            }
+
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Junctions_BothEndsMustBeInTheRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "onenote-mcp-probe-tests", Guid.NewGuid().ToString("N"));
+
+        Assert.Throws<InvalidOperationException>(() => Junctions.Make(Path.Combine(root, "link"), Path.GetTempPath(), root));
+        Assert.Throws<InvalidOperationException>(() => Junctions.Make(Path.Combine(root, "..", "link"), Path.Combine(root, "t"), root));
+        Assert.Throws<InvalidOperationException>(() => Junctions.Remove(Path.GetTempPath(), root));
+        Assert.False(Directory.Exists(root)); // refused before touching the disk
+    }
+
+    [Fact]
+    public void ProbeUrl_TheCloudScenariosUrlPassesTheGuard()
+    {
+        Assert.True(TestNotebookGuard.IsProbeUrl(AppStateCloudProbes.Url("0123456789abcdef", "probe missing 1116-120000"), "0123456789ABCDEF", "1116-120000"));
+        Assert.False(TestNotebookGuard.IsProbeUrl(AppStateCloudProbes.Url("0123456789abcdef", "probe missing 1116-120000"), "0123456789ABCDEF", "1116-120001"));
+    }
 }

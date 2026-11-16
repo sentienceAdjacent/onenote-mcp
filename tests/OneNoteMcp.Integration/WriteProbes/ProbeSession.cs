@@ -272,7 +272,8 @@ internal sealed class ProbeSession : IDisposable
         await PauseAsync(
             $"{CurrentStep}-timeout",
             "A probe call blocked and the scenario is stopping. In OneNote, if a \"OneNote is syncing changes\" dialog (or any other dialog) is open, press Cancel, "
-            + "then check OneNote responds. Tell the team lead what dialog you saw, if any. Don't close OneNote. Then continue.");
+            + "then check OneNote responds. Tell the team lead what dialog you saw, if any. Don't close OneNote. Then continue."
+            + (RerunHint is null ? string.Empty : " " + RerunHint));
         throw new ProbeStoppedException($"Stopped at {CurrentStep}: {method} blocked ({attempt.Code}, {CallSeconds} s timeout). See the call-timeout row.");
     }
 
@@ -372,6 +373,12 @@ internal sealed class ProbeSession : IDisposable
         var notebooks = (await NotebooksAsync()).ToString();
         var folder = TestNotebook.ResolveFolder(Environment.GetEnvironmentVariable);
         var roots = TestNotebookGuard.TestNotebookIds(notebooks, folder).Concat(TestNotebookGuard.ThrowawayNotebookIds(notebooks, ThrowawayRoot, Throwaways)).ToList();
+        if (RunProbeRoot is not null)
+        {
+            // Spike 4.1: a notebook opened from the run's probe folder, whatever name OneNote gave it.
+            roots.AddRange(TestNotebookGuard.NotebooksUnder(notebooks, RunProbeRoot).Select(n => n.Id).Where(id => !roots.Contains(id)));
+        }
+
         foreach (var rootId in roots)
         {
             var root = await TreeAsync(rootId);
@@ -661,9 +668,10 @@ internal sealed class ProbeSession : IDisposable
     }
 
     /// <summary>A local throwaway notebook (<see cref="TestNotebook.CreateThrowawayNotebookAsync"/>); joins <see cref="Created"/> and <see cref="Throwaways"/>.</summary>
-    public async Task<(Attempt Attempt, string? Id)> CreateThrowawayAsync(string leafName, bool requireEmpty)
+    /// <remarks>Spike 4.1: <paramref name="root"/> makes it in a run's probe folder instead (<see cref="RunProbeRoot"/>).</remarks>
+    public async Task<(Attempt Attempt, string? Id)> CreateThrowawayAsync(string leafName, bool requireEmpty, string? root = null)
     {
-        var result = await TryValueAsync(() => TestNotebook.CreateThrowawayNotebookAsync(Gateway, leafName, requireEmpty, Ct));
+        var result = await TryValueAsync(() => TestNotebook.CreateThrowawayNotebookAsync(Gateway, leafName, requireEmpty, Ct, root));
         await CheckTimeoutAsync("OpenHierarchy-cftNotebook", result.Attempt);
         if (result.Attempt.Ok && !string.IsNullOrEmpty(result.Value))
         {
@@ -1046,6 +1054,280 @@ internal sealed class ProbeSession : IDisposable
             .ToList() ?? []);
     }
 
+    // --- Spike 3.1 / 4.1: the cross-storage settle --------------------------------------------------------------
+
+    /// <summary>How long <see cref="SettleAsync"/> waits (spike 3.1, Implication 16).</summary>
+    public const int SettleSeconds = 10;
+
+    /// <summary>
+    /// Waits <see cref="SettleSeconds"/> after a cross-storage move (spike 3.1) or a cloud close or open (spike 4.1), then
+    /// reads the notebook list: a crash the call set off trips the breaker on that read, pinning it to the call.
+    /// </summary>
+    public async Task SettleAsync(string after, string question)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(SettleSeconds), Ct);
+        _ = await NotebooksAsync();
+        Recorder.Row($"{after}-settled", question, "GetHierarchy", null, null, new { after, settledSeconds = SettleSeconds, oneNoteAlive = true });
+    }
+
+    // --- Spike 4.1: app state (close, open existing, sync) -----------------------------------------------------------
+
+    /// <summary>
+    /// This run's probe folder, <c>%LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state\&lt;stamp&gt;</c>
+    /// (<see cref="BeginRunProbeRoot"/>). The close and open guards accept paths inside it; null outside spike 4.1.
+    /// </summary>
+    public string? RunProbeRoot { get; private set; }
+
+    /// <summary>Spike 4.1: how to rerun this run's later steps (its stamp), added to the timeout pause and echoed at the start.</summary>
+    public string? RerunHint { get; set; }
+
+    /// <summary>
+    /// The paths of throwaway <c>b</c>, <c>c</c> and the cloud throwaway, recorded while they were open (or, for <c>b</c>
+    /// and <c>c</c>, their fixed folders), that <see cref="OpenExistingAsync"/> may reopen. The guard checks each again.
+    /// </summary>
+    public HashSet<string> RecordedPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>IDs <see cref="SyncHierarchyAsync"/> may name although they're gone: S2's synthetic ID and closed run notebooks' old IDs.</summary>
+    public HashSet<string> SyncGone { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Makes this run's probe folder for <paramref name="stamp"/>, which must be new; or, with <paramref name="reuse"/>
+    /// (a rerun of later steps of an earlier run, <c>ONENOTE_MCP_PROBE_STAMP</c>), finds the existing one.
+    /// </summary>
+    public string BeginRunProbeRoot(string stamp, bool reuse)
+    {
+        var root = Path.Combine(TestNotebook.AppStateProbesDir, stamp);
+        if (!TestNotebookGuard.IsRunProbeRoot(root, ThrowawayRoot))
+        {
+            throw new InvalidOperationException($"Refusing: \"{stamp}\" is not a run stamp.");
+        }
+
+        if (reuse)
+        {
+            if (!Directory.Exists(root))
+            {
+                throw new InvalidOperationException($"Refusing: the probe folder of run {stamp} doesn't exist.");
+            }
+        }
+        else
+        {
+            if (Directory.Exists(root) || File.Exists(root))
+            {
+                throw new InvalidOperationException($"Refusing: the probe folder of run {stamp} already exists.");
+            }
+
+            Directory.CreateDirectory(root);
+        }
+
+        RunProbeRoot = root;
+        return root;
+    }
+
+    /// <summary>A guarded <c>CloseNotebook</c> (always <c>force=false</c>), after the shown check unless <paramref name="shownCheck"/> is false (C4); stops the scenario on a timeout.</summary>
+    public async Task<Attempt> CloseNotebookAsync(string notebookId, bool shownCheck = true)
+    {
+        if (shownCheck && !await EnsureNothingShownAsync(notebookId, "CloseNotebook"))
+        {
+            return NotShownRefusal;
+        }
+
+        return await TryGuardedAsync("CloseNotebook", () => TestNotebook.CloseNotebookAsync(Gateway, notebookId, RunProbeRoot, Ct));
+    }
+
+    /// <summary>A guarded <c>OpenHierarchy</c> <c>cftNone</c> of an existing path; stops the scenario on a timeout.</summary>
+    public async Task<(Attempt Attempt, string? Id)> OpenExistingAsync(string path, bool allowOpenTestNotebooks = false)
+    {
+        var (attempt, id) = await TryValueAsync(() => TestNotebook.OpenExistingAsync(Gateway, path, RunProbeRoot, RecordedPaths, allowOpenTestNotebooks, Ct));
+        await CheckTimeoutAsync("OpenHierarchy-cftNone", attempt);
+        return (attempt, id);
+    }
+
+    /// <summary>A guarded <c>SyncHierarchy</c>; stops the scenario on a timeout.</summary>
+    public Task<Attempt> SyncHierarchyAsync(string id) =>
+        TryGuardedAsync("SyncHierarchy", () => TestNotebook.SyncHierarchyAsync(Gateway, id, Throwaways, SyncGone, Ct));
+
+    /// <summary>S2: a well-formed notebook-style ID that no notebook has (<c>{GUID}{1}{B0}</c>, upper case).</summary>
+    internal static string SyntheticId() => "{" + Guid.NewGuid().ToString("D").ToUpperInvariant() + "}{1}{B0}";
+
+    /// <summary>
+    /// The focus-and-view snapshot: the foreground window and its process (<see cref="ProbeView.ProcessLabel"/>), and the
+    /// <c>isCurrentlyViewed</c> notebook, section and page. A notebook that isn't a test, throwaway or run notebook is
+    /// logged as "other notebook" and not read further. No window title is ever read.
+    /// </summary>
+    public async Task<ViewSnapshot> ViewAsync()
+    {
+        var window = NativeView.GetForegroundWindow();
+        var process = NativeView.ProcessName(window);
+        var notebooks = await NotebooksAsync();
+        var viewed = notebooks.Elements(One + "Notebook").FirstOrDefault(n => (string?)n.Attribute("isCurrentlyViewed") == "true");
+        XElement? tree = null;
+        if (viewed is not null && ProbeView.IsLoggable((string?)viewed.Attribute("name"), (string?)viewed.Attribute("path"), RunProbeRoot) && (string?)viewed.Attribute("ID") is { } id)
+        {
+            // Sections scope, then only the viewed section's pages: a pages-scope read of MCP Test (Ballast) is slow.
+            tree = await TreeAsync(id, CoreScope.Sections);
+            var section = tree.Descendants(One + "Section").LastOrDefault(e => (string?)e.Attribute("isCurrentlyViewed") == "true");
+            if ((string?)section?.Attribute("ID") is { } sectionId)
+            {
+                var pages = await TreeAsync(sectionId);
+                pages.SetAttributeValue("isCurrentlyViewed", "true"); // it was marked in the sections-scope read
+                section!.ReplaceWith(pages);
+            }
+        }
+
+        return ProbeView.Snapshot(window.ToInt64(), ProbeView.ProcessLabel(process, CurrentProcessName), notebooks, tree, RunProbeRoot);
+    }
+
+    private static readonly string CurrentProcessName = Process.GetCurrentProcess().ProcessName;
+
+    /// <summary>The fill series' fixed read times, then <see cref="FillSchedule"/>'s 10 s steps.</summary>
+    public async Task<FillSeries> FillSeriesAsync(string notebookId, TimeSpan limit, (int Sections, int Pages)? floor = null)
+    {
+        var points = new List<FillPoint>();
+        var limitMs = (long)limit.TotalMilliseconds;
+        var watch = Stopwatch.StartNew();
+        while (FillSchedule.NextAtMs(points, limitMs, floor) is { } at)
+        {
+            var wait = at - watch.ElapsedMilliseconds;
+            if (wait > 0)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(wait), Ct);
+            }
+
+            points.Add(await FillPointAsync(notebookId, watch.ElapsedMilliseconds));
+        }
+
+        return new FillSeries(points, FillSchedule.Settled(points, floor), limitMs);
+    }
+
+    private async Task<FillPoint> FillPointAsync(string notebookId, long ms)
+    {
+        try
+        {
+            var (sections, pages) = FillSchedule.Count(await TreeAsync(notebookId));
+            return new FillPoint(ms, sections, pages, null);
+        }
+        catch (OneNoteException ex) when (ex.Code is not (ErrorCode.Timeout or ErrorCode.ComBusy))
+        {
+            return new FillPoint(ms, null, null, ex.Code.ToString());
+        }
+    }
+
+    /// <summary>
+    /// Every ID in each open test notebook, throwaway and run notebook except <paramref name="excludeId"/>, by notebook
+    /// name (those names are test names): the before half of C1's "did the other notebooks keep their IDs".
+    /// </summary>
+    public async Task<Dictionary<string, HashSet<string>>> TestIdsAsync(string excludeId)
+    {
+        var notebooks = (await NotebooksAsync()).ToString();
+        var roots = TestNotebookGuard.TestNotebookIds(notebooks, TestNotebook.ResolveFolder(Environment.GetEnvironmentVariable))
+            .Concat(TestNotebookGuard.ThrowawayNotebookIds(notebooks, ThrowawayRoot, Throwaways))
+            .Concat(RunProbeRoot is null ? [] : TestNotebookGuard.NotebooksUnder(notebooks, RunProbeRoot).Select(n => n.Id))
+            .Where(id => id != excludeId)
+            .Distinct(StringComparer.Ordinal);
+        var ids = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var root in roots)
+        {
+            var tree = await TreeAsync(root);
+            var name = (string?)tree.Attribute("name") ?? root;
+            ids[ids.ContainsKey(name) ? $"{name} ({root})" : name] = tree.DescendantsAndSelf().Select(e => (string?)e.Attribute("ID")).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        }
+
+        return ids;
+    }
+
+    /// <summary>C1: whether each notebook of <paramref name="before"/> still has exactly the same IDs, from a fresh read.</summary>
+    public async Task<IReadOnlyList<IdsKept>> OtherIdsKeptAsync(IReadOnlyDictionary<string, HashSet<string>> before, string closedId) =>
+        ProbeView.CompareIds(before, await TestIdsAsync(closedId));
+
+    /// <summary>
+    /// Makes a directory junction <paramref name="link"/> → <paramref name="target"/> with <c>cmd /c mklink /J</c> (no
+    /// elevation needed). Both must lie in this run's probe folder; the link must not exist and the target must.
+    /// </summary>
+    public void MakeJunction(string link, string target) =>
+        Junctions.Make(link, target, RunProbeRoot ?? throw new InvalidOperationException("Refusing mklink: no run probe folder."));
+
+    /// <summary>Removes the junction <paramref name="link"/> without following it (false when it doesn't exist). Refuses a real folder.</summary>
+    public bool RemoveJunction(string link) =>
+        Junctions.Remove(link, RunProbeRoot ?? throw new InvalidOperationException("Refusing to remove a junction: no run probe folder."));
+
+    /// <summary>
+    /// C5: writes a second settings file in the session's temp folder holding one write grant per notebook in
+    /// <paramref name="grants"/> (keyed by its live <c>path</c>, the <c>NotebookKey</c>), runs Core's
+    /// <c>ListGrantsUseCase</c> on it over this session's gateway, and returns each grant's kind, name and status.
+    /// </summary>
+    public async Task<IReadOnlyList<object>> ProbeGrantsAsync(IReadOnlyList<(string Path, string Name)> grants)
+    {
+        ArgumentNullException.ThrowIfNull(grants);
+        var file = Path.Combine(settingsDir, "settings-grants.json");
+        await File.WriteAllTextAsync(file, ProbeView.GrantSettingsJson(grants, DateTime.UtcNow), Ct);
+        var store = new SettingsStore(file);
+        var listing = new OneNoteMcp.Core.UseCases.ListGrantsUseCase(Gateway, store.Read, TimeProvider.System);
+        var result = await listing.ExecuteAsync(new OneNoteMcp.Core.UseCases.ToolCallContext("probe-grants"), Ct);
+        return (result.Meta.Grants ?? []).Select(g => (object)new { g.Kind, g.Name, g.Key, g.Status }).ToList();
+    }
+
+    /// <summary>
+    /// The pause before a close or the open of a closed notebook: what Phill will see. He watches and doesn't click.
+    /// Pair it with <see cref="ReportPauseAsync"/> after the calls.
+    /// </summary>
+    public Task<bool> ObservePauseAsync(string step, string whatYouWillSee) => PauseAsync(
+        $"{step}-watch",
+        $"Watch OneNote and don't click in it until the next pause. What should happen next: {whatYouWillSee} Then continue.");
+
+    /// <summary>The pause after the calls: Phill tells the team lead what he saw.</summary>
+    public Task<bool> ReportPauseAsync(string step, string whatToReport) => PauseAsync(
+        $"{step}-report",
+        $"Tell the team lead what you saw in OneNote since the last pause: {whatToReport} Don't change anything. Then continue.");
+
+    /// <summary>The open notebook <paramref name="id"/>, from a live read, or null.</summary>
+    public async Task<NodeInfo?> NotebookInfoAsync(string id) =>
+        (await NotebooksAsync()).Elements(One + "Notebook").Where(n => (string?)n.Attribute("ID") == id).Select(NodeInfo.From).FirstOrDefault();
+
+    /// <summary>
+    /// How a pause names a notebook, from a live read: its exact name, and its folder for a local one (the recorder
+    /// writes <c>%LOCALAPPDATA%</c> for the user's folder), or "on OneDrive".
+    /// </summary>
+    internal static string Label(string? name, string? path) =>
+        path is not null && Path.IsPathFullyQualified(path) ? $"\"{name}\" (folder {path})" : $"\"{name}\" on OneDrive";
+
+    private static class NativeView
+    {
+        public static nint GetForegroundWindow() => NativeMethodsView.GetForegroundWindow();
+
+        public static string? ProcessName(nint window)
+        {
+            if (window == 0 || NativeMethodsView.GetWindowThreadProcessId(window, out var pid) == 0 || pid == 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                using var process = Process.GetProcessById((int)pid);
+                return process.ProcessName;
+            }
+            catch (ArgumentException)
+            {
+                return null; // gone
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static class NativeMethodsView
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [System.Runtime.InteropServices.DefaultDllImportSearchPaths(System.Runtime.InteropServices.DllImportSearchPath.System32)]
+        internal static extern nint GetForegroundWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [System.Runtime.InteropServices.DefaultDllImportSearchPaths(System.Runtime.InteropServices.DllImportSearchPath.System32)]
+        internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+    }
+
     // --- Reads ----------------------------------------------------------------------------------------------------
 
     public async Task<string> PageXmlAsync(string pageId, XMLSchema schema = XMLSchema.xs2013, PageInfo info = PageInfo.piBasic) =>
@@ -1279,3 +1561,288 @@ internal sealed record PublishLanding(string Format, Attempt Attempt, string Pat
 
 /// <summary><c>expand.exe</c>'s result: its exit code (null: killed at the 120 s limit), the time taken, and the files it wrote.</summary>
 internal sealed record ExtractResult(int? ExitCode, long Ms, IReadOnlyList<FileEntry> Files, bool TimedOut);
+
+// --- Spike 4.1: the focus-and-view snapshot, the fill series, ID comparison and junctions (pure parts unit-tested) ---
+
+/// <summary>
+/// Spike 4.1's focus-and-view snapshot: the foreground window handle, its process as <c>ONENOTE</c>, <c>test host</c>,
+/// <c>other</c> or <c>none</c>, and the <c>isCurrentlyViewed</c> notebook, section and page (names redacted by
+/// <see cref="ProbeView.Snapshot"/>).
+/// </summary>
+internal sealed record ViewSnapshot(long Window, string Process, string? Notebook, string? Section, string? Page);
+
+/// <summary>One read of a fill series: when (ms after the open returned), the section and page counts, or the error code.</summary>
+internal sealed record FillPoint(long Ms, int? Sections, int? Pages, string? Error);
+
+/// <summary>A fill series: its reads, whether the last three matched (settled), and its limit.</summary>
+internal sealed record FillSeries(IReadOnlyList<FillPoint> Points, bool Settled, long LimitMs)
+{
+    /// <summary>The last read's counts (what the notebook settled at, or reached by the limit).</summary>
+    public FillPoint? Last => Points.Count == 0 ? null : Points[^1];
+}
+
+/// <summary>C1: one other notebook's IDs before and after a close.</summary>
+internal sealed record IdsKept(string Notebook, bool Open, bool Kept, int Before, int After, int Lost, int Gained);
+
+/// <summary>
+/// The fill series' schedule (O1, O2), pure: reads at 0, 0.5, 1, 2, 4, 8 and 16 s, then every 10 s until the last three
+/// reads match, never past the limit.
+/// </summary>
+internal static class FillSchedule
+{
+    public static readonly IReadOnlyList<long> FixedMs = [0, 500, 1000, 2000, 4000, 8000, 16000];
+
+    public const long StepMs = 10_000;
+
+    /// <summary>
+    /// When the next read is due (ms from the open's return), or null when the series is done. <paramref name="floor"/>:
+    /// the counts read before the close, when known (see <see cref="Settled"/>).
+    /// </summary>
+    public static long? NextAtMs(IReadOnlyList<FillPoint> points, long limitMs, (int Sections, int Pages)? floor = null)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        long next;
+        if (points.Count < FixedMs.Count)
+        {
+            next = FixedMs[points.Count];
+        }
+        else
+        {
+            if (Settled(points, floor))
+            {
+                return null;
+            }
+
+            next = FixedMs[^1] + (StepMs * (points.Count - FixedMs.Count + 1));
+        }
+
+        return next <= limitMs ? next : null;
+    }
+
+    /// <summary>
+    /// True when the last three reads succeeded with the same section and page counts, and those counts are a filled
+    /// notebook's: not 0 sections and 0 pages, and not below <paramref name="floor"/> (the counts before the close), when
+    /// known. A notebook still filling can stall at 0/0 or part-way (OneMore: a cloud notebook refilled over about 90 s).
+    /// </summary>
+    public static bool Settled(IReadOnlyList<FillPoint> points, (int Sections, int Pages)? floor = null)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (points.Count < 3)
+        {
+            return false;
+        }
+
+        var last = points.Skip(points.Count - 3).ToList();
+        var first = last[0];
+        return last.All(p => p.Error is null && p.Sections is not null && p.Pages is not null)
+            && last.All(p => p.Sections == first.Sections && p.Pages == first.Pages)
+            && !(first.Sections == 0 && first.Pages == 0)
+            && (floor is not { } f || (first.Sections >= f.Sections && first.Pages >= f.Pages));
+    }
+
+    /// <summary>The sections and pages in a notebook's pages-scope tree, leaving out its recycle bin.</summary>
+    public static (int Sections, int Pages) Count(XElement notebook)
+    {
+        ArgumentNullException.ThrowIfNull(notebook);
+        bool Live(XElement e) => (string?)e.Attribute("isInRecycleBin") != "true" && !e.AncestorsAndSelf().Any(a => (string?)a.Attribute("isRecycleBin") == "true");
+        var ns = notebook.Name.Namespace;
+        return (notebook.Descendants(ns + "Section").Count(Live), notebook.Descendants(ns + "Page").Count(Live));
+    }
+}
+
+/// <summary>Spike 4.1's pure helpers for what a row may name, and C1's and C5's comparisons.</summary>
+internal static class ProbeView
+{
+    /// <summary>What every notebook that isn't a test, throwaway or run notebook is logged as.</summary>
+    public const string OtherNotebook = "other notebook";
+
+    /// <summary>
+    /// True for a notebook a row may name: MCP Test, MCP Test Cloud, a throwaway (by its name prefix, or the cloud
+    /// throwaway's exact name), or a notebook whose path lies in the run's probe folder.
+    /// </summary>
+    public static bool IsLoggable(string? name, string? path, string? runProbeRoot) =>
+        name is TestNotebook.NotebookName or TestNotebook.CloudNotebookName or TestNotebook.CloudThrowawayName
+        || name?.StartsWith(TestNotebook.ThrowawayNamePrefix, StringComparison.Ordinal) == true
+        || (runProbeRoot is not null && TestNotebookGuard.IsUnderRunProbeRoot(path, runProbeRoot));
+
+    /// <summary><c>ONENOTE</c>, <c>test host</c> (this process), <c>other</c>, or <c>none</c> when there is no foreground window.</summary>
+    public static string ProcessLabel(string? processName, string testHostName) =>
+        processName is null ? "none"
+        : string.Equals(processName, "ONENOTE", StringComparison.OrdinalIgnoreCase) ? "ONENOTE"
+        : string.Equals(processName, testHostName, StringComparison.OrdinalIgnoreCase) ? "test host"
+        : "other";
+
+    /// <summary>
+    /// The snapshot from a notebooks-scope read and, when the viewed notebook is loggable, its pages-scope tree: the
+    /// viewed notebook's name (or <see cref="OtherNotebook"/>), and the viewed section's and page's names inside a
+    /// loggable notebook (null when none is marked, or the notebook isn't loggable).
+    /// </summary>
+    public static ViewSnapshot Snapshot(long window, string process, XElement notebooks, XElement? viewedTree, string? runProbeRoot)
+    {
+        ArgumentNullException.ThrowIfNull(notebooks);
+        var viewed = notebooks.Elements(notebooks.Name.Namespace + "Notebook").FirstOrDefault(n => (string?)n.Attribute("isCurrentlyViewed") == "true");
+        if (viewed is null)
+        {
+            return new ViewSnapshot(window, process, null, null, null);
+        }
+
+        var name = (string?)viewed.Attribute("name");
+        if (!IsLoggable(name, (string?)viewed.Attribute("path"), runProbeRoot))
+        {
+            return new ViewSnapshot(window, process, OtherNotebook, null, null);
+        }
+
+        string? Marked(string kind) => viewedTree?.Descendants(viewedTree.Name.Namespace + kind)
+            .LastOrDefault(e => (string?)e.Attribute("isCurrentlyViewed") == "true") is { } e ? (string?)e.Attribute("name") ?? string.Empty : null;
+        var sameTree = viewedTree is not null && (string?)viewedTree.Attribute("ID") == (string?)viewed.Attribute("ID");
+        return new ViewSnapshot(window, process, name, sameTree ? Marked("Section") : null, sameTree ? Marked("Page") : null);
+    }
+
+    /// <summary>C1: per notebook of <paramref name="before"/>, whether it is still open with exactly the same IDs.</summary>
+    public static IReadOnlyList<IdsKept> CompareIds(IReadOnlyDictionary<string, HashSet<string>> before, IReadOnlyDictionary<string, HashSet<string>> after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        return before.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p =>
+        {
+            if (!after.TryGetValue(p.Key, out var now))
+            {
+                return new IdsKept(p.Key, false, false, p.Value.Count, 0, p.Value.Count, 0);
+            }
+
+            var lost = p.Value.Count(id => !now.Contains(id));
+            var gained = now.Count(id => !p.Value.Contains(id));
+            return new IdsKept(p.Key, true, lost == 0 && gained == 0, p.Value.Count, now.Count, lost, gained);
+        }).ToList();
+    }
+
+    /// <summary>C5's settings file: one write grant per notebook, keyed by its live path, granted via the CLI at <paramref name="grantedAt"/>.</summary>
+    public static string GrantSettingsJson(IReadOnlyList<(string Path, string Name)> grants, DateTime grantedAt)
+    {
+        ArgumentNullException.ThrowIfNull(grants);
+        var notebooks = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var (path, name) in grants)
+        {
+            // Core matches grants by NotebookKey (trailing separators trimmed); a raw cloud path ends in '/'.
+            notebooks[OneNoteMcp.Core.Access.GrantKeys.NotebookKey(path)] = new Dictionary<string, object>
+            {
+                ["name"] = name,
+                ["idAtGrant"] = "probe",
+                ["write"] = true,
+                ["permanentDelete"] = false,
+                ["grantedAt"] = ProbeXml.FormatUtc(grantedAt),
+                ["grantedVia"] = "cli",
+            };
+        }
+
+        return System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object> { ["schemaVersion"] = 1, ["notebooks"] = notebooks });
+    }
+
+    /// <summary>
+    /// C2: every element of a full hierarchy read whose name contains "Misplaced" (OneNote's Misplaced Sections), with
+    /// its kind, the loggable notebook it sits in (or <see cref="OtherNotebook"/>), and its children's names when they are
+    /// probe names (others counted only).
+    /// </summary>
+    public static IReadOnlyList<object> Misplaced(XElement all, string? runProbeRoot)
+    {
+        ArgumentNullException.ThrowIfNull(all);
+        return all.Descendants()
+            .Where(e => ((string?)e.Attribute("name"))?.Contains("Misplaced", StringComparison.OrdinalIgnoreCase) == true)
+            .Select(e =>
+            {
+                var notebook = e.AncestorsAndSelf(e.Name.Namespace + "Notebook").FirstOrDefault();
+                var loggable = notebook is null || IsLoggable((string?)notebook.Attribute("name"), (string?)notebook.Attribute("path"), runProbeRoot);
+                var children = e.Elements().Select(c => (string?)c.Attribute("name")).ToList();
+                return (object)new
+                {
+                    kind = e.Name.LocalName,
+                    name = (string?)e.Attribute("name"),
+                    notebook = notebook is null ? null : loggable ? (string?)notebook.Attribute("name") : OtherNotebook,
+                    probeChildren = loggable ? children.Where(n => n?.StartsWith(ProbeSession.ProbeNamePrefix, StringComparison.Ordinal) == true).ToList() : [],
+                    otherChildren = children.Count(n => !loggable || n?.StartsWith(ProbeSession.ProbeNamePrefix, StringComparison.Ordinal) != true),
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>A notebook as a row may log it: in full when loggable, else only <see cref="OtherNotebook"/>.</summary>
+    public static object Notebook(NodeInfo node, string? runProbeRoot)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        return IsLoggable(node.Name, node.Path, runProbeRoot) ? node : new { kind = node.Kind, name = OtherNotebook };
+    }
+}
+
+/// <summary>Spike 4.1 (O9): directory junctions in the run's probe folder, made with <c>mklink /J</c> and removed without being followed.</summary>
+internal static class Junctions
+{
+    /// <summary>Makes <paramref name="link"/> → <paramref name="target"/>; both strictly inside <paramref name="root"/>.</summary>
+    public static void Make(string link, string target, string root)
+    {
+        TestNotebookGuard.EnsureUnder("mklink", link, root);
+        TestNotebookGuard.EnsureUnder("mklink", target, root);
+        if (Directory.Exists(link) || File.Exists(link))
+        {
+            throw new InvalidOperationException($"Refusing mklink: {link} already exists.");
+        }
+
+        if (!Directory.Exists(target))
+        {
+            throw new InvalidOperationException($"Refusing mklink: {target} is not a folder.");
+        }
+
+        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"))
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var argument in new[] { "/d", "/c", "mklink", "/J", link, target })
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("cmd.exe didn't start.");
+        process.StandardOutput.ReadToEnd();
+        process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(30_000))
+        {
+            process.Kill(entireProcessTree: true);
+            throw new InvalidOperationException("mklink /J didn't finish within 30 s.");
+        }
+
+        if (process.ExitCode != 0 || !IsJunction(link))
+        {
+            throw new InvalidOperationException($"mklink /J failed (exit code {process.ExitCode}).");
+        }
+    }
+
+    /// <summary>
+    /// Removes the junction <paramref name="link"/> (strictly inside <paramref name="root"/>) without following it: the
+    /// link goes, its target and the target's files stay. False when nothing is there; refuses a real folder or a file.
+    /// </summary>
+    public static bool Remove(string link, string root)
+    {
+        TestNotebookGuard.EnsureUnder("remove junction", link, root);
+        if (!Directory.Exists(link) && !File.Exists(link))
+        {
+            return false;
+        }
+
+        if (!IsJunction(link))
+        {
+            throw new InvalidOperationException($"Refusing to remove {link}: it is not a junction.");
+        }
+
+        Directory.Delete(link, recursive: false); // removes the reparse point only
+        return true;
+    }
+
+    /// <summary>True when <paramref name="path"/> is a folder that is a reparse point (a junction or a symbolic link).</summary>
+    public static bool IsJunction(string path)
+    {
+        var info = new DirectoryInfo(path);
+        return info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint);
+    }
+}
