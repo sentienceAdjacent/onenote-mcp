@@ -136,6 +136,12 @@ Residual risk: a closing OneNote that keeps some visible window would still coun
 - Docs: AD-3 (Activation and Idle), the spine memlog (decision 276, through `memlog.py`), the README (Requirements, How it works), and the OneMore research note. The skill's `OneNoteNotRunning` row is unchanged, because the error's own `userAction` covers the closing case.
 - Verified: `dotnet build OneNoteMcp.slnx -warnaserror` gave 0 warnings and 0 errors. `dotnet test tests/OneNoteMcp.Tests`: 2957 passed.
 
+**Live check (2026-11-16 sitting, Phill): passed.** Built server (ccbfa6b), no other OneNoteMcp server running.
+- Check 1 (no server): from the same evening's sitting A run: ONENOTE.EXE ended about 12 s after the close; normal start.
+- Checks 2-3 (a server reading every second, the worst case): last ok read 23:25:42; the 23:25:43 read found no window and refused (`OneNoteNotRunning`, the closing message) without connecting; ONENOTE.EXE ended 23:25:44, about 1 s after the close (sitting A, before the fix: still alive 2.5 min later). No new ONENOTE.EXE appeared; later reads got plain "not running". Phill restarted OneNote at 23:27:22: normal start, and the next read was ok.
+- Check 4: two reads 7 s apart with OneNote minimised: both ok (121 ms, 47 ms).
+- Check 5: `get_page_content` then, 7 s later, `get_binary_page_content` with the image's `callbackID`: ok, no warnings. (The release itself isn't observed directly: the server's logs are off-limits to the session.)
+
 ## Plan Change Log
 
 ## Review Triage Log
