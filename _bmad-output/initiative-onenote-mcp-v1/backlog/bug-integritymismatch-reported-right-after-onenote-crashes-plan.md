@@ -3,7 +3,7 @@ title: 'Report OneNoteNotRunning when the integrity check finds no OneNote'
 type: 'bugfix'
 ticket: '4'
 created: '2026-11-16'
-status: 'built'
+status: done
 baseline_revision: 'b9d0698bfd9903cf9a6da67f9b9ce83b9c82f8ef'
 route: 'full'
 route_source: 'auto'
