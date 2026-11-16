@@ -248,4 +248,232 @@ public sealed class ProbeHelpersTests
             ProbeXml.PageHashWithout(Page("80.0", "105.5"), "Column", "width", Unlocked),
             ProbeXml.PageHashWithout(Page("80.0", "106.0"), "Column", "width", Unlocked));
     }
+
+    // --- Spike 3.1: the label scenario's URL redaction --------------------------------------------------------------
+
+    // A made-up tenant; the real one never lands in the repo.
+    private const string TenantPath = "https://contoso-my.sharepoint.com/sites/probes/Documents/Notebooks/MCP Test Tenant/";
+
+    [Theory]
+    [InlineData("""{"path":"https://contoso-my.sharepoint.com/sites/probes/Documents/MCP Test Tenant/probe label.one","x":1}""", """{"path":"tenant notebook","x":1}""")] // spaces inside a JSON value
+    [InlineData("""{"path":"https://contoso.sharepoint.com/sites/a\u0026b/MCP Test Tenant/"}""", """{"path":"tenant notebook"}""")] // a JSON \u escape
+    [InlineData("""{"m":"see https://contoso.sharepoint.com/x\"quoted\" here"}""", """{"m":"see tenant notebook\"quoted\" here"}""")] // stops before an escaped quote: still valid JSON
+    [InlineData("PAUSE [x / y]: open HTTPS://Contoso.SharePoint.com/a b. Then continue.", "PAUSE [x / y]: open tenant notebook")] // free text: the rest of the line goes too
+    [InlineData("""{"path":"https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Cloud/"}""", """{"path":"tenant notebook"}""")] // OneDrive personal too
+    [InlineData(@"C:\Users\me\AppData\Local\OneNoteMcp-Test\probes\publish\x.one", @"C:\Users\me\AppData\Local\OneNoteMcp-Test\probes\publish\x.one")] // local paths stay
+    [InlineData("{8E1AB522-1370-4579-98BC-7032B2A95A5E}{1}{B0}", "{8E1AB522-1370-4579-98BC-7032B2A95A5E}{1}{B0}")] // IDs stay
+    public void RedactLine_WithUrlsOn_ReplacesEveryUrl(string input, string expected) =>
+        Assert.Equal(expected, ProbeRecorder.RedactLine(input, urls: true, []));
+
+    [Fact]
+    public void RedactLine_WithUrlsOff_OnlyRedactsTheAccountId() =>
+        Assert.Equal(
+            """{"a":"https://contoso.sharepoint.com/MCP Test Tenant/","b":"https://d.docs.live.net/<cid>/Documents/"}""",
+            ProbeRecorder.RedactLine("""{"a":"https://contoso.sharepoint.com/MCP Test Tenant/","b":"https://d.docs.live.net/0123456789ABCDEF/Documents/"}""", urls: false, []));
+
+    [Fact]
+    public void RedactUrls_KnownTenantPath_IsReplacedInAnyForm()
+    {
+        const string Unc = @"\\contoso-my.sharepoint.com@SSL\DavWWWRoot\personal\someone\MCP Test Tenant\";
+        Assert.Equal("at tenant notebook\\probe label.one", ProbeRecorder.RedactUrls(@"at " + Unc + "probe label.one", [Unc]));
+        Assert.Equal("""{"p":"tenant notebook"}""", ProbeRecorder.RedactUrls("""{"p":"\\\\contoso-my.sharepoint.com@SSL\\DavWWWRoot\\personal\\someone\\MCP Test Tenant"}""", [Unc])); // JSON-escaped, no trailing separator
+        Assert.Equal("""{"p":"tenant notebook"}""", ProbeRecorder.RedactUrls($$"""{"p":"{{TenantPath}}"}""", [TenantPath]));
+    }
+
+    // --- Spike 3.1: landing poll, fresh folders, packages, merges ----------------------------------------------------
+
+    private static FileEntry[] Files(params (string Path, long Bytes)[] entries) => entries.Select(e => new FileEntry(e.Path, e.Bytes)).ToArray();
+
+    [Fact]
+    public void LandingTracker_FirstSeen_Growth_ThenStableAfterASecondUnchanged()
+    {
+        var tracker = new LandingTracker("x.docx");
+        Assert.False(tracker.Observe([], 0));
+        Assert.False(tracker.Observe(Files(("x.docx", 0)), 250)); // appears empty
+        Assert.False(tracker.Observe(Files(("x.docx", 4_000)), 500)); // grows
+        Assert.False(tracker.Observe(Files(("x.docx", 9_000)), 750));
+        Assert.False(tracker.Observe(Files(("x.docx", 9_000)), 1_500)); // unchanged for 750 ms only
+        Assert.True(tracker.Observe(Files(("x.docx", 9_000)), 1_750)); // a second unchanged
+
+        var result = tracker.Result(1_750);
+        Assert.Equal(250, result.FirstSeenMs);
+        Assert.Equal(750, result.StableMs);
+        Assert.True(result.Stable && result.TargetExists);
+        Assert.Equal(9_000, result.TargetBytes);
+        Assert.Equal([null, 0L, 4_000L, 9_000L], result.Changes.Select(ch => ch.TargetBytes));
+    }
+
+    [Fact]
+    public void LandingTracker_AnEmptyFileOrNothing_NeverSettles()
+    {
+        var tracker = new LandingTracker("x.onepkg");
+        Assert.False(tracker.Observe([], 0));
+        Assert.False(tracker.Observe([], 5_000)); // nothing landed
+        Assert.False(tracker.Observe(Files(("x.onepkg", 0)), 6_000));
+        Assert.False(tracker.Observe(Files(("x.onepkg", 0)), 9_000)); // still empty
+
+        var result = tracker.Result(9_000);
+        Assert.False(result.Stable);
+        Assert.Equal(6_000, result.FirstSeenMs);
+        Assert.Equal(0, result.TargetBytes);
+    }
+
+    [Fact]
+    public void LandingTracker_OtherFiles_CountButTheTargetIsNamed()
+    {
+        var tracker = new LandingTracker("x.htm");
+        tracker.Observe(Files(("x_files", -1), ("x_files\\image001.png", 120)), 0); // a folder and an image, no target yet
+        Assert.True(tracker.Observe(Files(("x_files", -1), ("x_files\\image001.png", 120)), 1_000));
+
+        var result = tracker.Result(1_000);
+        Assert.False(result.TargetExists);
+        Assert.Null(result.TargetBytes);
+        Assert.Equal(1, result.Changes[0].Files); // folders aren't counted as files
+    }
+
+    [Fact]
+    public void TimeoutProbe_TargetGrew_OnlyWhenTheTargetItselfGetsBigger()
+    {
+        Assert.True(Round2TimeoutProbe.TargetGrew([new(0, 0, 0, null), new(250, 1, 100, 100), new(500, 1, 900, 900)]));
+        Assert.False(Round2TimeoutProbe.TargetGrew([new(0, 1, 900, 900), new(250, 2, 1_500, 900)])); // another file grew, the target didn't
+        Assert.False(Round2TimeoutProbe.TargetGrew([new(0, 1, 900, 900)])); // already whole at the first poll
+        Assert.False(Round2TimeoutProbe.TargetGrew([new(0, 1, 900, 900), new(250, 1, 100, 100)])); // shrank
+        Assert.False(Round2TimeoutProbe.TargetGrew([]));
+    }
+
+    [Fact]
+    public void FreshFolder_NewEachTime_AndOnlyASingleName()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "onenote-mcp-probes-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            Assert.Equal(Path.Combine(root, "x1"), ProbeSession.FreshFolder(root, "x1"));
+            Assert.Equal(Path.Combine(root, "x1-2"), ProbeSession.FreshFolder(root, "x1"));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(root, "x1-2")));
+            Assert.Throws<InvalidOperationException>(() => ProbeSession.FreshFolder(root, @"..\x"));
+            Assert.Throws<InvalidOperationException>(() => ProbeSession.FreshFolder(root, @"a\b"));
+            Assert.Throws<InvalidOperationException>(() => ProbeSession.FreshFolder(root, " "));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Snapshot_ListsFilesAndFoldersRelative_Sorted()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "onenote-mcp-probes-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "x_files"));
+        File.WriteAllText(Path.Combine(root, "x_files", "a.png"), "12");
+        File.WriteAllText(Path.Combine(root, "x.htm"), "1234");
+        try
+        {
+            Assert.Equal(Files(("x.htm", 4), ("x_files", -1), (Path.Combine("x_files", "a.png"), 2)), ProbeSession.Snapshot(root));
+            Assert.Empty(ProbeSession.Snapshot(Path.Combine(root, "absent")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractPackage_RefusesPathsOutsideTheRoot_AndAFolderInUse()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "onenote-mcp-probes-test", Guid.NewGuid().ToString("N"));
+        var used = Path.Combine(root, "used");
+        Directory.CreateDirectory(used);
+        File.WriteAllText(Path.Combine(used, "keep.txt"), "x");
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => ProbeSession.ExtractPackageAsync(@"D:\Elsewhere\x.onepkg", Path.Combine(root, "out"), root));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => ProbeSession.ExtractPackageAsync(Path.Combine(root, "x.onepkg"), @"D:\Elsewhere\out", root));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => ProbeSession.ExtractPackageAsync(Path.Combine(root, "x.onepkg"), used, root));
+            Assert.Equal(["keep.txt"], Directory.EnumerateFileSystemEntries(used).Select(Path.GetFileName));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NewPageIds_AreTheDestinationsPagesNotThereBefore()
+    {
+        var section = XElement.Parse($$"""<one:Section xmlns:one="{{Ns}}" ID="{D}"><one:Page ID="{D1}" /><one:Page ID="{M2}" /><one:Page ID="{M1}" /></one:Section>""");
+
+        Assert.Equal(["{D1}", "{M1}", "{M2}"], ProbeSession.PageIds(section).Order(StringComparer.Ordinal));
+        Assert.Equal(["{M1}", "{M2}"], ProbeSession.NewPageIds(new HashSet<string> { "{D1}" }, section));
+    }
+
+    [Fact]
+    public void RecycleBin_IsTheBinGroupAndItsDeletedPages()
+    {
+        var notebook = XElement.Parse($$"""
+            <one:Notebook xmlns:one="{{Ns}}" ID="{T}">
+              <one:SectionGroup name="g" ID="{G}" />
+              <one:SectionGroup name="OneNote_RecycleBin" ID="{BIN}" isRecycleBin="true">
+                <one:Section name="Deleted Pages" ID="{DP}" isDeletedPages="true" />
+                <one:Section name="probe x" ID="{RS}" isInRecycleBin="true" />
+              </one:SectionGroup>
+            </one:Notebook>
+            """);
+
+        var (bin, deleted) = ProbeSession.RecycleBin(notebook);
+        Assert.Equal("{BIN}", bin);
+        Assert.Equal(["{DP}"], deleted);
+        Assert.Null(ProbeSession.RecycleBin(XElement.Parse($$"""<one:Notebook xmlns:one="{{Ns}}" ID="{T}" />""")).Bin);
+    }
+
+    // --- Spike 3.1: the scenarios' pure parts --------------------------------------------------------------------
+
+    [Fact]
+    public void X1Formats_AreEveryFormatButPfOneNote_AndAllFormatsAddIt()
+    {
+        Assert.Equal(8, Round2ExportProbes.X1Formats.Length);
+        Assert.DoesNotContain(PublishFormat.pfOneNote, Round2ExportProbes.X1Formats);
+        Assert.Equal(Enum.GetValues<PublishFormat>().Order(), Round2ExportProbes.AllFormats.Order());
+        Assert.Equal(9, Round2ExportProbes.AllFormats.Select(Round2ExportProbes.Extension).Count()); // every format has an extension
+        Assert.Equal(".onepkg", Round2ExportProbes.Extension(PublishFormat.pfOneNotePackage));
+        Assert.Equal(".docx", Round2ExportProbes.Extension(PublishFormat.pfWord));
+    }
+
+    [Fact]
+    public void PageLevelXml_SetsOnlyTheLevel()
+    {
+        var page = XElement.Parse(Round2.PageLevelXml("{P}", 2));
+
+        Assert.Equal(XName.Get("Page", Ns), page.Name);
+        Assert.Equal("{P}", (string?)page.Attribute("ID"));
+        Assert.Equal("2", (string?)page.Attribute("pageLevel"));
+        Assert.Empty(page.Elements());
+    }
+
+    [Fact]
+    public void PageSpot_ReadsSectionPositionLevelAndRecycleBin()
+    {
+        var notebook = XElement.Parse($$"""
+            <one:Notebook xmlns:one="{{Ns}}" ID="{T}">
+              <one:Section name="s" ID="{S}"><one:Page ID="{A}" name="a" /><one:Page ID="{B}" name="b" pageLevel="2" lastModifiedTime="2026-11-15T10:00:00.000Z" dateTime="2026-11-15T09:00:00.000Z" /></one:Section>
+              <one:SectionGroup name="OneNote_RecycleBin" ID="{BIN}" isRecycleBin="true"><one:Section name="Deleted Pages" ID="{DP}"><one:Page ID="{R}" name="a" /></one:Section></one:SectionGroup>
+            </one:Notebook>
+            """);
+        var pages = notebook.Descendants(XName.Get("Page", Ns)).ToList();
+
+        var b = PageSpot.From("local", pages[1]);
+        Assert.Equal(("{S}", "s", 2, "2", false), (b.SectionId, b.SectionName, b.Position, b.PageLevel, b.InRecycleBin));
+        Assert.Equal("2026-11-15T09:00:00.000Z", b.DateTime);
+        Assert.True(PageSpot.From("local", pages[2]).InRecycleBin);
+    }
+
+    [Fact]
+    public void LabelProbe_FirstSection_SkipsTheRecycleBin() =>
+        Assert.Equal("{S}", Round2LabelProbe.FirstSection(XElement.Parse($$"""
+            <one:Notebook xmlns:one="{{Ns}}" ID="{T}">
+              <one:SectionGroup name="OneNote_RecycleBin" ID="{BIN}" isRecycleBin="true"><one:Section name="Deleted Pages" ID="{DP}" /></one:SectionGroup>
+              <one:Section name="probe label" ID="{S}" />
+            </one:Notebook>
+            """)));
 }
