@@ -3,12 +3,13 @@ title: 'Make a page a subpage'
 type: 'feature'
 ticket: '14'
 created: '2026-11-17'
-status: 'draft'
+status: 'built'
+baseline_revision: '2af944aecc2c726e090624b438162d1e63806855'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -104,14 +105,14 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `PageLevels` (new, pure) -- validate a level change and the subpage placement, and return the members with their new levels -- every matrix rule in one place.
-- [ ] `src/OneNoteMcp.Core/Writes/SetPageLevelWrite.cs` (new) -- the op, per the Always rules.
-- [ ] `SetPageLevelUseCase.cs`, `SetPageLevelTool.cs`, `ServerSetup.cs` -- `set_page_level`. The description covers the absolute level, the parent rule, subpages moving with the page, the basis, and protected sections.
-- [ ] `CreatePageUseCase.cs`, `CreatePageTool.cs` -- `parentPageId`, Q4's warning, and how to make a subpage.
-- [ ] `ToolWarnings.cs`, the contract snapshot, binding and packaging tests -- 26 tools. `<Version>` stays `0.9.0-rc.1`.
-- [ ] `tests/OneNoteMcp.Tests/PageLevelsTests.cs`, `SetPageLevelToolTests.cs`, `CreatePageToolTests.cs` -- every matrix row, the XML sent (order and every level), the unchanged path, the cache drop, refusals before any dialog or COM call, and create-without-parent unchanged.
-- [ ] `tests/OneNoteMcp.Integration/SetPageLevelIntegrationTests.cs` (new) -- see S1.
-- [ ] The spine sync, the memlog and the research-note row.
+- [x] `PageLevels` (new, pure) -- validate a level change and the subpage placement, and return the members with their new levels -- every matrix rule in one place.
+- [x] `src/OneNoteMcp.Core/Writes/SetPageLevelWrite.cs` (new) -- the op, per the Always rules.
+- [x] `SetPageLevelUseCase.cs`, `SetPageLevelTool.cs`, `ServerSetup.cs` -- `set_page_level`. The description covers the absolute level, the parent rule, subpages moving with the page, the basis, and protected sections.
+- [x] `CreatePageUseCase.cs`, `CreatePageTool.cs` -- `parentPageId`, Q4's warning, and how to make a subpage.
+- [x] `ToolWarnings.cs`, the contract snapshot, binding and packaging tests -- 26 tools. `<Version>` stays `0.9.0-rc.1`.
+- [x] `tests/OneNoteMcp.Tests/PageLevelsTests.cs`, `SetPageLevelToolTests.cs`, `CreatePageToolTests.cs` -- every matrix row, the XML sent (order and every level), the unchanged path, the cache drop, refusals before any dialog or COM call, and create-without-parent unchanged.
+- [x] `tests/OneNoteMcp.Integration/SetPageLevelIntegrationTests.cs` (new) -- see S1.
+- [x] The spine sync, the memlog and the research-note row.
 
 **Acceptance Criteria:**
 - Given a page in a granted MCP Test section, when Claude calls `set_page_level` with level 2, then OneNote shows the page indented under the page before it, and every other page's level is unchanged.
@@ -119,9 +120,35 @@ context:
 
 ## Implementation Notes
 
+- **Judgment calls the plan left open.**
+  - `set_page_level` re-resolves the page's notebook under the lock (`PageLocationAsync`), as the move does, and refuses a changed `NotebookKey` with `WriteNotGranted`, retryable (AD-7's re-resolve). The plan didn't ask for it; it costs one walk.
+  - `create_page` with `parentPageId` returns `meta.journalEntryId` (the section's entry), and a step-7 failure names it, as the other hierarchy writes do. Without a parent, `meta` is unchanged.
+  - With a parent, step 1 reads the section at `children` and checks, in order: not a section or in the recycle bin (`ObjectNotFound`, as step 4 already did), locked (`SectionLocked`), protected without the read grant (`ReadNotGranted`), then the parent (`InvalidArgument`). Step 4 repeats them against step 3's read.
+  - A placement whose re-read can't find the parent or the new page throws inside the try, so it becomes `subpageNotPlaced` with no `UpdateHierarchy`. A placement read-back checks the new page's position and level only; `set_page_level`'s read-back checks every page sent (gone, level, order).
+  - `PageLevels` lives in `OneNoteMcp.Xml` and returns a `PageLevelProblem` plus the offending page's ID; Core turns it into messages with IDs and levels only. `HierarchyUpdate.Reorder` expresses both writes, so no new builder was added.
+  - `CreatePageTool`'s `parentPageId` is the method's last parameter, after `cancellationToken` and `server`, so the existing positional calls in `CreatePageToolTests` compile unchanged; the schema lists it third.
+- **Files touched beyond the task list.** `ToolMeta.cs` (doc comment only); `McpSdkBindingTests.cs` (26 tools, 64 properties over 25 tools, `create_page`'s argument list in two messages, and an integer required argument handled by the two generic theories); `ToolContractTests.cs` and `NavigateToToolTests.cs` (the new tool listed). The contract snapshot only grew: `set_page_level`, and `parentPageId` on `create_page`. `<Version>` stays `0.9.0-rc.1`.
+- **Spine sync (Q6):** AD-5 and AD-14 (the tool), AD-6's read-grant exceptions, AD-7 `Create` validation (a `parentPageId` sub-bullet), `HierarchyWrite` validation (a new **Page levels** bullet, which also records that locked comes before `ReadNotGranted` here, unlike step 1.2), the AD-7 table's `Create` and `HierarchyWrite` rows, and AD-21 Writes (the read-grant exception). One memlog entry. Not Fable-reviewed yet.
+- **Research note row 29** was written from OneMore's code at `4ece17f` (read 2026-11-17 with `gh api`): `CreateChildPage` places the child straight after the parent, sets `pageLevel` on the hierarchy element and the page XML's root, and checks no cap; `SectionEditor.MovePageToParent` does the same for an existing page.
+- **Not TDD for the tool tests.** Only `PageLevelsTests` was written first (it failed to compile before `PageLevels` existed). `SetPageLevelToolTests` and the `parentPageId` tests in `CreatePageToolTests` were written after the code, against the plan's TDD rule, so none of them was seen failing first. As a partial substitute, a mutation check ran: with the gap-after rule disabled, 2 tests failed; with the locked check skipped for protected sections, 2 failed; with `create_page`'s placement catch narrowed and its read-grant check disabled, 4 failed. Each file was restored and the suite rerun green.
+- **Verification (2026-11-17):**
+  - `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors.
+  - `dotnet test tests/OneNoteMcp.Tests`: 3,176 passed, 0 failed.
+  - `dotnet test tests/OneNoteMcp.Integration` with no integration variable: 217 passed, 101 skipped, 0 failed. The 4 new live tests are skipped.
+  - Sittings S1 and S2 not run (the main session runs them with Phill).
+
+- Verification after the review patches (2026-11-17): `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings; `dotnet test tests/OneNoteMcp.Tests` 3,177 passed; `dotnet test tests/OneNoteMcp.Integration` without the variable 217 passed, 101 skipped, 0 failed.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-17, quick lens, iteration 0: 0 high, 1 medium, 1 low, 0 false, 0 maybe-false. Both were patched; nothing was deferred.
+  - **medium, patch.** `CreatePage.CallAsync` caught an abandoned placement `UpdateHierarchy` (a timeout, a cancel, the deadline or the call-failed HRESULT) as a plain failure. Its `subpageNotPlaced` message said the page "is at the end of the section at level 1", though OneNote may still apply the call. And because `CallAsync` returned normally, the pipeline released the lock at once instead of waiting for the abandoned call to settle (AD-3, AD-18). Verified in `WritePipeline.RunAsync`: `callFailed` was false, so `settling` was already complete. Fix:
+    - The warning now says the page "may or may not have been placed" when the placement was sent and the failure is ambiguous.
+    - `WritePipeline` keeps the lock after a step 7 that returned whenever an abandoned write is outstanding. Step 2 refuses any write already outstanding, so one outstanding once step 7 has started belongs to this write; the step-2 `ComBusy` refusal still releases at once.
+    - New test: `CreatePageToolTests.APlacementTimeout_IsSubpageNotPlaced_SayingItMayHaveBeenPlaced_AndKeepsTheLockUntilItSettles`. It failed before the fix. The first, global version of the pipeline change broke three step-2 `ComBusy` tests; it was narrowed to the case after step 7 starts, and all three pass again.
+  - **low, patch.** The doc comment on `SetPageLevelWrite.ReadBackDifferences` said the method was shared with `create_page`'s placement. It isn't: that has its own check. Fix: the sentence was removed.
 
 ## Design Notes
 
@@ -139,6 +166,7 @@ The sitting settles several unknowns: whether the page keeps its ID, whether `Ge
 - `dotnet build OneNoteMcp.slnx -warnaserror` -- expected: 0 warnings.
 - `dotnet test tests/OneNoteMcp.Tests` -- expected: all pass, the contract snapshot included.
 - `dotnet test tests/OneNoteMcp.Integration` with no integration variable -- expected: it builds, and every live test is skipped.
+- TDD: write each new test first and watch it fail before writing the code.
 
 **Sitting steps.** The main session runs these with Phill. The build never runs them, never sets the integration variable, never touches OneNote, and never reads OneNoteMcp's app-data folders.
 - **S1.** MCP Test is open, and the Ballast Vault starts unlocked. Run `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~SetPageLevelIntegrationTests`. Phill locks the Vault at the pause. Expected: all pass, and the output records each `RESULT` line. The run makes its own section and checks the following:

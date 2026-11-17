@@ -121,4 +121,12 @@ public static class ToolWarnings
     /// spike 3.1 M1d; story 3.4). Names the source section's ID and the count step 3 read, never a name.
     /// </summary>
     public const string SubpagesLeftBehind = "subpagesLeftBehind";
+
+    /// <summary>
+    /// <c>create_page</c> with <c>parentPageId</c> made the page, but couldn't make it a subpage (an exception, the parent
+    /// gone, the deadline or a cancel), so it is at the end of the section at level 1 (story 3.14 Q4). Names the page's,
+    /// the parent's and the section's IDs only. Its userAction names <c>set_page_level</c> and
+    /// <c>reorder_hierarchy_children</c>.
+    /// </summary>
+    public const string SubpageNotPlaced = "subpageNotPlaced";
 }
