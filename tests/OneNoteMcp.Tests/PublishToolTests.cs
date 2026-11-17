@@ -418,7 +418,12 @@ public sealed class PublishToolTests : IDisposable
             data.Add(id, PublishFormatArgument.Docx, "x.docx", ExportFormat.Word);
             data.Add(id, PublishFormatArgument.Mhtml, "x.mht", ExportFormat.Mhtml);
             data.Add(id, PublishFormatArgument.Html, "x.htm", ExportFormat.Html);
-            data.Add(id, PublishFormatArgument.Emf, "x.emf", ExportFormat.Emf);
+            if (id == PageId)
+            {
+                // A section's EMF is refused (the 3.13 sitting): ASectionAsEmf_IsNotSupported_BeforeCom.
+                data.Add(id, PublishFormatArgument.Emf, "x.emf", ExportFormat.Emf);
+            }
+
             data.Add(id, PublishFormatArgument.One, "x.one", ExportFormat.OneNote);
             data.Add(id, PublishFormatArgument.Onepkg, "x.onepkg", ExportFormat.OneNotePackage);
         }
@@ -437,17 +442,22 @@ public sealed class PublishToolTests : IDisposable
         Assert.Equal(expected, root.GetProperty("meta").GetProperty("outputPath").GetString());
         Assert.Equal((objectId, expected, sent), Assert.Single(gateway.PublishCalls));
         Assert.True(File.Exists(expected));
-        var warnings = root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToList();
-        if (objectId == SectionId && format == PublishFormatArgument.Emf)
-        {
-            Assert.Equal(["emfMayHoldOnePage"], warnings);
-        }
-        else
-        {
-            Assert.Empty(warnings);
-        }
+        Assert.Empty(root.GetProperty("warnings").EnumerateArray());
 
         await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ASectionAsEmf_IsNotSupported_BeforeCom()
+    {
+        // The 3.13 sitting (2026-11-17): a 4-page section's EMF showed only its first page, so Phill had it refused.
+        var error = Error(await Tool().Publish(SectionId, "x.emf", PublishFormatArgument.Emf, Ct), "NotSupported");
+
+        Assert.Contains(SectionId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        var userAction = error.GetProperty("userAction").GetString();
+        Assert.Contains("each page as EMF", userAction, StringComparison.Ordinal);
+        Assert.Contains("PDF", userAction, StringComparison.Ordinal);
+        await AssertRefusedAsync();
     }
 
     [Theory]

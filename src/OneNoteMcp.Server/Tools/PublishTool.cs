@@ -27,7 +27,7 @@ public sealed class PublishTool(ToolRunner runner, PublishUseCase useCase)
     [Description(
         "Writes a file on this PC: exports one OneNote page or one section. Call it only when the user asks for an export. OneNote itself is not changed. "
         + "format and the extension path must end in: pdf (.pdf), xps (.xps), docx (.docx, Word), mhtml (.mht or .mhtml, a single-file web page), html (.htm or .html; its images may go into a folder named <file name>_files beside it), "
-        + "emf (.emf; a section's EMF may show only one page, warning emfMayHoldOnePage), one (.one, OneNote's section file) or onepkg (.onepkg, a OneNote package). "
+        + "emf (.emf; a page only: a section's EMF holds only its first page, so a section as emf fails with NotSupported; export each page as EMF, or the section as PDF), one (.one, OneNote's section file) or onepkg (.onepkg, a OneNote package). "
         + "Files go only under the export roots: the folders in exportRoots in the user's settings.json, by default Documents\\OneNote Exports (created on first use). Only the user can change them. "
         + "path is a file name such as \"Meeting notes.pdf\" or \"Project\\Meeting notes.docx\", resolved under the first export root, or a full local path inside one. "
         + "A path outside every export root fails with ExportPathNotAllowed; a network, device or malformed path, or one whose extension doesn't fit format, with InvalidArgument. "

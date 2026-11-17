@@ -117,12 +117,6 @@ public static class ToolWarnings
     public const string ExportNotEncrypted = "exportNotEncrypted";
 
     /// <summary>
-    /// A section exported as EMF: every page or section EMF in spike 3.1 was the same size, so a section's EMF may hold only
-    /// one page (spine Deferred; story 3.13 plan Q2). Names the section's ID only. Its userAction says to tell the user.
-    /// </summary>
-    public const string EmfMayHoldOnePage = "emfMayHoldOnePage";
-
-    /// <summary>
     /// A page move left the page's subpages in the source section, where OneNote promotes them to level 1 (AD-7 Moves;
     /// spike 3.1 M1d; story 3.4). Names the source section's ID and the count step 3 read, never a name.
     /// </summary>

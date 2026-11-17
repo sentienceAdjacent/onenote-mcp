@@ -58,6 +58,7 @@ context:
 
 - **Q1, a. Wire names and extensions** (public contract, AD-14): `format` is `pdf`, `xps`, `docx`, `mhtml`, `html`, `emf`, `one` or `onepkg`, default `pdf`; `path` must end in that format's extension, `.mht`/`.mhtml` and `.htm`/`.html` both accepted, else `InvalidArgument`. Rejected: inferring the format from the extension (b, breaks 3.3's argument); one extension per format (c).
 - **Q2, a. A section's EMF** (spine Deferred row): offered, with the warning `emfMayHoldOnePage` on every section EMF; sitting S2 checks a multi-page section, and if it holds every page a follow-up drops the warning. Rejected: refusing it (b); no warning (c).
+  - **Superseded by Phill, 2026-11-17, after sitting S2:** a 4-page section's EMF showed only its first page, so `publish` refuses a section as EMF with `NotSupported` before any write, its `userAction` saying to export each page as EMF or the section as PDF. A page as EMF is unchanged; the `emfMayHoldOnePage` warning is gone.
 - **Q3, a. HTML's companion folder:** X1's probe pages held no images, and OneMore puts each HTML export in its own folder (`Archivist.ExportHTML`), which suggests extra files (inferred). HTML is offered; for `html`, an existing `<stem>_files` beside the target is also `FileExists`; the description says images may land in a folder beside the file; sitting S3 records what lands. Rejected: leaving HTML out until a sitting (b).
 
 </frozen-after-approval>
@@ -96,10 +97,12 @@ context:
 
 - Implemented directly in this lane (a build lane already running as a subagent), not through a further subagent. The new unit tests were written before the code, but not run red on their own first.
 - `PublishPage` became `PublishTarget`; a section is found by the `self` read only after the walk finds no owning section, so 3.3's walk-first order stands. Under the lock a section is re-read at `self` (its ID survives a move).
-- `ExportTarget.Resolve` takes the format; `ExportTarget.Extensions(format)` and `FilesFolder(target)` are public for the use case and tests. `PagesOnlyUserAction` now reads "a page's or a section's ID"; new `GroupUserAction`, `NotebookUserAction`, `EmfOnePageUserAction`.
+- `ExportTarget.Resolve` takes the format; `ExportTarget.Extensions(format)` and `FilesFolder(target)` are public for the use case and tests. `PagesOnlyUserAction` now reads "a page's or a section's ID"; new `GroupUserAction`, `NotebookUserAction`, `EmfOnePageUserAction` (since replaced by `SectionEmfUserAction`, after sitting S2).
 - Tests touched beyond the plan's list: `ComGatewayTests` (`(ExportFormat)2` is now XPS, so the unknown-value row uses 99; a test that the enum has eight members, none named 2007), and 3.3's link test now expects "doesn't end in .pdf". The contract snapshot changed only in `publish.format.enum`; tool count and property counts are unchanged.
 
 ## Plan Change Log
+
+- 2026-11-17, after the sitting: Q2 changed by Phill from "offer a section's EMF with a warning" to "refuse it" (see Q2). Code: the section-plus-EMF refusal in `PublishUseCase.AuthorizeAsync`, right after the target is found to be a section; `ToolWarnings.EmfMayHoldOnePage` removed; the tool description says so. The contract snapshot is unchanged (it strips descriptions).
 
 ## Review Triage Log
 
@@ -112,6 +115,7 @@ context:
   - **low, rejected.** No protected-page test in a non-PDF format, and no extension-mismatch test for a section: both go through the same format-agnostic code the section `docx` and page mismatch tests cover.
   - **false.** "The Timeout wording names a section as a page": `What` comes from `isSection`, now shown by the new section test.
   - **low, patch.** Stale comments: `IOneNoteGateway.PublishAsync` named 3.3's PDF as the only `publish` caller; `PagesOnlyUserAction` renamed `ObjectIdUserAction`.
+- 2026-11-17, sitting with Phill (S1 to S3): S2 found that a section's EMF holds only its first page. **Decision (Phill, Inbox):** refuse a section as EMF with `NotSupported` before any write; patched test-first (`ASectionAsEmf_IsNotSupported_BeforeCom`, red then green), the warning removed.
 
 ## Verification
 
@@ -124,3 +128,5 @@ context:
 - S1: MCP Test open, Ballast Vault unlocked. `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~PublishIntegrationTests`; Phill presses Ctrl+Alt+L at the pause. Expected: all pass, only temp files.
 - S2: with the dev build (`onenote-dev`), export a multi-page MCP Test section as EMF; Phill opens it (for example inserted into Word) and says how many pages it shows (Q2). Record it in the spine's Deferred row through Phill.
 - S3: export an MCP Test page holding an image as HTML; record what lands beside the `.htm` (Q3). Then each format of one page from Claude Code; Phill opens a few and deletes them.
+
+**Sitting status (2026-11-17, with Phill): done.** S1: 10 of 10 `PublishIntegrationTests` passed. S2: a 4-page section (T1, S2 parent, T2, T3) as EMF showed only the first page (T1) in Paint; recorded in the spine's Deferred row, and Phill decided to refuse a section as EMF (Q2, Plan Change Log). S3: an HTML export of a page with an image left a `<name>_files` folder holding `image001.png` and `filelist.xml` beside the `.htm`; all seven page formats exported.

@@ -27,7 +27,7 @@ public enum ExportFormat
     /// <summary>A web page (<c>pfHTML</c>); its images may land in a folder beside it (3.13 plan Q3).</summary>
     Html,
 
-    /// <summary>An enhanced metafile (<c>pfEMF</c>); a section's may hold only one page (spine Deferred; 3.13 plan Q2).</summary>
+    /// <summary>An enhanced metafile (<c>pfEMF</c>); pages only: a section's holds only its first page, so publish refuses it (the 3.13 sitting).</summary>
     Emf,
 
     /// <summary>A OneNote package (<c>pfOneNotePackage</c>), a <c>.onepkg</c> file that can land after the call returns.</summary>

@@ -31,8 +31,9 @@ namespace OneNoteMcp.Core.UseCases;
 /// failure names the output path (AD-11), through <see cref="WriteOperation{TResult}.FailureNote"/>.</item>
 /// </list>
 /// The result is <c>meta.objectId</c> and <c>meta.outputPath</c> (canonical), with the warning <c>exportNotEncrypted</c> for
-/// a protected section or a page in one (a section's package too: H1 relaxes only notebook packages), and
-/// <c>emfMayHoldOnePage</c> for a section's EMF (3.13 plan Q2). Messages name IDs and the caller's own output path, never a name or content (AD-9, AD-21).
+/// a protected section or a page in one (a section's package too: H1 relaxes only notebook packages). A section as EMF is
+/// refused with <see cref="ErrorCode.NotSupported"/> in step 1, before any write: the 3.13 sitting found that it holds only
+/// the first page (Phill, 2026-11-17). Messages name IDs and the caller's own output path, never a name or content (AD-9, AD-21).
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class PublishUseCase : IUseCase
@@ -52,9 +53,9 @@ public sealed class PublishUseCase : IUseCase
     public const string NotebookUserAction =
         "Notebooks export as a package in a later release. For now, export the notebook's sections one by one (get_hierarchy with scope sections lists them).";
 
-    /// <summary>The <c>emfMayHoldOnePage</c> warning's <c>userAction</c> (3.13 plan Q2).</summary>
-    public const string EmfOnePageUserAction =
-        "Tell the user that a section's EMF may show only one of its pages. For every page, export the section as PDF, or each page as EMF.";
+    /// <summary>What to do with a section as EMF (the 3.13 sitting: it holds only the first page).</summary>
+    public const string SectionEmfUserAction =
+        "A section's EMF holds only its first page, so publish refuses it. Export each page as EMF (get_hierarchy with scope pages lists them), or the section as PDF.";
 
     /// <summary>What to do without the read grant a protected page's export needs (AD-21 Exports).</summary>
     public const string ReadFirstUserAction =
@@ -180,6 +181,16 @@ public sealed class PublishUseCase : IUseCase
             {
                 section = await TheSectionItselfAsync(ct).ConfigureAwait(false);
                 isSection = true;
+
+                // The 3.13 sitting (Phill, 2026-11-17): a section's EMF holds only its first page, so it is refused.
+                if (format == ExportFormat.Emf)
+                {
+                    throw new OneNoteException(
+                        ErrorCode.NotSupported,
+                        $"Section {objectId} can't be exported as EMF, so nothing was exported.",
+                        userAction: SectionEmfUserAction,
+                        retryable: false);
+                }
             }
 
             // settings.json must be writable (AD-10), and the export roots come from the same read.
@@ -189,15 +200,6 @@ public sealed class PublishUseCase : IUseCase
 
             // AD-21 Exports: the section's read grant, held now, never prompted.
             CheckReadGrant(section);
-
-            // Spine Deferred, 3.13 plan Q2: a section's EMF may hold only one page.
-            if (isSection && format == ExportFormat.Emf)
-            {
-                warnings.Add(new ToolWarning(
-                    ToolWarnings.EmfMayHoldOnePage,
-                    $"Section {objectId}'s EMF may show only one of its pages.",
-                    EmfOnePageUserAction));
-            }
         }
 
         public override async Task ReadAsync(CancellationToken ct)
