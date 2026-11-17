@@ -32,4 +32,4 @@ id = 4
 slug = "epic-round-3-app-state-and-ui"
 title = "Round 3: app state and UI"
 covers = ["R9"]
-after = [{ epic = 3, needs = "the class dispatch, tool registration and skill as left by round 2 (same files)" }]
+after = []

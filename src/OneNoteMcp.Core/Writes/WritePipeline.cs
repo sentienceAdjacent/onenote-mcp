@@ -12,14 +12,18 @@ namespace OneNoteMcp.Core.Writes;
 /// <item>Access check (<see cref="WriteOperation{TResult}.AuthorizeAsync"/>). When it finds a notebook with a path but no
 /// write grant, and the call can ask (<see cref="ToolCallContext.Prompt"/>), it raises the write-grant dialog
 /// (<see cref="WriteGrantDialog"/>, AD-6) with the deadline paused and on the client's token only, then runs the check
-/// once more, with no second grant dialog. A page write whose XML names new file paths throws
+/// once more, with no second grant dialog for the same notebook key (a move between two notebooks may ask once for each,
+/// story 3.4 Q3). A page write whose XML names new file paths throws
 /// <see cref="FilePathsUnconfirmed"/> from step 1; the runner then raises the file-path dialog (<see cref="FilePathDialog"/>,
 /// AD-7) the same way, at most once, and runs step 1 again. A permanent delete without a stored permanent-delete grant
 /// throws <see cref="PermanentDeleteUnconfirmed"/>; the runner raises the one-call confirmation
 /// (<see cref="PermanentDeleteDialog"/>; 5.6 plan Q1 c) the same way, at most once, and runs step 1 again.</item>
 /// <item>Take the write lock (AD-18), waiting up to <c>timeouts.callSeconds</c>, capped by what is left of the deadline.
 /// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable. Then, while the gateway reports an abandoned write
-/// still outstanding, the pipeline is <see cref="ErrorCode.ComBusy"/>, retryable, before anything is read (AD-3).</item>
+/// still outstanding, the pipeline is <see cref="ErrorCode.ComBusy"/>, retryable, before anything is read (AD-3). Then every
+/// notebook whose write grant step 1 checked is walked to again (<see cref="WriteAccess.ReResolveAsync"/>): one that changed
+/// is <see cref="ErrorCode.WriteNotGranted"/>, retryable, before step 3 (AD-7; story 3.12), unless the operation re-resolves
+/// its own (<see cref="WriteOperation{TResult}.ReResolvesNotebooks"/>).</item>
 /// <item>Read the current state; 4. validate; 5. optimistic check; 6. snapshot (AD-8). A step-6 failure that isn't a
 /// <see cref="OneNoteException"/> (the snapshot's own COM reads keep their codes) or a cancellation becomes
 /// <see cref="ErrorCode.JournalFailed"/>; like any failure before step 7, it is never <c>outcomeUnknown</c>. A step-6 write
@@ -104,20 +108,24 @@ public sealed class WritePipeline
         try
         {
             // 1. Access check. A missing write grant may raise the grant dialog (AD-6), and new file paths in a page write
-            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once.
-            var askedGrant = false;
+            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once, the grant
+            // dialog at most once per notebook key, so a move between two notebooks can ask for both (story 3.4 Q3).
+            var askedGrant = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var askedPaths = false;
             var askedPermanent = false;
+            var granted = WriteAccess.BeginLedger();
             while (true)
             {
                 try
                 {
+                    // Only the grants of the try that passes count (story 3.12).
+                    granted.Clear();
                     await operation.AuthorizeAsync(token).ConfigureAwait(false);
                     break;
                 }
-                catch (WriteGrantMissing missing) when (!askedGrant && dialog is not null && context.Prompt is { } prompt)
+                catch (WriteGrantMissing missing) when (!askedGrant.Contains(missing.Key) && dialog is not null && context.Prompt is { } prompt)
                 {
-                    askedGrant = true;
+                    askedGrant.Add(missing.Key);
                     await PausedAsync(() => dialog.AskAsync(prompt, missing, ct)).ConfigureAwait(false);
                 }
                 catch (FilePathsUnconfirmed unconfirmed) when (!askedPaths && context.Prompt is { } prompt)
@@ -185,6 +193,13 @@ public sealed class WritePipeline
                     ErrorCode.ComBusy,
                     "An earlier write that OneNote may still be making hasn't finished, so nothing was read or written.",
                     retryable: true);
+            }
+
+            // AD-7: every notebook step 1 granted is re-resolved under the lock, so a section moved to another notebook
+            // since can't take that grant (story 3.12; epic 2's create-page race). The move tool does its own.
+            if (!operation.ReResolvesNotebooks)
+            {
+                await WriteAccess.ReResolveAsync(gateway, [.. granted], token).ConfigureAwait(false);
             }
 
             // 3–6. Read, validate, optimistic check, snapshot.

@@ -17,6 +17,12 @@ public abstract class WriteOperation<TResult>
     /// <summary>Step 1: the access check (AD-6). Runs before the lock.</summary>
     public abstract Task AuthorizeAsync(CancellationToken ct);
 
+    /// <summary>
+    /// True when the operation re-resolves its own notebooks under the lock (the move tool, story 3.4), so the pipeline's
+    /// generic re-resolve of every grant step 1 checked is skipped (AD-7; story 3.12). False by default.
+    /// </summary>
+    public virtual bool ReResolvesNotebooks => false;
+
     /// <summary>Step 3: reads the current state, under the lock.</summary>
     public abstract Task ReadAsync(CancellationToken ct);
 

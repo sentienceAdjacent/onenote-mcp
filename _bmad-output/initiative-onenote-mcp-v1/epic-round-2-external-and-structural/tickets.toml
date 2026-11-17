@@ -53,6 +53,18 @@ unknown = "Whether sending the source section without the page moves it or delet
 notes = ["3.2 (Phill 2026-11-16): the move tool re-resolves both notebooks under the write lock (AD-7 Moves, \"A write's notebook is re-resolved under the lock\"), so a page move builds that re-resolve first; 3.12 extends it to other writes. A page moves under a new ID and leaves its subpages behind (warning subpagesLeftBehind); the read-back finds it by name and the position sent. A target in a protected section needs only the write grant; a move out of a protected (so also a locked) section is NotSupported, checked first; into a locked section is SectionLocked. 0x80042004 is outcomeUnknown."]
 
 [[entry]]
+id = 14
+type = "story"
+title = "Make a page a subpage"
+description = "Two ways to make subpages, as E10 sets: a new set_page_level tool that indents or outdents an existing page (its pageLevel, 1 to 3) through the HierarchyWrite pipeline, refusing a level that wouldn't sit under a parent page; and an optional parent page on create_page that places the new page after that page's last subpage, one level below it."
+verify = "Unit tests cover every level rule and refusal and the XML sent, with each page's level kept; then, with Phill, on MCP Test a page is indented to level 2 and 3 and outdented back, a new page is created as a subpage of a page that already has subpages and lands after them, the levels hold after Sync Now on MCP Test Cloud, and a level change in the locked protected section is refused as E10 says."
+covers = ["E10"]
+after = [4]
+hitl = true
+risk = "medium"
+unknown = "Whether a level change keeps the page's ID, whether OneNote also needs the level on the page's own XML (OneMore sets both), and what it does with a subpage block when its parent's level changes; the build's live sitting settles each before the rules are final."
+
+[[entry]]
 id = 12
 type = "story"
 title = "Move a section or section group"
@@ -97,7 +109,7 @@ title = "publish: other formats and sections"
 description = "Extends entry 3's publish tool to sections and to every other format entry 1 proves for a page or a section, with the edge cases entry 2 maps (multi-file formats, a partial file after a timeout), E2's refusals, and E8's rule for a protected section."
 verify = "On MCP Test a page and a section export in each listed format under the export root with meta.outputPath, an unlisted format is refused before COM, and an integration test shows the locked protected section refused with ReadNotGranted without the section's read grant and SectionLocked with it (Q1); unit tests cover the unlocked path."
 covers = ["E1", "E2", "E8"]
-after = [6]
+after = [3]
 hitl = false
 risk = "medium"
 

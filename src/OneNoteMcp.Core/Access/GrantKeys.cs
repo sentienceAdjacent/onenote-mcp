@@ -32,6 +32,22 @@ public static class GrantKeys
         return b.Length > 0 && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// True when keys <paramref name="a"/> and <paramref name="b"/> name the same location once percent-decoded: both
+    /// trimmed as <see cref="SectionKey"/> trims, decoded with <see cref="Uri.UnescapeDataString(string)"/> (an invalid
+    /// escape stays as it is), and compared ignoring case. An empty key matches nothing. For checks that must not miss a
+    /// stored grant, such as a move's (3.12 security review: a cloud path may spell a space as <c>%20</c> or not). It
+    /// never decides a read: keys are stored and looked up as <see cref="SectionKey"/> makes them, undecoded.
+    /// </summary>
+    public static bool SameLocation(string? a, string? b)
+    {
+        var x = Decoded(a);
+        return x.Length > 0 && string.Equals(x, Decoded(b), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Decoded(string? key) =>
+        Uri.UnescapeDataString((key ?? string.Empty).TrimEnd('\\', '/')).TrimEnd('\\', '/');
+
     private static string Transform(string path)
     {
         ArgumentNullException.ThrowIfNull(path);

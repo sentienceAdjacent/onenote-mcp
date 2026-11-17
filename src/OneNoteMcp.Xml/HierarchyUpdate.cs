@@ -48,6 +48,79 @@ public static class HierarchyUpdate
         return Serialize(element);
     }
 
+    /// <summary>
+    /// A page move (story 3.4; spike 3.1 M1 shape a): the target section's element with its <c>ID</c>, holding every live
+    /// page of <paramref name="pages"/> in order, each ID-only with its <c>pageLevel</c> as read, and the moved page
+    /// <paramref name="pageId"/> inserted at the 0-based <paramref name="index"/> with <c>pageLevel="1"</c>. One call moves
+    /// it: OneNote gives it a new ID and leaves its subpages in the source. Without the levels OneNote would flatten the
+    /// target's subpages (5.4 sitting L6).
+    /// </summary>
+    public static string MovePage(string sectionId, IReadOnlyList<HierarchyMember> pages, string pageId, int index)
+    {
+        ArgumentNullException.ThrowIfNull(sectionId);
+        ArgumentNullException.ThrowIfNull(pages);
+        ArgumentNullException.ThrowIfNull(pageId);
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, pages.Count);
+        var element = new XElement(OneNoteXml.One + "Section", new XAttribute("ID", sectionId));
+        var moved = new XElement(OneNoteXml.One + "Page", new XAttribute("ID", pageId), new XAttribute("pageLevel", 1));
+        for (var i = 0; i < pages.Count; i++)
+        {
+            if (i == index)
+            {
+                element.Add(moved);
+            }
+
+            var page = pages[i];
+            element.Add(new XElement(
+                OneNoteXml.One + "Page",
+                new XAttribute("ID", page.Id),
+                new XAttribute("pageLevel", page.PageLevel > 0 ? page.PageLevel : 1)));
+        }
+
+        if (index == pages.Count)
+        {
+            element.Add(moved);
+        }
+
+        return Serialize(element);
+    }
+
+    /// <summary>
+    /// A section or section-group move (story 3.12; spike 3.1's <c>m3</c> and <c>m4</c> shape): the new parent's element (a
+    /// notebook or section group) with its <c>ID</c>, holding <paramref name="siblings"/> (the parent's live children of the
+    /// moved node's kind, in order, ID-only) with the moved node <paramref name="id"/> inserted at the 0-based
+    /// <paramref name="index"/>. Only one kind is listed, so the schema's order (sections before groups) always holds;
+    /// children left out are kept (spike 5.1 constraint 4). The moved node keeps its ID.
+    /// </summary>
+    public static string MoveContainer(HierarchyKind parentKind, string parentId, IReadOnlyList<HierarchyMember> siblings, HierarchyKind kind, string id, int index)
+    {
+        ArgumentNullException.ThrowIfNull(parentId);
+        ArgumentNullException.ThrowIfNull(siblings);
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, siblings.Count);
+        if (kind is not (HierarchyKind.Section or HierarchyKind.SectionGroup))
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, "Only a section or section group moves this way.");
+        }
+
+        if (siblings.Any(s => s.Kind != kind))
+        {
+            throw new ArgumentException("Every sibling must be of the moved node's kind.", nameof(siblings));
+        }
+
+        var element = new XElement(OneNoteXml.One + ElementName(parentKind, nameof(parentKind)), new XAttribute("ID", parentId));
+        var ids = siblings.Select(s => s.Id).ToList();
+        ids.Insert(index, id);
+        foreach (var each in ids)
+        {
+            element.Add(new XElement(OneNoteXml.One + ElementName(kind, nameof(kind)), new XAttribute("ID", each)));
+        }
+
+        return Serialize(element);
+    }
+
     private static string ElementName(HierarchyKind kind, string argument) => kind switch
     {
         HierarchyKind.Notebook => "Notebook",
