@@ -3,7 +3,7 @@ title: 'Move a page'
 type: 'feature'
 ticket: '4'
 created: '2026-11-16'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -66,15 +66,15 @@ context:
 | Partial copy | `UpdateHierarchy` → `0x80042004` | both sections re-read, findings in message | `ObjectNotFound`, `outcomeUnknown` |
 | Dialog | `0x80042030` | nothing moved | `ModalDialogOpen`, retryable |
 
+## Decisions (Phill, 2026-11-17, plan approved with every recommendation)
+
+- **Q1, a.** `meta.journalEntryId` is the source section's entry, and `meta.journalEntryIds` lists both, source then target (as a permanent delete pairs `journalEntryId` with `pageEntryIds`).
+- **Q2, a.** `position` is 1-based among the target's pages: the page goes before the page now at that position, which must be top-level. Omitted, the page goes after the last page (where OneMore's move puts it). S2 checks a middle position live.
+- **Q3, a.** The pipeline raises the write-grant dialog at most once per distinct notebook key, so a cross-notebook move can ask twice; single-notebook writes are unchanged.
+- **Q4, a.** A subpage may move: it lands at level 1, and its own subpages stay behind with `subpagesLeftBehind`. S2 checks it live.
+- **Q5, a.** The full plan is kept, over the 1,600-token guide (about 3,500 tokens).
+
 </frozen-after-approval>
-
-## Open Questions
-
-1. **Reporting two journal entries.** (a) `meta.journalEntryId` is the source section's entry, and a new `meta.journalEntryIds` lists source then target, as a permanent delete pairs `journalEntryId` with `pageEntryIds`. (b) A new `meta.targetJournalEntryId` beside `journalEntryId`. (c) One combined `move` entry holding both sections, which needs an AD-10 format change. Recommended: a.
-2. **`position`.** (a) 1-based among the target's pages; the page goes before the page now at that position, which must be top-level; omitted means after the last page, where OneMore's move puts it (recalled: OneNote's own Move does too). (b) The same, but omitted means first, the only position spike 3.1 probed. Recommended: a. S2 checks a non-first position live.
-3. **Two ungranted notebooks.** The pipeline raises the grant dialog once per call. (a) Once per distinct notebook key, so a cross-notebook move can ask twice; this is a small change to `WritePipeline`, and single-notebook writes are unchanged. (b) Keep once; the second notebook is `WriteNotGranted`, and a retry asks for it. Recommended: a.
-4. **Moving a subpage** (`pageLevel` > 1, unprobed). (a) Allowed: it lands at level 1, and its own subpages stay behind with the warning. (b) Refused with `InvalidArgument` until a probe shows it. Recommended: a, checked in S2.
-5. **Size.** About 3,500 tokens (14.6k characters, measured), over the 1,600 guide; 3.3's plan was kept at a similar size. (a) Keep the full plan; it is one tool, and the matrix is what the reviewers check. (b) Split the integration test into its own ticket. Recommended: a.
 
 ## Code Map
 
@@ -86,7 +86,7 @@ context:
 - `src/OneNoteMcp.Xml/HierarchyUpdate.cs` -- add `MovePage(sectionId, pages, pageId, index)` beside `Reorder`, sending the levels the same way.
 - `src/OneNoteMcp.Core/Journal/HierarchySnapshot.cs` -- `TakeAsync` once per section, unchanged.
 - `src/OneNoteMcp.Core/UseCases/UpdateHierarchyUseCase.cs`, `src/OneNoteMcp.Server/Tools/RenameHierarchyObjectTool.cs`, `ServerSetup.cs` (l.166, l.224) -- the shapes of the use case, the thin tool and the registration.
-- `src/OneNoteMcp.Core/Results/ToolMeta.cs`, `ToolWarnings.cs` -- `subpagesLeftBehind` (and Q1's field).
+- `src/OneNoteMcp.Core/Results/ToolMeta.cs`, `ToolWarnings.cs` -- `subpagesLeftBehind` and `JournalEntryIds` (Q1).
 - `tests/OneNoteMcp.Tests/FakeGateway.cs:312` -- `UpdateHierarchyCalls`, `UpdateHierarchyFailure`, `OnUpdateHierarchy`. `PublishToolTests.cs` shows how 3.3 hid a locked section's page from the fake's `self` read; do the same here.
 - `tests/OneNoteMcp.Tests/McpSdkBindingTests.cs` (24 tools), `Contract/tool-contract.json`, `PluginPackagingTests.cs:255` (`DocumentedByRound2Entry10`) -- add the tool to each.
 - `tests/OneNoteMcp.Integration/UpdateHierarchyIntegrationTests.cs:555` (guard: every ID sent was made by this run), `PublishIntegrationTests.cs:81` (Vault ID read unlocked, then the lock pause), `TestNotebook.AdoptThrowawayNotebookAsync`.
@@ -99,7 +99,7 @@ context:
 - [ ] `src/OneNoteMcp.Core/Writes/HierarchyBasis.cs` (new) + `HierarchyWrite.cs` -- the extracted basis check -- one implementation for both.
 - [ ] `src/OneNoteMcp.Core/Writes/MovePageWrite.cs` (new) -- `WriteOperation<MoveResult>` following the Always steps -- the move pipeline.
 - [ ] `src/OneNoteMcp.Core/UseCases/MoveHierarchyObjectUseCase.cs` (new) + `src/OneNoteMcp.Server/Tools/MoveHierarchyObjectTool.cs` (new) + `ServerSetup.cs` -- `move_hierarchy_object`, with `ReadOnly=false, Destructive=true, Idempotent=false, OpenWorld=false`. The description says pages only, the hierarchy-date basis, the new ID, subpages left behind, and `outcomeUnknown`.
-- [ ] `WritePipeline.cs` -- Q3's dialog rule, if (a).
+- [ ] `WritePipeline.cs` -- Q3: the grant dialog at most once per notebook key.
 - [ ] `ToolMeta.cs`, `ToolWarnings.cs`, `tool-contract.json`, binding and packaging tests -- the contract. `<Version>` stays `0.9.0-rc.1` (0.9 is unreleased).
 - [ ] `tests/OneNoteMcp.Tests/MoveHierarchyObjectToolTests.cs` (new) -- every matrix row on `FakeGateway`, plus the XML's page order and levels, both entries, the cache drop, and step 1 refusing before any dialog.
 - [ ] `tests/OneNoteMcp.Integration/MoveHierarchyObjectIntegrationTests.cs` (new) -- see Verification.
