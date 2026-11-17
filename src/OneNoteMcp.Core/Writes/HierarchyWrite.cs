@@ -109,20 +109,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
     {
         // Step 1, before the lock and before any grant check: the arguments (AD-7).
         CheckArguments();
-        if (basis is not null)
-        {
-            if (basis.PageHash is not null || basis.ElementHashes is { Count: > 0 })
-            {
-                throw Invalid(
-                    "A hierarchy write's basis carries only lastModifiedTime (AD-17), and this one carries a page hash, so nothing was written.",
-                    NoBasisUserAction);
-            }
-
-            if (basis.LastModifiedTime is not null && OneNoteDates.ToUtc(basis.LastModifiedTime) is null)
-            {
-                throw Invalid("The basis lastModifiedTime isn't a date OneNote writes, so nothing was written.", NoBasisUserAction);
-            }
-        }
+        HierarchyBasis.CheckArgument(basis, NoBasisUserAction);
 
         await Services.WriteAccess.CheckContainerAsync(TargetId, () => NotFound("isn't inside a notebook"), ct).ConfigureAwait(false);
         await PreCheckAsync(ct).ConfigureAwait(false);
@@ -212,41 +199,10 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
             return Task.CompletedTask;
         }
 
-        var noun = HierarchyRules.Noun(Target.Kind);
-        if (basis is null)
+        // The shared check (AD-17), as the page move makes it (story 3.4).
+        if (HierarchyBasis.Compare(basis, Target.LastModifiedTime, HierarchyRules.Noun(Target.Kind), TargetId, Done, NoBasisUserAction, StaleUserAction) is { } warning)
         {
-            warnings.Add(new ToolWarning(
-                ToolWarnings.NoBasis,
-                $"No basis was passed, so {noun} {TargetId} was checked against its current version (read internally; nothing of it is returned): a change made since your own read could be overwritten.",
-                NoBasisUserAction));
-            return Task.CompletedTask;
-        }
-
-        if (basis.LastModifiedTime is null)
-        {
-            warnings.Add(new ToolWarning(
-                ToolWarnings.PartialBasis,
-                $"The basis for {noun} {TargetId} is partial: it has no lastModifiedTime, so its current version (read internally; nothing of it is returned) was used.",
-                NoBasisUserAction));
-            return Task.CompletedTask;
-        }
-
-        if (OneNoteDates.ToUtc(Target.LastModifiedTime) is not { } current)
-        {
-            warnings.Add(new ToolWarning(
-                ToolWarnings.PartialBasis,
-                $"OneNote reported no lastModifiedTime for {noun} {TargetId}, so the basis couldn't be compared.",
-                NoBasisUserAction));
-            return Task.CompletedTask;
-        }
-
-        // Checked in step 1: the basis date parses.
-        if (OneNoteDates.ToUtc(basis.LastModifiedTime) != current)
-        {
-            throw new OneNoteException(
-                ErrorCode.StaleWrite,
-                $"{Capitalized(noun)} {TargetId} changed since the basis was read (its lastModifiedTime differs), so nothing was {Done}.",
-                userAction: StaleUserAction);
+            warnings.Add(warning);
         }
 
         return Task.CompletedTask;
@@ -349,8 +305,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
             : shown;
     }
 
-    protected static string Capitalized(string noun) =>
-        string.IsNullOrEmpty(noun) ? noun : char.ToUpperInvariant(noun[0]) + noun[1..];
+    protected static string Capitalized(string noun) => HierarchyBasis.Capitalized(noun);
 }
 
 /// <summary>

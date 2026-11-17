@@ -147,6 +147,53 @@ public sealed class HierarchyUpdateXmlTests
         Assert.Empty(SchemaValidation.Problems(xml));
     }
 
+    [Theory]
+    [InlineData(0, new[] { "moved", "p", "s", "q" })]
+    [InlineData(2, new[] { "p", "s", "moved", "q" })]
+    [InlineData(3, new[] { "p", "s", "q", "moved" })]
+    public void MovePage_IsTheTargetSection_EveryPageWithItsLevel_TheMovedPageAtLevel1(int index, string[] order)
+    {
+        // Story 3.4 (spike 3.1 M1 shape a): one call with the target's XML; levels resent so subpages stay subpages (5.4 L6).
+        const string Q = "{A1000000-0000-4000-8000-000000000001}{1}{E31}";
+        const string Moved = "{A2000000-0000-4000-8000-000000000001}{1}{E11}";
+        var ids = new Dictionary<string, string> { ["p"] = PageId, ["s"] = SubpageId, ["q"] = Q, ["moved"] = Moved };
+        var xml = HierarchyUpdate.MovePage(SectionId, [
+            new HierarchyMember(HierarchyKind.Page, PageId, "p", 1),
+            new HierarchyMember(HierarchyKind.Page, SubpageId, "s", 2),
+            new HierarchyMember(HierarchyKind.Page, Q, "q", 1),
+        ], Moved, index);
+
+        var root = XElement.Parse(xml);
+        Assert.Equal(One + "Section", root.Name);
+        Assert.Equal(SectionId, (string?)root.Attribute("ID"));
+        var pages = root.Elements(One + "Page").ToList();
+        Assert.Equal(order.Select(o => ids[o]), pages.Select(p => (string?)p.Attribute("ID")));
+        var levels = order.Select(o => o switch { "s" => "2", _ => "1" });
+        Assert.Equal(levels, pages.Select(p => (string?)p.Attribute("pageLevel")));
+        Assert.All(pages, p => Assert.Equal(["ID", "pageLevel"], p.Attributes().Select(a => a.Name.LocalName)));
+        Assert.DoesNotContain("name=", xml, StringComparison.Ordinal);
+        Assert.Empty(SchemaValidation.Problems(xml));
+    }
+
+    [Fact]
+    public void MovePage_IntoAnEmptySection_IsTheOnePage()
+    {
+        const string Moved = "{A2000000-0000-4000-8000-000000000001}{1}{E11}";
+
+        var xml = HierarchyUpdate.MovePage(SectionId, [], Moved, 0);
+
+        var page = Assert.Single(XElement.Parse(xml).Elements(One + "Page"));
+        Assert.Equal(Moved, (string?)page.Attribute("ID"));
+        Assert.Equal("1", (string?)page.Attribute("pageLevel"));
+        Assert.Empty(SchemaValidation.Problems(xml));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void MovePage_AnIndexOutsideTheList_Throws(int index) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => HierarchyUpdate.MovePage(SectionId, [new HierarchyMember(HierarchyKind.Page, PageId, "p", 1)], SubpageId, index));
+
     [Fact]
     public void AGroupBeforeASection_FailsTheXsd_SoTheGateWouldCatchIt()
     {

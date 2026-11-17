@@ -115,4 +115,10 @@ public static class ToolWarnings
     /// section's IDs only. Its userAction says to tell the user.
     /// </summary>
     public const string ExportNotEncrypted = "exportNotEncrypted";
+
+    /// <summary>
+    /// A page move left the page's subpages in the source section, where OneNote promotes them to level 1 (AD-7 Moves;
+    /// spike 3.1 M1d; story 3.4). Names the source section's ID and the count step 3 read, never a name.
+    /// </summary>
+    public const string SubpagesLeftBehind = "subpagesLeftBehind";
 }

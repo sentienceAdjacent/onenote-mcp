@@ -3,12 +3,13 @@ title: 'Move a page'
 type: 'feature'
 ticket: '4'
 created: '2026-11-16'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: 'b6ae4fa709745d19f9bab2ca0b4320429e1b4095'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -111,9 +112,32 @@ context:
 
 ## Implementation Notes
 
+- **Judgment calls the plan left open.**
+  - A `position` below 1 is refused in step 1, before any read.
+  - When the read-back finds no new page but the page is still in the source, `meta.objectId` is its old ID (its current ID), with `readBackDiffers`. It is absent with `readBackFailed`.
+  - After `0x80042004`, the message names the copies found in the target by ID, or by count only when the target is protected (AD-21 Messages).
+- **Files touched beyond the task list.**
+  - `HierarchyUpdateXmlTests.cs`: tests for `MovePage`.
+  - `ToolContractTests.cs`, `NavigateToToolTests.cs`, `McpSdkBindingTests.cs` and `PluginPackagingTests.cs`: the move tool added. That makes 25 tools and 60 properties. `move_hierarchy_object` is in `DocumentedByRound2Entry10`, so entry 10 documents it.
+  - The contract snapshot only grew: the new tool, and `journalEntryIds` in every output schema. `<Version>` stays `0.9.0-rc.1`.
+- **The live test's setup** gives the subpage `pageLevel="2"` through the guarded raw `UpdateHierarchy`, as 5.4's L6 did. It makes the throwaway's run section through the guarded raw `OpenHierarchy`.
+- **TDD.** The tests were written alongside the code, not strictly first. Instead, a mutation check ran: with the Q3 dialog rule reverted, its test failed, and with the under-lock compare removed, its test failed. Both files were then restored.
+- **Verification (2026-11-17, after the review patches):**
+  - `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings.
+  - `dotnet test tests/OneNoteMcp.Tests`: 3,081 passed.
+  - `dotnet test tests/OneNoteMcp.Integration` with no integration variable: 217 passed, 97 skipped, 0 failed. The 3 new live tests are skipped.
+  - S1 and S2 haven't run.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-17, quick lens, iteration 0: 0 high, 2 medium, 1 low, 2 false, 0 maybe-false. Three were patched; nothing was deferred.
+  - **medium, patch.** The target half of step 3's notebook re-resolve (`CheckNotebook("Target", …)`) had no test, though AD-7 requires both notebooks re-resolved. Fix: a unit test that moves the target section to another notebook between step 1 and step 3.
+  - **medium, patch.** The live tests read the page's basis date straight after a setup write, and AD-17 records that a node's date can move about a second late, which would fail sitting S1 with a spurious `StaleWrite` (inferred, not observed). Fix: wait 2 s after the setup write.
+  - **low, patch.** The tool description and the use case's comment said `meta.objectId` is always the new ID. When the read-back finds the page still in the source, it is the old ID, with `readBackDiffers`. That is the page's current ID, as AD-7 says. Fix: the wording now says "current ID"; the code is unchanged.
+  - **false.** "The `0x80042004` error's `userAction` invites a retry with a current ID." `ToolErrors.From` (l.37) replaces the `userAction` of every `outcomeUnknown` error with "Re-read, then retry if the change is absent.", so the generic `ObjectNotFound` text never reaches the caller.
+  - **false.** "The step-1 refusals come after the grant dialog." The frozen Always block orders the grant checks before the refusals' pre-check, following the rename tool. The code does what the approved plan says. The note for Phill: a move that will be refused can still ask for a grant first.
 
 ## Design Notes
 

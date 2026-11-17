@@ -165,6 +165,9 @@ public static class ServerSetup
             sp.GetRequiredService<HierarchySnapshot>()));
         services.AddSingleton<UpdateHierarchyUseCase>();
 
+        // Story 3.4: a page move (AD-7 HierarchyWrite), one UpdateHierarchy with a hierarchy entry per section (AD-8).
+        services.AddSingleton<MoveHierarchyObjectUseCase>();
+
         // Story 5.5: soft delete (AD-7 SoftDelete). A page takes a page snapshot as a page write does; a section or section
         // group takes a hierarchy snapshot (AD-8).
         services.AddSingleton(sp => new SoftDeleteUseCase(
@@ -219,6 +222,7 @@ public static class ServerSetup
             .WithTools<CreateNotebookTool>(EnvelopeJson.Options)
             .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options)
+            .WithTools<MoveHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PublishTool>(EnvelopeJson.Options);
