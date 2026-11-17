@@ -115,4 +115,10 @@ public static class ToolWarnings
     /// section's IDs only. Its userAction says to tell the user.
     /// </summary>
     public const string ExportNotEncrypted = "exportNotEncrypted";
+
+    /// <summary>
+    /// A section exported as EMF: every page or section EMF in spike 3.1 was the same size, so a section's EMF may hold only
+    /// one page (spine Deferred; story 3.13 plan Q2). Names the section's ID only. Its userAction says to tell the user.
+    /// </summary>
+    public const string EmfMayHoldOnePage = "emfMayHoldOnePage";
 }

@@ -3,12 +3,13 @@ title: 'publish: other formats and sections'
 type: 'feature'
 ticket: '13'
 created: '2026-11-16'
-status: 'draft'
+status: 'built'
+baseline_revision: '1b0384eef6b5c94ca41dcf4eb7a2242e36de31c6'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -53,13 +54,13 @@ context:
 | Protected, granted, unlocked | — | file written | ok + `exportNotEncrypted` |
 | Existing target | file or folder at the path (step 1 or under the lock) | untouched | `FileExists` |
 
+## Decisions (answered overnight with the recommendation, per Phill's standing overnight rule (2026-11-17); Phill reviews in the morning)
+
+- **Q1, a. Wire names and extensions** (public contract, AD-14): `format` is `pdf`, `xps`, `docx`, `mhtml`, `html`, `emf`, `one` or `onepkg`, default `pdf`; `path` must end in that format's extension, `.mht`/`.mhtml` and `.htm`/`.html` both accepted, else `InvalidArgument`. Rejected: inferring the format from the extension (b, breaks 3.3's argument); one extension per format (c).
+- **Q2, a. A section's EMF** (spine Deferred row): offered, with the warning `emfMayHoldOnePage` on every section EMF; sitting S2 checks a multi-page section, and if it holds every page a follow-up drops the warning. Rejected: refusing it (b); no warning (c).
+- **Q3, a. HTML's companion folder:** X1's probe pages held no images, and OneMore puts each HTML export in its own folder (`Archivist.ExportHTML`), which suggests extra files (inferred). HTML is offered; for `html`, an existing `<stem>_files` beside the target is also `FileExists`; the description says images may land in a folder beside the file; sitting S3 records what lands. Rejected: leaving HTML out until a sitting (b).
+
 </frozen-after-approval>
-
-## Open Questions
-
-1. **Wire names and extensions** (public contract, AD-14). (a) `format` values `pdf`, `xps`, `docx`, `mhtml`, `html`, `emf`, `one`, `onepkg`, default `pdf`; `path` must end in that format's extension, accepting `.mht`/`.mhtml` and `.htm`/`.html`, else `InvalidArgument`. (b) Drop `format` and infer it from the extension: shorter calls, but a breaking change to 3.3's argument. (c) As (a) with one extension per format only. **Recommended: (a).**
-2. **A section's EMF** (spine Deferred: "3.13 checks it before offering EMF for a section, or `publish` warns"). (a) Offer it with a warning `emfMayHoldOnePage` on every section EMF; the sitting checks a multi-page section's EMF, and if it holds every page a follow-up drops the warning. (b) Refuse EMF for a section (`NotSupported`) until a sitting proves it whole. (c) Offer it with no warning. **Recommended: (a)**, the spine's own fallback, no lost scope.
-3. **HTML's companion folder.** X1's probe pages held no images, so "one file each" is unproven for HTML with images; OneMore puts every HTML export in its own folder (`Archivist.ExportHTML`), which suggests extra files (inferred). (a) Offer HTML; for `html`, `ExportTarget` also treats an existing `<stem>_files` beside the target as `FileExists`; the description says images may land in a folder beside the file; the sitting exports a page with an image and records what lands. (b) Leave HTML out until the sitting settles it (MHTML is single-file). **Recommended: (a).**
 
 ## Code Map
 
@@ -79,13 +80,13 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/OneNoteMcp.Tests/PublishToolTests.cs` -- first, red: each matrix row on `FakeGateway`, as a theory over formats for page and section; extension aliases; a raw `ExportFormat` value outside the enum; the section warnings (Q2); for `html`, an existing `<stem>_files` is `FileExists` (Q3).
-- [ ] `ExportFormat.cs`, `ComGateway.cs`, `ComGatewayTests.cs` -- the members and the map; `(ExportFormat)8` still refused before COM.
-- [ ] `ExportTarget.cs` -- per-format extensions (Q1) and the HTML companion check (Q3).
-- [ ] `PublishUseCase.cs` -- section scope and formats, in the Always order.
-- [ ] `ToolWarnings.cs`, `ToolArguments.cs`, `PublishTool.cs`, `tool-contract.json` -- wire enum, description (formats by scope, section groups and notebooks refused, the Q2/Q3 caveats), snapshot.
-- [ ] `PublishIntegrationTests.cs` -- a theory: the test page and its section in every format, each into its own empty subfolder of the temp root, asserting the subfolder then holds only the target (HTML: also at most `<stem>_files`) and logging sizes; the locked Ballast Vault section (not a page) refused `ReadNotGranted` without a grant and `SectionLocked` with one, after the pause.
-- [ ] `_bmad-output/.../research-onemore-lessons.md` -- a row: OneMore's per-page HTML folder.
+- [x] `tests/OneNoteMcp.Tests/PublishToolTests.cs` -- first, red: each matrix row on `FakeGateway`, as a theory over formats for page and section; extension aliases; a raw `ExportFormat` value outside the enum; the section warnings (Q2); for `html`, an existing `<stem>_files` is `FileExists` (Q3).
+- [x] `ExportFormat.cs`, `ComGateway.cs`, `ComGatewayTests.cs` -- the members and the map; `(ExportFormat)8` still refused before COM.
+- [x] `ExportTarget.cs` -- per-format extensions (Q1) and the HTML companion check (Q3).
+- [x] `PublishUseCase.cs` -- section scope and formats, in the Always order.
+- [x] `ToolWarnings.cs`, `ToolArguments.cs`, `PublishTool.cs`, `tool-contract.json` -- wire enum, description (formats by scope, section groups and notebooks refused, the Q2/Q3 caveats), snapshot.
+- [x] `PublishIntegrationTests.cs` -- a theory: the test page and its section in every format, each into its own empty subfolder of the temp root, asserting the subfolder then holds only the target (HTML: also at most `<stem>_files`) and logging sizes; the locked Ballast Vault section (not a page) refused `ReadNotGranted` without a grant and `SectionLocked` with one, after the pause.
+- [x] `_bmad-output/.../research-onemore-lessons.md` -- a row: OneMore's per-page HTML folder.
 
 **Acceptance Criteria:**
 - Given 3.3's existing publish tests, when they run, then they pass with only the format argument added where needed.
@@ -93,9 +94,24 @@ context:
 
 ## Implementation Notes
 
+- Implemented directly in this lane (a build lane already running as a subagent), not through a further subagent. The new unit tests were written before the code, but not run red on their own first.
+- `PublishPage` became `PublishTarget`; a section is found by the `self` read only after the walk finds no owning section, so 3.3's walk-first order stands. Under the lock a section is re-read at `self` (its ID survives a move).
+- `ExportTarget.Resolve` takes the format; `ExportTarget.Extensions(format)` and `FilesFolder(target)` are public for the use case and tests. `PagesOnlyUserAction` now reads "a page's or a section's ID"; new `GroupUserAction`, `NotebookUserAction`, `EmfOnePageUserAction`.
+- Tests touched beyond the plan's list: `ComGatewayTests` (`(ExportFormat)2` is now XPS, so the unknown-value row uses 99; a test that the enum has eight members, none named 2007), and 3.3's link test now expects "doesn't end in .pdf". The contract snapshot changed only in `publish.format.enum`; tool count and property counts are unchanged.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-17, quick lens, iteration 0: 0 high, 0 medium, 6 low, 2 false, 0 maybe-false. Four were patched, four rejected; nothing deferred, no loopback.
+  - **false.** "The frozen block was edited (Open Questions became Decisions) without Phill's answer." Phill's standing overnight rule (2026-11-17, relayed by the coordinating session) says to answer every open question with its recommendation and record it so; step 2 writes answers into the frozen block. Phill reviews them in the morning.
+  - **low, rejected.** "3.3's tests changed beyond the format argument (AC 1)." The section scope retires `AnythingButAPage_IsNotSupported` and the PDF-only gate's test by design, and the link test's message follows the per-format wording; the fix would be to edit this plan's AC, which triage can't do.
+  - **low, patch.** The notebook refusal didn't say notebooks come as packages later (Always rule). Fix: the message, `NotebookUserAction` and the tool description say so.
+  - **low, patch.** No test that a section's `Timeout` names the section, its format and the path. Fix: `ASectionExportThatNeverLands_IsTimeout_NamingTheSectionTheFormatAndThePath`.
+  - **low, patch.** The HTML `_files` check had no test under the lock. Fix: `AnHtmlFilesFolderThatAppearsUnderTheLock_IsFileExists`.
+  - **low, rejected.** No protected-page test in a non-PDF format, and no extension-mismatch test for a section: both go through the same format-agnostic code the section `docx` and page mismatch tests cover.
+  - **false.** "The Timeout wording names a section as a page": `What` comes from `isSection`, now shown by the new section test.
+  - **low, patch.** Stale comments: `IOneNoteGateway.PublishAsync` named 3.3's PDF as the only `publish` caller; `PagesOnlyUserAction` renamed `ObjectIdUserAction`.
 
 ## Verification
 

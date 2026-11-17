@@ -177,7 +177,7 @@ public sealed class PublishToolTests : IDisposable
         {
             var error = Error(await Tool().Publish(PageId, "x.pdf", PublishFormatArgument.Pdf, Ct), "ExportPathNotAllowed");
 
-            Assert.Contains("isn't a .pdf", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+            Assert.Contains("doesn't end in .pdf", error.GetProperty("message").GetString(), StringComparison.Ordinal);
             Assert.Empty(gateway.PublishCalls);
             Assert.Empty(Directory.GetFileSystemEntries(real));
         }
@@ -192,7 +192,7 @@ public sealed class PublishToolTests : IDisposable
     {
         var roots = new ExportRoots([@"\\server\share\exports", temp.Combine("second")]);
 
-        var error = Assert.Throws<OneNoteException>(() => ExportTarget.Resolve("x.pdf", roots));
+        var error = Assert.Throws<OneNoteException>(() => ExportTarget.Resolve("x.pdf", roots, ExportFormat.Pdf));
 
         Assert.Equal(ErrorCode.ExportPathNotAllowed, error.Code);
         Assert.Contains("first export root isn't a usable local folder", error.Message, StringComparison.Ordinal);
@@ -204,7 +204,7 @@ public sealed class PublishToolTests : IDisposable
     {
         var roots = new ExportRoots([temp.Combine("r.pdf")]);
 
-        var error = Assert.Throws<OneNoteException>(() => ExportTarget.Resolve(temp.Combine("r.pdf"), roots));
+        var error = Assert.Throws<OneNoteException>(() => ExportTarget.Resolve(temp.Combine("r.pdf"), roots, ExportFormat.Pdf));
 
         Assert.Equal(ErrorCode.ExportPathNotAllowed, error.Code);
     }
@@ -214,8 +214,8 @@ public sealed class PublishToolTests : IDisposable
     {
         var roots = new ExportRoots([]);
 
-        Assert.Equal(ErrorCode.ExportPathNotAllowed, Assert.Throws<OneNoteException>(() => ExportTarget.Resolve("x.pdf", roots)).Code);
-        Assert.Equal(ErrorCode.ExportPathNotAllowed, Assert.Throws<OneNoteException>(() => ExportTarget.Resolve(temp.Combine("x.pdf"), roots)).Code);
+        Assert.Equal(ErrorCode.ExportPathNotAllowed, Assert.Throws<OneNoteException>(() => ExportTarget.Resolve("x.pdf", roots, ExportFormat.Pdf)).Code);
+        Assert.Equal(ErrorCode.ExportPathNotAllowed, Assert.Throws<OneNoteException>(() => ExportTarget.Resolve(temp.Combine("x.pdf"), roots, ExportFormat.Pdf)).Code);
     }
 
     // --- Bad paths ------------------------------------------------------------------------------------------------------
@@ -406,31 +406,247 @@ public sealed class PublishToolTests : IDisposable
         Assert.True(File.Exists(Path.Combine(CanonicalRoot, "x.pdf")));
     }
 
-    // --- Not a page, not PDF, not an ID ---------------------------------------------------------------------------------
+    // --- Story 3.13: every format, for a page and a section -------------------------------------------------------------
+
+    public static TheoryData<string, PublishFormatArgument, string, ExportFormat> PageAndSectionFormats()
+    {
+        var data = new TheoryData<string, PublishFormatArgument, string, ExportFormat>();
+        foreach (var id in new[] { PageId, SectionId })
+        {
+            data.Add(id, PublishFormatArgument.Pdf, "x.pdf", ExportFormat.Pdf);
+            data.Add(id, PublishFormatArgument.Xps, "x.xps", ExportFormat.Xps);
+            data.Add(id, PublishFormatArgument.Docx, "x.docx", ExportFormat.Word);
+            data.Add(id, PublishFormatArgument.Mhtml, "x.mht", ExportFormat.Mhtml);
+            data.Add(id, PublishFormatArgument.Html, "x.htm", ExportFormat.Html);
+            data.Add(id, PublishFormatArgument.Emf, "x.emf", ExportFormat.Emf);
+            data.Add(id, PublishFormatArgument.One, "x.one", ExportFormat.OneNote);
+            data.Add(id, PublishFormatArgument.Onepkg, "x.onepkg", ExportFormat.OneNotePackage);
+        }
+
+        return data;
+    }
 
     [Theory]
-    [InlineData(SectionId)]
-    [InlineData(GroupId)]
-    [InlineData(NotebookId)]
-    public async Task AnythingButAPage_IsNotSupported(string objectId)
+    [MemberData(nameof(PageAndSectionFormats))]
+    public async Task APageOrASection_IsPublished_InEachFormat(string objectId, PublishFormatArgument format, string path, ExportFormat sent)
     {
-        var error = Error(await Tool().Publish(objectId, "x.pdf", PublishFormatArgument.Pdf, Ct), "NotSupported");
+        var root = Ok(await Tool().Publish(objectId, path, format, Ct));
 
-        Assert.Contains("pages only in this release", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        var expected = Path.Combine(CanonicalRoot, path);
+        Assert.Equal(objectId, root.GetProperty("meta").GetProperty("objectId").GetString());
+        Assert.Equal(expected, root.GetProperty("meta").GetProperty("outputPath").GetString());
+        Assert.Equal((objectId, expected, sent), Assert.Single(gateway.PublishCalls));
+        Assert.True(File.Exists(expected));
+        var warnings = root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToList();
+        if (objectId == SectionId && format == PublishFormatArgument.Emf)
+        {
+            Assert.Equal(["emfMayHoldOnePage"], warnings);
+        }
+        else
+        {
+            Assert.Empty(warnings);
+        }
+
+        await AssertLockFreeAsync();
+    }
+
+    [Theory]
+    [InlineData(PublishFormatArgument.Mhtml, "x.mhtml")]
+    [InlineData(PublishFormatArgument.Mhtml, "x.MHT")]
+    [InlineData(PublishFormatArgument.Html, "x.html")]
+    [InlineData(PublishFormatArgument.Docx, @"sub\x.DOCX")]
+    public async Task TheOtherAcceptedExtensions_AreAccepted(PublishFormatArgument format, string path)
+    {
+        Ok(await Tool().Publish(PageId, path, format, Ct));
+
+        Assert.True(File.Exists(Path.Combine(CanonicalRoot, path)));
+    }
+
+    [Theory]
+    [InlineData(PublishFormatArgument.Docx, "x.pdf")]
+    [InlineData(PublishFormatArgument.Pdf, "x.xps")]
+    [InlineData(PublishFormatArgument.Mhtml, "x.htm")]
+    [InlineData(PublishFormatArgument.Html, "x.mht")]
+    [InlineData(PublishFormatArgument.One, "x.onepkg")]
+    [InlineData(PublishFormatArgument.Onepkg, "x.one")]
+    [InlineData(PublishFormatArgument.Emf, "x.wmf")]
+    public async Task AnExtensionThatDoesntFitTheFormat_IsInvalidArgument_BeforeCom(PublishFormatArgument format, string path)
+    {
+        var error = Error(await Tool().Publish(PageId, path, format, Ct), "InvalidArgument");
+
+        Assert.Contains(path, error.GetProperty("message").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
     }
 
-    [Fact]
-    public async Task AFormatButPdf_IsNotSupported_BeforeCom()
+    [Theory]
+    [InlineData(8)]
+    [InlineData(99)]
+    [InlineData(-1)]
+    public async Task AFormatOutsideTheEnum_IsNotSupported_BeforeCom(int raw)
     {
         var useCase = UseCase();
         var result = await Runner().RunAsync(
             PublishTool.Name,
             useCase,
-            (context, ct) => useCase.ExecuteAsync(context, PageId, "x.one", ExportFormat.OneNote, ct),
+            (context, ct) => useCase.ExecuteAsync(context, PageId, "x.one", (ExportFormat)raw, ct),
             Ct);
 
         Error(result, "NotSupported");
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AnHtmlExport_WhoseFilesFolderExists_IsFileExists()
+    {
+        Directory.CreateDirectory(Path.Combine(Root, "x_files"));
+
+        Error(await Tool().Publish(PageId, "x.html", PublishFormatArgument.Html, Ct), "FileExists");
+
+        Assert.Empty(gateway.PublishCalls);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task AnHtmlFilesFolderThatAppearsUnderTheLock_IsFileExists()
+    {
+        var sectionReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == SectionId && scope == HierarchyScope.Self && ++sectionReads == 2)
+                {
+                    Directory.CreateDirectory(Path.Combine(Root, "x_files"));
+                }
+            },
+        };
+
+        var error = Error(await Tool(hooked).Publish(PageId, "x.htm", PublishFormatArgument.Html, Ct), "FileExists");
+
+        Assert.Contains("x_files", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(gateway.PublishCalls);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ASectionExportThatNeverLands_IsTimeout_NamingTheSectionTheFormatAndThePath()
+    {
+        WriteSettings(publishSeconds: 1);
+        gateway.PublishedBytes = null;
+
+        var error = Error(await Tool().Publish(SectionId, "x.docx", PublishFormatArgument.Docx, Ct), "Timeout");
+
+        Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains($"Word document of section {SectionId}", message, StringComparison.Ordinal);
+        Assert.Contains(Path.Combine(CanonicalRoot, "x.docx"), message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task APdfExport_IgnoresAFilesFolderBesideIt()
+    {
+        Directory.CreateDirectory(Path.Combine(Root, "x_files"));
+
+        Ok(await Tool().Publish(PageId, "x.pdf", PublishFormatArgument.Pdf, Ct));
+    }
+
+    [Fact]
+    public async Task APackageThatLandsLate_AndEmptyFirst_CountsOnceItIsOnDisk()
+    {
+        Task? late = null;
+        gateway.OnPublish = (_, target, _) =>
+        {
+            late = Task.Run(async () =>
+            {
+                await Task.Delay(150);
+                await File.WriteAllBytesAsync(target, []);
+                await Task.Delay(150);
+                await File.WriteAllBytesAsync(target, [0x4D, 0x53, 0x43, 0x46]);
+            });
+            return Task.CompletedTask;
+        };
+
+        Ok(await Tool().Publish(SectionId, "x.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        await late!;
+        Assert.Equal(4, new FileInfo(Path.Combine(CanonicalRoot, "x.onepkg")).Length);
+    }
+
+    [Theory]
+    [InlineData(VaultId)]
+    [InlineData(LockedId)]
+    public async Task AProtectedSection_WithoutAReadGrant_IsReadNotGranted_EvenWhenLocked(string sectionId)
+    {
+        var error = Error(await Tool().Publish(sectionId, "x.onepkg", PublishFormatArgument.Onepkg, Ct), "ReadNotGranted");
+
+        Assert.Contains(sectionId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AProtectedLockedSection_WithAReadGrant_IsSectionLocked_BeforeCom()
+    {
+        GrantRead(LockedId, "Locked vault");
+
+        Error(await Tool().Publish(LockedId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SectionLocked");
+
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AProtectedUnlockedSection_WithAReadGrant_IsPublished_WithExportNotEncrypted_NamingTheFormat()
+    {
+        GrantRead(VaultId, "Vault");
+
+        var root = Ok(await Tool().Publish(VaultId, "x.docx", PublishFormatArgument.Docx, Ct));
+
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal("exportNotEncrypted", warning.GetProperty("code").GetString());
+        var message = warning.GetProperty("message").GetString()!;
+        Assert.Contains(VaultId, message, StringComparison.Ordinal);
+        Assert.Contains("Word", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Vault\"", root.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ASectionThatBecameLockedBeforeTheLock_IsSectionLocked()
+    {
+        GrantRead(VaultId, "Vault");
+        var sectionReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == VaultId && scope == HierarchyScope.Self && ++sectionReads == 2)
+                {
+                    Section(VaultId, "Vault", "encrypted=\"true\" locked=\"true\"");
+                }
+            },
+        };
+
+        Error(await Tool(hooked).Publish(VaultId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SectionLocked");
+
+        await AssertRefusedAsync();
+    }
+
+    // --- Not a page or a section, not an ID ------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ASectionGroup_IsNotSupported_WithTheSectionBySectionRecipe()
+    {
+        var error = Error(await Tool().Publish(GroupId, "x.pdf", PublishFormatArgument.Pdf, Ct), "NotSupported");
+
+        Assert.Contains("section group", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("one by one", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebook_IsNotSupported_InThisRelease()
+    {
+        var error = Error(await Tool().Publish(NotebookId, "x.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
+
+        Assert.Contains("notebook", error.GetProperty("message").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
     }
 
