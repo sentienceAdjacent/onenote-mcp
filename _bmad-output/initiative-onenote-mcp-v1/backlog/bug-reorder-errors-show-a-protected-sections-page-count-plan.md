@@ -3,7 +3,7 @@ title: 'Reorder in a protected section needs a read grant held at the call start
 type: 'bugfix'
 ticket: '7'
 created: '2026-11-17'
-status: 'built'
+status: 'done'
 baseline_revision: '90a1573037e44eadc09b8e21c8b5044436864539'
 route: 'full'
 route_source: 'auto'
