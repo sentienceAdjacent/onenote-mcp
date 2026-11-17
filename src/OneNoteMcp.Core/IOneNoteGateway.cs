@@ -127,8 +127,8 @@ public interface IOneNoteGateway
     /// A write (AD-7): <c>Publish</c> of the object <paramref name="objectId"/> in <paramref name="format"/> to the new file
     /// <paramref name="targetPath"/>, a fully qualified local path whose folder exists (OneNote raises a modal for a missing
     /// folder and refuses an existing file). Its callers: story 5.6's <c>PermanentDelete</c> section backup
-    /// (<see cref="ExportFormat.OneNote"/>) and story 3.3's <c>publish</c> (<see cref="ExportFormat.Pdf"/>, an
-    /// <c>ExternalWrite</c>). A format that isn't an <see cref="ExportFormat"/> member is refused with
+    /// (<see cref="ExportFormat.OneNote"/>) and <c>publish</c> (stories 3.3 and 3.13: every member, for a page or a
+    /// section, an <c>ExternalWrite</c>). A format that isn't an <see cref="ExportFormat"/> member is refused with
     /// <see cref="ErrorCode.NotSupported"/> before COM, so <c>pfOneNote2007</c> is never sent (AD-11); an empty ID or a
     /// path that isn't fully qualified and local is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. It runs
     /// under <c>timeouts.publishSeconds</c>, not the call timeout, and is never retried after a disconnect (AD-3). The file
