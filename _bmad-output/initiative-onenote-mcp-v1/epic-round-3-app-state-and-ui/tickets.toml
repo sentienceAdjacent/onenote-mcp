@@ -96,7 +96,7 @@ title = "get_windows, and navigate_to in a chosen window"
 description = "The Windows collection on the port and both gateways, declaring the Window interface and CurrentWindow early-bound (late binding fails here) and releasing every Window wrapper explicitly (OneMore row 10): a get_windows tool listing each window's handle, active state, notebook, section group, section and page IDs and view, with a protected page's ID withheld without the section's read grant (AD-21), as an ordinary AppState read the skill may call when the user refers to what they're looking at (Q5); and an optional window argument on navigate_to, which otherwise keeps targeting OneNote's first window, with no window setters (Q4)."
 verify = "Unit tests on FakeGateway cover the list, an empty window list (no window: an empty list, not an error), a window on a protected page without a read grant (section reported, page ID omitted) and the window argument; with Phill present, get_windows lists his MCP Test window with its current page and no change of foreground window across the read, and navigate_to shows an MCP Test page in the second of two windows he names."
 covers = ["A1", "A6"]
-after = [5]
+after = [3]
 hitl = true
 risk = "medium"
 unknown = "Whether reading the Windows collection changes focus or anything the user sees (entry 12); if it does, entry 2 brings Q5 back to Phill."
@@ -132,7 +132,7 @@ title = "Skill, README, harness and coverage check for round 3"
 description = "The guide skill's recipes for the app-state tools (each called only when the user asks, as entry 2 sets; get_windows when the user refers to \"this page\", Q5), the README sections on opening, closing and syncing notebooks (replacing epic 3's \"close an opened package in OneNote\" line, Q13, and saying how to reopen a cloud notebook), the stress harness's tool list and contract check for the new tools, the coverage check that every IApplication slot has a released tool or a dated Decision (the initiative's Done when 4), and one batched live run of the user-visible tools and the cloud reopen with Phill."
 verify = "Plugin validation and the harness pass; an agent following the README closes and reopens MCP Test Throwaway b; the coverage table in the spine matches the released tool list with no slot unaccounted for; and with Phill present each user-visible tool behaves as its description says, and MCP Test Throwaway Cloud closes and reopens by the route entry 2 allows."
 covers = ["A1", "A10"]
-after = [9]
+after = [5, 9]
 hitl = true
 risk = "medium"
 
