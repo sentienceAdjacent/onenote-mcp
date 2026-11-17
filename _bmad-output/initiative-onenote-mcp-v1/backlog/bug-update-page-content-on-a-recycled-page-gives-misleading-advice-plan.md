@@ -3,7 +3,7 @@ title: 'A page write to a recycled page says to restore it first; 0x8004200C nam
 type: 'bugfix'
 ticket: '6'
 created: '2026-11-16'
-status: 'built'
+status: 'done'
 baseline_revision: '7e9bd6e0ec7e4682e15f5a6cfa174366c8032720'
 route: 'full'
 route_source: 'auto'
