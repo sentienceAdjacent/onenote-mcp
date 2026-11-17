@@ -12,11 +12,12 @@ namespace OneNoteMcp.Core.UseCases;
 /// the write pipeline (AD-7) as one <c>ExternalWrite</c>. No write grant and no dialog of any kind.
 /// <list type="number">
 /// <item>Step 1, before the lock (<see cref="PublishPage.AuthorizeAsync"/>): an empty <c>objectId</c> is
-/// <see cref="ErrorCode.InvalidArgument"/>; any format but PDF is <see cref="ErrorCode.NotSupported"/>. The target is read
-/// at <c>self</c>, and anything but a page is <see cref="ErrorCode.NotSupported"/> ("pages only in this release").
-/// <c>settings.json</c> must be writable (<see cref="SettingsSnapshot.EnsureWritable"/>). The path is resolved and checked
-/// by <see cref="ExportTarget.Resolve"/>. The page's owning section is resolved through the walk; in a password-protected
-/// section a read grant held at the call's start is required, never prompted for (AD-21 Exports), else
+/// <see cref="ErrorCode.InvalidArgument"/>; any format but PDF is <see cref="ErrorCode.NotSupported"/>. The page's owning
+/// section is resolved through the walk first, because OneNote hides a locked section's pages from <c>GetHierarchy</c>;
+/// only when there is none is the target read at <c>self</c>, and anything but a page is
+/// <see cref="ErrorCode.NotSupported"/> ("pages only in this release"). <c>settings.json</c> must be writable
+/// (<see cref="SettingsSnapshot.EnsureWritable"/>). The path is resolved and checked by <see cref="ExportTarget.Resolve"/>.
+/// In a password-protected section a read grant held at the call's start is required, never prompted for (AD-21 Exports), else
 /// <see cref="ErrorCode.ReadNotGranted"/>.</item>
 /// <item value="3">Steps 3 and 4, under the lock: the page is walked to its section again (locked is
 /// <see cref="ErrorCode.SectionLocked"/>; protected since step 1 needs the read grant too), the path is resolved again and
@@ -135,29 +136,18 @@ public sealed class PublishUseCase : IUseCase
                     retryable: false);
             }
 
-            // The target's kind: pages only in this release (Never: no section, section-group or notebook scope).
-            var selfXml = await owner.gateway.GetHierarchyAsync(pageId, HierarchyScope.Self, ct).ConfigureAwait(false);
-            var self = XmlReads.Readable(() => HierarchyNode.Root(selfXml), "GetHierarchy");
-            if (self.Kind != HierarchyKind.Page)
-            {
-                throw new OneNoteException(
-                    ErrorCode.NotSupported,
-                    $"Object {pageId} isn't a page, and publish exports pages only in this release, so nothing was exported.",
-                    userAction: PagesOnlyUserAction,
-                    retryable: false);
-            }
+            // The owning section first, through the walk (AD-6), as PageWrite does: OneNote hides a locked section's pages,
+            // so GetHierarchy of the page itself fails while its parent chain still answers (the 3.3 sitting, 2026-11-17).
+            // Only a page has a section as its parent, so a found section also settles the target's kind.
+            section = await owner.readAccess.OwningSectionAsync(pageId, ct).ConfigureAwait(false)
+                ?? throw await NotInASectionAsync(ct).ConfigureAwait(false);
 
             // settings.json must be writable (AD-10), and the export roots come from the same read.
             snapshot = owner.settings();
             snapshot.EnsureWritable();
             target = ExportTarget.Resolve(path, snapshot.ExportRoots);
 
-            // The owning section, through the walk (AD-6), and AD-21 Exports: its read grant, held now, never prompted.
-            section = await owner.readAccess.OwningSectionAsync(pageId, ct).ConfigureAwait(false)
-                ?? throw new OneNoteException(
-                    ErrorCode.ObjectNotFound,
-                    $"Page {pageId} isn't inside a section, so nothing was exported.",
-                    userAction: "Re-read the hierarchy (get_hierarchy) for a current page ID.");
+            // AD-21 Exports: the section's read grant, held now, never prompted.
             CheckReadGrant(section);
         }
 
@@ -228,6 +218,27 @@ public sealed class PublishUseCase : IUseCase
                 }
             }).ConfigureAwait(false);
             return warnings;
+        }
+
+        /// <summary>
+        /// Why <c>pageId</c> has no owning section: a section, section group or notebook is <see cref="ErrorCode.NotSupported"/>
+        /// (pages only in this release; no section, section-group or notebook scope), anything else
+        /// <see cref="ErrorCode.ObjectNotFound"/>.
+        /// </summary>
+        private async Task<OneNoteException> NotInASectionAsync(CancellationToken ct)
+        {
+            var selfXml = await owner.gateway.GetHierarchyAsync(pageId, HierarchyScope.Self, ct).ConfigureAwait(false);
+            var self = XmlReads.Readable(() => HierarchyNode.Root(selfXml), "GetHierarchy");
+            return self.Kind != HierarchyKind.Page
+                ? new OneNoteException(
+                    ErrorCode.NotSupported,
+                    $"Object {pageId} isn't a page, and publish exports pages only in this release, so nothing was exported.",
+                    userAction: PagesOnlyUserAction,
+                    retryable: false)
+                : new OneNoteException(
+                    ErrorCode.ObjectNotFound,
+                    $"Page {pageId} isn't inside a section, so nothing was exported.",
+                    userAction: "Re-read the hierarchy (get_hierarchy) for a current page ID.");
         }
 
         /// <summary>

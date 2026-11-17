@@ -62,7 +62,9 @@ public sealed class PublishToolTests : IDisposable
         Section(VaultId, "Vault", "encrypted=\"true\"");
         Section(LockedId, "Locked vault", "encrypted=\"true\" locked=\"true\"");
         Self(GroupId, $"<one:SectionGroup {Ns} name=\"Group\" ID=\"{GroupId}\" path=\"{NotebookPath}\\Group\" lastModifiedTime=\"{Date}\" />");
-        foreach (var id in new[] { PageId, VaultPageId, LockedPageId })
+        // No Self node for LockedPageId: OneNote hides a locked section's pages, so GetHierarchy of one fails while its
+        // parent chain still answers (the 3.3 sitting, 2026-11-17: the page read as ObjectNotFound before this was modelled).
+        foreach (var id in new[] { PageId, VaultPageId })
         {
             Self(id, $"<one:Page {Ns} ID=\"{id}\" name=\"Secret title\" lastModifiedTime=\"{Date}\" />");
         }
