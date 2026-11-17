@@ -135,7 +135,7 @@ context:
   - `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors.
   - `dotnet test tests/OneNoteMcp.Tests`: 3,176 passed, 0 failed.
   - `dotnet test tests/OneNoteMcp.Integration` with no integration variable: 217 passed, 101 skipped, 0 failed. The 4 new live tests are skipped.
-  - Sittings S1 and S2 not run (the main session runs them with Phill).
+  - Sittings S1 and S2 passed on 2026-11-17 with Phill (see Verification, Sitting result).
 
 - Verification after the review patches (2026-11-17): `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings; `dotnet test tests/OneNoteMcp.Tests` 3,177 passed; `dotnet test tests/OneNoteMcp.Integration` without the variable 217 passed, 101 skipped, 0 failed.
 
@@ -197,3 +197,16 @@ The sitting settles several unknowns: whether the page keeps its ID, whether `Ge
   1. Indent an MCP Test page to 2 and then 3, outdent it back, and create a subpage under a page that has subpages. Phill checks each one in OneNote.
   2. Do the same in MCP Test Cloud, then Sync Now. Check the sync status after each step (watch for `0xE0000644`), and re-read the levels after the sync.
   3. Try a level change in the locked Vault. Expected: `SectionLocked`.
+
+**Sitting result (2026-11-17, with Phill): passed.**
+- S1, 4 of 4:
+  - Level changes keep the page's ID (to 2, 3 and back to 1).
+  - `GetPageContent`'s root `pageLevel` follows the hierarchy level by itself (2, 3, 1). So no page-XML write is needed: Q-B is settled, no.
+  - A raw `pageLevel="4"` is refused by OneNote with `InvalidXml` `0x80042001`, and the levels are unchanged. Q-A is settled: the cap of 3 is OneNote's too.
+  - A page indented to 2 took its subpage to 3, with the IDs kept.
+  - `create_page` under a parent with 2 subpages lands after them at level 2 (root `pageLevel` 2).
+  - The locked Vault gives `SectionLocked`, and nothing is sent.
+- S2, through onenote-dev:
+  - In MCP Test: T2 went to level 2 and T3 to level 3. `create_page` with `parentPageId` under "S2 parent" landed at level 2 after its block. T2 back to 1 took its subpage T3 from 3 to 2. Every read-back matched, and Phill confirmed the nesting in OneNote.
+  - In MCP Test Cloud, in a probe section: one page indented to 2 and one page created under a parent. Phill synced before and after with no errors, and saw the same nesting in OneNote and on the web.
+- No plan change was needed. The spine's Page levels open items and the Deferred row are now resolved.
