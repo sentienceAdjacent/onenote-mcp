@@ -630,6 +630,37 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         Assert.Single(gateway.UpdateHierarchyCalls);
     }
 
+    // Security review (2026-11-17): a section's name can differ from its file's leaf ("Ideas (2).one"), so a case-only
+    // change of the name can still move the file to a new key; that rename is still checked.
+    [Fact]
+    public async Task RenameASection_WhoseFileLeafDiffersFromItsName_ACaseOnlyRename_IsStillChecked()
+    {
+        Grant();
+        Self(IdeasId, $"<one:Section {Ns} name=\"Ideas\" ID=\"{IdeasId}\" path=\"C:\\notebooks\\A\\Ideas (2).one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt(@"C:\notebooks\A\ideas.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(IdeasId, "ideas", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
+    [Fact]
+    public async Task RenameACloudSection_WhoseDecodedLeafDiffersFromItsName_ACaseOnlyRename_IsStillChecked()
+    {
+        Grant(CloudPath, CloudId);
+        Self(CloudSectionId, $"<one:Section {Ns} name=\"Web\" ID=\"{CloudSectionId}\" path=\"{CloudPath}Web%20(2).one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt($"{CloudPath}web.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "web", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
     [Fact]
     public async Task RenameACloudSection_OntoAPercentEncodedOnceWindow_IsInvalidArgument_BeforeCom()
     {

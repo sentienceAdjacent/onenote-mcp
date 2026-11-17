@@ -413,17 +413,43 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
     /// node itself, or one of <paramref name="below"/> under a section group) onto a location whose key holds a stored
     /// read grant or a live <c>once</c> window, which the section would then inherit (AD-21: a grant follows its path,
     /// and our own write must not re-bind one). Keys match by <see cref="GrantKeys.SameLocation"/>, percent-encoded or not,
-    /// as a move's do (backlog 8). A case-only rename (the old and new names equal ignoring case) moves nothing, so it is
-    /// never checked, whatever spelling the stored path uses. Otherwise a section staying at its own key never counts, and
-    /// that comparison stays exact, ignoring case (Phill, 2026-11-17): a decoded one would let a local rename onto a
-    /// literal <c>%20</c> name skip the check.
+    /// as a move's do (backlog 8). A section staying at its own key never counts, and that comparison is on the raw keys,
+    /// ignoring case (Phill, 2026-11-17): a decoded one would let a local rename onto a literal <c>%20</c> name skip the
+    /// check. A name alone never decides it either, since a section's name can differ from its file's leaf
+    /// (<c>Ideas (2).one</c>; security review). The one other skip is <see cref="CaseOnlyInTheCloud"/>.
     /// When the server can't tell where a section would go, <paramref name="strict"/> refuses with
     /// <see cref="ErrorCode.NotSupported"/>; otherwise that is left to the strict check. Messages carry IDs and counts
     /// only, never a name or path (AD-21).
     /// </summary>
+    /// <summary>
+    /// True for a case-only rename of a node in a cloud notebook whose stored path is percent-encoded: the path's leaf,
+    /// URL-decoded (without <c>.one</c> for a section), equals the node's name and the new name, both ignoring case. On a
+    /// URL the encoded and decoded leaf are one location, so the rename moves nothing. Local paths never take this skip:
+    /// there a literal <c>%20</c> names another file.
+    /// </summary>
+    private static bool CaseOnlyInTheCloud(HierarchyTarget node, string newName)
+    {
+        if (!CloudNotebookCreate.IsUrl(node.Path))
+        {
+            return false;
+        }
+
+        var path = node.Path.TrimEnd('/', '\\');
+        var leaf = path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
+        if (node.Kind == HierarchyKind.Section && leaf.EndsWith(".one", StringComparison.OrdinalIgnoreCase))
+        {
+            leaf = leaf[..^4];
+        }
+
+        var decoded = Uri.UnescapeDataString(leaf);
+        return decoded.Length > 0
+            && string.Equals(decoded, node.Name, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(decoded, newName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private OneNoteException? GrantLocationRefusal(HierarchyTarget node, IReadOnlyList<string> below, string newName, bool strict)
     {
-        if (string.Equals(node.Name, newName, StringComparison.OrdinalIgnoreCase))
+        if (CaseOnlyInTheCloud(node, newName))
         {
             return null;
         }
