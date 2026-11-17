@@ -116,6 +116,18 @@ public sealed class CreatePageUseCase(IOneNoteGateway gateway, WriteAccess acces
 
         public override async Task AuthorizeAsync(CancellationToken ct)
         {
+            if (parentPageId is not null)
+            {
+                // Phill, 2026-11-17 (3.14 Fable review): locked, then the read grant, before the write grant, so the user is
+                // never shown the write-grant dialog for a call that will be refused. Only the section's own attributes.
+                var self = await gateway.GetHierarchyAsync(sectionId, HierarchyScope.Self, ct).ConfigureAwait(false);
+                var node = XmlReads.Readable(() => HierarchyTarget.Read(self), "GetHierarchy");
+                if (node.Kind == HierarchyKind.Section)
+                {
+                    CheckLockedAndReadGrant(node);
+                }
+            }
+
             await access.CheckAsync(sectionId, () => NotASection(sectionId, "isn't a section"), ct).ConfigureAwait(false);
             if (parentPageId is not null)
             {
@@ -295,18 +307,7 @@ public sealed class CreatePageUseCase(IOneNoteGateway gateway, WriteAccess acces
                 throw NotASection(sectionId, "is in the recycle bin");
             }
 
-            if (read.Locked)
-            {
-                throw new OneNoteException(ErrorCode.SectionLocked, $"Section {sectionId} is locked, so no page was created.");
-            }
-
-            if (read.Encrypted && !readAccess!.HoldsReadGrantAt(GrantKeys.SectionKey(read.Path), callStart))
-            {
-                throw new OneNoteException(
-                    ErrorCode.ReadNotGranted,
-                    $"Section {sectionId} is password-protected, and adding a subpage to it needs a read grant for it held when the call starts, so no page was created.",
-                    userAction: ProtectedParentUserAction);
-            }
+            CheckLockedAndReadGrant(read);
 
             switch (PageLevels.ParentProblem(read.Children, parentPageId!))
             {
@@ -314,6 +315,23 @@ public sealed class CreatePageUseCase(IOneNoteGateway gateway, WriteAccess acces
                     throw Invalid($"Object {parentPageId} isn't a live page of section {sectionId}, so no page was created.");
                 case PageLevelProblem.ParentAtDeepest:
                     throw Invalid(string.Create(CultureInfo.InvariantCulture, $"Page {parentPageId} is at level {PageLevels.Deepest}, the deepest a page can be, so it can't take a subpage, and no page was created."));
+            }
+        }
+
+        /// <summary>Locked first, then a protected section's read grant held at the call's start, never prompted for (3.14 Q1 a).</summary>
+        private void CheckLockedAndReadGrant(HierarchyTarget section)
+        {
+            if (section.Locked)
+            {
+                throw new OneNoteException(ErrorCode.SectionLocked, $"Section {sectionId} is locked, so no page was created.");
+            }
+
+            if (section.Encrypted && !readAccess!.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
+            {
+                throw new OneNoteException(
+                    ErrorCode.ReadNotGranted,
+                    $"Section {sectionId} is password-protected, and adding a subpage to it needs a read grant for it held when the call starts, so no page was created.",
+                    userAction: ProtectedParentUserAction);
             }
         }
 

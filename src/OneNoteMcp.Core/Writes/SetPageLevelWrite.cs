@@ -125,6 +125,11 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
             ?? throw Invalid($"Object {PageId} isn't a page in a section, so no level was changed.", PageUserAction);
         SectionId = section.Id;
 
+        // Phill, 2026-11-17 (3.14 Fable review): locked, then the read grant, before the write grant, so the user is never
+        // shown the write-grant dialog for a call that will be refused. Only the section's own attributes are read here.
+        var self = await services.Gateway.GetHierarchyAsync(section.Id, HierarchyScope.Self, ct).ConfigureAwait(false);
+        CheckLockedAndReadGrant(XmlReads.Readable(() => HierarchyTarget.Read(self), "GetHierarchy"));
+
         notebook = await services.WriteAccess.CheckAsync(section.Id, () => PageNotFound("isn't inside a notebook"), ct).ConfigureAwait(false);
 
         // Step 4's refusals against a read made now, so the lock is never taken for one; step 4 checks again under it.
@@ -288,20 +293,7 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
             throw PageNotFound("is in the recycle bin");
         }
 
-        // From the section's own attributes, before any page is read (3.14 design note: locked before ReadNotGranted).
-        if (section.Locked)
-        {
-            throw new OneNoteException(ErrorCode.SectionLocked, $"Section {section.Id} is locked, so the level of page {PageId} wasn't changed.");
-        }
-
-        // 3.14 Q1 a: the section's read grant, held at the call's start, never prompted for, before any page-level check.
-        if (section.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
-        {
-            throw new OneNoteException(
-                ErrorCode.ReadNotGranted,
-                $"Section {section.Id} is password-protected, and changing a page's level in it needs a read grant for it held when the call starts, so no level was changed.",
-                userAction: ProtectedUserAction);
-        }
+        CheckLockedAndReadGrant(section);
 
         var page = section.Children.Any(c => string.Equals(c.Id, PageId, StringComparison.Ordinal))
             ? XmlReads.Readable(() => HierarchyTarget.Page(childrenXml, PageId), "GetHierarchy")
@@ -337,6 +329,27 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
     }
 
     /// <summary>The message for a <see cref="PageLevels"/> refusal: IDs and levels only.</summary>
+    /// <summary>
+    /// From the section's own attributes, before any page is read: locked first (3.14 design note), then in a protected
+    /// section the read grant held at the call's start, never prompted for (Q1 a). Step 1 runs it before the write grant
+    /// (Phill, 2026-11-17), step 4 again under the lock.
+    /// </summary>
+    private void CheckLockedAndReadGrant(HierarchyTarget section)
+    {
+        if (section.Locked)
+        {
+            throw new OneNoteException(ErrorCode.SectionLocked, $"Section {section.Id} is locked, so the level of page {PageId} wasn't changed.");
+        }
+
+        if (section.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
+        {
+            throw new OneNoteException(
+                ErrorCode.ReadNotGranted,
+                $"Section {section.Id} is password-protected, and changing a page's level in it needs a read grant for it held when the call starts, so no level was changed.",
+                userAction: ProtectedUserAction);
+        }
+    }
+
     private string Refusal(PageLevelResult levels, IReadOnlyList<HierarchyMember> pages)
     {
         int LevelOf(string? id) => pages.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.Ordinal))?.PageLevel ?? 0;

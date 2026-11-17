@@ -304,6 +304,22 @@ public sealed class SetPageLevelToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AProtectedSection_WithNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown()
+    {
+        // Phill, 2026-11-17 (3.14 Fable review): the read grant is checked before the write grant, so the user is never
+        // asked for a write grant on a call that will be refused. The prompt would accept; it must never be asked.
+        var prompt = new FakePrompt(Typed("A"));
+
+        Error(await SetWithPrompt(prompt, V2, 2), "ReadNotGranted");
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(prompt.WriteQuestions);
+        Assert.Empty(prompt.Questions);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task AProtectedSection_ReadNotGranted_ComesBeforeTheLevelRules()
     {
         // V1 is the Vault's first page: without a grant the caller learns nothing about where it sits.

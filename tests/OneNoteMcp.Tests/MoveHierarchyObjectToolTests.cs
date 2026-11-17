@@ -535,6 +535,21 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AProtectedTarget_WithAPosition_AndNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown()
+    {
+        // Phill, 2026-11-17 (3.14 Fable review): the read grant before the write grant, so the user is never asked for a
+        // write grant on a move that will be refused. The prompt would accept; it must never be asked.
+        var prompt = new FakePrompt(Typed("A"));
+
+        Error(await MoveWithPrompt(prompt, P2, VaultId, 1), "ReadNotGranted");
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(prompt.WriteQuestions);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task AProtectedTarget_WithAPosition_AndAReadGrant_MovesThePage()
     {
         Grant();
@@ -787,13 +802,13 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
     private MoveHierarchyObjectTool Tool() => new(Runner(), UseCase());
 
     /// <summary>A move through the runner with <paramref name="prompt"/> as the call's grant dialog.</summary>
-    private Task<CallToolResult> MoveWithPrompt(IGrantPrompt prompt, string objectId, string parentId)
+    private Task<CallToolResult> MoveWithPrompt(IGrantPrompt prompt, string objectId, string parentId, int? position = null)
     {
         var useCase = UseCase();
         return Runner().RunAsync(
             MoveHierarchyObjectTool.Name,
             useCase,
-            (context, token) => useCase.MoveAsync(context, objectId, parentId, null, null, token),
+            (context, token) => useCase.MoveAsync(context, objectId, parentId, position, null, token),
             Ct,
             prompt);
     }

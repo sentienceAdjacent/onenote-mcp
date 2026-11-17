@@ -150,6 +150,24 @@ context:
     - New test: `CreatePageToolTests.APlacementTimeout_IsSubpageNotPlaced_SayingItMayHaveBeenPlaced_AndKeepsTheLockUntilItSettles`. It failed before the fix. The first, global version of the pipeline change broke three step-2 `ComBusy` tests; it was narrowed to the case after step 7 starts, and all three pass again.
   - **low, patch.** The doc comment on `SetPageLevelWrite.ReadBackDifferences` said the method was shared with `create_page`'s placement. It isn't: that has its own check. Fix: the sentence was removed.
 
+- 2026-11-17, Fable final review of the spine sync, at low effort: 16 findings, 5 must fix and 11 optional. Phill had all 16 applied (Inbox, 2026-11-17).
+  - Spine changes:
+    - the step-7 exception for a placement that was sent and then abandoned, and the matching AD-18 lock rule;
+    - AD-7 step 1.2's exception;
+    - "expected to keep its ID", now unproven, with a Deferred row;
+    - "deeper"/"shallower", and "the page and its block";
+    - the table's COM, Grants and Validation columns;
+    - `unchanged` placed in the refusal order, and the sentence that only the borders are checked;
+    - AD-17's weak basis, AD-8's protected entries, and AD-18's list of read-backs;
+    - labelled sub-bullets, and prose fixes.
+    - Memlog: one decision by Phill, one build decision and one event.
+  - **Decision by Phill (step-1 order, finding 3).** With neither grant held, the read grant is checked before the write grant, so the user is never shown the write-grant dialog for a call that will be refused. Locked still answers `SectionLocked` first. This applies to `set_page_level`, `create_page` with `parentPageId`, and 3.4's `move_hierarchy_object` with a `position` in a protected target (`MovePageWrite.AuthorizeAsync`). In each, step 1 now reads the section's own attributes (`self`) before the write grant, and step 4 checks again under the lock. TDD: one test per tool was written first, with no grants and a prompt that would accept, asserting `ReadNotGranted` and a prompt never asked. All three failed before the change and pass after it:
+    - `SetPageLevelToolTests.AProtectedSection_WithNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown`
+    - `CreatePageToolTests.AProtectedSection_WithNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown`
+    - `MoveHierarchyObjectToolTests.AProtectedTarget_WithAPosition_AndNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown`
+  - This departs from the frozen Always text ("then the write grant, then a pre-check"), on Phill's explicit decision.
+  - Verification: build with 0 warnings; 3,180 unit tests passed; integration without the variable 217 passed, 101 skipped, 0 failed.
+
 ## Design Notes
 
 Considered building the placement in `AfterCallAsync`, whose failures already turn into warnings. Going with `CallAsync` plus a try/catch instead, because `AfterCallAsync` is the read-back, and a write hidden there would be invisible to the step model.

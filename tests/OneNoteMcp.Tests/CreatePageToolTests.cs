@@ -1107,6 +1107,22 @@ public sealed class CreatePageToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AProtectedSection_WithNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown()
+    {
+        // Phill, 2026-11-17 (3.14 Fable review): the read grant before the write grant; the accepting prompt is never asked.
+        LocketIs("P:1");
+        var prompt = new FakePrompt(Typed("W"));
+
+        Error(await CreateUnderParentWithPrompt(prompt, LocketPage("P"), LocketId), "ReadNotGranted");
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(prompt.WriteQuestions);
+        Assert.Empty(prompt.Questions);
+        AssertNoWrite();
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task AProtectedSection_WithAReadGrant_PlacesThePage()
     {
         Grant();
