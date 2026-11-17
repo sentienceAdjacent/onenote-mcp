@@ -3,7 +3,7 @@ title: 'App-state probes, part 3: quick filing'
 type: 'chore'
 ticket: '13'
 created: '2026-11-17'
-status: draft
+status: ready-for-dev
 baseline_revision: '55fd04930b009bb6bc7ae4d536fc77585b924de3'
 route: 'full'
 route_source: 'auto'
@@ -55,17 +55,14 @@ context:
 | F8 | STA replaced | The picker runs on a side gateway (4.1's `CreateSideGateway`); with it open, the side gateway is disposed, ending its STA thread. Phill then picks: does the picker stay, does the callback arrive and where, and do the session gateway's calls still work? |
 | H | HRESULTs | Every code seen, per method, with its trigger, mapped to AD-9 |
 
+## Decisions (2026-11-17)
+
+Answered overnight with the recommendation, per Phill's standing overnight rule (2026-11-17); Phill reviews in the morning.
+
+- **F7 and F8: (a), probe both** as the last steps before `cleanup`, with Phill present and the breaker on. If OneNote hangs, the run stops, Phill deals with OneNote himself (the probe never closes or kills it), and the hang is the result. Reason: A8's rule that a picker left on screen stays and its answer is dropped is what these measure. Rejected: (b) logging them `notProbed`.
+- **Plan size: (a), keep the full plan** (about 2,000 tokens), in one sitting. Rejected: (b) splitting F7 and F8 into another spike.
+
 </frozen-after-approval>
-
-## Open Questions
-
-1. **F7 and F8 risk a hang.** Releasing the dialog or ending the thread that ran it, while the picker is open, is what A8's cleanup must survive, and also the most likely to hang OneNote's UI thread.
-   - (a) Probe both as the last steps before `cleanup`, with Phill present and the breaker on; if OneNote hangs, Phill ends it himself after the run stops, and the hang is the result.
-   - (b) Log F7 and F8 `notProbed`, and have entry 2 assume the worst (the picker stays and its answer is lost).
-   - Recommended: (a). A8's rule "a picker left on screen after the call ends stays until the user closes it, and its answer is dropped" is exactly what these measure; without them entry 2 would be guessing.
-2. **Plan size.** About 2,000 tokens, over the 1,600 guide.
-   - (a) Keep it. (b) Split F7 and F8 into another spike.
-   - Recommended: (a). One sitting covers it, and the entry asks for all of them.
 
 ## Code Map
 
@@ -115,6 +112,8 @@ Run from the repo root with OneNote running, `$env:ONENOTE_MCP_INTEGRATION='1'`,
 ## Implementation Notes
 
 ## Plan Change Log
+
+- 2026-11-17: the two open questions were answered overnight with the recommendation (Decisions above), per Phill's standing overnight rule; status `ready-for-dev`, then `in-progress` for the build. Phill reviews in the morning.
 
 ## Review Triage Log
 
