@@ -108,4 +108,11 @@ public static class ToolWarnings
     /// failed. It needs no userAction.
     /// </summary>
     public const string RecycleBinIdMissing = "recycleBinIdMissing";
+
+    /// <summary>
+    /// An export of content from a password-protected section, made under the section's read grant: the file OneNote wrote
+    /// is plaintext, outside the section's encryption (AD-21 Copies outside OneNote; story 3.3). Names the page's and the
+    /// section's IDs only. Its userAction says to tell the user.
+    /// </summary>
+    public const string ExportNotEncrypted = "exportNotEncrypted";
 }

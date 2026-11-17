@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(23, actual.Count);
+        Assert.Equal(24, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -277,7 +277,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(23, tools.Count);
+        Assert.Equal(24, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -361,9 +361,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllTwentyThreeTools()
+    public void SnapshotToolNames_AreAllTwentyFourTools()
     {
-        Assert.Equal(23, SnapshotToolNames().Count);
+        Assert.Equal(24, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -434,9 +434,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 53 properties in all.
-        Assert.Equal(22, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(53, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 56 properties in all (publish's three added, story 3.3).
+        Assert.Equal(23, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(56, SnapshotToolProperties().Count);
     }
 
     [Theory]

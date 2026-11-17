@@ -54,9 +54,26 @@ public enum PageStyleArgument
     BlankPageNoTitle,
 }
 
+/// <summary>
+/// <c>publish</c>'s <c>format</c> on the wire (AD-14; story 3.3): PDF only in this release. Story 3.13 adds members; there is
+/// never one for <c>pfOneNote2007</c> (AD-11).
+/// </summary>
+[JsonConverter(typeof(StrictStringEnumConverter<PublishFormatArgument>))]
+public enum PublishFormatArgument
+{
+    [JsonStringEnumMemberName("pdf")]
+    Pdf,
+}
+
 /// <summary>Maps the wire enums to Core's. Total over each, so an unknown value is a bug, never a silent default.</summary>
 public static class ToolArguments
 {
+    public static ExportFormat ToCore(this PublishFormatArgument format) => format switch
+    {
+        PublishFormatArgument.Pdf => ExportFormat.Pdf,
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unknown export format."),
+    };
+
     public static NewPageStyle ToCore(this PageStyleArgument style) => style switch
     {
         PageStyleArgument.Default => NewPageStyle.Default,

@@ -512,7 +512,7 @@ public sealed class PermanentDeleteIntegrationTests(ITestOutputHelper output) : 
             await Inner.DeleteHierarchyAsync(objectId, expectedLastModified, permanent, ct);
         }
 
-        public async Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+        public async Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct)
         {
             await Guard(objectId, "Publish", ct);
             switch (Publish)
@@ -522,7 +522,7 @@ public sealed class PermanentDeleteIntegrationTests(ITestOutputHelper output) : 
                 case PublishMode.Skip:
                     return;
                 default:
-                    await Inner.PublishAsync(objectId, targetPath, ct);
+                    await Inner.PublishAsync(objectId, targetPath, format, ct);
                     break;
             }
         }

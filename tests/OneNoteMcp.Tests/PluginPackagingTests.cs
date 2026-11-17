@@ -248,6 +248,23 @@ public sealed class PluginPackagingTests
     private static IReadOnlyList<string> ContractToolNames() =>
         ReadJson(ToolContract).GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToList();
 
+    /// <summary>
+    /// Round-2 tools whose skill and README text is epic 3's entry 10 ("Skill, README and harness for round 2"): story 3.3's
+    /// plan keeps that text out of the tracer ("No skill or README text"). Entry 10 writes it and empties this set.
+    /// </summary>
+    private static readonly HashSet<string> DocumentedByRound2Entry10 = new(StringComparer.Ordinal) { "publish" };
+
+    /// <summary>The contract's tools that the skill and the README must already name.</summary>
+    private static IReadOnlyList<string> DocumentedContractToolNames() =>
+        [.. ContractToolNames().Where(name => !DocumentedByRound2Entry10.Contains(name))];
+
+    [Fact]
+    public void ToolsAwaitingRound2Docs_AreAllInTheContract()
+    {
+        var names = ContractToolNames();
+        Assert.All(DocumentedByRound2Entry10, name => Assert.Contains(name, names));
+    }
+
     [Fact]
     public void GuideSkill_HasFrontmatterNamedGuide()
     {
@@ -266,9 +283,9 @@ public sealed class PluginPackagingTests
     public void GuideSkill_MentionsEveryContractTool()
     {
         // AD-14: a tool added to the contract snapshot fails here until the skill covers it.
-        // Whole names only, so get_hierarchy isn't satisfied by get_hierarchy_parent.
+        // Whole names only, so get_hierarchy isn't satisfied by get_hierarchy_parent. Round-2 tools wait for entry 10.
         var named = NamedTools();
-        var names = ContractToolNames();
+        var names = DocumentedContractToolNames();
         Assert.NotEmpty(names);
         Assert.All(names, name => Assert.True(named.Contains(name), $"{GuideSkill} or its references/*.md must name {ToolPrefix}{name}."));
     }
@@ -310,9 +327,9 @@ public sealed class PluginPackagingTests
     [Fact]
     public void Readme_NamesEveryContractTool()
     {
-        // Whole names in backticks, so get_hierarchy isn't satisfied by get_hierarchy_parent.
+        // Whole names in backticks, so get_hierarchy isn't satisfied by get_hierarchy_parent. Round-2 tools wait for entry 10.
         var readme = ReadText(Readme);
-        var names = ContractToolNames();
+        var names = DocumentedContractToolNames();
         Assert.NotEmpty(names);
         Assert.All(names, name => Assert.True(readme.Contains($"`{name}`", StringComparison.Ordinal), $"{Readme} must name `{name}`."));
     }

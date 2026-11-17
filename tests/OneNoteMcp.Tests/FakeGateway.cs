@@ -358,8 +358,11 @@ internal sealed class FakeGateway : IOneNoteGateway
         return Task.CompletedTask;
     }
 
-    /// <summary>Every <c>Publish</c> call, in order (story 5.6). It has no fixture: by default it writes <see cref="PublishedBytes"/> to the target.</summary>
-    public List<(string ObjectId, string TargetPath)> PublishCalls { get; } = [];
+    /// <summary>
+    /// Every <c>Publish</c> call, in order, with its format (stories 5.6 and 3.3). It has no fixture: by default it writes
+    /// <see cref="PublishedBytes"/> to the target.
+    /// </summary>
+    public List<(string ObjectId, string TargetPath, ExportFormat Format)> PublishCalls { get; } = [];
 
     /// <summary>When set, <c>Publish</c> alone throws it, writing nothing.</summary>
     public Exception? PublishFailure { get; set; }
@@ -370,9 +373,9 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>When set, runs instead of the default file write, with the call's arguments and token.</summary>
     public Func<string, string, CancellationToken, Task>? OnPublish { get; set; }
 
-    public async Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    public async Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct)
     {
-        PublishCalls.Add((objectId, targetPath));
+        PublishCalls.Add((objectId, targetPath, format));
         if ((Failure ?? PublishFailure) is { } failure)
         {
             throw failure;

@@ -7,7 +7,7 @@ namespace OneNoteMcp.Core;
 /// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
 /// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
 /// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>), and
-/// <see cref="DeleteHierarchyAsync"/> (<c>SoftDelete</c>, and story 5.6's <c>PermanentDelete</c>), with 5.6's <see cref="PublishAsync"/> (the section backup). Every XML result is 2013-schema, returned unchanged (AD-4).
+/// <see cref="DeleteHierarchyAsync"/> (<c>SoftDelete</c>, and story 5.6's <c>PermanentDelete</c>), with <see cref="PublishAsync"/> (5.6's section backup, and story 3.3's <c>ExternalWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
 /// IDs are opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
@@ -124,15 +124,18 @@ public interface IOneNoteGateway
     Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct);
 
     /// <summary>
-    /// A write (AD-7; story 5.6, the <c>PermanentDelete</c> backup): <c>Publish</c> of the section
-    /// <paramref name="objectId"/> in OneNote's own format (<c>pfOneNote</c>) to the new file
+    /// A write (AD-7): <c>Publish</c> of the object <paramref name="objectId"/> in <paramref name="format"/> to the new file
     /// <paramref name="targetPath"/>, a fully qualified local path whose folder exists (OneNote raises a modal for a missing
-    /// folder and refuses an existing file). An empty ID or a path that isn't fully qualified and local is refused with
-    /// <see cref="ErrorCode.InvalidArgument"/> before COM. It runs under <c>timeouts.publishSeconds</c>, not the call
-    /// timeout, and is never retried after a disconnect (AD-3). The file may land after the call returns: the caller waits
-    /// for it. The default throws <see cref="ErrorCode.NotSupported"/>, for test doubles that never publish.
+    /// folder and refuses an existing file). Its callers: story 5.6's <c>PermanentDelete</c> section backup
+    /// (<see cref="ExportFormat.OneNote"/>) and story 3.3's <c>publish</c> (<see cref="ExportFormat.Pdf"/>, an
+    /// <c>ExternalWrite</c>). A format that isn't an <see cref="ExportFormat"/> member is refused with
+    /// <see cref="ErrorCode.NotSupported"/> before COM, so <c>pfOneNote2007</c> is never sent (AD-11); an empty ID or a
+    /// path that isn't fully qualified and local is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. It runs
+    /// under <c>timeouts.publishSeconds</c>, not the call timeout, and is never retried after a disconnect (AD-3). The file
+    /// may land after the call returns: the caller waits for it (<c>PublishedFile</c>). The default throws
+    /// <see cref="ErrorCode.NotSupported"/>, for test doubles that never publish.
     /// </summary>
-    Task PublishAsync(string objectId, string targetPath, CancellationToken ct) =>
+    Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct) =>
         Task.FromException(new OneNoteException(ErrorCode.NotSupported, "Publish isn't available through this gateway."));
 
     /// <summary>
