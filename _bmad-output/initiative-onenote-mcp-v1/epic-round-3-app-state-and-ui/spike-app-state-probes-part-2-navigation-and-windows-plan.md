@@ -3,7 +3,7 @@ title: 'App-state probes, part 2: navigation and windows'
 type: 'chore'
 ticket: '12'
 created: '2026-11-16'
-status: draft
+status: ready-for-dev
 baseline_revision: '23b4da658946d863809fec5747ad41f8f8a336e6'
 route: 'full'
 route_source: 'auto'
@@ -65,25 +65,18 @@ Each row is one findings-doc question. L = local (MCP Test), C = cloud (MCP Test
 | W3 | Windows | A quick-note window open (Phill opens one): W1, and what `CurrentWindow` is |
 | W4 | Windows | Two windows on one page (Phill opens a second with Ctrl+M): W1; which window app-level `NavigateTo` moves; then `Window.NavigateTo` on the second window to another page: which window moves, and F/V |
 | W5 | Windows | A window showing a Vault page, unlocked then locked: what `CurrentPageId` and `CurrentSectionId` report each time |
-| W6 | Windows | No OneNote window: see Open Questions |
+| W6 | Windows | No OneNote window (Phill closes OneNote's last window by hand, last step): W1, then app-level `NavigateTo` on an MCP Test page: HRESULT, and whether anything shows. If `ONENOTE.EXE` exits, the breaker records it and the run stops |
 | H | HRESULTs | Every code seen, per method, with its trigger, mapped to AD-9 |
 
+## Decisions (2026-11-17)
+
+Answered overnight with the recommendation, per Phill's standing overnight rule (2026-11-17); Phill reviews in the morning.
+
+- **W6, no OneNote window: (a), probe it.** It is the run's last step, after `cleanup`: Phill closes OneNote's last window by hand, the probe reads W1 and calls `NavigateTo` on an MCP Test page. If `ONENOTE.EXE` exits, the breaker records it, the run stops, and Phill restarts OneNote himself (the probe never starts it). Reason: `navigate_to`'s description already claims the no-window behaviour unmeasured, and as the last step an exit costs nothing else. Rejected: (b) log W6 `notProbed`.
+- **N5, a loose `.one` the link opens: (a), Phill closes it by hand** at a pause (right-click > Close This Section); if he can't, it goes under Left behind. Rejected: (b) trying `CloseNotebook` on a section ID, which probes something outside this entry.
+- **Plan size: (a), keep the full plan** (about 3,000 tokens, over the 1,600 guide, as 4.1's was), in one sitting as the entry says. Rejected: (b) splitting W1–W6 into another spike; K2 needs W1's reads.
+
 </frozen-after-approval>
-
-## Open Questions
-
-1. **W6, no OneNote window.** The entry asks what `Windows` reports with no window, and story 1.21 says `NavigateTo` returns ok and shows nothing then, unmeasured. Making that state means Phill closes OneNote's last window by hand, and OneNote may then exit.
-   - (a) Probe it as the run's last step, after `cleanup`: Phill closes the window by hand; the probe reads W1 and calls `NavigateTo` on an MCP Test page. If `ONENOTE.EXE` exits, the breaker records it, the run stops, and Phill restarts OneNote himself.
-   - (b) Log W6 `notProbed`, and leave `navigate_to`'s no-window wording unmeasured.
-   - Recommended: (a). The tool's description already makes the claim, and the step is last, so an exit costs nothing else.
-2. **N5, a loose `.one` that the link opens.** If `NavigateToUrl` opens the published file, it lands as a section outside any notebook, which the close guard can't target (`CloseNotebook` takes a notebook ID).
-   - (a) A pause asks Phill to close it by hand (right-click > Close This Section); if he can't, it goes under Left behind.
-   - (b) Try `CloseNotebook` on the section's ID, recording the HRESULT, and fall back to (a).
-   - Recommended: (a). (b) would probe `CloseNotebook` on a section, outside this entry's questions.
-3. **Plan size.** The plan is about 3,000 tokens, over the 1,600 guide, as 4.1's was.
-   - (a) Keep the full plan, in one sitting as the entry says.
-   - (b) Split the windows rows (W1–W6) into a separate spike.
-   - Recommended: (a). The entry puts all of these in one sitting, and K2 needs W1's reads.
 
 ## Code Map
 
@@ -140,11 +133,13 @@ Run from the repo root with OneNote running, `$env:ONENOTE_MCP_INTEGRATION='1'`,
 | `quick-note` | W3 | He opens a quick note (Win+Alt+N) at a pause, then closes it |
 | `two-windows` | W4 | He opens a second window on Seed (Ctrl+M) at a pause; two jumps; he reports which window moved, then closes the second window |
 | `cleanup` | - | `n1` and the published file go. He confirms the notebook list |
-| `no-window` | W6 | Per Open Question 1 |
+| `no-window` | W6 | He closes OneNote's window by hand (X), then reports whether OneNote is still in the taskbar or tray; one `NavigateTo` follows. If OneNote exited, he restarts it himself |
 
 ## Implementation Notes
 
 ## Plan Change Log
+
+- 2026-11-17: the three open questions were answered overnight with the recommendation (Decisions above), per Phill's standing overnight rule; status `ready-for-dev`. Phill reviews in the morning.
 
 ## Review Triage Log
 
