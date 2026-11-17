@@ -3,12 +3,13 @@ title: 'publish: notebooks and section groups'
 type: 'feature'
 ticket: '7'
 created: '2026-11-17'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_revision: '935ed20515257f633dd97caee2945f59f6dfec41'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -75,11 +76,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/OneNoteMcp.Tests/PublishToolTests.cs` -- first, red: each matrix row on `FakeGateway`; a theory over the seven non-package formats for a notebook, each `NotSupported` with zero `PublishCalls`; a notebook holding a locked protected section with no grant exports with no warning; the notebook closed under the lock.
-- [ ] `PublishUseCase.cs` -- the notebook kind, in the Always order.
-- [ ] `PublishTool.cs`, `tool-contract.json` -- description and snapshot.
-- [ ] `TestNotebook.cs` -- the public guard overload with throwaways.
-- [ ] `PublishIntegrationTests.cs` -- (1) MCP Test as a package into its own empty subfolder, with the Vault locked (pause if it isn't) and no read grant: ok, the subfolder holds only the `.onepkg`, size and seconds logged; then `pdf` for MCP Test refused `NotSupported` with no `Publish` call. (2) The adopted throwaway (skip if not open) as a package, no refusal, and asserted to hold no `encrypted` section. (3) A section group of MCP Test refused `NotSupported` with no `Publish` call (skip if none).
+- [x] `tests/OneNoteMcp.Tests/PublishToolTests.cs` -- first, red: each matrix row on `FakeGateway`; a theory over the seven non-package formats for a notebook, each `NotSupported` with zero `PublishCalls`; a notebook holding a locked protected section with no grant exports with no warning; the notebook closed under the lock.
+- [x] `PublishUseCase.cs` -- the notebook kind, in the Always order.
+- [x] `PublishTool.cs`, `tool-contract.json` -- description and snapshot.
+- [x] `TestNotebook.cs` -- the public guard overload with throwaways.
+- [x] `PublishIntegrationTests.cs` -- (1) MCP Test as a package into its own empty subfolder, with the Vault locked (pause if it isn't) and no read grant: ok, the subfolder holds only the `.onepkg`, size and seconds logged; then `pdf` for MCP Test refused `NotSupported` with no `Publish` call. (2) The adopted throwaway (skip if not open) as a package, no refusal, and asserted to hold no `encrypted` section. (3) A section group of MCP Test refused `NotSupported` with no `Publish` call (skip if none).
 
 **Acceptance Criteria:**
 - Given 3.3's and 3.13's publish tests, when they run, then they pass, with only the notebook-refusal test replaced.
@@ -91,6 +92,11 @@ context:
 - Considered a package scan for the Vault's text (as spike XP1/XP2 did with `expand.exe`); left out: four spike runs settle it and H1 is approved.
 
 ## Implementation Notes
+
+- Implemented directly in this lane (the coordinating session asked for no implementation subagents). Test-first: the 14 new unit tests (8 facts plus a 7-row theory replacing `ANotebook_IsNotSupported_InThisRelease`) were run red before any code (14 failed, 90 passed), then green. The integration tests and the `TestNotebook` overload came after the code; they can't run red here (no OneNote).
+- `PublishUseCase`: `bool isSection` became a private `TargetKind` (page, section, notebook); `TheSectionItselfAsync` became `TheTargetItselfAsync`, returning a notebook too. A notebook with any format but `OneNotePackage` is refused right after the `self` read, before the section-EMF check and before `EnsureWritable`/`Resolve`. A notebook skips `CheckReadGrant` in step 1 and both `CheckReadGrant` and the `Locked` check under the lock. `NotebookUserAction` now names `format onepkg`; `ObjectIdUserAction` names a notebook's ID.
+- `PublishTool` description: notebooks as `onepkg` only (the `pdf` default included in the refusal), no read grant, protected sections stay encrypted and open locked. The contract snapshot is unchanged (descriptions stripped): the full unit suite passed against it.
+- Integration: `GuardedGateway.Throwaways` plus the new `TestNotebook.EnsureTestTargetAsync` overload let `Publish` target the adopted throwaway. Three new facts: MCP Test as a package with the Vault locked and no grant (pauses to lock it if needed; then `pdf` refused), the throwaway as a package (skips when it isn't open; asserts no `encrypted` section), and a section group refused before COM (the recycle bin's when MCP Test has no other).
 
 ## Plan Change Log
 

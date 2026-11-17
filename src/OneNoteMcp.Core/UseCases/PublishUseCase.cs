@@ -8,21 +8,23 @@ using OneNoteMcp.Xml;
 namespace OneNoteMcp.Core.UseCases;
 
 /// <summary>
-/// <c>publish</c> (stories 3.3 and 3.13): <c>Publish</c> of a page or a section, in any <see cref="ExportFormat"/> (AD-7
-/// Formats by scope), to a new file under an export root, through the write pipeline (AD-7) as one <c>ExternalWrite</c>.
+/// <c>publish</c> (stories 3.3, 3.13 and 3.7): <c>Publish</c> of a page or a section in any <see cref="ExportFormat"/>, or of
+/// a notebook as a package only (AD-7 Formats by scope), to a new file under an export root, through the write pipeline (AD-7) as one <c>ExternalWrite</c>.
 /// No write grant and no dialog of any kind.
 /// <list type="number">
 /// <item>Step 1, before the lock (<see cref="PublishTarget.AuthorizeAsync"/>): an empty <c>objectId</c> is
 /// <see cref="ErrorCode.InvalidArgument"/>; a format outside the enum is <see cref="ErrorCode.NotSupported"/>. A page's
 /// owning section is resolved through the walk first, because OneNote hides a locked section's pages from
-/// <c>GetHierarchy</c>; only when there is none is the target read at <c>self</c>: a section is exported itself, a section
-/// group is <see cref="ErrorCode.NotSupported"/> (epic 3 decision Q7) and so is a notebook (entry 7), anything else
-/// <see cref="ErrorCode.ObjectNotFound"/>. <c>settings.json</c> must be writable
+/// <c>GetHierarchy</c>; only when there is none is the target read at <c>self</c>: a section is exported itself, a notebook
+/// too but only as a package (any other format is <see cref="ErrorCode.NotSupported"/>, spike 3.1 X1), a section group is
+/// <see cref="ErrorCode.NotSupported"/> (epic 3 decision Q7), anything else <see cref="ErrorCode.ObjectNotFound"/>. <c>settings.json</c> must be writable
 /// (<see cref="SettingsSnapshot.EnsureWritable"/>). The path is resolved and checked by <see cref="ExportTarget.Resolve"/>.
 /// In a password-protected section a read grant held at the call's start is required, never prompted for (AD-21 Exports), else
-/// <see cref="ErrorCode.ReadNotGranted"/>.</item>
+/// <see cref="ErrorCode.ReadNotGranted"/>. A notebook package needs no read grant (AD-21 Exports, 3.2 plan H1): it keeps
+/// every protected section encrypted, locked or not (spike 3.1 XP1, XP2).</item>
 /// <item value="3">Steps 3 and 4, under the lock: a page is walked to its section again, a section re-read (locked is
-/// <see cref="ErrorCode.SectionLocked"/>; protected since step 1 needs the read grant too), the path is resolved again and
+/// <see cref="ErrorCode.SectionLocked"/>; protected since step 1 needs the read grant too), a notebook re-read (it must
+/// still be one, else <see cref="ErrorCode.ObjectNotFound"/>; a locked section inside it is no obstacle, XP2), the path is resolved again and
 /// must come out the same, with nothing at it (<see cref="ErrorCode.FileExists"/>), and the target's folder is created,
 /// because <c>Publish</c> into a missing folder raises a modal and blocks.</item>
 /// <item value="7">Step 7: <c>Publish</c> in the format, then the landing wait (<see cref="PublishedFile"/>) within
@@ -31,7 +33,7 @@ namespace OneNoteMcp.Core.UseCases;
 /// failure names the output path (AD-11), through <see cref="WriteOperation{TResult}.FailureNote"/>.</item>
 /// </list>
 /// The result is <c>meta.objectId</c> and <c>meta.outputPath</c> (canonical), with the warning <c>exportNotEncrypted</c> for
-/// a protected section or a page in one (a section's package too: H1 relaxes only notebook packages). A section as EMF is
+/// a protected section or a page in one (a section's package too: H1 relaxes only notebook packages, which never warn). A section as EMF is
 /// refused with <see cref="ErrorCode.NotSupported"/> in step 1, before any write: the 3.13 sitting found that it holds only
 /// the first page (Phill, 2026-11-17). Messages name IDs and the caller's own output path, never a name or content (AD-9, AD-21).
 /// </summary>
@@ -43,15 +45,15 @@ public sealed class PublishUseCase : IUseCase
 
     /// <summary>What to do with an empty or unknown ID.</summary>
     public const string ObjectIdUserAction =
-        "Pass a page's or a section's ID (get_hierarchy lists them).";
+        "Pass a page's, a section's or a notebook's ID (get_hierarchy lists them).";
 
     /// <summary>What to do with a section group (epic 3 decision Q7).</summary>
     public const string GroupUserAction =
         "publish can't export a section group. Export its sections one by one (get_hierarchy with scope sections lists them), into one folder if the user wants them together.";
 
-    /// <summary>What to do with a notebook (entry 7 adds notebook packages).</summary>
+    /// <summary>What to do with a notebook in a format other than a package (spike 3.1 X1; Phill, 3.7 plan Q1).</summary>
     public const string NotebookUserAction =
-        "Notebooks export as a package in a later release. For now, export the notebook's sections one by one (get_hierarchy with scope sections lists them).";
+        "A notebook exports only as a OneNote package: call publish again with format onepkg and a path ending in .onepkg. For another format, export the notebook's sections one by one (get_hierarchy with scope sections lists them).";
 
     /// <summary>What to do with a section as EMF (the 3.13 sitting: it holds only the first page).</summary>
     public const string SectionEmfUserAction =
@@ -105,7 +107,7 @@ public sealed class PublishUseCase : IUseCase
 
     public OperationClass Class => OperationClass.ExternalWrite;
 
-    /// <summary>Exports page or section <paramref name="objectId"/> in <paramref name="format"/> to <paramref name="path"/>.</summary>
+    /// <summary>Exports page, section or notebook <paramref name="objectId"/> in <paramref name="format"/> to <paramref name="path"/>.</summary>
     public async Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string objectId, string path, ExportFormat format, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -128,7 +130,15 @@ public sealed class PublishUseCase : IUseCase
         _ => "file",
     };
 
-    /// <summary>One page's or section's export as an <c>ExternalWrite</c> (AD-7), in the order the class summary gives.</summary>
+    /// <summary>What a <c>publish</c> exports, as step 1 found it.</summary>
+    private enum TargetKind
+    {
+        Page,
+        Section,
+        Notebook,
+    }
+
+    /// <summary>One page's, section's or notebook's export as an <c>ExternalWrite</c> (AD-7), in the order the class summary gives.</summary>
     private sealed class PublishTarget(PublishUseCase owner, string objectId, string path, ExportFormat format, DateTimeOffset callStart)
         : WriteOperation<IReadOnlyList<ToolWarning>>
     {
@@ -137,11 +147,16 @@ public sealed class PublishUseCase : IUseCase
         private HierarchyNode? section;
         private HierarchyNode? current;
         private string? target;
-        private bool isSection;
+        private TargetKind kind = TargetKind.Page;
         private bool warnedNotEncrypted;
 
-        /// <summary>"page {id}" or "section {id}", for messages.</summary>
-        private string What => isSection ? $"section {objectId}" : $"page {objectId}";
+        /// <summary>"page {id}", "section {id}" or "notebook {id}", for messages.</summary>
+        private string What => kind switch
+        {
+            TargetKind.Section => $"section {objectId}",
+            TargetKind.Notebook => $"notebook {objectId}",
+            _ => $"page {objectId}",
+        };
 
         public override OperationClass Class => OperationClass.ExternalWrite;
 
@@ -179,11 +194,21 @@ public sealed class PublishUseCase : IUseCase
             section = await owner.readAccess.OwningSectionAsync(objectId, ct).ConfigureAwait(false);
             if (section is null)
             {
-                section = await TheSectionItselfAsync(ct).ConfigureAwait(false);
-                isSection = true;
+                section = await TheTargetItselfAsync(ct).ConfigureAwait(false);
+                kind = section.Kind == HierarchyKind.Notebook ? TargetKind.Notebook : TargetKind.Section;
+
+                // Spike 3.1 X1: a notebook publishes only as a package; every other format failed or isn't offered.
+                if (kind == TargetKind.Notebook && format != ExportFormat.OneNotePackage)
+                {
+                    throw new OneNoteException(
+                        ErrorCode.NotSupported,
+                        $"Notebook {objectId} can be exported only as a OneNote package, not as a {FormatName(format)}, so nothing was exported.",
+                        userAction: NotebookUserAction,
+                        retryable: false);
+                }
 
                 // The 3.13 sitting (Phill, 2026-11-17): a section's EMF holds only its first page, so it is refused.
-                if (format == ExportFormat.Emf)
+                if (kind == TargetKind.Section && format == ExportFormat.Emf)
                 {
                     throw new OneNoteException(
                         ErrorCode.NotSupported,
@@ -198,22 +223,29 @@ public sealed class PublishUseCase : IUseCase
             snapshot.EnsureWritable();
             target = ExportTarget.Resolve(path, snapshot.ExportRoots, format);
 
-            // AD-21 Exports: the section's read grant, held now, never prompted.
-            CheckReadGrant(section);
+            // AD-21 Exports: the section's read grant, held now, never prompted. A notebook package needs none (H1).
+            if (kind != TargetKind.Notebook)
+            {
+                CheckReadGrant(section);
+            }
         }
 
         public override async Task ReadAsync(CancellationToken ct)
         {
-            if (isSection)
+            if (kind != TargetKind.Page)
             {
-                // The section again under the lock: its ID survives a move, and it may have been protected or locked since.
+                // The section or notebook again under the lock: a section's ID survives a move, and it may have been
+                // protected or locked since; a notebook may have been closed.
+                var notebook = kind == TargetKind.Notebook;
                 current = await SelfAsync(ct).ConfigureAwait(false);
-                if (current.Kind != HierarchyKind.Section)
+                if (current.Kind != (notebook ? HierarchyKind.Notebook : HierarchyKind.Section))
                 {
                     throw new OneNoteException(
                         ErrorCode.ObjectNotFound,
-                        $"Section {objectId} wasn't found, so nothing was exported.",
-                        userAction: "Re-read the hierarchy (get_hierarchy) for a current section ID.");
+                        notebook ? $"Notebook {objectId} wasn't found, so nothing was exported." : $"Section {objectId} wasn't found, so nothing was exported.",
+                        userAction: notebook
+                            ? "Re-read the hierarchy (get_hierarchy) for a current notebook ID."
+                            : "Re-read the hierarchy (get_hierarchy) for a current section ID.");
                 }
 
                 return;
@@ -232,12 +264,17 @@ public sealed class PublishUseCase : IUseCase
             var now = current ?? throw new InvalidOperationException("Validate runs after ReadAsync.");
 
             // A section protected since step 1 needs the grant too; the protected check comes before the locked one (AD-21).
-            CheckReadGrant(now);
-            if (now.Locked)
+            // A notebook has neither check: its package keeps protected sections encrypted, and a locked one inside is no
+            // obstacle (H1; spike 3.1 XP2).
+            if (kind != TargetKind.Notebook)
             {
-                throw new OneNoteException(
-                    ErrorCode.SectionLocked,
-                    isSection ? $"Section {now.Id} is locked, so it wasn't exported." : $"Section {now.Id} is locked, so page {objectId} wasn't exported.");
+                CheckReadGrant(now);
+                if (now.Locked)
+                {
+                    throw new OneNoteException(
+                        ErrorCode.SectionLocked,
+                        kind == TargetKind.Section ? $"Section {now.Id} is locked, so it wasn't exported." : $"Section {now.Id} is locked, so page {objectId} wasn't exported.");
+                }
             }
 
             // The path again, under the lock: still inside a root, still the same file, still nothing there.
@@ -289,30 +326,25 @@ public sealed class PublishUseCase : IUseCase
         }
 
         /// <summary>
-        /// The target read at <c>self</c>, when the walk found no owning section: a section is returned; a section group or a
-        /// notebook is <see cref="ErrorCode.NotSupported"/>; anything else (a page outside a section) is
+        /// The target read at <c>self</c>, when the walk found no owning section: a section or a notebook is returned; a
+        /// section group is <see cref="ErrorCode.NotSupported"/>; anything else (a page outside a section) is
         /// <see cref="ErrorCode.ObjectNotFound"/>.
         /// </summary>
-        private async Task<HierarchyNode> TheSectionItselfAsync(CancellationToken ct)
+        private async Task<HierarchyNode> TheTargetItselfAsync(CancellationToken ct)
         {
             var self = await SelfAsync(ct).ConfigureAwait(false);
             return self.Kind switch
             {
-                HierarchyKind.Section => self,
+                HierarchyKind.Section or HierarchyKind.Notebook => self,
                 HierarchyKind.SectionGroup => throw new OneNoteException(
                     ErrorCode.NotSupported,
                     $"Object {objectId} is a section group, which OneNote can't export, so nothing was exported.",
                     userAction: GroupUserAction,
                     retryable: false),
-                HierarchyKind.Notebook => throw new OneNoteException(
-                    ErrorCode.NotSupported,
-                    $"Object {objectId} is a notebook; publish exports pages and sections only, and notebooks export as a package in a later release, so nothing was exported.",
-                    userAction: NotebookUserAction,
-                    retryable: false),
                 _ => throw new OneNoteException(
                     ErrorCode.ObjectNotFound,
-                    $"Object {objectId} isn't a page in a section or a section, so nothing was exported.",
-                    userAction: "Re-read the hierarchy (get_hierarchy) for a current page or section ID."),
+                    $"Object {objectId} isn't a page in a section, a section or a notebook, so nothing was exported.",
+                    userAction: "Re-read the hierarchy (get_hierarchy) for a current page, section or notebook ID."),
             };
         }
 
@@ -346,7 +378,7 @@ public sealed class PublishUseCase : IUseCase
                 warnedNotEncrypted = true;
                 warnings.Add(new ToolWarning(
                     ToolWarnings.ExportNotEncrypted,
-                    isSection
+                    kind == TargetKind.Section
                         ? $"Section {objectId} is password-protected; the exported {FormatName(format)} isn't encrypted."
                         : $"Page {objectId} is in password-protected section {node.Id}; the exported {FormatName(format)} isn't encrypted.",
                     NotEncryptedUserAction));

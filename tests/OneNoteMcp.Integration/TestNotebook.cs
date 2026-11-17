@@ -495,6 +495,18 @@ internal sealed class TestNotebook
     public static Task EnsureTestTargetAsync(ComGateway gateway, string targetId, string method, CancellationToken ct) =>
         EnsureTargetsAsync(gateway, [targetId], method, ct, throwawayNotebookIds: null, created: null);
 
+    /// <summary>
+    /// Story 3.7: as <see cref="EnsureTestTargetAsync(ComGateway, string, string, CancellationToken)"/>, and also accepts a
+    /// target inside (or being) one of <paramref name="throwawayNotebookIds"/>, each re-checked as a throwaway by name and folder.
+    /// </summary>
+    public static Task EnsureTestTargetAsync(
+        ComGateway gateway,
+        string targetId,
+        string method,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> throwawayNotebookIds,
+        CancellationToken ct) =>
+        EnsureTargetsAsync(gateway, [targetId], method, ct, throwawayNotebookIds, created: null);
+
     private static async Task EnsureTargetsAsync(
         ComGateway gateway,
         IReadOnlyList<string> targetIds,

@@ -651,13 +651,126 @@ public sealed class PublishToolTests : IDisposable
         await AssertRefusedAsync();
     }
 
-    [Fact]
-    public async Task ANotebook_IsNotSupported_InThisRelease()
-    {
-        var error = Error(await Tool().Publish(NotebookId, "x.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
+    // --- Notebooks (story 3.7): a package only, no read grant (AD-21 Exports, H1) ------------------------------------------
 
-        Assert.Contains("notebook", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+    [Fact]
+    public async Task ANotebook_IsPublishedAsAPackage_WithNoReadGrant_AndNoWarning_ThoughItHoldsProtectedSections()
+    {
+        // Notebook W holds the Vault (protected) and Locked vault (protected and locked); no read grant is held.
+        var root = Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        var expected = Path.Combine(CanonicalRoot, "w.onepkg");
+        var meta = root.GetProperty("meta");
+        Assert.Equal(NotebookId, meta.GetProperty("objectId").GetString());
+        Assert.Equal(expected, meta.GetProperty("outputPath").GetString());
+        Assert.Empty(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal((NotebookId, expected, ExportFormat.OneNotePackage), Assert.Single(gateway.PublishCalls));
+        Assert.True(File.Exists(expected));
+        await AssertLockFreeAsync();
+    }
+
+    [Theory]
+    [InlineData(PublishFormatArgument.Pdf, "w.pdf")]
+    [InlineData(PublishFormatArgument.Xps, "w.xps")]
+    [InlineData(PublishFormatArgument.Docx, "w.docx")]
+    [InlineData(PublishFormatArgument.Mhtml, "w.mht")]
+    [InlineData(PublishFormatArgument.Html, "w.html")]
+    [InlineData(PublishFormatArgument.Emf, "w.emf")]
+    [InlineData(PublishFormatArgument.One, "w.one")]
+    public async Task ANotebook_InAnyOtherFormat_IsNotSupported_BeforeCom_AskingForAPackage(PublishFormatArgument format, string path)
+    {
+        var error = Error(await Tool().Publish(NotebookId, path, format, Ct), "NotSupported");
+
+        Assert.Contains($"Notebook {NotebookId}", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("onepkg", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebook_WithTheDefaultFormat_IsNotSupported_AskingForAPackage()
+    {
+        var error = Error(await Tool().Publish(NotebookId, "w.pdf", cancellationToken: Ct), "NotSupported");
+
+        Assert.Contains("onepkg", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookPackage_WithAnExtensionThatDoesntFit_IsInvalidArgument_BeforeCom()
+    {
+        Error(await Tool().Publish(NotebookId, "w.pdf", PublishFormatArgument.Onepkg, Ct), "InvalidArgument");
+
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookPackage_OverAnExistingFile_IsFileExists_AndTheFileIsUntouched()
+    {
+        Directory.CreateDirectory(Root);
+        var existing = Path.Combine(Root, "w.onepkg");
+        File.WriteAllBytes(existing, [1, 2, 3]);
+
+        Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "FileExists");
+
+        Assert.Empty(gateway.PublishCalls);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(existing));
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookClosedBeforeTheLock_IsObjectNotFound_AndNothingIsPublished()
+    {
+        var notebookReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == NotebookId && scope == HierarchyScope.Self && ++notebookReads == 2)
+                {
+                    gateway.Hierarchies.Remove((NotebookId, HierarchyScope.Self));
+                }
+            },
+        };
+
+        Error(await Tool(hooked).Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "ObjectNotFound");
+
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookPackageThatLandsLate_AndEmptyFirst_CountsOnceItIsOnDisk()
+    {
+        Task? late = null;
+        gateway.OnPublish = (_, target, _) =>
+        {
+            late = Task.Run(async () =>
+            {
+                await Task.Delay(150);
+                await File.WriteAllBytesAsync(target, []);
+                await Task.Delay(150);
+                await File.WriteAllBytesAsync(target, [0x4D, 0x53, 0x43, 0x46]);
+            });
+            return Task.CompletedTask;
+        };
+
+        Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        await late!;
+        Assert.Equal(4, new FileInfo(Path.Combine(CanonicalRoot, "w.onepkg")).Length);
+    }
+
+    [Fact]
+    public async Task ANotebookPackageThatNeverLands_IsTimeout_OutcomeUnknown_NamingTheNotebookAndThePath()
+    {
+        WriteSettings(publishSeconds: 1);
+        gateway.PublishedBytes = null;
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "Timeout");
+
+        Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains($"OneNote package of notebook {NotebookId}", message, StringComparison.Ordinal);
+        Assert.Contains(Path.Combine(CanonicalRoot, "w.onepkg"), message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
