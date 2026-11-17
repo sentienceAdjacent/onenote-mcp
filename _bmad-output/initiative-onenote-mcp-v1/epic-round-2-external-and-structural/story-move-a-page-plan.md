@@ -126,7 +126,7 @@ context:
   - `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings.
   - `dotnet test tests/OneNoteMcp.Tests`: 3,081 passed.
   - `dotnet test tests/OneNoteMcp.Integration` with no integration variable: 217 passed, 97 skipped, 0 failed. The 3 new live tests are skipped.
-  - S1 and S2 haven't run.
+  - Sitting 2026-11-17 (with Phill), after the security fix 266ef77. S1: 3 of 3 pass (the Vault test reran after its first 30-minute pause timed out before the lock; 3.3's Vault test passed again in the same run). S2, through onenote-dev on this build: a subpage moved into a throwaway section and landed top-level under a new ID; a parent moved to position 2 of a 3-page section and landed second, with `subpagesLeftBehind` (1) and its subpage left in the source at level 1. Phill checked all four in OneNote (order, levels, landing, Deleted Pages unchanged).
 
 ## Plan Change Log
 
@@ -138,6 +138,8 @@ context:
   - **low, patch.** The tool description and the use case's comment said `meta.objectId` is always the new ID. When the read-back finds the page still in the source, it is the old ID, with `readBackDiffers`. That is the page's current ID, as AD-7 says. Fix: the wording now says "current ID"; the code is unchanged.
   - **false.** "The `0x80042004` error's `userAction` invites a retry with a current ID." `ToolErrors.From` (l.37) replaces the `userAction` of every `outcomeUnknown` error with "Re-read, then retry if the change is absent.", so the generic `ObjectNotFound` text never reaches the caller.
   - **false.** "The step-1 refusals come after the grant dialog." The frozen Always block orders the grant checks before the refusals' pre-check, following the rename tool. The code does what the approved plan says. The note for Phill: a move that will be refused can still ask for a grant first.
+- 2026-11-17, PR #67 security review: 1 finding, patched. Phill approved the fix on 2026-11-17.
+  - **security, patch.** The `position` refusals in `MovePageWrite` gave a target section's page count ("which has N page(s)") and whether the page at a position is a subpage. A move into a password-protected section needs only the write grant, so a caller with no read grant could learn the section's structure by probing positions (AD-21). Fix: in a protected target, a `position` needs a read grant held at the call's start (`HoldsReadGrantAt` on the section's key, never prompted for), else `ReadNotGranted` with `ProtectedPositionUserAction`, before any position check; a missing `position` (put last) still needs only the write grant. No position message carries the page count, for any target. The tool description says so; the contract snapshot is unchanged (descriptions are stripped). Four new unit tests in `MoveHierarchyObjectToolTests`.
 
 ## Design Notes
 

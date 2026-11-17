@@ -30,7 +30,9 @@ public sealed record MoveResult(string? NewPageId, IReadOnlyList<ToolWarning> Wa
 /// <item>Refusals, in this order: a protected source (<see cref="ErrorCode.NotSupported"/>, AD-21), a page or target in the
 /// recycle bin (<see cref="ErrorCode.ObjectNotFound"/>), a target that isn't a section
 /// (<see cref="ErrorCode.InvalidArgument"/>), a locked target (<see cref="ErrorCode.SectionLocked"/>), the page's own
-/// section as target and a position outside the list or inside a subpage block (<see cref="ErrorCode.InvalidArgument"/>).
+/// section as target, a position in a protected target without a read grant held at the call's start
+/// (<see cref="ErrorCode.ReadNotGranted"/>), and a position outside the list or inside a subpage block
+/// (<see cref="ErrorCode.InvalidArgument"/>, with no page count in the message).
 /// The XML must pass the AD-16 gate.</item>
 /// <item>The basis is the page's hierarchy <c>lastModifiedTime</c> (AD-17), compared as renames compare it
 /// (<see cref="HierarchyBasis"/>).</item>
@@ -85,6 +87,13 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     public const string PositionUserAction =
         "Read the target section with get_hierarchy (scope children) and pass a position from 1 to one more than its page count, at a top-level page rather than a subpage; or leave position out to put the page last.";
 
+    /// <summary>
+    /// What to do about a <c>position</c> in a password-protected target without a read grant (3.4 security review, Phill
+    /// 2026-11-17): a position's checks would show the section's page count and where its subpages sit.
+    /// </summary>
+    public const string ProtectedPositionUserAction =
+        "Leave position out to put the page last in the password-protected section. Placing it at a position needs a read grant for that section, held when the call starts: ask the user whether to grant it (they can run the grant command with --read-section, or accept the dialog that appears when you read one of its pages with get_page_content in a client that supports it), then retry. Never run the grant command yourself.";
+
     /// <summary>What to do when a notebook changed under the lock (AD-7).</summary>
     public const string NotebookChangedUserAction =
         "The page or the target section moved to another notebook while this call ran. Re-read the hierarchy (get_hierarchy) and retry; the retry checks the write grant of the notebook each is in now.";
@@ -94,6 +103,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     private readonly string correlationId;
     private readonly int? position;
     private readonly PageWriteBasis? basis;
+    private readonly DateTimeOffset callStart;
     private readonly List<ToolWarning> warnings = [];
 
     private WriteTarget? pageNotebook;
@@ -112,6 +122,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         TargetId = parentId ?? string.Empty;
         this.position = position;
         this.basis = basis;
+        callStart = services.ReadAccess.Now();
     }
 
     public override OperationClass Class => OperationClass.HierarchyWrite;
@@ -358,13 +369,25 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
             throw Invalid($"Page {PageId} is already in section {TargetId}, so nothing was moved.", SameSectionUserAction);
         }
 
+        // 3.4 security review (Phill, 2026-11-17): a position's refusals would show a protected section's page count and where
+        // its subpages sit, and a move into one needs only the write grant, so without a read grant held at the call's start
+        // only a missing position (last) is accepted (AD-21).
+        if (position is not null && target.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(target.Path), callStart))
+        {
+            throw new OneNoteException(
+                ErrorCode.ReadNotGranted,
+                $"Section {TargetId} is password-protected, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was moved.",
+                userAction: ProtectedPositionUserAction);
+        }
+
         // 3.4 Q2: 1-based among the target's live pages, before the page now there, which must be top-level; omitted, last.
+        // No message carries the page count (3.4 security review).
         var count = target.Children.Count;
         var at = position ?? count + 1;
         if (at > count + 1)
         {
             throw Invalid(
-                string.Create(CultureInfo.InvariantCulture, $"position {at} is past the end of section {TargetId}, which has {count} page(s), so nothing was moved."),
+                string.Create(CultureInfo.InvariantCulture, $"position {at} is past the end of section {TargetId}, so nothing was moved."),
                 PositionUserAction);
         }
 

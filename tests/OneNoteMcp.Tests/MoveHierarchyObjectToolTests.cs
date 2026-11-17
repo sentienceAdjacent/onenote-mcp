@@ -502,6 +502,65 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
         Assert.Empty(holds);
     }
 
+    [Theory]
+    [InlineData(5)]
+    [InlineData(2)]
+    public async Task APositionError_NeverCarriesThePageCount(int position)
+    {
+        // 3.4 security review (Phill, 2026-11-17): a position refusal says only that it is out of range or at a subpage.
+        Grant();
+
+        var error = Error(await Tool().MoveHierarchyObject(P2, PlansId, position, Basis(Lmt), Ct), "InvalidArgument");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.DoesNotContain("page(s)", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("has 3", message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(9)]
+    public async Task AProtectedTarget_WithAPosition_WithoutAReadGrant_IsReadNotGranted_NothingSent(int position)
+    {
+        // 3.4 security review (Phill, 2026-11-17): a position's errors would show the protected section's page count and
+        // where its subpages sit, so without a read grant only a missing position (last) is accepted.
+        Grant();
+
+        var error = Error(await Tool().MoveHierarchyObject(P2, VaultId, position, Basis(Lmt), Ct), "ReadNotGranted");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(VaultId, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("page(s)", message, StringComparison.Ordinal);
+        Assert.Equal(MovePageWrite.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
+    public async Task AProtectedTarget_WithAPosition_AndAReadGrant_MovesThePage()
+    {
+        Grant();
+        ReadGrant();
+        ApplyMoves();
+
+        var root = Ok(await Tool().MoveHierarchyObject(P2, VaultId, 1, Basis(Lmt), Ct));
+
+        Assert.Equal(NewId, root.GetProperty("meta").GetProperty("objectId").GetString());
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task AProtectedTarget_WithAnOutOfRangePosition_AndAReadGrant_IsInvalidArgument()
+    {
+        Grant();
+        ReadGrant();
+
+        Error(await Tool().MoveHierarchyObject(P2, VaultId, 9, Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
     [Fact]
     public async Task AStaleBasis_IsStaleWrite_NothingSent()
     {
@@ -692,6 +751,10 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
     private void Grant(string path = NotebookPath, string id = NotebookId) =>
         new SettingsWriter(Store, clock).SaveWriteGrant(
             new NotebookGrant(GrantKeys.NotebookKey(path), "A", id, Write: true, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
+
+    private void ReadGrant() =>
+        new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(
+            GrantKeys.SectionKey(@"C:\notebooks\A\Vault.one"), "Vault", GrantKeys.NotebookKey(NotebookPath), VaultId, clock.GetUtcNow(), GrantedVia.Cli));
 
     private static PageBasisArgument Basis(string date) => new(date);
 
