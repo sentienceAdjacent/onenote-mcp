@@ -3,7 +3,7 @@ title: 'Tracer: publish a page to PDF under an export root'
 type: 'feature'
 ticket: '3'
 created: '2026-11-16'
-status: 'built'
+status: done
 baseline_revision: '38e5b542af0f279a37ea40b984ae736bfa039710'
 route: 'full'
 route_source: 'auto'

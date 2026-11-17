@@ -3,7 +3,7 @@ title: 'Spine amendments for round 2'
 type: 'chore'
 ticket: '2'
 created: '2026-11-16'
-status: built
+status: done
 baseline_revision: 'afe31018cde0dcef7594cfacde0353ae7873a50f'
 route: 'full'
 route_source: 'auto'
