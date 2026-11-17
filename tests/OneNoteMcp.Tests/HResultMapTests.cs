@@ -178,6 +178,18 @@ public sealed partial class HResultMapTests
         Assert.Null(HResultMap.Retryable(hr));
     }
 
+    // Backlog 6: a recycled page is one cause of hrPageReadOnly; the text says so and still ends with the AD-9 retry hint.
+    [Fact]
+    public void PageReadOnly_NamesTheRecycleBin_AndEndsThenRetry()
+    {
+        var userAction = HResultMap.UserAction(unchecked((int)0x8004200C));
+
+        Assert.NotNull(userAction);
+        Assert.Contains("recycle bin", userAction, StringComparison.Ordinal);
+        Assert.EndsWith("then retry.", userAction, StringComparison.Ordinal);
+        Assert.True(HResultMap.Retryable(unchecked((int)0x8004200C)));
+    }
+
     [Fact]
     public void ServerExecFailure_KeepsItsRestartUserAction() =>
         Assert.Equal(HResultMap.ServerExecFailureUserAction, HResultMap.UserAction(unchecked((int)0x80080005)));

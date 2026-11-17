@@ -3,12 +3,13 @@ title: 'A page write to a recycled page says to restore it first; 0x8004200C nam
 type: 'bugfix'
 ticket: '6'
 created: '2026-11-16'
-status: 'draft'
+status: 'built'
+baseline_revision: '7e9bd6e0ec7e4682e15f5a6cfa174366c8032720'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -53,16 +54,33 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/Writes/PageWrite.cs` -- add `public const string RecycledPageUserAction`: the page is in its notebook's recycle bin; ask the user to restore it in OneNote first, then re-read the hierarchy for its new ID (a restored page gets one); or pass a page that isn't in the recycle bin. Add a `NotAPage` overload or a `RecycledPage()` helper that uses it; use it at l.106 and l.133 only -- restore-first is AD-7's rule and the generic text doesn't say how to get the page back.
-- [ ] `src/OneNoteMcp.Com/HResultMap.cs` -- l.108 text: OneNote reports the page as read-only; if the page is in the recycle bin, it must be restored in OneNote and written under its new ID; otherwise ask the user to make it editable in OneNote, then retry. Keep `Retryable: true` -- AD-9 J6.
-- [ ] `tests/OneNoteMcp.Tests/UpdatePageContentToolTests.cs` -- pin `RecycledPageUserAction` in the existing recycled test; add the "recycled section, unflagged page" and "page flagged, live section" cases (new fixture IDs) -- the matrix rows.
-- [ ] `tests/OneNoteMcp.Tests/DeletePageContentToolTests.cs` -- the same three cases.
-- [ ] `tests/OneNoteMcp.Tests/HResultMapTests.cs` -- a fact asserting the `0x8004200C` `userAction` mentions the recycle bin and ends "then retry" -- the ticket's Verify.
-- [ ] `plugin/skills/guide/SKILL.md` l.225 -- add "From `update_page_content` or `delete_page_content`: the page is in the recycle bin; the user restores it in OneNote first." -- the guide lists per-tool causes.
+- [x] `src/OneNoteMcp.Core/Writes/PageWrite.cs` -- add `public const string RecycledPageUserAction`: the page is in its notebook's recycle bin; ask the user to restore it in OneNote first, then re-read the hierarchy for its new ID (a restored page gets one); or pass a page that isn't in the recycle bin. Add a `NotAPage` overload or a `RecycledPage()` helper that uses it; use it at l.106 and l.133 only -- restore-first is AD-7's rule and the generic text doesn't say how to get the page back.
+- [x] `src/OneNoteMcp.Com/HResultMap.cs` -- l.108 text: OneNote reports the page as read-only; if the page is in the recycle bin, it must be restored in OneNote and written under its new ID; otherwise ask the user to make it editable in OneNote, then retry. Keep `Retryable: true` -- AD-9 J6.
+- [x] `tests/OneNoteMcp.Tests/UpdatePageContentToolTests.cs` -- pin `RecycledPageUserAction` in the existing recycled test; add the "recycled section, unflagged page" and "page flagged, live section" cases (new fixture IDs) -- the matrix rows.
+- [x] `tests/OneNoteMcp.Tests/DeletePageContentToolTests.cs` -- the same three cases.
+- [x] `tests/OneNoteMcp.Tests/HResultMapTests.cs` -- a fact asserting the `0x8004200C` `userAction` mentions the recycle bin and ends "then retry" -- the ticket's Verify.
+- [x] `plugin/skills/guide/SKILL.md` l.225 -- add "From `update_page_content` or `delete_page_content`: the page is in the recycle bin; the user restores it in OneNote first." -- the guide lists per-tool causes.
 
 **Acceptance Criteria:**
 - Given any matrix row with a recycled page, when either page-write tool is called, then `gateway.UpdateCalls` and the delete calls stay empty and no journal entry is written.
 - Given the full unit suite, when run, then every existing `NotAPageUserAction` assertion still passes.
+
+## Implementation Notes
+
+- Built test-first (2026-11-16): the pinned and new tests failed (CS0117, then 7 assertion failures) before `PageWrite` used the new text. Files as the Code Map says; the guide row uses the full `mcp__plugin_onenote_desktop__*` tool names, as the rest of the row does.
+- Review patches: the `0x8004200C` text says "used under its new ID" (not "written"), since a permanent delete of a recycled page is also a cause; the guide clause also names "the ID isn't a live page's", so a client doesn't take the recycle bin as the only page-write cause.
+
+## Review Triage Log
+
+Pass 1 (quick lens): high 0, medium 0, low 3, false 2, maybe-false 0.
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---------|---------|-------|-------------------|
+| 1 | `## Approval` cites an overnight rule dated 2026-11-17 not found in the repo | false | reject | The rule came from Phill's Inbox instruction relayed by the coordinating session, worded and dated as recorded; Inbox rules don't live in the repo. |
+| 2 | Reviewed diff showed `in-progress` while the file read `in-review` | false | reject | Step 4 sets `in-review` after staging the diff, by design. |
+| 3 | `0x8004200C` keeps `Retryable: true` though the recycled cause isn't retryable under the same ID; "written under its new ID" doesn't fit a delete | low | patch (wording only) | Retryable is fixed by the ticket and AD-9 J6, so kept; text changed to "used under its new ID". |
+| 4 | Update tests' `AssertRefusedAsync` doesn't check delete calls | low | reject | `UpdatePageContentWrite.CallAsync` only calls `UpdatePageContent`; never met in practice and the fix adds test surface for an impossible path. |
+| 5 | Guide clause implies the recycle bin is the only page-write `ObjectNotFound` cause | low | patch | `PageWrite` also refuses "isn't a page" / "isn't in a section"; clause now names both. |
 
 ## Design Notes
 
@@ -77,3 +95,7 @@ Estimated ~80 lines over six files: the oneshot side of the line, but kept on `f
 - `dotnet test tests/OneNoteMcp.Tests` -- expected: all pass, the new cases included.
 
 No sitting: the refusal is before COM and the spike already measured `0x8004200C` (`r5-*-update-recycled-page`).
+
+## Approval
+
+The plan had no open questions. Its one gate, a size slightly over the 1600-token guide, was answered with the recommendation (keep the full plan): answered overnight with the recommendation, per Phill's standing overnight rule (2026-11-17); Phill reviews in the morning.
