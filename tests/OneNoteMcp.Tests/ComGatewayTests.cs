@@ -136,6 +136,12 @@ public sealed class ComGatewayTests
     [Theory]
     [InlineData(ExportFormat.OneNote, (int)PublishFormat.pfOneNote)]
     [InlineData(ExportFormat.Pdf, (int)PublishFormat.pfPDF)]
+    [InlineData(ExportFormat.Xps, (int)PublishFormat.pfXPS)]
+    [InlineData(ExportFormat.Word, (int)PublishFormat.pfWord)]
+    [InlineData(ExportFormat.Mhtml, (int)PublishFormat.pfMHTML)]
+    [InlineData(ExportFormat.Html, (int)PublishFormat.pfHTML)]
+    [InlineData(ExportFormat.Emf, (int)PublishFormat.pfEMF)]
+    [InlineData(ExportFormat.OneNotePackage, (int)PublishFormat.pfOneNotePackage)]
     public async Task Publish_MapsEachCoreFormat_ToItsComFormat(ExportFormat format, int expectedValue)
     {
         var expected = (PublishFormat)expectedValue;
@@ -149,7 +155,7 @@ public sealed class ComGatewayTests
 
     [Theory]
     [InlineData(8)] // pfOneNote2007's value, which ends ONENOTE.EXE (AD-11)
-    [InlineData(2)]
+    [InlineData(99)]
     [InlineData(-1)]
     public async Task Publish_AValueThatIsntAnExportFormat_IsNotSupported_BeforeCom(int raw)
     {
@@ -161,6 +167,14 @@ public sealed class ComGatewayTests
 
         Assert.Equal(ErrorCode.NotSupported, ex.Code);
         Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public void ExportFormat_HasEightMembers_AndNoneIsOneNote2007()
+    {
+        var values = Enum.GetValues<ExportFormat>();
+        Assert.Equal(8, values.Length);
+        Assert.DoesNotContain(Enum.GetNames<ExportFormat>(), n => n.Contains("2007", StringComparison.Ordinal));
     }
 
     private sealed class FixedProbe(bool running) : IProcessProbe

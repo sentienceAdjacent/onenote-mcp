@@ -3,10 +3,10 @@ using OneNoteMcp.Core.Settings;
 namespace OneNoteMcp.Core.Writes;
 
 /// <summary>
-/// AD-7 <c>ExternalWrite</c> validation of an export's target file (AD-11; story 3.3): where <c>publish</c> may write.
+/// AD-7 <c>ExternalWrite</c> validation of an export's target file (AD-11; stories 3.3 and 3.13): where <c>publish</c> may write.
 /// <list type="number">
-/// <item>The caller's path must end in <c>.pdf</c>, ignoring case (Phill, 2026-11-16, 3.3 plan Q2), and hold no <c>:</c>
-/// after the drive (an NTFS stream).</item>
+/// <item>The caller's path must end in its format's extension, ignoring case (3.3 plan Q2; 3.13 plan Q1:
+/// <see cref="Extensions"/>), and hold no <c>:</c> after the drive (an NTFS stream).</item>
 /// <item>A relative path (<c>x.pdf</c>, <c>sub\x.pdf</c>) is resolved under the first <c>exportRoots</c> entry (3.3 plan
 /// Q1); anything rooted must be fully qualified and local.</item>
 /// <item>The path is made canonical by <see cref="FilePathGate.Canonical(string, out FilePathRefusal)"/>, the page write's
@@ -17,19 +17,34 @@ namespace OneNoteMcp.Core.Writes;
 /// plus a separator, compared <see cref="StringComparison.OrdinalIgnoreCase"/>. The root itself is never a target. Anything
 /// else, a <c>..</c> or a junction that leads out included, is <see cref="ErrorCode.ExportPathNotAllowed"/>.</item>
 /// <item>Nothing may exist at the path, followed or not (no tool argument overwrites a file, AD-11):
-/// <see cref="ErrorCode.FileExists"/>.</item>
+/// <see cref="ErrorCode.FileExists"/>. For HTML, nothing may exist at <c>&lt;stem&gt;_files</c> beside it either, where a
+/// web page's images may land (3.13 plan Q3).</item>
 /// </list>
 /// Messages name only the caller's own path, never a root (AD-9).
 /// </summary>
 public static class ExportTarget
 {
-    /// <summary>The extension every <c>publish</c> target carries (PDF only in this release).</summary>
-    public const string PdfExtension = ".pdf";
+    /// <summary>The suffix of the folder beside an HTML export where its images may land (3.13 plan Q3).</summary>
+    public const string HtmlFilesSuffix = "_files";
 
     /// <summary>What to do about a path this check refuses as malformed.</summary>
     public const string InvalidPathUserAction =
-        "Pass a file name ending in .pdf, such as \"Meeting notes.pdf\" or \"Project\\Meeting notes.pdf\", which lands under the export root, "
+        "Pass a file name ending in the format's extension, such as \"Meeting notes.pdf\" or \"Project\\Meeting notes.docx\", which lands under the export root, "
         + "or a full local path (C:\\…) under an export root. No network or device paths, no ':' after the drive, and none of < > \" | ? *.";
+
+    /// <summary>The extensions a target in <paramref name="format"/> may end in, the first being its usual one (3.13 plan Q1).</summary>
+    public static IReadOnlyList<string> Extensions(ExportFormat format) => format switch
+    {
+        ExportFormat.OneNote => [".one"],
+        ExportFormat.Pdf => [".pdf"],
+        ExportFormat.Xps => [".xps"],
+        ExportFormat.Word => [".docx"],
+        ExportFormat.Mhtml => [".mht", ".mhtml"],
+        ExportFormat.Html => [".htm", ".html"],
+        ExportFormat.Emf => [".emf"],
+        ExportFormat.OneNotePackage => [".onepkg"],
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Not an export format."),
+    };
 
     /// <summary>What to do about a path outside every export root.</summary>
     public const string NotAllowedUserAction =
@@ -41,21 +56,22 @@ public static class ExportTarget
         "Nothing overwrites a file: choose a new file name, or ask the user to move or delete the existing file first.";
 
     /// <summary>
-    /// The canonical path for <paramref name="raw"/> under <paramref name="roots"/>, or throws
-    /// <see cref="ErrorCode.InvalidArgument"/>, <see cref="ErrorCode.ExportPathNotAllowed"/> or
+    /// The canonical path for <paramref name="raw"/>, a <paramref name="format"/> file, under <paramref name="roots"/>, or
+    /// throws <see cref="ErrorCode.InvalidArgument"/>, <see cref="ErrorCode.ExportPathNotAllowed"/> or
     /// <see cref="ErrorCode.FileExists"/>, checked in that order.
     /// </summary>
-    public static string Resolve(string raw, ExportRoots roots)
+    public static string Resolve(string raw, ExportRoots roots, ExportFormat format)
     {
         ArgumentNullException.ThrowIfNull(roots);
+        var extensions = Extensions(format);
         if (string.IsNullOrWhiteSpace(raw))
         {
             throw Invalid("The argument path is empty, so nothing was exported.");
         }
 
-        if (!raw.EndsWith(PdfExtension, StringComparison.OrdinalIgnoreCase))
+        if (!EndsInOneOf(raw, extensions))
         {
-            throw Invalid($"The path {raw} doesn't end in .pdf, so nothing was exported.");
+            throw Invalid($"The path {raw} doesn't end in {string.Join(" or ", extensions)}, the extension of its format, so nothing was exported.");
         }
 
         var full = raw;
@@ -86,10 +102,10 @@ public static class ExportTarget
             throw Invalid($"The path {raw} {Why(refusal)}, so nothing was exported.");
         }
 
-        if (!target.EndsWith(PdfExtension, StringComparison.OrdinalIgnoreCase) || target.IndexOf(':', 2) >= 0)
+        if (!EndsInOneOf(target, extensions) || target.IndexOf(':', 2) >= 0)
         {
-            // A link followed to a name that isn't a .pdf (the caller's own path passed the check above).
-            throw NotAllowed(raw, "it leads to a file that isn't a .pdf");
+            // A link followed to a name with another extension (the caller's own path passed the check above).
+            throw NotAllowed(raw, $"it leads to a file that doesn't end in {string.Join(" or ", extensions)}");
         }
 
         if (!roots.Paths.Any(root => Contains(root, target)))
@@ -106,8 +122,24 @@ public static class ExportTarget
                 retryable: false);
         }
 
+        if (format == ExportFormat.Html && FilesFolder(target) is var folder && Exists(folder))
+        {
+            throw new OneNoteException(
+                ErrorCode.FileExists,
+                $"Something already exists at {folder}, where the web page's images would go, so nothing was exported.",
+                userAction: ExistsUserAction,
+                retryable: false);
+        }
+
         return target;
     }
+
+    /// <summary>The folder beside an HTML export where its images may land: <c>&lt;stem&gt;_files</c> (3.13 plan Q3).</summary>
+    public static string FilesFolder(string target) =>
+        Path.Combine(Path.GetDirectoryName(target) ?? string.Empty, Path.GetFileNameWithoutExtension(target) + HtmlFilesSuffix);
+
+    private static bool EndsInOneOf(string path, IReadOnlyList<string> extensions) =>
+        extensions.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>True when <paramref name="target"/> (already canonical) sits strictly inside <paramref name="root"/>'s canonical form.</summary>
     private static bool Contains(string root, string target)

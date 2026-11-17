@@ -20,7 +20,7 @@ using CoreScope = OneNoteMcp.Core.HierarchyScope;
 namespace OneNoteMcp.Integration;
 
 /// <summary>
-/// Story 3.3's live checks for the sitting (S1 in the plan), opt-in with <c>ONENOTE_MCP_INTEGRATION=1</c> and never run in
+/// Stories 3.3's and 3.13's live checks for the sittings (S1 in each plan), opt-in with <c>ONENOTE_MCP_INTEGRATION=1</c> and never run in
 /// a build: <c>dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~PublishIntegrationTests</c>, with MCP
 /// Test open and its Ballast Vault unlocked. <c>settings.json</c> is a temporary one whose only export root is a temporary
 /// folder, so every file lands there and is deleted afterwards. <see cref="GuardedGateway"/> lets <c>Publish</c> run only on
@@ -100,10 +100,14 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         var now = XDocument.Parse(await run.Gateway.GetHierarchyAsync(vaultId, CoreScope.Self, Ct)).Root!;
         Assert.True((string?)now.Attribute("locked") is "true" or "1", "The Ballast Vault still reads as unlocked.");
 
-        // No read grant: ReadNotGranted, before the locked check (AD-21), naming the section's ID only.
+        // No read grant: ReadNotGranted, before the locked check (AD-21), naming the section's ID only; for a page of the
+        // Vault and for the Vault itself (story 3.13).
         var refused = await Tool(run).Publish(pageId!, $"vault-{Stamp}.pdf", PublishFormatArgument.Pdf, Ct);
         Assert.Equal("ReadNotGranted", Code(refused));
         Assert.DoesNotContain(BallastContent.VaultSectionName, refused.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
+        var refusedSection = await Tool(run).Publish(vaultId, $"vault-section-{Stamp}.onepkg", PublishFormatArgument.Onepkg, Ct);
+        Assert.Equal("ReadNotGranted", Code(refusedSection));
+        Assert.DoesNotContain(BallastContent.VaultSectionName, refusedSection.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
 
         // A CLI-style read grant in the temporary settings: SectionLocked, before COM.
         new SettingsWriter(run.Store, TimeProvider.System).SaveReadGrant(new ProtectedSectionGrant(
@@ -115,11 +119,68 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
             GrantedVia.Cli,
             DateTimeOffset.UtcNow.AddHours(1)));
         Assert.Equal("SectionLocked", Code(await Tool(run).Publish(pageId!, $"vault-{Stamp}.pdf", PublishFormatArgument.Pdf, Ct)));
+        Assert.Equal("SectionLocked", Code(await Tool(run).Publish(vaultId, $"vault-section-{Stamp}.onepkg", PublishFormatArgument.Onepkg, Ct)));
 
-        // Nothing was published in either case.
+        // Nothing was published in any case.
         Assert.Equal(0, run.Gateway.PublishCalls);
         Assert.False(Directory.Exists(Root) && Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories).Any());
-        output.WriteLine("RESULT vault: ReadNotGranted without a grant, SectionLocked with one; nothing published");
+        output.WriteLine("RESULT vault: page and section ReadNotGranted without a grant, SectionLocked with one; nothing published");
+    }
+
+    /// <summary>Story 3.13: each format, with the extension the plan's Q1 gives it.</summary>
+    public static TheoryData<PublishFormatArgument, string> Formats() => new()
+    {
+        { PublishFormatArgument.Pdf, ".pdf" },
+        { PublishFormatArgument.Xps, ".xps" },
+        { PublishFormatArgument.Docx, ".docx" },
+        { PublishFormatArgument.Mhtml, ".mht" },
+        { PublishFormatArgument.Html, ".htm" },
+        { PublishFormatArgument.Emf, ".emf" },
+        { PublishFormatArgument.One, ".one" },
+        { PublishFormatArgument.Onepkg, ".onepkg" },
+    };
+
+    /// <summary>
+    /// Story 3.13: the test page and its section land in each format at <c>meta.outputPath</c>, each into an empty folder
+    /// of its own, which then holds only that file (for HTML, also at most its <c>_files</c> folder, plan Q3, which is
+    /// logged). Sizes and entry names are logged, never content.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Formats))]
+    public async Task APageAndItsSection_LandInEachFormat_AsOneFileEach(PublishFormatArgument format, string extension)
+    {
+        await using var run = await StartAsync();
+        var sectionId = await run.Gateway.GetHierarchyParentAsync(run.PageId, Ct);
+        var sectionXml = XDocument.Parse(await run.Gateway.GetHierarchyAsync(sectionId, CoreScope.Self, Ct)).Root!;
+        Assert.Equal("Section", sectionXml.Name.LocalName);
+
+        foreach (var (scope, id) in new[] { ("page", run.PageId), ("section", sectionId) })
+        {
+            var folder = $"{format}-{scope}-{Stamp}".ToLowerInvariant();
+            var name = $@"{folder}\x{extension}";
+            var root = Ok(await Tool(run).Publish(id, name, format, Ct));
+            var outputPath = root.GetProperty("meta").GetProperty("outputPath").GetString()!;
+            var expected = Path.Combine(FilePathGate.Canonical(Root, out _)!, name);
+            Assert.Equal(expected, outputPath, ignoreCase: true);
+            var size = new FileInfo(outputPath).Length;
+            Assert.True(size > 0);
+
+            var entries = Directory.GetFileSystemEntries(Path.GetDirectoryName(outputPath)!).Select(Path.GetFileName).ToList();
+            var others = entries.Where(e => !string.Equals(e, $"x{extension}", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (format == PublishFormatArgument.Html)
+            {
+                Assert.All(others, e => Assert.Equal("x_files", e, ignoreCase: true));
+            }
+            else
+            {
+                Assert.Empty(others);
+            }
+
+            var warnings = string.Join(",", root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()));
+            output.WriteLine($"RESULT {format} {scope} {id}: {size} bytes; beside it: [{string.Join(", ", others)}]; warnings: [{warnings}]");
+        }
+
+        Assert.Equal(2, run.Gateway.PublishCalls);
     }
 
     // --- Helpers --------------------------------------------------------------------------------------------------------
