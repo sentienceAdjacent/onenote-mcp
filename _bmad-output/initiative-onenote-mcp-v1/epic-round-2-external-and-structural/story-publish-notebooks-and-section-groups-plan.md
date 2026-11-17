@@ -3,7 +3,7 @@ title: 'publish: notebooks and section groups'
 type: 'feature'
 ticket: '7'
 created: '2026-11-17'
-status: 'in-review'
+status: 'built'
 baseline_revision: '935ed20515257f633dd97caee2945f59f6dfec41'
 route: 'full'
 route_source: 'auto'
@@ -93,14 +93,27 @@ context:
 
 ## Implementation Notes
 
-- Implemented directly in this lane (the coordinating session asked for no implementation subagents). Test-first: the 14 new unit tests (8 facts plus a 7-row theory replacing `ANotebook_IsNotSupported_InThisRelease`) were run red before any code (14 failed, 90 passed), then green. The integration tests and the `TestNotebook` overload came after the code; they can't run red here (no OneNote).
+- Implemented directly in this lane (the coordinating session asked for no implementation subagents). Test-first: the 14 new unit tests (7 facts plus a 7-row theory replacing `ANotebook_IsNotSupported_InThisRelease`) were run red before any code (14 failed, 90 passed), then green. The integration tests and the `TestNotebook` overload came after the code; they can't run red here (no OneNote).
 - `PublishUseCase`: `bool isSection` became a private `TargetKind` (page, section, notebook); `TheSectionItselfAsync` became `TheTargetItselfAsync`, returning a notebook too. A notebook with any format but `OneNotePackage` is refused right after the `self` read, before the section-EMF check and before `EnsureWritable`/`Resolve`. A notebook skips `CheckReadGrant` in step 1 and both `CheckReadGrant` and the `Locked` check under the lock. `NotebookUserAction` now names `format onepkg`; `ObjectIdUserAction` names a notebook's ID.
 - `PublishTool` description: notebooks as `onepkg` only (the `pdf` default included in the refusal), no read grant, protected sections stay encrypted and open locked. The contract snapshot is unchanged (descriptions stripped): the full unit suite passed against it.
-- Integration: `GuardedGateway.Throwaways` plus the new `TestNotebook.EnsureTestTargetAsync` overload let `Publish` target the adopted throwaway. Three new facts: MCP Test as a package with the Vault locked and no grant (pauses to lock it if needed; then `pdf` refused), the throwaway as a package (skips when it isn't open; asserts no `encrypted` section), and a section group refused before COM (the recycle bin's when MCP Test has no other).
+- Integration: `GuardedGateway.Throwaways` plus the new `TestNotebook.EnsureTestTargetAsync` overload let `Publish` target the adopted throwaway. MCP Test as a package with the Vault locked and no grant (then `pdf` refused) is folded into 3.3's Vault test after review (see Plan Change Log); two new facts: the throwaway as a package (skips when it isn't open; asserts no `encrypted` section), and a section group refused before COM (the recycle bin's when MCP Test has no other).
 
 ## Plan Change Log
 
+- 2026-11-17, after the quick review (findings relayed by the coordinating session, all five to fix):
+  - **Test order.** The separate MCP Test package test paused to lock the Vault, and 3.3's Vault test skips when the Vault is already locked, so xUnit's order could silently skip 3.3's checks in S1. The package check now runs inside 3.3's Vault test, after its ReadNotGranted checks (locked, no grant) and before its read grant is saved. KEEP: the package lands alone in its folder, no warning, size and seconds logged, `pdf` refused with one `Publish` call in all.
+  - **Frozen task (3), departure recorded here, frozen block unchanged:** the section-group check falls back to MCP Test's recycle bin (itself a section group) when MCP Test has no other group, rather than skipping; `isRecycleBin` is read as `true` or `1`.
+  - **Notebook exemption test.** New `ANotebook_SkipsTheGrantAndLockedChecks_EvenWhenItsOwnNodeReadsAsProtectedAndLocked` (notebook self read carries `encrypted` and `locked`). Watched it fail by temporarily running `CheckReadGrant` and the `Locked` check for a notebook (1 failed, `SectionLocked`), then reverted. `CheckReadGrant` alone can't fire on a notebook, because `HierarchyNode.Encrypted` is set for sections only; a check of the notebook's protected sections would fail the existing no-grant package test, whose notebook holds two.
+  - The throwaway's name comes from `Round2.LocalThrowawayName` (in `WriteProbes/Round2ExportProbes.cs`), not a third copy.
+
 ## Review Triage Log
+
+- 2026-11-17, quick lens, iteration 0: 5 findings. The reviewer's report went to the coordinating session, which relayed them and ruled all five in scope to fix; triage here confirmed each against the code. 0 high, 2 medium, 3 low, 0 false; all patched (Plan Change Log), nothing deferred, no loopback.
+  - **medium, patch.** Vault-dependent integration tests depended on xUnit's order: 3.7's package test locked the Vault, and 3.3's Vault test skips when the Vault is already locked. Verified (`Assert.SkipWhen(... locked ...)` in 3.3's test). Fix: one test, in a fixed order.
+  - **medium, patch.** The notebook-exemption unit test couldn't catch a regression: notebook `W`'s self read carries no `locked`, and `HierarchyNode.Encrypted` is section-only, so re-adding the checks for a notebook still passed. Verified by reading the fixture and `HierarchyNode.From`; the new test failed under that mutation. Fix: a test whose notebook node reads `locked` and `encrypted`.
+  - **low, patch.** Implementation Notes said "8 facts"; there were 7. Fixed.
+  - **low, patch.** The section-group check fell back to the recycle bin (a departure from frozen task 3, unrecorded) and read `isRecycleBin` as `"true"` only. Fix: `true` or `1`; departure recorded in the Plan Change Log.
+  - **low, patch.** A third copy of the throwaway's name. Fix: `Round2.LocalThrowawayName`.
 
 ## Verification
 

@@ -669,6 +669,20 @@ public sealed class PublishToolTests : IDisposable
         await AssertLockFreeAsync();
     }
 
+    [Fact]
+    public async Task ANotebook_SkipsTheGrantAndLockedChecks_EvenWhenItsOwnNodeReadsAsProtectedAndLocked()
+    {
+        // A fixture where the section checks would fire if they ran for a notebook: its self read carries encrypted and
+        // locked (HierarchyNode reads Encrypted for sections only, so this guards the Locked check and any later change
+        // that reads protection on a notebook). No read grant is held.
+        Self(NotebookId, $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" lastModifiedTime=\"{Date}\" encrypted=\"true\" locked=\"true\" />");
+
+        var root = Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        Assert.Empty(root.GetProperty("warnings").EnumerateArray());
+        Assert.Single(gateway.PublishCalls);
+    }
+
     [Theory]
     [InlineData(PublishFormatArgument.Pdf, "w.pdf")]
     [InlineData(PublishFormatArgument.Xps, "w.xps")]
