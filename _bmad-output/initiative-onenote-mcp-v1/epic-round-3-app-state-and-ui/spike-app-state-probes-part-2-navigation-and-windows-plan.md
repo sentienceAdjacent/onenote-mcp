@@ -3,13 +3,13 @@ title: 'App-state probes, part 2: navigation and windows'
 type: 'chore'
 ticket: '12'
 created: '2026-11-16'
-status: ready-for-dev
+status: in-progress
 baseline_revision: '23b4da658946d863809fec5747ad41f8f8a336e6'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/spike-app-state-probes-part-1-open-close-and-sync-plan.md'
@@ -97,10 +97,10 @@ Answered overnight with the recommendation, per Phill's standing overnight rule 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/ProbeWindowsInterop.cs` -- the spike's own early-bound `IProbeWindows` and `IProbeWindow`, internal to the test assembly, with the slots above; setters and `Window.NavigateToUrl` declared as `[Obsolete(..., error: true)]` placeholders -- the order must match the type library, and a call to a setter must not compile.
-- [ ] `tests/OneNoteMcp.Integration/TestNotebook.cs` and `TestNotebookGuardTests.cs` -- add `NavigateToAsync`, `NavigateToUrlAsync`, `WindowNavigateToAsync` and their single `*Call` shapes (`fNewWindow: false` fixed), a pure `TestNotebookGuard.CheckNavigateUrl(url, allowed)`, and unit tests for each refusal: a URL not in the run's set, one differing only in case or a trailing character, an `https` link not issued, a `file:` URL, an ID outside the allowed notebooks.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs` -- add `WindowsSnapshotAsync` (W1, in one delegate, wrappers released in `finally`, each getter's HRESULT kept), `LinkAsync`/`WebLinkAsync` (record into the allowed set), `MissingPageLink`, `LooseFileLink`, `LandingSeriesAsync`, and the pure `LinkShape` (parse `page-id`, `section-id`, path form; redact) and landing stop rule; unit tests in `ProbeHelpersTests.cs` for the pure parts, and a layout test that the spike interfaces' method order matches the slot list.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/AppStateNavProbes.cs` (scenario `app-state-nav`) -- every Matrix row in the Sitting script's order; `cleanup` is its own step, rerunnable with `ONENOTE_MCP_PROBE_STEPS=cleanup` and the stamp.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/ProbeWindowsInterop.cs` -- the spike's own early-bound `IProbeWindows` and `IProbeWindow`, internal to the test assembly, with the slots above; setters and `Window.NavigateToUrl` declared as `[Obsolete(..., error: true)]` placeholders -- the order must match the type library, and a call to a setter must not compile.
+- [x] `tests/OneNoteMcp.Integration/TestNotebook.cs` and `TestNotebookGuardTests.cs` -- add `NavigateToAsync`, `NavigateToUrlAsync`, `WindowNavigateToAsync` and their single `*Call` shapes (`fNewWindow: false` fixed), a pure `TestNotebookGuard.CheckNavigateUrl(url, allowed)`, and unit tests for each refusal: a URL not in the run's set, one differing only in case or a trailing character, an `https` link not issued, a `file:` URL, an ID outside the allowed notebooks.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs` -- add `WindowsSnapshotAsync` (W1, in one delegate, wrappers released in `finally`, each getter's HRESULT kept), `LinkAsync`/`WebLinkAsync` (record into the allowed set), `MissingPageLink`, `LooseFileLink`, `LandingSeriesAsync`, and the pure `LinkShape` (parse `page-id`, `section-id`, path form; redact) and landing stop rule; unit tests in `ProbeHelpersTests.cs` for the pure parts, and a layout test that the spike interfaces' method order matches the slot list.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/AppStateNavProbes.cs` (scenario `app-state-nav`) -- every Matrix row in the Sitting script's order; `cleanup` is its own step, rerunnable with `ONENOTE_MCP_PROBE_STEPS=cleanup` and the stamp.
 - [ ] Live sitting (the main session's, with Phill, after 4.1's sittings) follows the Sitting script. Not part of implementation.
 - [ ] `epic-round-3-app-state-and-ui/spike-app-state-probes-part-2-navigation-and-windows-findings.md` (after the sitting) -- 4.1's structure: one row per Matrix question, HRESULTs, "Can a link open a closed notebook or a loose .one", "Can a landing be checked", "Does reading the windows change focus or the view", Not probed, Evidence gaps, Relied on, Left behind.
 - [ ] Spine `.memlog.md` (after the sitting) -- one `constraint` line per finding that changes an AD, naming it.
@@ -137,11 +137,46 @@ Run from the repo root with OneNote running, `$env:ONENOTE_MCP_INTEGRATION='1'`,
 
 ## Implementation Notes
 
+- 2026-11-17, implemented (code and unit tests only; nothing ran against OneNote, and no `ONENOTE_MCP_*` variable was set). `dotnet build OneNoteMcp.slnx -warnaserror` passes with 0 warnings. `OneNoteMcp.Tests`: 2965 passed. `OneNoteMcp.Integration` with no integration variables: 396 passed, 95 skipped (`app-state-nav` among the skips). A temporary call to a placeholder setter failed to compile with CS0619, and the file was removed. Judgement calls the plan didn't settle:
+  - **Guard and call are split.** `TestNotebook.CheckNavigateToAsync` and `CheckNavigateToUrlAsync` return a `NavigationCheck`, and the `*CheckedAsync` methods make the call. R1 checks both targets of a pair before the pair, so no read falls between its two calls. Every other navigation checks and calls in one wrapper. The URL guard also does a live notebooks read first. It then matches the exact string, ordinal even when the set ignores case, and allows only the `onenote:` and `https:` schemes. Its refusal message never repeats the URL.
+  - **The allowed notebooks** (`TestNotebookGuard.NavigableNotebookIds`) are MCP Test, MCP Test Cloud, and any notebook whose path lies in this run's folder. Throwaways `a`/`b`/`c` and the cloud throwaway aren't included. `NavigateTo` and `Window.NavigateTo` have no object-ID parameter: the call shapes send `""`, and `NavigateTo`'s `fNewWindow` is `false`. A `DispatchProxy` test checks both shapes, and reflection checks that no navigation wrapper has a `bool` or object-ID parameter.
+  - **The cloud uses a second gateway** (`CreateSideGateway(180)`) for its navigations, link reads, landing series and K2 reads. The F/V snapshots stay on the session's 60 s gateway. The settle runs after every cloud navigation row, each R1 C pair included, which makes the gap between cloud pairs 10 s. The Sync Now check runs once, at the end of `cloud`.
+  - **Pauses.** Each navigation gets a watch pause before it and a report pause after it. R1 is the exception: it has one of each per series (local, cloud), because nothing may fall between a pair's calls. R1 makes 20 jumps per series (2 methods × 5 delays × 2 calls), not the ten the Sitting script says. W2's second set of reads starts 10 s after its pause, so Phill can bring OneNote forward after answering in the terminal. The F/V snapshot records which window was in front.
+  - **Targets** (`NavProbe.Pick`, read from the hierarchy). A is the first page of Seed (local) or of Probes (cloud). B is Probes' first page locally, else the first page of another section. C is a third page. Vault, encrypted and recycle-bin sections are left out. N1 links to B's page, A's section, the notebook, and B's first outline paragraph (a page-content read of MCP Test or MCP Test Cloud only). N3 rewrites A's page link.
+  - **N4 and N5.** In `closed-notebook`, `n1` gets one probe section and one probe page. The section is published (`pfOneNote`) to `probes\publish\probe nav <stamp>.one` while `n1` is open, the page's link is read, and `n1` closes through 4.1's `CloseRowAsync`. N5 builds `onenote:///<path>` only for that file (`PublishedFiles`). Rows name it `<publish folder>\probe nav <stamp>.one`. `cleanup` deletes the file only once no hierarchy element has its path, and asks Phill to close it by hand first if one does. Then it runs 4.1's `AppState.CleanupAsync` (the run folder and `n1`) and records whether MCP Test and MCP Test Cloud are open.
+  - **N6 and W5** use three action pauses: unlock and show a Vault page, lock it, then click Seed. The Vault page ID comes from the hierarchy only. Its link is a `GetHyperlinkToObject`, not a content read. K2's link check on a page in the locked section is refused by the guard, because the locked pages aren't in the tree.
+  - **W4's second window** is the last listed window that isn't showing B after the app-level `NavigateTo`. `Window.NavigateTo` finds it by handle, walking `Item(i)` for i = 0 … Count, and releases every wrapper in a `finally`.
+  - **Links in rows** are logged as `LinkShape` only: scheme, path form, target kind, which fragment keys are present, query key names, the GUID count, and the page and section GUIDs. As a safety net, `ProbeRecorder.Redact` now replaces any `onenote:` link with `<onenote link>`.
+  - **W6.** If `ONENOTE.EXE` exited, a row records it and a pause asks Phill to restart OneNote himself. The step's breaker check then stops the run, so the test ends with "Stopped at no-window".
+  - **The interop placeholders**: `_NewEnum` and `Window.Application` are uncallable placeholders too, alongside the setters, `Window.NavigateToUrl` and `SetDockedLocation`. `AppStateContext` and `AppState.Begin` take an optional run-tag list (`n1`).
+  - **After the lane's review (2026-11-17), seven fixes:**
+    - A window returned as null (S_OK) is recorded as its own outcome, and the rest of the snapshot is kept.
+    - `Windows` joins the release list before the cast.
+    - Cloud target, paragraph and K2 viewed-ID reads go through the cloud gateway. A blocked call is judged against the calling gateway's limit (`LimitOf`).
+    - Each R1 series starts with one positioning jump to B (its own row), then the gap.
+    - N5's link percent-encodes each path segment as OneNote's links do.
+    - The recorder's link pattern matches only `onenote://…` and `onenote:http(s):…`.
+    - The plan's scratch path no longer holds the user name.
+  - **For the findings doc's Left behind:** an empty quick-note page, if OneNote keeps one (W3, in whatever notebook Quick Notes goes to), and the loose section if Phill can't close it.
+
 ## Plan Change Log
 
 - 2026-11-17: the three open questions were answered overnight with the recommendation (Decisions above), per Phill's standing overnight rule; status `ready-for-dev`. Phill reviews in the morning.
 
 ## Review Triage Log
+
+- 2026-11-17, pass 1 (lens `quick`; 8 findings): high 0, medium 4, low 3, false 0, maybe-false 0, plus 1 low rejected. 7 patched, 0 deferred. After the patches: build 0 warnings; `OneNoteMcp.Tests` 2965 passed; `OneNoteMcp.Integration` 398 passed, 95 skipped (no integration variables).
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---|---|---|---|
+| 1 | The plan's "For the build" names a scratchpad path holding the Windows user name | medium | patch | The line was new in this change, and the plan's Never forbids paths holding the user name. Now `<session scratchpad>\lane-4-12\` |
+| 2 | A null `Window` from `CurrentWindow` or `Item(i)` is dereferenced; the NRE maps to a fake `0x80004003` and loses the whole snapshot | medium | patch | `ReadWindow` and the item loop caught only `COMException`. Each null is now its own recorded outcome, keeping Count and the other items |
+| 3 | `LandingPointAsync` and `WindowNavigateToAsync` cast `app.Windows` before adding it to the release list | low | patch | A failed QI would leak the RCW, against the release AC. The raw object is listed first, as in `WindowsSnapshotAsync` |
+| 4 | Cloud target, paragraph and K2 reads ran on the 60 s session gateway; `ComBusy` judged against 60 s on the 180 s gateway | medium | patch | Against the plan's 180 s cloud limit. Reads take an optional gateway; `LimitOf(gateway)` feeds `CheckTimeoutAsync` |
+| 5 | R1's first pair may start on page A after N3, making its first call a no-op | medium | patch | N3 lands in A's section. Each series now opens with a recorded `NavigateTo` to B, then the 6 s gap |
+| 6 | N5's `onenote:///` link carried raw spaces, unlike OneNote's `%20` links | low | patch | Fixture `mcp-test/link/page.txt` encodes spaces. Now encoded per segment, recorded in the row, with a unit test |
+| 7 | The new redaction regex ate free text such as the guard's "neither onenote: nor https:" | low | patch | Pattern now needs `onenote://` or `onenote:http`; unit test added |
+| 8 | `NavigationCheck` can be minted without the guard (internal constructor) and isn't checked against the method | low | reject | Every current call path goes through the guard and dispatches on `Method`; the fix adds guards and surface for a misuse no caller makes |
 
 ## Design Notes
 
@@ -154,6 +189,12 @@ Run from the repo root with OneNote running, `$env:ONENOTE_MCP_INTEGRATION='1'`,
 **Why the URL guard is an exact allow-set.** A link names a notebook by path or URL, in forms the guard would have to parse to check, and a parser is what N4 and N5 test OneNote's own handling of. Accepting only strings the run produced keeps the guard independent of that.
 
 **Why the missing page is a rewritten link.** Replacing `page-id` with a synthetic GUID makes a link to a page that never existed, without deleting anything.
+
+**For the build (2026-11-17).**
+- Implementation writes code and unit tests only. Never set `ONENOTE_MCP_INTEGRATION`, `ONENOTE_MCP_SCENARIO` or any `ONENOTE_MCP_PROBE_*` variable, never call OneNote or create a COM object, never run the server, and never read or list `%APPDATA%\OneNoteMcp`, `%LOCALAPPDATA%\OneNoteMcp` or `%LOCALAPPDATA%\OneNoteMcp-Test`. Never run a command containing `OneNoteMcp grant`. The main session runs the sitting later.
+- Guard tests use captured or hand-written hierarchy XML, as 4.1's do; the layout test reflects over the spike interfaces' declared methods, never instantiating them.
+- Write any scratch or test output only under `<session scratchpad>\lane-4-12\`, never in the repo. Don't commit; the lane commits after review.
+- No bare `git stash`; no `rm -rf` with a variable path.
 
 **Order hazards.** `windows-read` runs first, before anything has navigated, so W2 sees an untouched view. `closed-notebook` runs after the cloud steps, so a close that blocks stops nothing else. `no-window` is last, after `cleanup`.
 

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using OneNoteMcp.Com;
 using OneNoteMcp.Com.Interop;
@@ -286,10 +287,11 @@ internal sealed class ProbeSession : IDisposable
         || (attempt.Code == nameof(ErrorCode.ComBusy) && attempt.Ms >= (callSeconds - 10) * 1000L);
 
     /// <summary>Stops the scenario (<see cref="StopOnTimeoutAsync"/>) when <paramref name="attempt"/> blocked; else returns it.</summary>
-    public async Task<Attempt> CheckTimeoutAsync(string method, Attempt attempt)
+    /// <remarks>Spike 4.12: <paramref name="callSeconds"/> is the calling gateway's limit when it isn't the session's (<see cref="LimitOf"/>).</remarks>
+    public async Task<Attempt> CheckTimeoutAsync(string method, Attempt attempt, int? callSeconds = null)
     {
         ArgumentNullException.ThrowIfNull(attempt);
-        if (StopOnBlockedCalls && Blocked(attempt, CallSeconds ?? ProbeCallSeconds))
+        if (StopOnBlockedCalls && Blocked(attempt, callSeconds ?? CallSeconds ?? ProbeCallSeconds))
         {
             await StopOnTimeoutAsync(method, attempt);
         }
@@ -317,7 +319,7 @@ internal sealed class ProbeSession : IDisposable
     }
 
     /// <summary>A probe call through <see cref="TryAsync"/>, stopping the scenario if it timed out.</summary>
-    public async Task<Attempt> TryGuardedAsync(string method, Func<Task> call) => await CheckTimeoutAsync(method, await TryAsync(call));
+    public async Task<Attempt> TryGuardedAsync(string method, Func<Task> call, int? callSeconds = null) => await CheckTimeoutAsync(method, await TryAsync(call), callSeconds);
 
     /// <summary>
     /// Off while a modal probe holds a dialog open: its calls must run with the section on screen, and Phill can't
@@ -821,8 +823,15 @@ internal sealed class ProbeSession : IDisposable
         File.WriteAllText(settings, string.Create(CultureInfo.InvariantCulture, $$"""{ "schemaVersion": 1, "allowSilentActivation": false, "timeouts": { "callSeconds": {{callSeconds}}, "idleReleaseSeconds": 86400 } }"""));
         var gateway = new ComGateway(new PinnedOneNoteProbe(), new SettingsStore(settings));
         sideGateways.Add(gateway);
+        sideLimits[gateway] = callSeconds;
         return gateway;
     }
+
+    private readonly Dictionary<ComGateway, int> sideLimits = new();
+
+    /// <summary>Spike 4.12: the per-call limit of <paramref name="gateway"/>: a side gateway's own, else the session's.</summary>
+    public int LimitOf(ComGateway? gateway) =>
+        gateway is not null && sideLimits.TryGetValue(gateway, out var seconds) ? seconds : CallSeconds ?? ProbeCallSeconds;
 
     /// <summary>
     /// One guarded <c>Publish</c> into a fresh, empty subfolder of <see cref="PublishDir"/> named after
@@ -1328,10 +1337,323 @@ internal sealed class ProbeSession : IDisposable
         internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
     }
 
+    // --- Spike 4.12: navigation, links, windows and landings ---------------------------------------------------------
+
+    /// <summary>
+    /// The URLs <see cref="NavigateToUrlAsync"/> may follow: exactly the strings this run produced (<see cref="LinkAsync"/>,
+    /// <see cref="WebLinkAsync"/>, <see cref="MissingPageLink"/>, <see cref="LooseFileLink"/>). Ordinal.
+    /// </summary>
+    public HashSet<string> NavigableUrls { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The <c>.one</c> files this run published into <see cref="PublishDir"/> (N5), the only files <see cref="LooseFileLink"/> links.</summary>
+    public HashSet<string> PublishedFiles { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A guarded <c>GetHyperlinkToObject</c> on <paramref name="hierarchyId"/> (and a paragraph's
+    /// <paramref name="objectId"/>) inside an allowed notebook; the link joins <see cref="NavigableUrls"/>. Never logged
+    /// raw: rows take <see cref="LinkShape.Parse"/>.
+    /// </summary>
+    public Task<(Attempt Attempt, string? Link)> LinkAsync(string hierarchyId, string objectId = "", ComGateway? gateway = null) =>
+        LinkAsync(hierarchyId, objectId, web: false, gateway);
+
+    /// <summary>A guarded <c>GetWebHyperlinkToObject</c> (N2); the link joins <see cref="NavigableUrls"/>.</summary>
+    public Task<(Attempt Attempt, string? Link)> WebLinkAsync(string hierarchyId, ComGateway? gateway = null) =>
+        LinkAsync(hierarchyId, string.Empty, web: true, gateway);
+
+    private async Task<(Attempt Attempt, string? Link)> LinkAsync(string hierarchyId, string objectId, bool web, ComGateway? gateway)
+    {
+        var (attempt, link) = await TryValueAsync(() => TestNotebook.HyperlinkAsync(gateway ?? Gateway, hierarchyId, objectId, web, RunProbeRoot, Ct));
+        await CheckTimeoutAsync(web ? "GetWebHyperlinkToObject" : "GetHyperlinkToObject", attempt, LimitOf(gateway));
+        if (attempt.Ok && !string.IsNullOrEmpty(link))
+        {
+            NavigableUrls.Add(link);
+        }
+
+        return (attempt, attempt.Ok ? link : null);
+    }
+
+    /// <summary>
+    /// N3: <paramref name="link"/> (one of <see cref="NavigableUrls"/>) with its <c>page-id</c> replaced by a fresh GUID,
+    /// a link to a page that never existed. It joins <see cref="NavigableUrls"/>.
+    /// </summary>
+    public string MissingPageLink(string link)
+    {
+        if (!NavigableUrls.Contains(link))
+        {
+            throw new InvalidOperationException("Refusing: a missing-page link is made only from a link this run produced.");
+        }
+
+        var missing = NavLinks.WithPageId(link, Guid.NewGuid());
+        NavigableUrls.Add(missing);
+        return missing;
+    }
+
+    /// <summary>
+    /// N5: <c>onenote:///&lt;path&gt;</c> for a <c>.one</c> this run published into <see cref="PublishDir"/>
+    /// (<see cref="PublishedFiles"/>). It joins <see cref="NavigableUrls"/>.
+    /// </summary>
+    public string LooseFileLink(string path)
+    {
+        TestNotebookGuard.EnsureUnder("LooseFileLink", path, PublishDir);
+        if (!PublishedFiles.Contains(path) || !string.Equals(Path.GetExtension(path), ".one", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Refusing: a file link is made only for a .one this run published.");
+        }
+
+        var link = NavLinks.LooseFile(path);
+        NavigableUrls.Add(link);
+        return link;
+    }
+
+    /// <summary>A guarded app-level <c>NavigateTo</c> (<c>fNewWindow=false</c>); stops the scenario on a timeout.</summary>
+    public Task<Attempt> NavigateToAsync(string hierarchyId, ComGateway? gateway = null) =>
+        TryGuardedAsync("NavigateTo", () => TestNotebook.NavigateToAsync(gateway ?? Gateway, hierarchyId, RunProbeRoot, Ct), LimitOf(gateway));
+
+    /// <summary>A guarded <c>NavigateToUrl</c> (<c>fNewWindow=false</c>) on a URL of <see cref="NavigableUrls"/>; stops the scenario on a timeout.</summary>
+    public Task<Attempt> NavigateToUrlAsync(string url, ComGateway? gateway = null) =>
+        TryGuardedAsync("NavigateToUrl", () => TestNotebook.NavigateToUrlAsync(gateway ?? Gateway, url, NavigableUrls, Ct), LimitOf(gateway));
+
+    /// <summary>R1: the guard alone for one call of a pair, run before the pair (a read), so nothing reads between its two calls.</summary>
+    public async Task<(Attempt Attempt, NavigationCheck? Check)> CheckNavigationAsync(string target, bool url, ComGateway? gateway = null)
+    {
+        var (attempt, check) = await TryValueAsync(() => url
+            ? TestNotebook.CheckNavigateToUrlAsync(gateway ?? Gateway, target, NavigableUrls, Ct)
+            : TestNotebook.CheckNavigateToAsync(gateway ?? Gateway, target, RunProbeRoot, "NavigateTo", Ct));
+        await CheckTimeoutAsync(url ? "NavigateToUrl-check" : "NavigateTo-check", attempt, LimitOf(gateway));
+        return (attempt, check);
+    }
+
+    /// <summary>R1: the call for a target <see cref="CheckNavigationAsync"/> passed; stops the scenario on a timeout.</summary>
+    public Task<Attempt> NavigateCheckedAsync(NavigationCheck check, ComGateway? gateway = null)
+    {
+        ArgumentNullException.ThrowIfNull(check);
+        return check.Method == "NavigateToUrl"
+            ? TryGuardedAsync("NavigateToUrl", () => TestNotebook.NavigateToUrlCheckedAsync(gateway ?? Gateway, check, Ct), LimitOf(gateway))
+            : TryGuardedAsync("NavigateTo", () => TestNotebook.NavigateToCheckedAsync(gateway ?? Gateway, check, Ct), LimitOf(gateway));
+    }
+
+    /// <summary>W4: a guarded <c>Window.NavigateTo</c> on the window with <paramref name="windowHandle"/>; Value is false when no window had it.</summary>
+    public async Task<(Attempt Attempt, bool Found)> WindowNavigateToAsync(ulong windowHandle, string hierarchyId, ComGateway? gateway = null)
+    {
+        var (attempt, found) = await TryValueAsync(() => TestNotebook.WindowNavigateToAsync(gateway ?? Gateway, windowHandle, hierarchyId, RunProbeRoot, Ct));
+        await CheckTimeoutAsync("Window.NavigateTo", attempt, LimitOf(gateway));
+        return (attempt, found);
+    }
+
+    /// <summary>
+    /// W1: one full read of <c>Windows</c> in one STA delegate: <c>Count</c>, <c>CurrentWindow</c>, and <c>Item(i)</c> for
+    /// i = 0 … Count (the index base, and the HRESULT past the end), each window's getters with each getter's HRESULT
+    /// kept, and whether its handle is a top-level window. Every <c>Windows</c> and <c>Window</c> wrapper is released in
+    /// a <c>finally</c> before the delegate returns. A read: no setter can be called (they don't compile).
+    /// </summary>
+    public async Task<WindowsSnapshot> WindowsSnapshotAsync(ComGateway? gateway = null)
+    {
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            return await (gateway ?? Gateway).InvokeAsync(
+                app =>
+                {
+                    var wrappers = new List<object>();
+                    try
+                    {
+                        IProbeWindows windows;
+                        try
+                        {
+                            var raw = app.Windows;
+                            wrappers.Add(raw);
+                            windows = (IProbeWindows)raw;
+                        }
+                        catch (System.Runtime.InteropServices.COMException ex)
+                        {
+                            return new WindowsSnapshot(ProbeValue.Error(ex.HResult), ProbeValue.None, null, [], watch.ElapsedMilliseconds);
+                        }
+                        catch (InvalidCastException)
+                        {
+                            return new WindowsSnapshot(new ProbeValue(null, "InvalidCast"), ProbeValue.None, null, [], watch.ElapsedMilliseconds);
+                        }
+
+                        var count = ProbeValue.Read(() => windows.Count);
+                        WindowRead current;
+                        try
+                        {
+                            IProbeWindow? window = windows.CurrentWindow;
+                            if (window is null)
+                            {
+                                current = WindowRead.Failed(null, WindowRead.NullWindow);
+                            }
+                            else
+                            {
+                                wrappers.Add(window);
+                                current = ReadWindow(window, null);
+                            }
+                        }
+                        catch (System.Runtime.InteropServices.COMException ex)
+                        {
+                            current = WindowRead.Failed(null, ProbeValue.HResultText(ex.HResult));
+                        }
+
+                        var items = new List<WindowRead>();
+                        var n = count.Value is uint c ? c : 0u;
+                        for (uint i = 0; i <= n; i++)
+                        {
+                            try
+                            {
+                                IProbeWindow? window = windows.GetItem(i);
+                                if (window is null)
+                                {
+                                    items.Add(WindowRead.Failed((int)i, WindowRead.NullWindow));
+                                    continue;
+                                }
+
+                                wrappers.Add(window);
+                                items.Add(ReadWindow(window, (int)i));
+                            }
+                            catch (System.Runtime.InteropServices.COMException ex)
+                            {
+                                items.Add(WindowRead.Failed((int)i, ProbeValue.HResultText(ex.HResult)));
+                            }
+                        }
+
+                        return new WindowsSnapshot(ProbeValue.Ok("Windows"), count, current, items, watch.ElapsedMilliseconds);
+                    }
+                    finally
+                    {
+                        ProbeWindowsRelease.All(wrappers);
+                    }
+                },
+                Ct,
+                retryOnDisconnect: false,
+                method: "Windows(read)");
+        }
+        catch (OneNoteException ex) when (ex.Code is not (ErrorCode.Timeout or ErrorCode.ComBusy))
+        {
+            return new WindowsSnapshot(new ProbeValue(null, ex.ComHResult is { } h ? ProbeValue.HResultText(h) : ex.Code.ToString()), ProbeValue.None, null, [], watch.ElapsedMilliseconds);
+        }
+    }
+
+    private static WindowRead ReadWindow(IProbeWindow window, int? index)
+    {
+        var handle = ProbeValue.Read(() => window.WindowHandle);
+        var top = handle.Value is ulong h ? NavNative.TopLevel(h) : null;
+        return new WindowRead(
+            index,
+            null,
+            handle,
+            top?.IsWindow,
+            top?.TopLevel,
+            top?.RootIsForeground,
+            ProbeValue.Read(() => window.CurrentPageId),
+            ProbeValue.Read(() => window.CurrentSectionId),
+            ProbeValue.Read(() => window.CurrentSectionGroupId),
+            ProbeValue.Read(() => window.CurrentNotebookId),
+            new WindowFlags(
+                ProbeValue.Read(() => window.GetFullPageView()),
+                ProbeValue.Read(() => window.GetActive()),
+                ProbeValue.Read(() => window.GetDockedLocation()),
+                ProbeValue.Read(() => window.GetSideNote())));
+    }
+
+    /// <summary>
+    /// K1: the landing series after a navigation returned: <c>CurrentWindow</c>'s page, section and notebook IDs, each
+    /// read in one STA delegate (wrappers released in a <c>finally</c>), at <see cref="LandingSchedule"/>'s times, until
+    /// the stop rule holds or the limit (5 s; 10 s on the cloud) passes.
+    /// </summary>
+    public async Task<LandingSeries> LandingSeriesAsync(bool cloud, ComGateway? gateway = null)
+    {
+        var points = new List<LandingPoint>();
+        var watch = Stopwatch.StartNew();
+        while (LandingSchedule.NextAtMs(points, cloud) is { } at)
+        {
+            var wait = at - watch.ElapsedMilliseconds;
+            if (wait > 0)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(wait), Ct);
+            }
+
+            points.Add(await LandingPointAsync(watch, gateway ?? Gateway));
+        }
+
+        return new LandingSeries(points, LandingSchedule.Settled(points), LandingSchedule.SettledAtMs(points), LandingSchedule.LimitMs(cloud));
+    }
+
+    private static async Task<LandingPoint> LandingPointAsync(Stopwatch watch, ComGateway gateway)
+    {
+        var ms = watch.ElapsedMilliseconds;
+        try
+        {
+            return await gateway.InvokeAsync(
+                app =>
+                {
+                    var wrappers = new List<object>();
+                    try
+                    {
+                        var raw = app.Windows;
+                        wrappers.Add(raw); // before the cast, so a failed cast still releases it
+                        IProbeWindow? window = ((IProbeWindows)raw).CurrentWindow;
+                        if (window is null)
+                        {
+                            return new LandingPoint(ms, null, null, null, WindowRead.NullWindow);
+                        }
+
+                        wrappers.Add(window);
+                        return new LandingPoint(ms, window.CurrentPageId, window.CurrentSectionId, window.CurrentNotebookId, null);
+                    }
+                    catch (System.Runtime.InteropServices.COMException ex)
+                    {
+                        return new LandingPoint(ms, null, null, null, ProbeValue.HResultText(ex.HResult));
+                    }
+                    catch (InvalidCastException)
+                    {
+                        return new LandingPoint(ms, null, null, null, "InvalidCast");
+                    }
+                    finally
+                    {
+                        ProbeWindowsRelease.All(wrappers);
+                    }
+                },
+                Ct,
+                retryOnDisconnect: false,
+                method: "CurrentWindow(landing)");
+        }
+        catch (OneNoteException ex) when (ex.Code is not (ErrorCode.Timeout or ErrorCode.ComBusy))
+        {
+            return new LandingPoint(ms, null, null, null, ex.ComHResult is { } h ? ProbeValue.HResultText(h) : ex.Code.ToString());
+        }
+    }
+
+    /// <summary>
+    /// K2 (c): the <c>isCurrentlyViewed</c> notebook, section and page IDs, read the way <see cref="ViewAsync"/> reads
+    /// them (sections scope, then the viewed section's pages). A notebook outside MCP Test, MCP Test Cloud and the run's
+    /// notebooks is read no further: its ID is kept, its section and page are null.
+    /// </summary>
+    public async Task<(string? Notebook, string? Section, string? Page)> ViewedIdsAsync(ComGateway? gateway = null)
+    {
+        var notebooks = await NotebooksAsync(gateway);
+        var viewed = notebooks.Elements(One + "Notebook").FirstOrDefault(n => (string?)n.Attribute("isCurrentlyViewed") == "true");
+        var id = (string?)viewed?.Attribute("ID");
+        var navigable = TestNotebookGuard.NavigableNotebookIds(notebooks.ToString(), TestNotebook.ResolveFolder(Environment.GetEnvironmentVariable), ThrowawayRoot, RunProbeRoot);
+        if (id is null || !navigable.Contains(id))
+        {
+            return (id, null, null);
+        }
+
+        var section = (await TreeAsync(id, CoreScope.Sections, gateway)).Descendants(One + "Section").LastOrDefault(e => (string?)e.Attribute("isCurrentlyViewed") == "true");
+        var sectionId = (string?)section?.Attribute("ID");
+        if (sectionId is null || (string?)section!.Attribute("locked") == "true")
+        {
+            return (id, sectionId, null);
+        }
+
+        var page = (await TreeAsync(sectionId, CoreScope.Pages, gateway)).Elements(One + "Page").FirstOrDefault(e => (string?)e.Attribute("isCurrentlyViewed") == "true");
+        return (id, sectionId, (string?)page?.Attribute("ID"));
+    }
+
     // --- Reads ----------------------------------------------------------------------------------------------------
 
-    public async Task<string> PageXmlAsync(string pageId, XMLSchema schema = XMLSchema.xs2013, PageInfo info = PageInfo.piBasic) =>
-        await Gateway.InvokeAsync(
+    /// <remarks>Spike 4.12: <paramref name="gateway"/> (default: the session's) lets a cloud read use the cloud side gateway's limit.</remarks>
+    public async Task<string> PageXmlAsync(string pageId, XMLSchema schema = XMLSchema.xs2013, PageInfo info = PageInfo.piBasic, ComGateway? gateway = null) =>
+        await (gateway ?? Gateway).InvokeAsync(
             app =>
             {
                 app.GetPageContent(pageId, out var xml, info, schema);
@@ -1340,14 +1662,16 @@ internal sealed class ProbeSession : IDisposable
             Ct,
             method: "GetPageContent(probe)");
 
-    public async Task<XElement> PageAsync(string pageId, XMLSchema schema = XMLSchema.xs2013, PageInfo info = PageInfo.piBasic) =>
-        XDocument.Parse(await PageXmlAsync(pageId, schema, info)).Root!;
+    public async Task<XElement> PageAsync(string pageId, XMLSchema schema = XMLSchema.xs2013, PageInfo info = PageInfo.piBasic, ComGateway? gateway = null) =>
+        XDocument.Parse(await PageXmlAsync(pageId, schema, info, gateway)).Root!;
 
-    public async Task<XElement> NotebooksAsync() =>
-        XDocument.Parse(await Gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, Ct)).Root!;
+    public Task<XElement> NotebooksAsync() => NotebooksAsync(null);
 
-    public async Task<XElement> TreeAsync(string nodeId, CoreScope scope = CoreScope.Pages) =>
-        XDocument.Parse(await Gateway.GetHierarchyAsync(nodeId, scope, Ct)).Root!;
+    public async Task<XElement> NotebooksAsync(ComGateway? gateway) =>
+        XDocument.Parse(await (gateway ?? Gateway).GetHierarchyAsync(string.Empty, CoreScope.Notebooks, Ct)).Root!;
+
+    public async Task<XElement> TreeAsync(string nodeId, CoreScope scope = CoreScope.Pages, ComGateway? gateway = null) =>
+        XDocument.Parse(await (gateway ?? Gateway).GetHierarchyAsync(nodeId, scope, Ct)).Root!;
 
     /// <summary>The page's element in a fresh pages-scope read of its section.</summary>
     public async Task<XElement> HierarchyPageAsync(string sectionId, string pageId) =>
@@ -1365,9 +1689,12 @@ internal sealed class ProbeSession : IDisposable
     }
 
     /// <summary>MCP Test Cloud's ID; skips when it isn't open (it's never created).</summary>
-    public async Task<string> CloudIdAsync()
+    public Task<string> CloudIdAsync() => CloudIdAsync(null);
+
+    /// <summary>MCP Test Cloud's ID through <paramref name="gateway"/> (spike 4.12's cloud side gateway); skips when it isn't open.</summary>
+    public async Task<string> CloudIdAsync(ComGateway? gateway)
     {
-        var id = await TestNotebook.FindCloudAsync(Gateway, Ct);
+        var id = await TestNotebook.FindCloudAsync(gateway ?? Gateway, Ct);
         Assert.SkipWhen(id is null, "MCP Test Cloud is not open in OneNote. Phill creates and opens it; the suite never does.");
         return id!;
     }
@@ -1846,3 +2173,384 @@ internal static class Junctions
         return info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint);
     }
 }
+
+// --- Spike 4.12: windows, landings and links (pure parts unit-tested in ProbeHelpersTests) ---------------------------
+
+/// <summary>One getter's result: its value, or the HRESULT it failed with (<c>0x…</c> and AD-9's name when mapped).</summary>
+internal sealed record ProbeValue(object? Value, string? HResult)
+{
+    public static ProbeValue None { get; } = new(null, null);
+
+    public static ProbeValue Ok(object? value) => new(value, null);
+
+    public static ProbeValue Error(int hresult) => new(null, HResultText(hresult));
+
+    public static string HResultText(int hresult) =>
+        HResultMap.Name(hresult) is { } name
+            ? string.Create(CultureInfo.InvariantCulture, $"0x{hresult:x8} {name}")
+            : string.Create(CultureInfo.InvariantCulture, $"0x{hresult:x8}");
+
+    /// <summary>Runs one getter, keeping a COM failure's HRESULT instead of throwing.</summary>
+    public static ProbeValue Read<T>(Func<T> getter)
+    {
+        ArgumentNullException.ThrowIfNull(getter);
+        try
+        {
+            return new ProbeValue(getter(), null);
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            return Error(ex.HResult);
+        }
+    }
+}
+
+/// <summary>
+/// W1: one window's getters. <see cref="Index"/> is null for <c>CurrentWindow</c>; <see cref="ItemHResult"/> is the
+/// failure of <c>Item(i)</c> or <c>CurrentWindow</c> itself (then nothing else was read). <see cref="TopLevel"/>: the
+/// handle is its own root window (<c>GetAncestor(GA_ROOT)</c>); OneMore found <c>WindowHandle</c> can be an inner pane.
+/// </summary>
+internal sealed record WindowRead(
+    int? Index,
+    string? ItemHResult,
+    ProbeValue? Handle,
+    bool? IsWindow,
+    bool? TopLevel,
+    bool? RootIsForeground,
+    ProbeValue? PageId,
+    ProbeValue? SectionId,
+    ProbeValue? SectionGroupId,
+    ProbeValue? NotebookId,
+    WindowFlags? Flags)
+{
+    /// <summary>What a row records when <c>CurrentWindow</c> or <c>Item(i)</c> returned S_OK with no window.</summary>
+    public const string NullWindow = "null (S_OK, no window)";
+
+    public static WindowRead Failed(int? index, string hresult) => new(index, hresult, null, null, null, null, null, null, null, null, null);
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ulong? HandleValue => Handle?.Value as ulong?;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Page => PageId?.Value as string;
+}
+
+/// <summary>W1: a window's flag getters (read only; their setters are uncallable placeholders).</summary>
+internal sealed record WindowFlags(ProbeValue FullPageView, ProbeValue Active, ProbeValue DockedLocation, ProbeValue SideNote);
+
+/// <summary>W1: one full read of <c>Windows</c>: the collection, <c>Count</c>, <c>CurrentWindow</c>, and <c>Item(i)</c> for i = 0 … Count.</summary>
+internal sealed record WindowsSnapshot(ProbeValue Windows, ProbeValue Count, WindowRead? Current, IReadOnlyList<WindowRead> Items, long Ms)
+{
+    /// <summary>The windows <c>Item(i)</c> returned, by handle (first index wins).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<WindowRead> ListedWindows => Items.Where(i => i.ItemHResult is null && i.HandleValue is not null).GroupBy(i => i.HandleValue).Select(g => g.First()).ToList();
+}
+
+/// <summary>K1: one landing read: ms after the navigation returned, and <c>CurrentWindow</c>'s IDs, or the error.</summary>
+internal sealed record LandingPoint(long Ms, string? PageId, string? SectionId, string? NotebookId, string? Error);
+
+/// <summary>K1: a landing series, whether it settled under the stop rule, when its final value first showed, and its limit.</summary>
+internal sealed record LandingSeries(IReadOnlyList<LandingPoint> Points, bool Settled, long? SettledAtMs, long LimitMs)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public LandingPoint? Last => Points.Count == 0 ? null : Points[^1];
+}
+
+/// <summary>
+/// K1's schedule and stop rule, pure: reads at 0, 100, 250, 500, 750, 1000, 1500, 2000, 3000 and 5000 ms (then 7500
+/// and 10000 on the cloud), stopping once the reads have been unchanged for 1 s, and not before 1.5 s.
+/// </summary>
+internal static class LandingSchedule
+{
+    public static readonly IReadOnlyList<long> LocalMs = [0, 100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000];
+
+    public static readonly IReadOnlyList<long> CloudMs = [.. LocalMs, 7500, 10000];
+
+    public const long MinimumMs = 1500;
+
+    public const long StableForMs = 1000;
+
+    public static long LimitMs(bool cloud) => (cloud ? CloudMs : LocalMs)[^1];
+
+    /// <summary>When the next read is due (ms after the call returned), or null when the series is done.</summary>
+    public static long? NextAtMs(IReadOnlyList<LandingPoint> points, bool cloud)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        var schedule = cloud ? CloudMs : LocalMs;
+        return Settled(points) || points.Count >= schedule.Count ? null : schedule[points.Count];
+    }
+
+    /// <summary>True when the last read is at least 1.5 s in and the reads have been the same for at least the last 1 s.</summary>
+    public static bool Settled(IReadOnlyList<LandingPoint> points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (points.Count < 2)
+        {
+            return false;
+        }
+
+        var last = points[^1];
+        return last.Ms >= MinimumMs && points[StableStart(points)].Ms <= last.Ms - StableForMs;
+    }
+
+    /// <summary>When the settled value was first read (ms), or null when the series didn't settle.</summary>
+    public static long? SettledAtMs(IReadOnlyList<LandingPoint> points) =>
+        Settled(points) ? points[StableStart(points)].Ms : null;
+
+    private static int StableStart(IReadOnlyList<LandingPoint> points)
+    {
+        var last = points[^1];
+        var start = points.Count - 1;
+        while (start > 0 && Same(points[start - 1], last))
+        {
+            start--;
+        }
+
+        return start;
+    }
+
+    private static bool Same(LandingPoint a, LandingPoint b) =>
+        a.PageId == b.PageId && a.SectionId == b.SectionId && a.NotebookId == b.NotebookId && a.Error == b.Error;
+}
+
+/// <summary>
+/// A link as a row may log it: its shape, never the link itself (plan, Always). The scheme; the path form (a local or UNC
+/// path, a OneDrive or other https host, a fragment only); what the path names (<c>.one</c>, <c>.onetoc2</c>, a folder);
+/// which fragment keys are present; the query's key names; how many GUIDs it holds; and the <c>page-id</c> and
+/// <c>section-id</c> GUIDs (IDs, not names: K2 compares the page GUID).
+/// </summary>
+internal sealed partial record LinkShape(
+    string Scheme,
+    string PathForm,
+    string Target,
+    bool Title,
+    bool SectionId,
+    bool PageId,
+    bool ObjectId,
+    bool BasePath,
+    bool End,
+    IReadOnlyList<string> QueryKeys,
+    int Guids,
+    string? PageGuid,
+    string? SectionGuid)
+{
+    public static LinkShape Parse(string? link)
+    {
+        if (string.IsNullOrEmpty(link))
+        {
+            return new LinkShape("none", "none", "none", false, false, false, false, false, false, [], 0, null, null);
+        }
+
+        var colon = link.IndexOf(':', StringComparison.Ordinal);
+        var scheme = colon > 1 && link[..colon].All(char.IsAsciiLetter) ? link[..colon].ToLowerInvariant() : "none";
+        var body = scheme == "onenote" ? link[(colon + 1)..] : link;
+        if (scheme == "onenote" && body.StartsWith("///", StringComparison.Ordinal))
+        {
+            body = body[3..];
+        }
+
+        var hash = body.IndexOf('#', StringComparison.Ordinal);
+        var beforeHash = hash < 0 ? body : body[..hash];
+        var fragment = hash < 0 ? string.Empty : body[(hash + 1)..];
+        var question = beforeHash.IndexOf('?', StringComparison.Ordinal);
+        var path = question < 0 ? beforeHash : beforeHash[..question];
+        var query = question < 0 ? string.Empty : beforeHash[(question + 1)..];
+
+        var pieces = fragment.Length == 0 ? [] : fragment.Split('&');
+        string? Value(string key) => pieces.Where(p => p.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase)).Select(p => p[(key.Length + 1)..]).FirstOrDefault();
+        bool Has(string key) => pieces.Any(p => p.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase));
+
+        return new LinkShape(
+            scheme,
+            PathFormOf(scheme, body),
+            TargetOf(path),
+            pieces.Length > 0 && !pieces[0].Contains('=', StringComparison.Ordinal) && pieces[0] != "end",
+            Has("section-id"),
+            Has("page-id"),
+            Has("object-id"),
+            Has("base-path"),
+            pieces.Contains("end", StringComparer.Ordinal),
+            query.Length == 0 ? [] : query.Split('&').Select(p => p.Split('=')[0]).Where(k => k.Length > 0).Distinct(StringComparer.Ordinal).ToList(),
+            GuidPattern().Matches(Decode(link)).Count,
+            NormalizeGuid(Value("page-id")),
+            NormalizeGuid(Value("section-id")));
+    }
+
+    /// <summary>A GUID in any of its link forms (<c>{…}</c>, <c>%7B…%7D</c>, bare) as <c>{UPPER-CASE}</c>, or null.</summary>
+    public static string? NormalizeGuid(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        var decoded = Decode(value).Trim().TrimStart('{').TrimEnd('}');
+        return Guid.TryParse(decoded, out var guid) ? "{" + guid.ToString("D").ToUpperInvariant() + "}" : null;
+    }
+
+    private static string PathFormOf(string scheme, string body)
+    {
+        if (body.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var host = Uri.TryCreate(body, UriKind.Absolute, out var uri) ? uri.Host : string.Empty;
+            return string.Equals(host, TestNotebookGuard.CloudHost, StringComparison.OrdinalIgnoreCase) ? "https d.docs.live.net"
+                : string.Equals(host, "onedrive.live.com", StringComparison.OrdinalIgnoreCase) ? "https onedrive.live.com"
+                : "https other host";
+        }
+
+        if (body.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            return "http";
+        }
+
+        if (scheme != "onenote" && scheme != "none")
+        {
+            return "other";
+        }
+
+        return body.Length >= 2 && char.IsAsciiLetter(body[0]) && body[1] == ':' ? "local path"
+            : body.StartsWith(@"\\", StringComparison.Ordinal) || body.StartsWith("//", StringComparison.Ordinal) ? "unc path"
+            : body.StartsWith('#') ? "fragment only"
+            : "other";
+    }
+
+    private static string TargetOf(string path)
+    {
+        var decoded = Decode(path);
+        if (decoded.Length == 0)
+        {
+            return "none";
+        }
+
+        if (decoded.EndsWith('/') || decoded.EndsWith('\\'))
+        {
+            return "folder";
+        }
+
+        var leaf = decoded[(decoded.LastIndexOfAny(['/', '\\']) + 1)..];
+        var dot = leaf.LastIndexOf('.');
+        return dot < 0 ? "no extension"
+            : leaf[dot..].ToLowerInvariant() is ".one" or ".onetoc2" or ".onepkg" ? leaf[dot..].ToLowerInvariant()
+            : "other extension";
+    }
+
+    private static string Decode(string value)
+    {
+        try
+        {
+            return Uri.UnescapeDataString(value);
+        }
+        catch (UriFormatException)
+        {
+            return value;
+        }
+    }
+
+    [GeneratedRegex(@"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", RegexOptions.CultureInvariant)]
+    private static partial Regex GuidPattern();
+}
+
+/// <summary>Spike 4.12's link builders, pure.</summary>
+internal static partial class NavLinks
+{
+    /// <summary>
+    /// N3: <paramref name="link"/> with the value of its one <c>page-id</c> fragment key replaced by
+    /// <paramref name="pageGuid"/>, written in the form the old value had (<c>{…}</c>, <c>%7B…%7D</c> or bare, upper case).
+    /// Throws unless the link has exactly one <c>page-id</c>.
+    /// </summary>
+    public static string WithPageId(string link, Guid pageGuid)
+    {
+        ArgumentNullException.ThrowIfNull(link);
+        var matches = PageIdValue().Matches(link);
+        if (matches.Count != 1)
+        {
+            throw new InvalidOperationException($"The link has {matches.Count} page-id keys; a missing-page link needs exactly one.");
+        }
+
+        var old = matches[0].Groups["v"];
+        var guid = pageGuid.ToString("D").ToUpperInvariant();
+        var value = old.Value.StartsWith('{') ? "{" + guid + "}"
+            : old.Value.StartsWith("%7B", StringComparison.OrdinalIgnoreCase) ? "%7B" + guid + "%7D"
+            : guid;
+        return link[..old.Index] + value + link[(old.Index + old.Length)..];
+    }
+
+    /// <summary>
+    /// N5: the link to a loose <c>.one</c> file, <c>onenote:///&lt;path&gt;</c>, encoded the way OneNote's own
+    /// <c>GetHyperlinkToObject</c> links are (fixture <c>tests/OneNoteMcp.Tests/Fixtures/mcp-test/link/page.txt</c>): each
+    /// path segment percent-encoded (a space as <c>%20</c>), the drive (<c>C:</c>) and the backslashes kept.
+    /// </summary>
+    public static string LooseFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var segments = path.Split('\\').Select((segment, i) =>
+            i == 0 && segment.Length == 2 && char.IsAsciiLetter(segment[0]) && segment[1] == ':' ? segment : Uri.EscapeDataString(segment));
+        return "onenote:///" + string.Join('\\', segments);
+    }
+
+    [GeneratedRegex(@"(?<=[#&])page-id=(?<v>[^&]*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PageIdValue();
+}
+
+/// <summary>Releases the <c>Windows</c> and <c>Window</c> wrappers a delegate obtained, last first (OneMore, research row 10).</summary>
+internal static class ProbeWindowsRelease
+{
+    /// <summary>Releases each COM wrapper in <paramref name="wrappers"/> once (one per time it was obtained), skipping anything that isn't one.</summary>
+    public static int All(List<object> wrappers)
+    {
+        ArgumentNullException.ThrowIfNull(wrappers);
+        var released = 0;
+        for (var i = wrappers.Count - 1; i >= 0; i--)
+        {
+            if (wrappers[i] is { } o && System.Runtime.InteropServices.Marshal.IsComObject(o))
+            {
+                try
+                {
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(o);
+                    released++;
+                }
+                catch (System.Runtime.InteropServices.InvalidComObjectException)
+                {
+                    // already separated from its COM object
+                }
+            }
+        }
+
+        wrappers.Clear();
+        return released;
+    }
+}
+
+/// <summary>W1: whether a <c>WindowHandle</c> is a window, a top-level one, and the root of the foreground window. No title is read.</summary>
+internal static class NavNative
+{
+    public static WindowTop TopLevel(ulong handle)
+    {
+        var h = unchecked((nint)(long)handle);
+        if (h == 0 || !IsWindow(h))
+        {
+            return new WindowTop(false, false, false);
+        }
+
+        var root = GetAncestor(h, GaRoot);
+        return new WindowTop(true, root == h, root != 0 && root == GetForegroundWindow());
+    }
+
+    private const uint GaRoot = 2;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(System.Runtime.InteropServices.DllImportSearchPath.System32)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool IsWindow(nint hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(System.Runtime.InteropServices.DllImportSearchPath.System32)]
+    private static extern nint GetAncestor(nint hWnd, uint flags);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(System.Runtime.InteropServices.DllImportSearchPath.System32)]
+    private static extern nint GetForegroundWindow();
+}
+
+/// <summary>W1: <see cref="NavNative.TopLevel"/>'s result.</summary>
+internal sealed record WindowTop(bool IsWindow, bool TopLevel, bool RootIsForeground);

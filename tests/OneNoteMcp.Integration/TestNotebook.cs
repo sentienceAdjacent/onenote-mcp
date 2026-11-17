@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using OneNoteMcp.Com;
 using OneNoteMcp.Com.Interop;
+using OneNoteMcp.Integration.WriteProbes;
 using OneNoteMcp.Xml;
 using CoreScope = OneNoteMcp.Core.HierarchyScope;
 
@@ -567,6 +568,193 @@ internal sealed class TestNotebook
 
     /// <summary>The one <c>SyncHierarchy</c> call shape.</summary>
     internal static void SyncCall(IApplication app, string id) => app.SyncHierarchy(id);
+
+    // --- Spike 4.12: navigation (NavigateTo, NavigateToUrl, Window.NavigateTo) and links ------------------------------
+
+    /// <summary>
+    /// Spike 4.12's guard for an ID navigation, alone: a live read must show <paramref name="hierarchyId"/> inside MCP
+    /// Test, MCP Test Cloud or a notebook whose path lies in <paramref name="runProbeRoot"/> (this run's notebooks,
+    /// <see cref="TestNotebookGuard.NavigableNotebookIds"/>). Returns the checked target; throws a <c>Refusing</c>
+    /// <see cref="InvalidOperationException"/> before any COM call otherwise. R1 checks both targets of a pair this way
+    /// before the pair, so no read falls between its two calls.
+    /// </summary>
+    public static async Task<NavigationCheck> CheckNavigateToAsync(ComGateway gateway, string hierarchyId, string? runProbeRoot, string method, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        await EnsureNavigableAsync(gateway, hierarchyId, runProbeRoot, method, ct);
+        return new NavigationCheck(hierarchyId, method);
+    }
+
+    /// <summary>
+    /// Spike 4.12's guarded <c>NavigateTo</c> (<see cref="CheckNavigateToAsync"/>, then <see cref="NavigateToCall"/>).
+    /// There is no <c>fNewWindow</c> parameter and no object-ID parameter: the call shape fixes both.
+    /// </summary>
+    public static async Task NavigateToAsync(ComGateway gateway, string hierarchyId, string? runProbeRoot, CancellationToken ct) =>
+        await NavigateToCheckedAsync(gateway, await CheckNavigateToAsync(gateway, hierarchyId, runProbeRoot, "NavigateTo", ct), ct);
+
+    /// <summary>The <c>NavigateTo</c> call for a target <see cref="CheckNavigateToAsync"/> passed.</summary>
+    public static Task NavigateToCheckedAsync(ComGateway gateway, NavigationCheck check, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(check);
+        return gateway.InvokeAsync(
+            app =>
+            {
+                NavigateToCall(app, check.Value);
+                return true;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: "NavigateTo");
+    }
+
+    /// <summary>
+    /// Spike 4.12's guard for <c>NavigateToUrl</c>, alone: a live notebooks read (so a crash trips the breaker here, not
+    /// in the call), then <see cref="TestNotebookGuard.CheckNavigateUrl"/>: the exact string must be one this run
+    /// produced (<paramref name="allowed"/>). Throws a <c>Refusing</c> <see cref="InvalidOperationException"/> before any
+    /// COM navigation otherwise.
+    /// </summary>
+    public static async Task<NavigationCheck> CheckNavigateToUrlAsync(ComGateway gateway, string url, IReadOnlySet<string> allowed, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        _ = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
+        TestNotebookGuard.CheckNavigateUrl(url, allowed);
+        return new NavigationCheck(url, "NavigateToUrl");
+    }
+
+    /// <summary>
+    /// Spike 4.12's guarded <c>NavigateToUrl</c> (<see cref="CheckNavigateToUrlAsync"/>, then
+    /// <see cref="NavigateToUrlCall"/>). There is no <c>fNewWindow</c> parameter.
+    /// </summary>
+    public static async Task NavigateToUrlAsync(ComGateway gateway, string url, IReadOnlySet<string> allowed, CancellationToken ct) =>
+        await NavigateToUrlCheckedAsync(gateway, await CheckNavigateToUrlAsync(gateway, url, allowed, ct), ct);
+
+    /// <summary>The <c>NavigateToUrl</c> call for a URL <see cref="CheckNavigateToUrlAsync"/> passed.</summary>
+    public static Task NavigateToUrlCheckedAsync(ComGateway gateway, NavigationCheck check, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(check);
+        return gateway.InvokeAsync(
+            app =>
+            {
+                NavigateToUrlCall(app, check.Value);
+                return true;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: "NavigateToUrl");
+    }
+
+    /// <summary>
+    /// Spike 4.12 (W4): the guarded <c>Window.NavigateTo</c> on the window whose <c>WindowHandle</c> is
+    /// <paramref name="windowHandle"/>. The guard is <see cref="CheckNavigateToAsync"/>'s. In one STA delegate it walks
+    /// <c>Windows.Item(i)</c> for i = 0 … Count (either index base), calls <see cref="WindowNavigateToCall"/> on the first
+    /// match, and releases every <c>Windows</c> and <c>Window</c> wrapper in a <c>finally</c>. Returns false, having
+    /// navigated nothing, when no window has that handle.
+    /// </summary>
+    public static async Task<bool> WindowNavigateToAsync(ComGateway gateway, ulong windowHandle, string hierarchyId, string? runProbeRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "Window.NavigateTo";
+        var check = await CheckNavigateToAsync(gateway, hierarchyId, runProbeRoot, Method, ct);
+        return await gateway.InvokeAsync(
+            app =>
+            {
+                var wrappers = new List<object>();
+                try
+                {
+                    var raw = app.Windows;
+                    wrappers.Add(raw); // before the cast, so a failed cast still releases it
+                    var windows = (IProbeWindows)raw;
+                    var count = windows.Count;
+                    for (uint i = 0; i <= count; i++)
+                    {
+                        IProbeWindow? window;
+                        try
+                        {
+                            window = windows.GetItem(i);
+                        }
+                        catch (System.Runtime.InteropServices.COMException)
+                        {
+                            continue; // past the end, or the other index base
+                        }
+
+                        if (window is null)
+                        {
+                            continue; // S_OK with no window
+                        }
+
+                        wrappers.Add(window);
+                        if (window.WindowHandle == windowHandle)
+                        {
+                            WindowNavigateToCall(window, check.Value);
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+                finally
+                {
+                    ProbeWindowsRelease.All(wrappers);
+                }
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+    }
+
+    /// <summary>
+    /// Spike 4.12's guarded link read: <c>GetHyperlinkToObject</c>, or <c>GetWebHyperlinkToObject</c> when
+    /// <paramref name="web"/>, on <paramref name="hierarchyId"/> (inside an allowed notebook, as for
+    /// <see cref="CheckNavigateToAsync"/>) and, for a paragraph, its <paramref name="objectId"/>. A read: it navigates nothing.
+    /// </summary>
+    public static async Task<string> HyperlinkAsync(ComGateway gateway, string hierarchyId, string objectId, bool web, string? runProbeRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        var method = web ? "GetWebHyperlinkToObject" : "GetHyperlinkToObject";
+        await EnsureNavigableAsync(gateway, hierarchyId, runProbeRoot, method, ct);
+        return await gateway.InvokeAsync(
+            app =>
+            {
+                string link;
+                if (web)
+                {
+                    app.GetWebHyperlinkToObject(hierarchyId, objectId ?? string.Empty, out link);
+                }
+                else
+                {
+                    app.GetHyperlinkToObject(hierarchyId, objectId ?? string.Empty, out link);
+                }
+
+                return link;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: method);
+    }
+
+    /// <summary>The one <c>NavigateTo</c> call shape: no object ID, and <c>fNewWindow</c> always <c>false</c> (Q7).</summary>
+    internal static void NavigateToCall(IApplication app, string hierarchyId) => app.NavigateTo(hierarchyId, string.Empty, fNewWindow: false);
+
+    /// <summary>The one <c>NavigateToUrl</c> call shape: <c>fNewWindow</c> always <c>false</c> (Q7).</summary>
+    internal static void NavigateToUrlCall(IApplication app, string url) => app.NavigateToUrl(url, fNewWindow: false);
+
+    /// <summary>The one <c>Window.NavigateTo</c> call shape: no object ID.</summary>
+    internal static void WindowNavigateToCall(IProbeWindow window, string hierarchyId) => window.NavigateTo(hierarchyId, string.Empty);
+
+    private static async Task EnsureNavigableAsync(ComGateway gateway, string hierarchyId, string? runProbeRoot, string method, CancellationToken ct)
+    {
+        var notebooks = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
+        var ids = TestNotebookGuard.NavigableNotebookIds(notebooks, ResolveFolder(Environment.GetEnvironmentVariable), ThrowawayRoot, runProbeRoot);
+        var trees = new List<string>(ids.Count);
+        foreach (var id in ids)
+        {
+            trees.Add(await gateway.GetHierarchyAsync(id, CoreScope.Pages, ct));
+        }
+
+        TestNotebookGuard.CheckNavigateTarget(method, hierarchyId, trees);
+    }
 
     /// <summary>
     /// The shared check: every target must be inside MCP Test, MCP Test Cloud or a live-verified throwaway, or, when
@@ -1341,6 +1529,64 @@ internal static partial class TestNotebookGuard
     [GeneratedRegex(@"^\\\\localhost\\(?<drive>[A-Za-z])\$(?<rest>\\.*)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LocalhostAdminShare();
 
+    // --- Spike 4.12: navigation guard ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The notebooks a spike 4.12 navigation may land in: MCP Test (at <paramref name="testFolder"/>), MCP Test Cloud, and,
+    /// when <paramref name="runProbeRoot"/> is a run's probe folder, the open notebooks whose path lies in it (this run's
+    /// notebooks, whatever their name). Throwaways <c>a</c>, <c>b</c>, <c>c</c> and the cloud throwaway are not among them.
+    /// </summary>
+    public static IReadOnlyList<string> NavigableNotebookIds(string notebooksXml, string testFolder, string throwawayRoot, string? runProbeRoot)
+    {
+        var ids = TestNotebookIds(notebooksXml, testFolder).ToList();
+        if (runProbeRoot is not null && IsRunProbeRoot(runProbeRoot, throwawayRoot))
+        {
+            ids.AddRange(NotebooksUnder(notebooksXml, runProbeRoot).Select(n => n.Id).Where(id => !ids.Contains(id)));
+        }
+
+        return ids;
+    }
+
+    /// <summary>
+    /// Refuses a navigation (or a link read) unless <paramref name="targetId"/> is the root of, or inside, one of
+    /// <paramref name="navigableTrees"/> (pages-scope reads of <see cref="NavigableNotebookIds"/>). IDs compare exactly.
+    /// </summary>
+    public static void CheckNavigateTarget(string method, string targetId, IEnumerable<string> navigableTrees)
+    {
+        ArgumentNullException.ThrowIfNull(navigableTrees);
+        if (string.IsNullOrEmpty(targetId) || !navigableTrees.Any(tree => Contains(tree, targetId)))
+        {
+            throw new InvalidOperationException($"Refusing {method}: {targetId} is not inside MCP Test, MCP Test Cloud or this run's notebooks.");
+        }
+    }
+
+    /// <summary>
+    /// Refuses a <c>NavigateToUrl</c> unless <paramref name="url"/> is, character for character (ordinal, whatever
+    /// comparer <paramref name="allowed"/> has), one of the URLs this run produced: a link <c>GetHyperlinkToObject</c> or
+    /// <c>GetWebHyperlinkToObject</c> returned for an allowed target, that link with a synthetic <c>page-id</c>, or
+    /// <c>onenote:///&lt;path&gt;</c> of a <c>.one</c> this run published. Its scheme must be <c>onenote:</c> or
+    /// <c>https:</c> even then. The message never repeats the URL (it can hold a path or the account ID).
+    /// </summary>
+    public static void CheckNavigateUrl(string url, IReadOnlySet<string> allowed)
+    {
+        ArgumentNullException.ThrowIfNull(allowed);
+        const string Method = "NavigateToUrl";
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            throw new InvalidOperationException($"Refusing {Method}: no URL.");
+        }
+
+        if (!url.StartsWith("onenote:", StringComparison.Ordinal) && !url.StartsWith("https://", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Refusing {Method}: the URL's scheme is neither onenote: nor https:.");
+        }
+
+        if (!allowed.Any(a => string.Equals(a, url, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException($"Refusing {Method}: the URL is not one this run produced.");
+        }
+    }
+
     /// <summary>The IDs of the open test notebooks: MCP Test at <paramref name="folder"/>, then MCP Test Cloud. Either may be absent.</summary>
     public static IReadOnlyList<string> TestNotebookIds(string notebooksXml, string folder)
     {
@@ -1406,4 +1652,21 @@ internal static partial class TestNotebookGuard
             throw new InvalidOperationException($"Refusing to create MCP Test: {folder} is not empty. Open it in OneNote, or empty it.");
         }
     }
+}
+
+/// <summary>
+/// Spike 4.12: a navigation target (an ID, or a URL) that its guard passed, made only by
+/// <see cref="TestNotebook.CheckNavigateToAsync"/> and <see cref="TestNotebook.CheckNavigateToUrlAsync"/>.
+/// </summary>
+internal sealed class NavigationCheck
+{
+    internal NavigationCheck(string value, string method)
+    {
+        Value = value;
+        Method = method;
+    }
+
+    public string Value { get; }
+
+    public string Method { get; }
 }
