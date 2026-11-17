@@ -12,7 +12,8 @@ namespace OneNoteMcp.Core.Writes;
 /// <item>Access check (<see cref="WriteOperation{TResult}.AuthorizeAsync"/>). When it finds a notebook with a path but no
 /// write grant, and the call can ask (<see cref="ToolCallContext.Prompt"/>), it raises the write-grant dialog
 /// (<see cref="WriteGrantDialog"/>, AD-6) with the deadline paused and on the client's token only, then runs the check
-/// once more, with no second grant dialog. A page write whose XML names new file paths throws
+/// once more, with no second grant dialog for the same notebook key (a move between two notebooks may ask once for each,
+/// story 3.4 Q3). A page write whose XML names new file paths throws
 /// <see cref="FilePathsUnconfirmed"/> from step 1; the runner then raises the file-path dialog (<see cref="FilePathDialog"/>,
 /// AD-7) the same way, at most once, and runs step 1 again. A permanent delete without a stored permanent-delete grant
 /// throws <see cref="PermanentDeleteUnconfirmed"/>; the runner raises the one-call confirmation
@@ -104,8 +105,9 @@ public sealed class WritePipeline
         try
         {
             // 1. Access check. A missing write grant may raise the grant dialog (AD-6), and new file paths in a page write
-            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once.
-            var askedGrant = false;
+            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once, the grant
+            // dialog at most once per notebook key, so a move between two notebooks can ask for both (story 3.4 Q3).
+            var askedGrant = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var askedPaths = false;
             var askedPermanent = false;
             while (true)
@@ -115,9 +117,9 @@ public sealed class WritePipeline
                     await operation.AuthorizeAsync(token).ConfigureAwait(false);
                     break;
                 }
-                catch (WriteGrantMissing missing) when (!askedGrant && dialog is not null && context.Prompt is { } prompt)
+                catch (WriteGrantMissing missing) when (!askedGrant.Contains(missing.Key) && dialog is not null && context.Prompt is { } prompt)
                 {
-                    askedGrant = true;
+                    askedGrant.Add(missing.Key);
                     await PausedAsync(() => dialog.AskAsync(prompt, missing, ct)).ConfigureAwait(false);
                 }
                 catch (FilePathsUnconfirmed unconfirmed) when (!askedPaths && context.Prompt is { } prompt)

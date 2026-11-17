@@ -20,7 +20,10 @@ namespace OneNoteMcp.Core.Results;
 /// <c>onenoteBackup</c> entry) and, for a section, <see cref="BackupFile"/> (the backup's file name only, never a path) and
 /// <see cref="PageEntryIds"/> (its pages' entries in section order, 5.6 plan Q3 b). An export (<c>publish</c>, story 3.3)
 /// reports <see cref="ObjectId"/> (the page exported) and <see cref="OutputPath"/> (AD-11: the file's canonical path, which
-/// the caller tells the user). They are null, and so omitted on the wire, on every other result.
+/// the caller tells the user). A page move (<c>move_hierarchy_object</c>, story 3.4) reports <see cref="ObjectId"/> (the
+/// page's new ID), <see cref="ParentId"/> (the section it moved to), <see cref="JournalEntryId"/> (the source section's
+/// <c>hierarchy</c> entry) and <see cref="JournalEntryIds"/> (both sections' entries, source then target; 3.4 plan Q1).
+/// They are null, and so omitted on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
     string CorrelationId,
@@ -41,7 +44,8 @@ public sealed record ToolMeta(
     string? RecycleBinId = null,
     string? BackupFile = null,
     IReadOnlyList<string>? PageEntryIds = null,
-    string? OutputPath = null);
+    string? OutputPath = null,
+    IReadOnlyList<string>? JournalEntryIds = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read
