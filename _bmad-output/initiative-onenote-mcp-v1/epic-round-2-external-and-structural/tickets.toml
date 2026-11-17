@@ -97,7 +97,7 @@ title = "publish: other formats and sections"
 description = "Extends entry 3's publish tool to sections and to every other format entry 1 proves for a page or a section, with the edge cases entry 2 maps (multi-file formats, a partial file after a timeout), E2's refusals, and E8's rule for a protected section."
 verify = "On MCP Test a page and a section export in each listed format under the export root with meta.outputPath, an unlisted format is refused before COM, and an integration test shows the locked protected section refused with ReadNotGranted without the section's read grant and SectionLocked with it (Q1); unit tests cover the unlocked path."
 covers = ["E1", "E2", "E8"]
-after = [6]
+after = [3]
 hitl = false
 risk = "medium"
 
