@@ -432,6 +432,29 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     /// <summary>A location no live section has: where a granted section was before it was renamed away.</summary>
     private const string FreedKey = @"C:\notebooks\A\Gone2.one";
 
+    [Fact]
+    public async Task ARenamedSectionMovedToAnotherNotebookAfterStep1_IsWriteNotGranted_Retryable_NothingSent()
+    {
+        // AD-7 (story 3.12): every write's notebook is re-resolved under the lock, not only the move's.
+        Grant();
+        Grant(OtherPath, OtherId);
+        var moved = false;
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            if (!moved && id == NotebookId && scope == HierarchyScope.Self)
+            {
+                moved = true;
+                gateway.Parents[IdeasId] = OtherId;
+            }
+        };
+
+        var error = Error(await RenameTool().RenameHierarchyObject(IdeasId, Fresh, Basis(Lmt), Ct), "WriteNotGranted");
+
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
     private void ReadGrantAt(string key, DateTimeOffset? expiresAt = null) =>
         new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(
             GrantKeys.SectionKey(key), "Gone2", GrantKeys.NotebookKey(NotebookPath), GoneId, clock.GetUtcNow(), GrantedVia.Cli, expiresAt));

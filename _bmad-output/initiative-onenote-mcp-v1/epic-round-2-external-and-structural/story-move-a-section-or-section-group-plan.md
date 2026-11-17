@@ -3,12 +3,14 @@ title: 'Move a section or section group'
 type: 'feature'
 ticket: '12'
 created: '2026-11-17'
-status: 'in-progress'
+status: 'built'
 baseline_revision: '2d26988097c2d83e56c0fb8f9ad45db1b2283b71'
 route: 'full'
 route_source: 'auto'
 review: 'quick'
 review_source: 'pinned'
+lenses_ran: ['quick']
+review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-2-external-and-structural/spike-write-probes-part-3-exports-move-merge-and-recycle-bin-restore-findings.md'
@@ -98,17 +100,46 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `HierarchyUpdate.MoveContainer` + `HierarchyUpdateXmlTests`.
-- [ ] `WriteAccess` ledger, `WriteOperation.ReResolvesNotebooks`, `WritePipeline` re-resolve + tests (create_page race, a rename).
-- [ ] `MovedLocations` (new) + tests.
-- [ ] `MoveContainerWrite.cs` (new), use case dispatch, `ToolWarnings.Settled`, tool description, contract.
-- [ ] `tests/OneNoteMcp.Tests/MoveContainerToolTests.cs` (new): every matrix row.
-- [ ] `tests/OneNoteMcp.Integration/MoveHierarchyObjectIntegrationTests.cs`: section and group moves, throwaway, protected refusal.
-- [ ] `research-onemore-lessons.md` row 19: the section-move note.
+- [x] `HierarchyUpdate.MoveContainer` + `HierarchyUpdateXmlTests`.
+- [x] `WriteAccess` ledger, `WriteOperation.ReResolvesNotebooks`, `WritePipeline` re-resolve + tests (create_page race, a rename).
+- [x] `MovedLocations` (new) + tests.
+- [x] `MoveContainerWrite.cs` (new), use case dispatch, `ToolWarnings.Settled`, tool description, contract.
+- [x] `tests/OneNoteMcp.Tests/MoveContainerToolTests.cs` (new): every matrix row.
+- [x] `tests/OneNoteMcp.Integration/MoveHierarchyObjectIntegrationTests.cs`: section and group moves, throwaway, protected refusal.
+- [x] `research-onemore-lessons.md` row 19: the section-move note.
 
 **Acceptance Criteria:**
 - Given a section and a granted section group, when Claude calls `move_hierarchy_object`, then the section is in the group under its own ID with two journal entries.
 - Given a section moved to another notebook between `create_page`'s step 1 and step 3, when the write runs, then it is `WriteNotGranted`, retryable, and no page is created.
+
+## Implementation Notes
+
+- **Implemented directly** in this build session, not by a context-free subagent: the overnight lane's hard rules (never touch OneNote, never set the integration variable, never read OneNoteMcp's app-data folders) had to bind the implementer, and the plan carries no house rules.
+- **Dispatch.** Every call starts as a page move. When its step 1 finds a section or section group (`ObjectIsContainer`, thrown before any grant, lock or write), the use case runs `MoveContainerWrite` instead. This keeps 3.4's order exactly: the argument checks, then the walk, never a `self` read first.
+- **The ledger.** `WriteAccess` records each grant it passes in an async-local list that `WritePipeline.RunAsync` starts, clears before each try of step 1, and re-walks after the abandoned-write check (`WriteAccess.ReResolveAsync`). Both move writes opt out (`ReResolvesNotebooks`), because they compare both notebooks themselves with more specific messages.
+- **Judgment calls the plan left open.**
+  - The read-back doesn't check the moved item's place (Q1's note), and `meta.objectId` is always the item's own ID for a section or group, also with `readBackDiffers`.
+  - `MovedLocations` predicts a new path with the new parent's separator, so a local-to-cloud move is predicted too. Whether OneNote encodes characters in a cloud path that a local one doesn't is unprobed; a wrong guess would miss a read grant at the real key, for an unprotected section.
+  - The 10 s settle runs through a delegate the use case takes, `Task.Delay` by default, so the unit tests don't wait.
+  - The J3 refusal (`0x80042018` on a group move) settles first on a cloud move, as Q4 does for `0x80042004`.
+- **Files touched beyond the task list:** `HierarchyTarget.ContainerIdsBelow` (the "inside the moved group" check), `MovedLocationsTests.cs`, and 3.4's `ASectionOrGroup_IsNotSupported_PagesOnly_BeforeAnyGrant` test, replaced by one that shows a section or group now runs as a container move. `PagesOnlyUserAction` is gone. The tool contract snapshot is unchanged, since it strips descriptions and no parameter changed.
+- **TDD.** The Xml, `MovedLocations` and race tests were written before their code; the container tests alongside it. A mutation check then ran: with the pipeline re-resolve removed, the three race tests failed; with the group protected check, J1, the settle and the object-notebook compare each disabled, nine container tests failed. Both files were restored.
+- **Verification (2026-11-17):**
+  - `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors.
+  - `dotnet test tests/OneNoteMcp.Tests`: 3,143 passed, after the review patches.
+  - `dotnet test tests/OneNoteMcp.Integration` with no integration variable: 217 passed, 100 skipped, 0 failed. The 3 new live tests are skipped.
+  - S1, S2 and S3 haven't run.
+
+## Plan Change Log
+
+## Review Triage Log
+
+- 2026-11-17, quick lens, iteration 0: 0 high, 1 medium, 4 low, 0 false. All five were patched; nothing was deferred.
+  - **medium, patch.** A section or group sent with `position` below 1, or a refused basis, got the page move's userAction, because every call starts as a page move and its step 1 checks the arguments before the walk tells the kind. Fix: those two step-1 checks now use `AnyPositionUserAction` and `AnyBasisUserAction`, which fit either kind; the tests assert them.
+  - **low, patch.** A cloud move whose settle was cut short (a cancel or the deadline) lost the `settled` warning, though the move went through. Fix: the warning is recorded when the settle starts; new test.
+  - **low, patch.** Q4's settle ran only before the `0x80042004` re-read and the J3 refusal, so after any other failure on a cloud move the next write didn't wait. Fix: the generic step-7 catch settles too; new test.
+  - **low, patch.** In step 1, a target whose notebook path wasn't found counted as another notebook for J1, so a cloud object could get `NotSupported` where the target-kind refusal (`InvalidArgument`) fits. Fix: J1 needs the target's notebook path.
+  - **low, patch.** "OneDrive notebook" in the description, the J1 message and the `settled` text was narrower than the check (`IsUrl`, SharePoint included). Fix: "cloud notebook (OneDrive or SharePoint)".
 
 ## Design Notes
 

@@ -132,6 +132,7 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
         // L1 has no self read: OneNote hides a locked section's pages, while the parent chain still answers (3.3 S1).
         Children(NotebookId, $"<one:Notebook {Ns} {notebook}><one:Section {ideas} /><one:Section {plans} /><one:Section {vault} /><one:Section {locked} /><one:SectionGroup {archive} /><one:SectionGroup {bin} /></one:Notebook>");
         Children(ArchiveId, $"<one:SectionGroup {Ns} {archive} />");
+        gateway.Hierarchies[(ArchiveId, HierarchyScope.Sections)] = $"<?xml version=\"1.0\"?>\n<one:SectionGroup {Ns} {archive} />";
         Children(BinId, $"<one:SectionGroup {Ns} {bin}><one:Section {deleted} /><one:Section {binned} /></one:SectionGroup>");
         Children(IdeasId, $"<one:Section {Ns} {ideas}>{Page(P1, "P1", 1)}{Page(P1a, "P1a", 2)}{Page(P1b, "P1b", 2)}{Page(P2, P2Name, 1)}{Page(P3, "P3", 1)}</one:Section>");
         Children(PlansId, $"<one:Section {Ns} {plans}>{Page(Q1, "Q1", 1)}{Page(Q1a, "Q1a", 2)}{Page(Q2, "Q2", 1)}</one:Section>");
@@ -435,15 +436,16 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
     [Theory]
     [InlineData(IdeasId)]
     [InlineData(ArchiveId)]
-    public async Task ASectionOrGroup_IsNotSupported_PagesOnly_BeforeAnyGrant(string objectId)
+    public async Task ASectionOrGroup_RunsAsAContainerMove_WhichRefusesASectionAsNewParent(string objectId)
     {
-        var prompt = new FakePrompt(Typed("A"));
+        // Story 3.12: a section or group is moved by MoveContainerWrite (MoveContainerToolTests); into a section it can't go.
+        Grant();
 
-        var error = Error(await MoveWithPrompt(prompt, objectId, PlansId), "NotSupported");
+        var error = Error(await Tool().MoveHierarchyObject(objectId, PlansId, null, null, Ct), "InvalidArgument");
 
-        Assert.Equal(MovePageWrite.PagesOnlyUserAction, error.GetProperty("userAction").GetString());
-        Assert.Empty(prompt.Order);
+        Assert.Equal(MoveContainerWrite.TargetUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.UpdateHierarchyCalls);
+        await AssertLockFreeAsync();
     }
 
     [Fact]
@@ -494,7 +496,8 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
 
         var error = Error(await Tool().MoveHierarchyObject(P2, PlansId, position, Basis(Lmt), Ct), "InvalidArgument");
 
-        Assert.Equal(MovePageWrite.PositionUserAction, error.GetProperty("userAction").GetString());
+        // Below 1 is refused before the walk knows the kind, so its userAction fits a section move too (story 3.12).
+        Assert.Equal(position < 1 ? MovePageWrite.AnyPositionUserAction : MovePageWrite.PositionUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.UpdateHierarchyCalls);
         Assert.Empty(holds);
     }
