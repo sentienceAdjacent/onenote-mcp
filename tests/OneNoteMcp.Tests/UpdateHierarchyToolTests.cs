@@ -617,6 +617,20 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     }
 
     [Fact]
+    public async Task RenameACloudSection_InAPercentEncodedPath_ItsOwnGrant_NeverBlocksACaseOnlyRename()
+    {
+        // The new key is built from the name sent ("my notes"), so it differs from the stored, encoded one; the rename is
+        // still case-only, so the section stays where it is and keeps nothing that isn't its own.
+        Grant(CloudPath, CloudId);
+        Self(CloudSectionId, $"<one:Section {Ns} name=\"My Notes\" ID=\"{CloudSectionId}\" path=\"{CloudPath}My%20Notes.one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt($"{CloudPath}My%20Notes.one");
+
+        Ok(await RenameTool().RenameHierarchyObject(CloudSectionId, "my notes", Basis(Lmt), Ct));
+
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
     public async Task RenameACloudSection_OntoAPercentEncodedOnceWindow_IsInvalidArgument_BeforeCom()
     {
         Grant(CloudPath, CloudId);
