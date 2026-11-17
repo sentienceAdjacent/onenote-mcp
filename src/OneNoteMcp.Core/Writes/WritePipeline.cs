@@ -105,6 +105,7 @@ public sealed class WritePipeline
         var token = linked.Token;
         WriteLockHold? hold = null;
         var callFailed = false;
+        var calling = false;
         try
         {
             // 1. Access check. A missing write grant may raise the grant dialog (AD-6), and new file paths in a page write
@@ -233,6 +234,7 @@ public sealed class WritePipeline
             try
             {
                 callFailed = true;
+                calling = true;
                 result = await operation.CallAsync(token).ConfigureAwait(false);
                 callFailed = false;
             }
@@ -278,7 +280,10 @@ public sealed class WritePipeline
             // 8. Release the lock, unless a step-7 call abandoned in OneNote may still be writing (AD-3, AD-18).
             if (hold is not null)
             {
-                var settling = callFailed ? AbandonedWrites() : Task.CompletedTask;
+                // Also after a step 7 that returned: an operation may report a second call it abandoned as a warning
+                // (create_page's subpage placement, story 3.14 review), and OneNote may still be making it. Step 2 refused
+                // any write outstanding before, so one outstanding once step 7 started is this write's.
+                var settling = callFailed || (calling && !AbandonedWrites().IsCompleted) ? AbandonedWrites() : Task.CompletedTask;
                 if (settling.IsCompleted)
                 {
                     hold.Dispose();

@@ -114,7 +114,13 @@ public static class ServerSetup
             sp.GetRequiredService<SettingsStore>().Read,
             TimeProvider.System,
             dialog: sp.GetRequiredService<WriteGrantDialog>()));
-        services.AddSingleton<CreatePageUseCase>();
+        // Story 3.14: with parentPageId, create_page checks a protected section's read grant and takes a hierarchy entry.
+        services.AddSingleton(sp => new CreatePageUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<WritePipeline>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<HierarchySnapshot>()));
 
         // The recovery journal (AD-8): the store re-reads journal{} from settings.json at every write and logs each entry
         // with IDs and sizes only (AD-13); step 6's page snapshot writes through it; the pruner re-reads journal{} at
@@ -167,6 +173,9 @@ public static class ServerSetup
 
         // Story 3.4: a page move (AD-7 HierarchyWrite), one UpdateHierarchy with a hierarchy entry per section (AD-8).
         services.AddSingleton<MoveHierarchyObjectUseCase>();
+
+        // Story 3.14: a page's subpage level (AD-7 HierarchyWrite), one UpdateHierarchy of its section with a hierarchy entry.
+        services.AddSingleton<SetPageLevelUseCase>();
 
         // Story 5.5: soft delete (AD-7 SoftDelete). A page takes a page snapshot as a page write does; a section or section
         // group takes a hierarchy snapshot (AD-8).
@@ -223,6 +232,7 @@ public static class ServerSetup
             .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options)
             .WithTools<MoveHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<SetPageLevelTool>(EnvelopeJson.Options)
             .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PublishTool>(EnvelopeJson.Options);
