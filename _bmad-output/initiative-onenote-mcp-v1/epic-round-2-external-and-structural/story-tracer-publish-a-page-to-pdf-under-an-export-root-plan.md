@@ -123,6 +123,7 @@ Steps 3–4 run under the lock: the section re-read (locked is `SectionLocked`),
   - **low, patch.** Nothing asserted that `SectionBackup` still sends `ExportFormat.OneNote`. Fix: one assertion.
   - **low, patch.** Two branches had no test: a link whose target isn't a `.pdf`, and a section that became protected under the lock. Fix: tests added. The dangling-link branch was left, being a direct check.
 - 2026-11-17, sitting S1 (live, MCP Test): the PDF test passed first time. The Vault test failed: with the Vault locked, publish answered `ObjectNotFound`, not `ReadNotGranted`, because step 1 read the page at `self` before the walk, and OneNote hides a locked section's pages from `GetHierarchy` while their parent chain still answers (`PageWrite` already walks first for this reason). The unit fake still listed the locked page, so no unit test caught it. **Patch:** the walk comes first, and the `self` read runs only when the walk finds no section; the fake now hides the locked page (both locked-Vault unit tests went red, then green). Rerun live: passed, `ReadNotGranted` without a grant, `SectionLocked` with one, nothing published; the PDF test passed again on the fixed build.
+- 2026-11-17, sitting S2 (live, Phill): the dev build, registered as `onenote-dev`, exported an MCP Test page to PDF from a fresh Claude Code session; Phill opened the reported file, deleted it, and reported nothing wrong.
 
 ## Design Notes
 
