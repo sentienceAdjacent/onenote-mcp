@@ -128,7 +128,7 @@ context:
   - `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings, 0 errors.
   - `dotnet test tests/OneNoteMcp.Tests`: 3,143 passed, after the review patches.
   - `dotnet test tests/OneNoteMcp.Integration` with no integration variable: 217 passed, 100 skipped, 0 failed. The 3 new live tests are skipped.
-  - S1, S2 and S3 haven't run.
+  - Sitting 2026-11-17 (with Phill), on main + 3.4 merged in, after the security fix 5a62745. S1: 3 of 3 pass (17 s). S2 through onenote-dev on this build: a section into a group, a group (holding a section) into another group, and a section to the throwaway's root, each keeping its ID with its pages; the group move first got a spurious StaleWrite (the group's date moved a second late after a page was created inside it) and the documented re-read and retry went through. Phill checked all three in OneNote. S3 on MCP Test Cloud: a section moved into a group with `settled`; Phill synced before and after with no error, and saw it in OneNote and on the web. Observed: OneNote reports the cloud section's path with plain spaces, not percent-encoded (inferred: the decoded comparison is a guard, not the common path).
 
 ## Plan Change Log
 
