@@ -385,6 +385,75 @@ public sealed class MoveContainerToolTests : IDisposable
         AssertNothingWritten();
     }
 
+    [Theory]
+    [InlineData(CloudPath + "Ideas%20Zq7.one")]
+    [InlineData("https://d.docs.live.net/0123abcd/Cloud/ideas%20zq7.one/")]
+    public async Task ASectionLandingOnAReadGrantsKey_SpelledPercentEncoded_IsInvalidArgument(string storedKey)
+    {
+        // 3.12 security review (Phill, 2026-11-17): a local-to-cloud move predicts "…/Ideas Zq7.one", while the stored key
+        // may spell the same location "…/Ideas%20Zq7.one"; the check compares them decoded.
+        Grant();
+        Grant(CloudPath, CloudId);
+        Node(IdeasId, "Section", IdeasName, @"C:\notebooks\A\Ideas Zq7.one", AId);
+        Publish();
+        ReadGrantAt(storedKey);
+
+        var error = Error(await Tool().MoveHierarchyObject(IdeasId, CloudId, null, null, Ct), "InvalidArgument");
+
+        Assert.Equal(MoveContainerWrite.GrantLocationUserAction, error.GetProperty("userAction").GetString());
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task AGroupWhoseSectionWouldLandOnAPercentEncodedReadGrantsKey_IsInvalidArgument()
+    {
+        Grant();
+        Grant(CloudPath, CloudId);
+        Node(DeeperId, "Section", "Deeper", @"C:\notebooks\A\Archive\Deep\Deeper One.one", DeepId);
+        Publish();
+        ReadGrantAt(CloudPath + "Archive/Deep/Deeper%20One.one");
+
+        var error = Error(await Tool().MoveHierarchyObject(ArchiveId, CloudId, null, null, Ct), "InvalidArgument");
+
+        Assert.Contains("1 section(s)", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ASectionThatLandsWhereAReadGrantIsStored_AfterAll_ReadsBackWithReadGrantAtLocation()
+    {
+        // 3.12 security review (Phill, 2026-11-17): the prediction can be wrong (OneNote may spell the new path its own
+        // way), so after the move the real path is re-read and checked against stored grants. The move stands.
+        Grant();
+        Grant(OtherPath, OtherId);
+        ReadGrantAt(@"C:\notebooks\Other\Ideas Zq7 (1).one");
+        RealPathAfterMove(IdeasId, @"C:\notebooks\Other\Ideas Zq7 (1).one");
+
+        var root = Ok(await Tool().MoveHierarchyObject(IdeasId, OtherId, null, Basis(Lmt), Ct));
+
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal(ToolWarnings.ReadGrantAtLocation, warning.GetProperty("code").GetString());
+        Assert.Equal(MoveContainerWrite.ReadGrantAtLocationUserAction, warning.GetProperty("userAction").GetString());
+        Assert.Contains(IdeasId, warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Zq7", root.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task AGroupWhoseSectionLandsWhereAPercentEncodedReadGrantIsStored_ReadsBackWithReadGrantAtLocation_WithACount()
+    {
+        Grant();
+        Grant(CloudPath, CloudId);
+        ReadGrantAt(CloudPath + "Archive%20Moved/Deep/Deeper.one");
+        RealPathAfterMove(DeeperId, CloudPath + "Archive Moved/Deep/Deeper.one");
+
+        var root = Ok(await Tool().MoveHierarchyObject(ArchiveId, CloudId, null, Basis(Lmt), Ct));
+
+        var codes = root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToList();
+        Assert.Equal([ToolWarnings.Settled, ToolWarnings.ReadGrantAtLocation], codes);
+        Assert.Contains("1 section(s)", root.GetProperty("warnings")[1].GetProperty("message").GetString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task AnExpiredReadGrantAtTheNewKey_DoesntBlockTheMove()
     {
@@ -599,6 +668,20 @@ public sealed class MoveContainerToolTests : IDisposable
         gateway.Parents[moved] = target;
         Publish();
     };
+
+    /// <summary>After the fake applies the move, <paramref name="id"/> reads back at <paramref name="path"/>, as OneNote names it.</summary>
+    private void RealPathAfterMove(string id, string path)
+    {
+        var apply = gateway.OnUpdateHierarchy!;
+        gateway.OnUpdateHierarchy = sent =>
+        {
+            apply(sent);
+            var (element, attributes) = nodes[id];
+            var before = System.Text.RegularExpressions.Regex.Match(attributes, "path=\"[^\"]*\"").Value;
+            nodes[id] = (element, attributes.Replace(before, $"path=\"{path}\"", StringComparison.Ordinal));
+            Publish();
+        };
+    }
 
     private void Grant(string path = APath, string id = AId) =>
         new SettingsWriter(Store, clock).SaveWriteGrant(

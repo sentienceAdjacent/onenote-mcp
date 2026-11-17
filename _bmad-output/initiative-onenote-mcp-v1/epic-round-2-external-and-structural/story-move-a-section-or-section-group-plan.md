@@ -140,6 +140,11 @@ context:
   - **low, patch.** Q4's settle ran only before the `0x80042004` re-read and the J3 refusal, so after any other failure on a cloud move the next write didn't wait. Fix: the generic step-7 catch settles too; new test.
   - **low, patch.** In step 1, a target whose notebook path wasn't found counted as another notebook for J1, so a cloud object could get `NotSupported` where the target-kind refusal (`InvalidArgument`) fits. Fix: J1 needs the target's notebook path.
   - **low, patch.** "OneDrive notebook" in the description, the J1 message and the `settled` text was narrower than the check (`IsUrl`, SharePoint included). Fix: "cloud notebook (OneDrive or SharePoint)".
+- 2026-11-17, PR #72 security finding, approved by Phill 2026-11-17: patched.
+  - **Finding.** Step 4's grant-location check compared the predicted path's key with stored keys exactly (`GrantKeys` only trims trailing separators, no decoding). A cloud path can spell a space as `%20` or not, so a local-to-cloud move could miss a stored read grant at the same location; and the prediction itself can be wrong, since whether OneNote encodes a cloud path is unprobed.
+  - **Fix 1, compare decoded.** New `GrantKeys.SameLocation` (trimmed, `Uri.UnescapeDataString` on both sides, ignoring case) and `ReadAccess.HoldsReadGrantAtLocation`, which matches a stored grant or live `once` window by it. Grants are still stored and looked up for reads as before, undecoded: decoding is only in this comparison, so it can only add refusals and warnings, never allow a read. Step 4's refusal uses it.
+  - **Fix 2, check after the move.** After the read-back, the moved section's real path (or, for a group, every section's path beneath it) is re-read and checked the same way; a section not at its own old path that lands on a granted location gets the new warning `readGrantAtLocation` (ID and count only; the move stands). Tool description updated; the contract snapshot (descriptions stripped) is unchanged.
+  - **Not changed here.** Story 5.4's rename check (`HierarchyWrite.GrantLocationRefusal`) still uses the exact `HoldsReadGrantAt`; switching it to `HoldsReadGrantAtLocation` is a one-line follow-up for a cloud rename.
 
 ## Design Notes
 

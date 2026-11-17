@@ -150,6 +150,25 @@ public sealed class ReadAccess
         return Stored(settings(), key, now) is not null || windows.IsOpen(key, now);
     }
 
+    /// <summary>
+    /// <see cref="HoldsReadGrantAt"/> for a check that must not miss a grant (3.12 security review): true when a stored
+    /// read grant or a live <c>once</c> window is held at <paramref name="at"/> for any key that names the same location
+    /// as <paramref name="key"/> by <see cref="GrantKeys.SameLocation"/>, percent-encoded or not. A move checks where it
+    /// would put sections, and where they read back, with it. Never asks, never stores, and never allows a read.
+    /// </summary>
+    public bool HoldsReadGrantAtLocation(string key, DateTimeOffset? at = null)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        var now = at ?? clock.GetUtcNow();
+        if (HoldsReadGrantAt(key, now))
+        {
+            return true;
+        }
+
+        return settings().ProtectedSections.Values.Any(g => !g.IsExpired(now) && GrantKeys.SameLocation(g.Key, key))
+            || windows.Live(now).Any(w => GrantKeys.SameLocation(w.Key, key));
+    }
+
     /// <summary>The current time on this check's clock: a write records it at its start, for <see cref="HoldsReadGrant"/>.</summary>
     public DateTimeOffset Now() => clock.GetUtcNow();
 

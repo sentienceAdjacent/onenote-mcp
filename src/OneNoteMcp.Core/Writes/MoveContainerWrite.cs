@@ -35,7 +35,8 @@ namespace OneNoteMcp.Core.Writes;
 /// <see cref="ErrorCode.NotSupported"/> (J3).</item>
 /// </list>
 /// Between 7 and 8, a move touching a cloud notebook settles 10 s under the lock (J5; the warning <c>settled</c>), and then
-/// both parents are re-read and the node found by its ID. A failed call on such a move settles before its re-read too
+/// both parents are re-read and the node found by its ID, and the moved sections' real paths are checked against stored read
+/// grants (warning <c>readGrantAtLocation</c>; 3.12 security review). A failed call on such a move settles before its re-read too
 /// (3.12 Q4). Messages carry IDs and counts only, never a name (AD-9).
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -86,6 +87,10 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
     /// <summary>What to do when the move would put a section on a location that holds a read grant (AD-21).</summary>
     public const string GrantLocationUserAction =
         "A read grant is stored for a section at the place this move would put a section, and the move would hand it over. Ask the user to revoke that read grant first (list_grants shows it; the user runs the grant command), or move it elsewhere.";
+
+    /// <summary>What to do after the warning <c>readGrantAtLocation</c> (3.12 security review).</summary>
+    public const string ReadGrantAtLocationUserAction =
+        "The move went through, but a read grant stored for an earlier section at the moved section's new location now covers it, and would let its pages be read without asking if it is password-protected later. Tell the user, and ask them to revoke that read grant unless they mean it to cover this section (list_grants shows it; the user runs the grant command).";
 
     /// <summary>What to do when the server can't tell where the sections would land.</summary>
     public const string UnpredictableUserAction =
@@ -302,7 +307,47 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
                 ReadBackUserAction()));
         }
 
+        if (await GrantLocationWarningAsync(now, ct).ConfigureAwait(false) is { } granted)
+        {
+            done.Add(granted);
+        }
+
         return new MoveResult(ObjectId, done);
+    }
+
+    /// <summary>
+    /// 3.12 security review (Phill, 2026-11-17): step 4's check works on predicted paths, and OneNote may spell the real
+    /// ones its own way, so the moved sections' paths are re-read and checked against stored read grants and live
+    /// <c>once</c> windows (<see cref="ReadAccess.HoldsReadGrantAtLocation"/>). A section still at its own path never
+    /// counts. The move stands; the warning names the node's ID and a count only.
+    /// </summary>
+    private async Task<ToolWarning?> GrantLocationWarningAsync(Plan now, CancellationToken ct)
+    {
+        var self = now.State.Self;
+        var section = self.Kind == HierarchyKind.Section;
+        IReadOnlyList<string> before = section
+            ? [self.Path]
+            : XmlReads.Readable(() => HierarchyTarget.SectionPathsBelow(now.State.BelowXml ?? string.Empty), "GetHierarchy");
+        var xml = await services.Gateway.GetHierarchyAsync(ObjectId, section ? HierarchyScope.Self : HierarchyScope.Sections, ct).ConfigureAwait(false);
+        IReadOnlyList<string> after = section
+            ? [XmlReads.Readable(() => HierarchyTarget.Read(xml), "GetHierarchy").Path]
+            : XmlReads.Readable(() => HierarchyTarget.SectionPathsBelow(xml), "GetHierarchy");
+
+        var own = before.Where(p => !string.IsNullOrEmpty(p)).Select(GrantKeys.SectionKey).ToHashSet(GrantKeys.Comparer);
+        var at = services.ReadAccess.Now();
+        var taken = after.Count(p =>
+            !string.IsNullOrEmpty(p)
+            && !own.Contains(GrantKeys.SectionKey(p))
+            && services.ReadAccess.HoldsReadGrantAtLocation(GrantKeys.SectionKey(p), at));
+        if (taken == 0)
+        {
+            return null;
+        }
+
+        var message = section
+            ? $"Section {ObjectId} was moved, and it reads back at a location that holds a read grant, so that grant now covers it."
+            : string.Create(CultureInfo.InvariantCulture, $"Section group {ObjectId} was moved, and {taken} section(s) inside it read back at locations that hold a read grant, so those grants now cover them.");
+        return new ToolWarning(ToolWarnings.ReadGrantAtLocation, message, ReadGrantAtLocationUserAction);
     }
 
     /// <summary>The settle or the read-back threw (its deadline or a cancel included): the move stands, with <c>readBackFailed</c>.</summary>
@@ -478,7 +523,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         var at = services.ReadAccess.Now();
         var taken = moved.Count(m =>
             !GrantKeys.Comparer.Equals(GrantKeys.SectionKey(m.Before), GrantKeys.SectionKey(m.After))
-            && services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(m.After), at));
+            && services.ReadAccess.HoldsReadGrantAtLocation(GrantKeys.SectionKey(m.After), at));
         if (taken == 0)
         {
             return null;

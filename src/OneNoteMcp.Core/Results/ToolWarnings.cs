@@ -128,4 +128,11 @@ public static class ToolWarnings
     /// check the move synced before relying on it.
     /// </summary>
     public const string Settled = "settled";
+
+    /// <summary>
+    /// After a section or section-group move, a moved section reads back at a location whose key (compared percent-decoded)
+    /// holds a stored read grant or a live <c>once</c> window, which now covers it (AD-21; 3.12 security review, Phill
+    /// 2026-11-17). The move stands. Names the moved item's ID and a count only. Its userAction says to tell the user.
+    /// </summary>
+    public const string ReadGrantAtLocation = "readGrantAtLocation";
 }

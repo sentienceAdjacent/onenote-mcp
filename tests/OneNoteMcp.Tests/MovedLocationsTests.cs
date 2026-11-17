@@ -50,4 +50,24 @@ public sealed class MovedLocationsTests
     [Fact]
     public void AnEmptySectionGroup_MovesNoSection() =>
         Assert.Equal([], MovedLocations.SectionsInGroup(@"C:\notebooks\A\Archive", @"C:\notebooks\Other", [])!);
+
+    [Theory]
+    [InlineData("https://d.docs.live.net/0123abcd/Cloud/Ideas Zq7.one", "https://d.docs.live.net/0123abcd/Cloud/Ideas%20Zq7.one")]
+    [InlineData("https://d.docs.live.net/0123abcd/Cloud/Ideas%20Zq7.one", "https://d.docs.live.net/0123abcd/Cloud/ideas zq7.one/")]
+    [InlineData("https://contoso.example/sites/x/Shared%20Documents/N/A%26B.one", "https://contoso.example/sites/x/Shared Documents/N/A&B.one")]
+    [InlineData(@"C:\notebooks\A\Ideas.one", @"c:\NOTEBOOKS\a\ideas.one\")]
+    public void SameLocation_ComparesKeysPercentDecoded_TrimmedIgnoringCase(string a, string b)
+    {
+        // 3.12 security review (Phill, 2026-11-17): a move's predicted path and a stored key may encode a cloud path
+        // differently, so the grant check compares them decoded.
+        Assert.True(GrantKeys.SameLocation(a, b));
+        Assert.True(GrantKeys.SameLocation(b, a));
+    }
+
+    [Theory]
+    [InlineData("https://d.docs.live.net/0123abcd/Cloud/Ideas.one", "https://d.docs.live.net/0123abcd/Cloud/Plans.one")]
+    [InlineData("https://d.docs.live.net/0123abcd/Cloud/Ideas%2.one", "https://d.docs.live.net/0123abcd/Cloud/Ideas.one")]
+    [InlineData("", "")]
+    public void SameLocation_KeepsDifferentLocationsApart_AndAnEmptyKeyMatchesNothing(string a, string b) =>
+        Assert.False(GrantKeys.SameLocation(a, b));
 }
