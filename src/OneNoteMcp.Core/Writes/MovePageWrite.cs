@@ -67,13 +67,17 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     public const string TargetUserAction =
         "Pass as parentId the ID of a section that isn't in the recycle bin: a page moves into a section. Read the hierarchy (get_hierarchy) for a current ID.";
 
-    /// <summary>What to do about a section or section group as <c>objectId</c> (story 3.12 adds them).</summary>
-    public const string PagesOnlyUserAction =
-        "Only pages move in this release: ask the user to move the section or section group in OneNote.";
-
     /// <summary>What to do about a page in a password-protected section (AD-7, AD-21; epic 3 Q9).</summary>
     public const string ProtectedUserAction =
         "Ask the user to move the page in OneNote: a page in a password-protected section isn't moved through this server, because the move could take it out of the section's encryption.";
+
+    /// <summary>What to do about a position below 1, before the object's kind is known (story 3.12).</summary>
+    public const string AnyPositionUserAction =
+        "Pass a position from 1: among the target section's pages for a page, among the new parent's sections or section groups for a section or group; or leave position out to put the item last.";
+
+    /// <summary>What to do about a basis the server refuses, before the object's kind is known (story 3.12).</summary>
+    public const string AnyBasisUserAction =
+        "Pass only the item's lastModifiedTime attribute, unchanged from a get_hierarchy read (a page's from its section's children), as basis: {lastModifiedTime}; or leave basis out.";
 
     /// <summary>What to do when the target is the page's own section.</summary>
     public const string SameSectionUserAction =
@@ -123,6 +127,9 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
 
     public override OperationClass Class => OperationClass.HierarchyWrite;
 
+    /// <summary>Step 3 re-resolves both notebooks itself, the page walked from the page (AD-7).</summary>
+    public override bool ReResolvesNotebooks => true;
+
     /// <summary>The page moved (its ID before the move).</summary>
     public string PageId { get; }
 
@@ -163,10 +170,11 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
 
         if (position is < 1)
         {
-            throw Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was moved."), PositionUserAction);
+            throw Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was moved."), AnyPositionUserAction);
         }
 
-        HierarchyBasis.CheckArgument(basis, NoBasisUserAction);
+        // Before the walk tells a page from a section or group, so these two say what fits either (3.12 review).
+        HierarchyBasis.CheckArgument(basis, AnyBasisUserAction);
 
         // The walk first, never a self read: OneNote hides a locked section's pages, while the parent chain answers (3.3 S1).
         var section = await walk.OwningSectionAsync(PageId, ct).ConfigureAwait(false)
@@ -513,18 +521,17 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         return XmlReads.Readable(() => HierarchyTarget.Read(xml), "GetHierarchy");
     }
 
-    /// <summary>With no section above it, the object isn't a page: a section or group waits for 3.12, anything else is refused.</summary>
+    /// <summary>
+    /// With no section above it, the object isn't a page: a section or group is <see cref="ObjectIsContainer"/>, which the
+    /// use case answers with <see cref="MoveContainerWrite"/> (story 3.12); anything else is refused.
+    /// </summary>
     private async Task<OneNoteException> NotAPageAsync(CancellationToken ct)
     {
         var xml = await services.Gateway.GetHierarchyAsync(PageId, HierarchyScope.Self, ct).ConfigureAwait(false);
         var self = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
         return self.Kind is HierarchyKind.Section or HierarchyKind.SectionGroup
-            ? new OneNoteException(
-                ErrorCode.NotSupported,
-                $"Object {PageId} is a {HierarchyRules.Noun(self.Kind)}, and move_hierarchy_object moves pages only until story 3.12, so nothing was moved.",
-                userAction: PagesOnlyUserAction,
-                retryable: false)
-            : Invalid($"Object {PageId} is a {HierarchyRules.Noun(self.Kind)}, not a page in a section, so nothing was moved.", PageUserAction);
+            ? new ObjectIsContainer(PageId, self.Kind)
+            : Invalid($"Object {PageId} is a {HierarchyRules.Noun(self.Kind)}, not a page, section or section group, so nothing was moved.", PageUserAction);
     }
 
     private string WithNote(string message) => FailureNote is { } note ? $"{message} {note}" : message;
@@ -553,4 +560,16 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
 
     /// <summary>What step 4 decided: both sections as read, the page, the 0-based index it goes in at, and the XML to send.</summary>
     private sealed record Plan(HierarchyTarget Source, HierarchyTarget Target, SectionPage Page, int Index, string Xml);
+}
+
+/// <summary>
+/// Step 1 of a page move found a section or section group (story 3.12): nothing was granted, locked or read beyond the
+/// walk, and <see cref="UseCases.MoveHierarchyObjectUseCase"/> runs <see cref="MoveContainerWrite"/> instead. Uncaught,
+/// it reaches the tool runner as an ordinary <see cref="ErrorCode.InvalidArgument"/>. IDs only (AD-9).
+/// </summary>
+[SupportedOSPlatform("windows")]
+internal sealed class ObjectIsContainer(string objectId, HierarchyKind kind)
+    : OneNoteException(ErrorCode.InvalidArgument, $"Object {objectId} is a {UseCases.HierarchyRules.Noun(kind)}, not a page, so nothing was moved.", userAction: MovePageWrite.PageUserAction)
+{
+    public HierarchyKind Kind { get; } = kind;
 }

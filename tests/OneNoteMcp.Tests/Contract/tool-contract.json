@@ -10746,7 +10746,14 @@
           "format": {
             "type": "string",
             "enum": [
-              "pdf"
+              "pdf",
+              "xps",
+              "docx",
+              "mhtml",
+              "html",
+              "emf",
+              "one",
+              "onepkg"
             ],
             "default": "pdf"
           }

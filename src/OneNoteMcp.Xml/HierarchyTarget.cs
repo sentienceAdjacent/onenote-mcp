@@ -120,4 +120,18 @@ public sealed record HierarchyTarget(
         var root = OneNoteXml.ParseRoot(hierarchyXml);
         return [.. root.Descendants(OneNoteXml.One + "Section").Select(s => (string?)s.Attribute("path") ?? string.Empty)];
     }
+
+    /// <summary>
+    /// The <c>ID</c> of every section and section group below the root of <paramref name="hierarchyXml"/> (a section group
+    /// read at <c>sections</c> scope), nested ones included: a move may not put a group inside itself (story 3.12). Throws
+    /// <see cref="OneNoteXmlException"/> when the XML isn't well-formed or has no root.
+    /// </summary>
+    public static IReadOnlyList<string> ContainerIdsBelow(string hierarchyXml)
+    {
+        var root = OneNoteXml.ParseRoot(hierarchyXml);
+        return [.. root.Descendants()
+            .Where(e => e.Name == OneNoteXml.One + "Section" || e.Name == OneNoteXml.One + "SectionGroup")
+            .Select(e => (string?)e.Attribute("ID") ?? string.Empty)
+            .Where(id => id.Length > 0)];
+    }
 }

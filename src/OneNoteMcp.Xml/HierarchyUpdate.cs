@@ -86,6 +86,41 @@ public static class HierarchyUpdate
         return Serialize(element);
     }
 
+    /// <summary>
+    /// A section or section-group move (story 3.12; spike 3.1's <c>m3</c> and <c>m4</c> shape): the new parent's element (a
+    /// notebook or section group) with its <c>ID</c>, holding <paramref name="siblings"/> (the parent's live children of the
+    /// moved node's kind, in order, ID-only) with the moved node <paramref name="id"/> inserted at the 0-based
+    /// <paramref name="index"/>. Only one kind is listed, so the schema's order (sections before groups) always holds;
+    /// children left out are kept (spike 5.1 constraint 4). The moved node keeps its ID.
+    /// </summary>
+    public static string MoveContainer(HierarchyKind parentKind, string parentId, IReadOnlyList<HierarchyMember> siblings, HierarchyKind kind, string id, int index)
+    {
+        ArgumentNullException.ThrowIfNull(parentId);
+        ArgumentNullException.ThrowIfNull(siblings);
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, siblings.Count);
+        if (kind is not (HierarchyKind.Section or HierarchyKind.SectionGroup))
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, "Only a section or section group moves this way.");
+        }
+
+        if (siblings.Any(s => s.Kind != kind))
+        {
+            throw new ArgumentException("Every sibling must be of the moved node's kind.", nameof(siblings));
+        }
+
+        var element = new XElement(OneNoteXml.One + ElementName(parentKind, nameof(parentKind)), new XAttribute("ID", parentId));
+        var ids = siblings.Select(s => s.Id).ToList();
+        ids.Insert(index, id);
+        foreach (var each in ids)
+        {
+            element.Add(new XElement(OneNoteXml.One + ElementName(kind, nameof(kind)), new XAttribute("ID", each)));
+        }
+
+        return Serialize(element);
+    }
+
     private static string ElementName(HierarchyKind kind, string argument) => kind switch
     {
         HierarchyKind.Notebook => "Notebook",

@@ -61,6 +61,7 @@ Only when the user asks for a new one. Nothing is journaled: a create only adds.
 4. Tell the user the new order. With `unchanged`, it already was in that order.
 
 - A missing, extra, repeated or foreign ID is `InvalidArgument`, and nothing moves: re-read and rebuild the list. Nothing moves to another parent here.
+- **A password-protected section's pages** need the section's read grant as well as the write grant. Step 1's read asks the user for it; if they decline, you can't list its pages, so don't reorder. Without it the reorder is `ReadNotGranted`, whatever `childIds` holds, and this tool never shows the dialog: if the user wants it, read the section again (step 1), then retry. Reordering a notebook's or section group's sections needs no read grant, protected sections included.
 - The list of open notebooks can't be reordered: tell the user they can drag notebooks in OneNote.
 - **A reorder that moves only section groups may not be kept:** OneNote accepts it but keeps the old order (`readBackDiffers`). Tell the user, suggest dragging the groups in OneNote, and don't retry.
 - `readBackDiffers` for anything else means OneNote kept another order or subpage level: tell the user what it kept. `readBackFailed`: the reorder happened but couldn't be checked; read the parent before its next write.

@@ -420,7 +420,8 @@ public sealed class SetPageLevelToolTests : IDisposable
         var error = Error(await Tool().SetPageLevel(Id("A"), 2, Basis(Lmt), Ct), "WriteNotGranted");
 
         Assert.True(error.GetProperty("retryable").GetBoolean());
-        Assert.Equal(SetPageLevelWrite.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        // Since story 3.12 the pipeline re-resolves every granted notebook under the lock before step 3, so its refusal comes first.
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.UpdateHierarchyCalls);
         Assert.Empty(EntryFiles());
         await AssertLockFreeAsync();

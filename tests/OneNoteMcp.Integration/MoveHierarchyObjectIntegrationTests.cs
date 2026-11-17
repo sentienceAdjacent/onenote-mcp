@@ -22,9 +22,10 @@ using CoreScope = OneNoteMcp.Core.HierarchyScope;
 namespace OneNoteMcp.Integration;
 
 /// <summary>
-/// Story 3.4's live checks for the sitting (S1 in the plan), opt-in with <c>ONENOTE_MCP_INTEGRATION=1</c> and never run in
-/// a build: <c>dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~MoveHierarchyObjectIntegrationTests</c>,
-/// with MCP Test and the throwaway <c>MCP Test Throwaway 1112-034716 a</c> open and the Ballast Vault unlocked.
+/// Stories 3.4's and 3.12's live checks for the sittings (S1 in each plan), opt-in with <c>ONENOTE_MCP_INTEGRATION=1</c>
+/// and never run in a build: <c>dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~MoveHierarchyObjectIntegrationTests</c>,
+/// with MCP Test and the throwaway <c>MCP Test Throwaway 1112-034716 a</c> open and the Ballast Vault unlocked (3.4's check
+/// pauses for Phill to lock it; 3.12's needs it locked, and pauses if it isn't).
 /// <list type="bullet">
 /// <item>Every move goes through the tool, over a gateway whose <c>UpdateHierarchy</c> is story 5.1's guarded one
 /// (<see cref="TestNotebook.UpdateHierarchyAsync"/>): every ID it sends must be an object this run made, inside MCP Test or
@@ -205,6 +206,139 @@ public sealed class MoveHierarchyObjectIntegrationTests(ITestOutputHelper output
         }
     }
 
+    // --- Story 3.12: sections and section groups ----------------------------------------------------------------------
+
+    /// <summary>
+    /// In MCP Test (story 3.12): a run section with a page moves into a run group, before the run section already there;
+    /// then a second run group, holding a section, moves into the first group. Each keeps its ID, the page stays in its
+    /// section, and both parents have a journal entry each time. Only run-made IDs are sent (the guard).
+    /// </summary>
+    [Fact]
+    public async Task SameNotebook_ASectionAndASectionGroup_MoveIntoAGroup_KeepingTheirIds()
+    {
+        await using var run = await StartAsync();
+        var stamp = Stamp;
+        try
+        {
+            var group = await CreateGroupAsync(run, run.NotebookId, $"Probe 3-12 group {stamp}");
+            var inner = await CreateGroupAsync(run, run.NotebookId, $"Probe 3-12 inner {stamp}");
+            var resident = await CreateSectionAsync(run, group, $"Probe 3.12 resident {stamp}");
+            var section = await CreateSectionAsync(run, run.NotebookId, $"Probe 3.12 moving {stamp}");
+            var page = await CreatePageAsync(run, section);
+            await CreateSectionAsync(run, inner, $"Probe 3.12 carried {stamp}");
+
+            // AD-17: a node's date can move about a second after a hierarchy write; let it settle before reading the basis.
+            await Task.Delay(TimeSpan.FromSeconds(2), Ct);
+            var root = Ok(await Tool(run).MoveHierarchyObject(section, group, 1, await NodeBasisAsync(run, section), Ct));
+            Assert.Equal(section, root.GetProperty("meta").GetProperty("objectId").GetString());
+            var sections = HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(group, CoreScope.Children, Ct)).Children
+                .Where(c => c.Kind == HierarchyKind.Section).Select(c => c.Id);
+            Assert.Equal([section, resident], sections);
+            Assert.Contains(HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(section, CoreScope.Children, Ct)).Children, c => c.Id == page);
+            AssertTwoEntries(run, root, run.NotebookId, group);
+            Assert.Empty(root.GetProperty("warnings").EnumerateArray());
+            output.WriteLine($"RESULT section: {section} into group {group} at position 1, page {page} with it");
+
+            await Task.Delay(TimeSpan.FromSeconds(2), Ct);
+            var groupRoot = Ok(await Tool(run).MoveHierarchyObject(inner, group, null, await NodeBasisAsync(run, inner), Ct));
+            Assert.Equal(inner, groupRoot.GetProperty("meta").GetProperty("objectId").GetString());
+            Assert.Contains(HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(group, CoreScope.Children, Ct)).Children, c => c.Id == inner);
+            Assert.DoesNotContain(HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(run.NotebookId, CoreScope.Children, Ct)).Children, c => c.Id == inner);
+            AssertTwoEntries(run, groupRoot, run.NotebookId, group);
+            output.WriteLine($"RESULT group: {inner} into group {group}");
+        }
+        finally
+        {
+            await CleanUpAsync(run);
+        }
+    }
+
+    /// <summary>
+    /// To the adopted throwaway (story 3.12; skipped when it isn't open): a run section moves into a run group there under
+    /// its own ID, with two journal entries; then, with the throwaway's write grant removed, another section's move is
+    /// <c>WriteNotGranted</c> and nothing is sent. A move to the throwaway's root lists its other sections, which the guard
+    /// refuses, so sitting S2 makes that one through Claude.
+    /// </summary>
+    [Fact]
+    public async Task OtherNotebook_ASectionIntoAGroupInTheThrowaway_KeepsItsId_ThenWithoutItsGrant_IsWriteNotGranted()
+    {
+        await using var run = await StartAsync();
+        var throwaway = await TestNotebook.AdoptThrowawayNotebookAsync(run.Com, ThrowawayName, Ct);
+        Assert.SkipWhen(throwaway is null, $"Open the throwaway notebook \"{ThrowawayName}\" in OneNote first.");
+        throwaways[throwaway!] = new HashSet<string>([ThrowawayName]);
+        var throwawayKey = GrantKeys.NotebookKey(HierarchyNode.Root(await run.Com.GetHierarchyAsync(throwaway!, CoreScope.Self, Ct)).Path);
+        var writer = new SettingsWriter(run.Store, TimeProvider.System);
+        writer.SaveWriteGrant(new NotebookGrant(throwawayKey, ThrowawayName, throwaway!, Write: true, PermanentDelete: false, DateTimeOffset.UtcNow, GrantedVia.Cli));
+        var stamp = Stamp;
+        try
+        {
+            var landing = await CreateGroupAsync(run, throwaway!, $"Probe 3-12 landing {stamp}");
+            var section = await CreateSectionAsync(run, run.NotebookId, $"Probe 3.12 cross {stamp}");
+            var stays = await CreateSectionAsync(run, run.NotebookId, $"Probe 3.12 stays {stamp}");
+            var page = await CreatePageAsync(run, section);
+
+            await Task.Delay(TimeSpan.FromSeconds(2), Ct);
+            var root = Ok(await Tool(run).MoveHierarchyObject(section, landing, null, await NodeBasisAsync(run, section), Ct));
+            Assert.Equal(section, root.GetProperty("meta").GetProperty("objectId").GetString());
+            Assert.Equal([section], HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(landing, CoreScope.Children, Ct)).Children.Select(c => c.Id));
+            Assert.Contains(HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(section, CoreScope.Children, Ct)).Children, c => c.Id == page);
+            AssertTwoEntries(run, root, run.NotebookId, landing);
+            output.WriteLine($"RESULT other notebook: section {section} into {landing}");
+
+            Assert.Equal(1, writer.RevokeWriteGrant(throwawayKey));
+            var calls = run.Gateway.UpdateHierarchyCalls;
+            var refused = await Tool(run).MoveHierarchyObject(stays, landing, null, null, Ct);
+            Assert.Equal("WriteNotGranted", Code(refused));
+            Assert.Equal(calls, run.Gateway.UpdateHierarchyCalls);
+            output.WriteLine("RESULT not granted: WriteNotGranted, nothing sent");
+        }
+        finally
+        {
+            await CleanUpAsync(run);
+        }
+    }
+
+    /// <summary>
+    /// Q14 (story 3.12): moving the Ballast Vault itself, locked, into a run group is <c>NotSupported</c>, never
+    /// <c>SectionLocked</c> (Fable M1), and no <c>UpdateHierarchy</c> is sent. If the Vault is unlocked, the run pauses for
+    /// Phill to lock it.
+    /// </summary>
+    [Fact]
+    public async Task TheBallastVault_Locked_MovedWhole_IsNotSupported_NothingSent()
+    {
+        await using var run = await StartAsync();
+        var children = XDocument.Parse(await run.Gateway.GetHierarchyAsync(run.NotebookId, CoreScope.Children, Ct));
+        var vault = children.Root!.Elements(One + "Section").FirstOrDefault(s => (string?)s.Attribute("name") == BallastContent.VaultSectionName);
+        Assert.SkipWhen(vault is null, "MCP Test has no Ballast Vault: run the Ballast scenario (story 17).");
+        Assert.SkipUnless((string?)vault!.Attribute("encrypted") is "true" or "1", "The Ballast Vault isn't password-protected yet (story 17's owner step).");
+        var vaultId = (string)vault.Attribute("ID")!;
+        var stamp = Stamp;
+        try
+        {
+            var group = await CreateGroupAsync(run, run.NotebookId, $"Probe 3-12 vault {stamp}");
+            if ((string?)vault.Attribute("locked") is not ("true" or "1"))
+            {
+                Assert.True(
+                    await PauseAsync("vault-lock-3.12", "In OneNote, press Ctrl+Alt+L to lock the password-protected sections (the Ballast Vault in MCP Test). Then continue."),
+                    "The Vault must be locked for this check.");
+            }
+
+            var now = XDocument.Parse(await run.Gateway.GetHierarchyAsync(vaultId, CoreScope.Self, Ct)).Root!;
+            Assert.True((string?)now.Attribute("locked") is "true" or "1", "The Ballast Vault still reads as unlocked.");
+
+            var refused = await Tool(run).MoveHierarchyObject(vaultId, group, null, null, Ct);
+            Assert.Equal("NotSupported", Code(refused));
+            Assert.Equal(MoveContainerWrite.ProtectedUserAction, refused.StructuredContent!.Value.GetProperty("error").GetProperty("userAction").GetString());
+            Assert.DoesNotContain(BallastContent.VaultSectionName, refused.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
+            Assert.Equal(0, run.Gateway.UpdateHierarchyCalls);
+            output.WriteLine("RESULT vault moved whole: NotSupported; nothing sent");
+        }
+        finally
+        {
+            await CleanUpAsync(run);
+        }
+    }
+
     // --- Setup ------------------------------------------------------------------------------------------------------
 
     private sealed record Run(ComGateway Com, GuardedGateway Gateway, string NotebookId, SettingsStore Store, string JournalFolder) : IAsyncDisposable
@@ -273,6 +407,28 @@ public sealed class MoveHierarchyObjectIntegrationTests(ITestOutputHelper output
         created.Add(id);
         return id;
     }
+
+    /// <summary>A section group under <paramref name="parentId"/> through the guarded raw write, recorded as this run's. No '.' in the name (0x80042018).</summary>
+    private async Task<string> CreateGroupAsync(Run run, string parentId, string name)
+    {
+        var id = await TestNotebook.WriteAsync(
+            run.Com,
+            parentId,
+            app =>
+            {
+                app.OpenHierarchy(name, parentId, out var group, Com.Interop.CreateFileType.cftFolder);
+                return group;
+            },
+            "OpenHierarchy(3.12 probe section group)",
+            Ct,
+            throwaways);
+        created.Add(id);
+        return id;
+    }
+
+    /// <summary>A section's or section group's own hierarchy <c>lastModifiedTime</c>, read at <c>self</c>, as the move's basis (AD-17).</summary>
+    private static async Task<PageBasisArgument> NodeBasisAsync(Run run, string id) =>
+        new(HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(id, CoreScope.Self, Ct)).LastModifiedTime);
 
     /// <summary>A page in a section this run made, after the guard confirms the section is in a test or adopted notebook.</summary>
     private async Task<string> CreatePageAsync(Run run, string sectionId)
@@ -375,8 +531,8 @@ public sealed class MoveHierarchyObjectIntegrationTests(ITestOutputHelper output
         result.IsError == true ? result.StructuredContent!.Value.GetProperty("error").GetProperty("code").GetString() : null;
 
     /// <summary>
-    /// Soft-deletes the sections this run made, last first, through the guarded delete; the moved pages go with them. A
-    /// failure is logged only.
+    /// Soft-deletes the sections and section groups this run made, last first, through the guarded delete; the moved pages
+    /// go with them, and a group's sections land in the recycle bin one by one. A failure is logged only.
     /// </summary>
     private async Task CleanUpAsync(Run run)
     {
@@ -386,7 +542,7 @@ public sealed class MoveHierarchyObjectIntegrationTests(ITestOutputHelper output
             try
             {
                 var self = XDocument.Parse(await run.Com.GetHierarchyAsync(id, CoreScope.Self, Ct)).Root!;
-                if (self.Name != One + "Section" || (string?)self.Attribute("isInRecycleBin") == "true")
+                if ((self.Name != One + "Section" && self.Name != One + "SectionGroup") || (string?)self.Attribute("isInRecycleBin") == "true")
                 {
                     continue;
                 }

@@ -194,6 +194,66 @@ public sealed class HierarchyUpdateXmlTests
     public void MovePage_AnIndexOutsideTheList_Throws(int index) =>
         Assert.Throws<ArgumentOutOfRangeException>(() => HierarchyUpdate.MovePage(SectionId, [new HierarchyMember(HierarchyKind.Page, PageId, "p", 1)], SubpageId, index));
 
+    [Theory]
+    [InlineData(0, new[] { "moved", "a", "b" })]
+    [InlineData(1, new[] { "a", "moved", "b" })]
+    [InlineData(2, new[] { "a", "b", "moved" })]
+    public void MoveContainer_ASection_IsTheNewParentWithItsSectionsAndTheMovedOneAtTheIndex(int index, string[] order)
+    {
+        // Story 3.12 (spike 3.1 m3, with the same-kind siblings listed for the position, 3.12 Q1): ID-only elements.
+        const string Moved = "{A9000000-0000-4000-8000-000000000001}{1}{B0}";
+        var ids = new Dictionary<string, string> { ["a"] = SectionId, ["b"] = OtherSectionId, ["moved"] = Moved };
+        var xml = HierarchyUpdate.MoveContainer(HierarchyKind.SectionGroup, GroupId, [
+            new HierarchyMember(HierarchyKind.Section, SectionId, "a", 0),
+            new HierarchyMember(HierarchyKind.Section, OtherSectionId, "b", 0),
+        ], HierarchyKind.Section, Moved, index);
+
+        var root = XElement.Parse(xml);
+        Assert.Equal(One + "SectionGroup", root.Name);
+        Assert.Equal(GroupId, (string?)root.Attribute("ID"));
+        var sections = root.Elements().ToList();
+        Assert.All(sections, s => Assert.Equal(One + "Section", s.Name));
+        Assert.Equal(order.Select(o => ids[o]), sections.Select(s => (string?)s.Attribute("ID")));
+        Assert.All(sections, s => Assert.Equal(["ID"], s.Attributes().Select(a => a.Name.LocalName)));
+        Assert.Empty(SchemaValidation.Problems(xml));
+    }
+
+    [Fact]
+    public void MoveContainer_AGroupIntoANotebook_ListsOnlyGroups_AndPassesTheXsd()
+    {
+        var xml = HierarchyUpdate.MoveContainer(HierarchyKind.Notebook, NotebookId, [
+            new HierarchyMember(HierarchyKind.SectionGroup, InnerGroupId, "g", 0),
+        ], HierarchyKind.SectionGroup, GroupId, 1);
+
+        var root = XElement.Parse(xml);
+        Assert.Equal(One + "Notebook", root.Name);
+        Assert.Equal([InnerGroupId, GroupId], root.Elements(One + "SectionGroup").Select(g => (string?)g.Attribute("ID")));
+        Assert.Empty(root.Elements(One + "Section"));
+        Assert.Empty(SchemaValidation.Problems(xml));
+    }
+
+    [Fact]
+    public void MoveContainer_IntoAnEmptyParent_IsTheOneNode()
+    {
+        var xml = HierarchyUpdate.MoveContainer(HierarchyKind.SectionGroup, GroupId, [], HierarchyKind.Section, SectionId, 0);
+
+        var only = Assert.Single(XElement.Parse(xml).Elements());
+        Assert.Equal(SectionId, (string?)only.Attribute("ID"));
+        Assert.Empty(SchemaValidation.Problems(xml));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void MoveContainer_AnIndexOutsideTheList_Throws(int index) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => HierarchyUpdate.MoveContainer(
+            HierarchyKind.Notebook, NotebookId, [new HierarchyMember(HierarchyKind.Section, SectionId, "s", 0)], HierarchyKind.Section, OtherSectionId, index));
+
+    [Fact]
+    public void MoveContainer_ASiblingOfAnotherKind_Throws() =>
+        Assert.Throws<ArgumentException>(() => HierarchyUpdate.MoveContainer(
+            HierarchyKind.Notebook, NotebookId, [new HierarchyMember(HierarchyKind.SectionGroup, GroupId, "g", 0)], HierarchyKind.Section, SectionId, 0));
+
     [Fact]
     public void AGroupBeforeASection_FailsTheXsd_SoTheGateWouldCatchIt()
     {

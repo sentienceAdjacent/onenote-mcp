@@ -123,8 +123,23 @@ public static class ToolWarnings
     public const string SubpagesLeftBehind = "subpagesLeftBehind";
 
     /// <summary>
+    /// A section or section-group move touching a cloud notebook held the write lock for a settle before its read-back
+    /// (AD-7 Moves; spike 3.1 Implication 16; story 3.12). Names the moved item's ID and the wait. Its userAction says to
+    /// check the move synced before relying on it.
+    /// </summary>
+    public const string Settled = "settled";
+
+    /// <summary>
+    /// After a section or section-group move, a moved section reads back at a location whose key (compared percent-decoded)
+    /// holds a stored read grant or a live <c>once</c> window, which now covers it (AD-21; 3.12 security review, Phill
+    /// 2026-11-17). The move stands. Names the moved item's ID and a count only. Its userAction says to tell the user.
+    /// </summary>
+    public const string ReadGrantAtLocation = "readGrantAtLocation";
+
+    /// <summary>
     /// <c>create_page</c> with <c>parentPageId</c> made the page, but couldn't make it a subpage (an exception, the parent
-    /// gone, the deadline or a cancel), so it is at the end of the section at level 1 (story 3.14 Q4). Names the page's,
+    /// gone, the deadline or a cancel): it is at the end of the section at level 1, or, when the placement was sent and failed
+    /// ambiguously, it may or may not have been placed (story 3.14 Q4 and review). Names the page's,
     /// the parent's and the section's IDs only. Its userAction names <c>set_page_level</c> and
     /// <c>reorder_hierarchy_children</c>.
     /// </summary>

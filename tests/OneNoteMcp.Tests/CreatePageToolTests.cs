@@ -1227,6 +1227,54 @@ public sealed class CreatePageToolTests : IDisposable
             prompt);
     }
 
+    // --- AD-7: the notebook re-resolved under the lock (story 3.12) --------------------------------------------------
+
+    [Fact]
+    public async Task ASectionMovedToAnotherNotebookAfterStep1_IsWriteNotGranted_Retryable_NoPageCreated()
+    {
+        // Epic 2's create-page race (deferred-work, story 2.4): step 1 granted W; before the lock the section moves to X,
+        // which is granted too. The grant step 1 checked no longer covers the section, so the write is refused.
+        const string XId = "{NBX00000-0000-4000-8000-000000000009}{1}{B0}";
+        const string XPath = @"C:\notebooks\X\";
+        Grant();
+        new SettingsWriter(Store, clock).SaveWriteGrant(
+            new NotebookGrant(GrantKeys.NotebookKey(XPath), "X", XId, true, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
+        Parents[XId] = string.Empty;
+        Self(XId, $"<one:Notebook {Ns} name=\"X\" nickname=\"X\" ID=\"{XId}\" path=\"{XPath}\" />");
+        var moved = false;
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            // Step 1's walk ends at W's self read; the lock comes next.
+            if (!moved && id == NotebookId && scope == HierarchyScope.Self)
+            {
+                moved = true;
+                Parents[SectionId] = XId;
+            }
+        };
+
+        var error = Error(await Tool().CreatePage(SectionId, cancellationToken: Ct), "WriteNotGranted");
+
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains(SectionId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains(NotebookId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNoWrite();
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ASectionThatStaysInItsNotebook_StillCreates_AfterTheReResolve()
+    {
+        Grant();
+        var notebookSelfReads = 0;
+        gateway.OnGetHierarchy = (id, scope) => notebookSelfReads += id == NotebookId && scope == HierarchyScope.Self ? 1 : 0;
+
+        Ok(await Tool().CreatePage(SectionId, cancellationToken: Ct));
+
+        // Step 1's walk, then the walk under the lock.
+        Assert.Equal(2, notebookSelfReads);
+    }
+
     // --- The tool ---------------------------------------------------------------------------------------------------
 
     [Fact]
