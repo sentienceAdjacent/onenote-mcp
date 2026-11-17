@@ -126,7 +126,7 @@ context:
   - `dotnet build OneNoteMcp.slnx -warnaserror`: 0 warnings.
   - `dotnet test tests/OneNoteMcp.Tests`: 3,081 passed.
   - `dotnet test tests/OneNoteMcp.Integration` with no integration variable: 217 passed, 97 skipped, 0 failed. The 3 new live tests are skipped.
-  - S1 and S2 haven't run.
+  - Sitting 2026-11-17 (with Phill), after the security fix 266ef77. S1: 3 of 3 pass (the Vault test reran after its first 30-minute pause timed out before the lock; 3.3's Vault test passed again in the same run). S2, through onenote-dev on this build: a subpage moved into a throwaway section and landed top-level under a new ID; a parent moved to position 2 of a 3-page section and landed second, with `subpagesLeftBehind` (1) and its subpage left in the source at level 1. Phill checked all four in OneNote (order, levels, landing, Deleted Pages unchanged).
 
 ## Plan Change Log
 
