@@ -121,4 +121,18 @@ public static class ToolWarnings
     /// spike 3.1 M1d; story 3.4). Names the source section's ID and the count step 3 read, never a name.
     /// </summary>
     public const string SubpagesLeftBehind = "subpagesLeftBehind";
+
+    /// <summary>
+    /// A section or section-group move touching a cloud notebook held the write lock for a settle before its read-back
+    /// (AD-7 Moves; spike 3.1 Implication 16; story 3.12). Names the moved item's ID and the wait. Its userAction says to
+    /// check the move synced before relying on it.
+    /// </summary>
+    public const string Settled = "settled";
+
+    /// <summary>
+    /// After a section or section-group move, a moved section reads back at a location whose key (compared percent-decoded)
+    /// holds a stored read grant or a live <c>once</c> window, which now covers it (AD-21; 3.12 security review, Phill
+    /// 2026-11-17). The move stands. Names the moved item's ID and a count only. Its userAction says to tell the user.
+    /// </summary>
+    public const string ReadGrantAtLocation = "readGrantAtLocation";
 }
