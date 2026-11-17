@@ -412,7 +412,9 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
     /// The refusal for a rename of <paramref name="node"/> to <paramref name="newName"/> that would move a section (the
     /// node itself, or one of <paramref name="below"/> under a section group) onto a location whose key holds a stored
     /// read grant or a live <c>once</c> window, which the section would then inherit (AD-21: a grant follows its path,
-    /// and our own write must not re-bind one). A section staying at its own key (a case-only rename) never counts.
+    /// and our own write must not re-bind one). Keys match by <see cref="GrantKeys.SameLocation"/>, percent-encoded or not,
+    /// as a move's do (backlog 8). A section staying at its own key (a case-only rename) never counts; that comparison stays
+    /// exact, ignoring case, because a decoded one would let a local rename onto a literal <c>%20</c> name skip the check.
     /// When the server can't tell where a section would go, <paramref name="strict"/> refuses with
     /// <see cref="ErrorCode.NotSupported"/>; otherwise that is left to the strict check. Messages carry IDs and counts
     /// only, never a name or path (AD-21).
@@ -439,7 +441,7 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
         var now = Services.ReadAccess.Now();
         var taken = moved.Count(m =>
             !GrantKeys.Comparer.Equals(GrantKeys.SectionKey(m.Before), GrantKeys.SectionKey(m.After))
-            && Services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(m.After), now));
+            && Services.ReadAccess.HoldsReadGrantAtLocation(GrantKeys.SectionKey(m.After), now));
         if (taken == 0)
         {
             return null;

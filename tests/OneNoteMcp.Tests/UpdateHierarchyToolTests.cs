@@ -569,6 +569,68 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         Assert.Empty(EntryFiles());
     }
 
+    // Backlog 8: a cloud key may spell a space as %20 or not, so a grant matches the new location either way
+    // (GrantKeys.SameLocation, as a move checks it).
+    [Fact]
+    public async Task RenameACloudSection_OntoAPercentEncodedGrantKey_IsInvalidArgument_BeforeCom()
+    {
+        Grant(CloudPath, CloudId);
+        ReadGrantAt($"{CloudPath}New%20Name.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "New Name", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task RenameACloudSection_InAPercentEncodedFolder_OntoADecodedGrantKey_IsInvalidArgument_BeforeCom()
+    {
+        Grant(CloudPath, CloudId);
+        Self(CloudSectionId, $"<one:Section {Ns} name=\"Web\" ID=\"{CloudSectionId}\" path=\"https://d.docs.live.net/0123abcd/My%20Cloud/Web.one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt("https://d.docs.live.net/0123abcd/My Cloud/New.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "New", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
+    [Fact]
+    public async Task RenameACloudSectionGroup_WhenASectionInsideWouldTakeOverAPercentEncodedGrant_IsInvalidArgument_BeforeTheOneDriveRefusal()
+    {
+        Grant(CloudPath, CloudId);
+        Sections(CloudGroupId, $"<one:SectionGroup {Ns} name=\"Shared\" ID=\"{CloudGroupId}\" path=\"{CloudPath}Shared\" lastModifiedTime=\"{Lmt}\"><one:Section name=\"Web Notes\" ID=\"{GoneId}\" path=\"{CloudPath}Shared/Web Notes.one\" /></one:SectionGroup>");
+        ReadGrantAt($"{CloudPath}Team%20Room/Web%20Notes.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudGroupId, "Team Room", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("1 section", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds); // refused in step 1, before the lock
+    }
+
+    [Fact]
+    public async Task RenameACloudSection_OntoAPercentEncodedOnceWindow_IsInvalidArgument_BeforeCom()
+    {
+        Grant(CloudPath, CloudId);
+        var encoded = HierarchyNode.Root($"<one:Section {Ns} name=\"New Name\" ID=\"{GoneId}\" path=\"{CloudPath}New%20Name.one\" encrypted=\"true\" lastModifiedTime=\"{Lmt}\" />");
+        await readAccess.CheckSectionAsync(new ToolCallContext("read", Prompt: new FakePrompt(FakePrompt.Accept("New Name", ReadGrantLifetime.Once))), encoded, Ct);
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "New Name", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
     [Fact]
     public async Task RenameASectionGroup_WhoseSectionsArentInsideItsFolder_IsNotSupported_BeforeCom()
     {
