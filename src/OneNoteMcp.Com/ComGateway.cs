@@ -523,6 +523,12 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     {
         ExportFormat.OneNote => PublishFormat.pfOneNote,
         ExportFormat.Pdf => PublishFormat.pfPDF,
+        ExportFormat.Xps => PublishFormat.pfXPS,
+        ExportFormat.Word => PublishFormat.pfWord,
+        ExportFormat.Mhtml => PublishFormat.pfMHTML,
+        ExportFormat.Html => PublishFormat.pfHTML,
+        ExportFormat.Emf => PublishFormat.pfEMF,
+        ExportFormat.OneNotePackage => PublishFormat.pfOneNotePackage,
         _ => null,
     };
 
