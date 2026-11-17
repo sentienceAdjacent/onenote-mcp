@@ -3,7 +3,7 @@ title: 'publish: notebooks and section groups'
 type: 'feature'
 ticket: '7'
 created: '2026-11-17'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -51,6 +51,13 @@ context:
 | Extension mismatch | `onepkg`, path `x.pdf` | nothing written | `InvalidArgument` |
 | Existing target | file at the path | untouched | `FileExists` |
 
+## Decisions (Phill, Inbox, 2026-11-17, approving the plan)
+
+- **Q1, a. A notebook with no format, or any format but `onepkg`:** refused `NotSupported` before COM; the message and `userAction` say to ask for a OneNote package (`format: onepkg`). The contract stays as it is. Rejected: making `format` optional (b).
+- **Q2, a, as Phill's explicit exception to the test-notebooks-only rule:** sitting S3 exports ONE of Phill's real notebooks as a package with the dev build. Only its size and time are recorded; its name and ID never go into any file, commit, log or plan, and the file is deleted right after. Rejected: test notebooks only (b).
+- **Q3, a. Entry 8's package:** 3.7's test deletes its package with its temp folder; entry 8's tests make their own through `publish`. Rejected: a package left at a fixed path (b).
+- Full plan kept (about 2,100 tokens), no split.
+
 </frozen-after-approval>
 
 ## Code Map
@@ -83,12 +90,6 @@ context:
 - The path rule (AD-21 l.680: sections under an export root or the backup folder count as protected) needs no exception here: H1 removes the read grant for every notebook package, and a package copies nothing out of protection.
 - Considered a package scan for the Vault's text (as spike XP1/XP2 did with `expand.exe`); left out: four spike runs settle it and H1 is approved.
 
-## Open Questions
-
-1. **A notebook with no format given.** `format` defaults to `pdf` on the wire. (a) Refuse it with `NotSupported` and a `userAction` to pass `format: onepkg`; the contract stays as it is. (b) Make `format` optional with no default, so a notebook gets `onepkg` and the rest `pdf`; a public-contract change (AD-14) and a snapshot change. Recommended: a.
-2. **Large notebooks in the sitting.** Every package the spike made was under 15 KB, and `Publish` blocks for as long as OneNote takes, up to `publishSeconds` (300 s). (a) Add an optional sitting step: Phill exports one larger notebook of his own with the dev build and we record only its size and seconds (no name), then he deletes the file. (b) MCP Test and the throwaway only. Recommended: a.
-3. **The package entry 8 opens.** The ticket says entry 8 opens the throwaway's package. (a) 3.7's test deletes its package with the temp folder; entry 8's tests make their own through `publish`. (b) 3.7 leaves the package at a fixed path for entry 8, with its own cleanup. Recommended: a.
-
 ## Implementation Notes
 
 ## Plan Change Log
@@ -102,7 +103,7 @@ context:
 - `dotnet test tests/OneNoteMcp.Tests` -- all pass, snapshot included.
 - `dotnet test tests/OneNoteMcp.Integration` (no variables) -- builds, live tests skip.
 
-**Sitting steps (main session with Phill, later; never by the build; MCP Test and throwaways only, except S3):**
+**Sitting steps (main session with Phill, later; never by the build; MCP Test and throwaways only, except S3 by Phill's exception):**
 - S1: MCP Test and `MCP Test Throwaway 1112-034716 a` open, Ballast Vault unlocked. `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~PublishIntegrationTests`; Phill presses Ctrl+Alt+L at the pause. Expected: all pass, only temp files; record the MCP Test package's size and seconds.
 - S2: with `onenote-dev`, export MCP Test Cloud as a package from Claude Code; Phill confirms the file under the export root and deletes it.
-- S3 (if Q2 is a): Phill picks a larger notebook of his own and exports it as a package with `onenote-dev`; record size and seconds only; Phill deletes the file.
+- S3 (Phill's explicit exception, Q2): Phill picks ONE larger notebook of his own and exports it as a package with `onenote-dev`, to a path under the export root. Record only the file's size and the call's seconds; never the notebook's name or ID, in any file, commit, log or plan (the tool's result carries the ID: don't copy it). Phill deletes the file right after.
