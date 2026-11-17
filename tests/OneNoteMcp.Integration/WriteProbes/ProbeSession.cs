@@ -1649,6 +1649,148 @@ internal sealed class ProbeSession : IDisposable
         return (id, sectionId, (string?)page?.Attribute("ID"));
     }
 
+    // --- Spike 4.13: the quick filing picker -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Every picker this run opened, kept here so each dialog RCW and its <see cref="FilingRecorder"/> stay referenced
+    /// until the callback has fired or the step's wait has passed (plan, Always), except where a probe drops them (F7).
+    /// </summary>
+    public List<PickerRun> Pickers { get; } = [];
+
+    /// <summary>
+    /// <c>QuickFiling()</c> on <paramref name="gateway"/>'s STA thread (default: the session's), the cast to
+    /// <see cref="IProbeQuickFilingDialog"/>, the setters <paramref name="config"/> names, then <c>Run</c> with a new
+    /// <see cref="FilingRecorder"/>, all in one delegate; each call's HRESULT and time is kept in
+    /// <see cref="PickerRun.Steps"/>, and the picker's own <c>WindowHandle</c> is read once after <c>Run</c>. Nothing the
+    /// user picks is acted on. The dialog RCW is not released here (<see cref="ReleasePickerAsync"/>). A blocked call stops
+    /// the scenario against the gateway's own limit.
+    /// </summary>
+    public async Task<PickerRun> RunPickerAsync(string label, PickerConfig config, ComGateway? gateway = null)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        var g = gateway ?? Gateway;
+        var run = new PickerRun(label, g);
+        Pickers.Add(run);
+        run.Recorder = new FilingRecorder(run.Calls);
+        var (attempt, _) = await TryValueAsync(() => g.InvokeAsync(
+            app =>
+            {
+                RunPicker(app, run, config);
+                return true;
+            },
+            Ct,
+            retryOnDisconnect: false,
+            method: "QuickFiling(run)"));
+        run.Invoke = attempt;
+        await CheckTimeoutAsync("QuickFiling(run)", attempt, LimitOf(g));
+        return run;
+    }
+
+    /// <summary>On the STA thread: see <see cref="RunPickerAsync"/>. Every call is caught on its own, so one failure is a row, not a lost run.</summary>
+    private static void RunPicker(IApplication app, PickerRun run, PickerConfig config)
+    {
+        run.StaThreadId = Environment.CurrentManagedThreadId;
+        run.StaApartment = Thread.CurrentThread.GetApartmentState().ToString();
+        object? raw = null;
+        run.Steps.Add(PickerCall.Get("QuickFiling", () => raw = app.QuickFiling()));
+        if (raw is null)
+        {
+            if (run.Steps[^1].Ok)
+            {
+                run.Steps.Add(new PickerCall("QuickFiling", null, PickerCall.NullResult, 0));
+            }
+
+            return;
+        }
+
+        run.Dialog = raw; // kept referenced until the step releases it (or F7 drops it)
+        const string Qi = "QueryInterface(IQuickFilingDialog)";
+        var qiWatch = Stopwatch.StartNew();
+        IProbeQuickFilingDialog dialog;
+        try
+        {
+            dialog = (IProbeQuickFilingDialog)raw;
+            run.Steps.Add(new PickerCall(Qi, null, null, qiWatch.ElapsedMilliseconds));
+        }
+        catch (InvalidCastException ex)
+        {
+            // F1's question: the early-bound cast failed. The runtime doesn't pass the QI's own HRESULT through:
+            // InvalidCastException.HResult is always 0x80004002, so the message is kept too.
+            run.Steps.Add(new PickerCall(Qi, ex.HResult, ex.GetType().Name, qiWatch.ElapsedMilliseconds, Message: ex.Message));
+            return;
+        }
+
+        run.Steps.Add(PickerCall.Do("put_Title", () => dialog.Title = config.Title));
+        run.Steps.Add(PickerCall.Do("put_Description", () => dialog.Description = config.Description));
+        run.Steps.Add(PickerCall.Do("put_TreeDepth", () => dialog.TreeDepth = config.TreeDepth));
+        if (config.ParentWindowHandle is { } parent)
+        {
+            run.Steps.Add(PickerCall.Do("put_ParentWindowHandle", () => dialog.ParentWindowHandle = parent));
+        }
+
+        run.Steps.Add(PickerCall.Do("AddButton", () => dialog.AddButton(config.Button, config.TreeDepth, ProbeHierarchyElement.heNone, fDefault: true)));
+        var recorder = run.Recorder ?? throw new InvalidOperationException("The picker run has no recorder.");
+        run.RunStarted = Stopwatch.GetTimestamp();
+        run.Steps.Add(PickerCall.Do("Run", () => dialog.Run(recorder)));
+        run.RunReturned = Stopwatch.GetTimestamp();
+        run.PickerWindow = PickerCall.Get("get_WindowHandle", () => dialog.WindowHandle);
+    }
+
+    /// <summary>
+    /// Waits up to <paramref name="limit"/> for the first <c>OnDialogClosed</c> in <paramref name="calls"/> (A8's bounded
+    /// wait). Never calls OneNote: the callback arrives on its own.
+    /// </summary>
+    public static async Task<PickWait> WaitForPickAsync(FilingCalls calls, TimeSpan limit)
+    {
+        ArgumentNullException.ThrowIfNull(calls);
+        var watch = Stopwatch.StartNew();
+        var first = calls.First;
+        var done = await Task.WhenAny(first, Task.Delay(limit, Ct));
+        return new PickWait(done == first, watch.ElapsedMilliseconds, (long)limit.TotalMilliseconds, calls.All.Count);
+    }
+
+    /// <summary>
+    /// <c>Marshal.FinalReleaseComObject</c> on the run's dialog RCW, on the STA thread that obtained it, then drops the
+    /// reference. Does nothing (null) when there is no dialog or its gateway is gone (F8: its STA thread has ended).
+    /// </summary>
+    public async Task<PickerCall?> ReleasePickerAsync(PickerRun run, string method = "FinalReleaseComObject(dialog)")
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        if (run.Dialog is not { } dialog || run.GatewayGone)
+        {
+            run.Dialog = null;
+            return null;
+        }
+
+        run.Dialog = null;
+        var (attempt, call) = await TryValueAsync(() => run.Gateway.InvokeAsync(
+            _ => PickerCall.Get(method, () => System.Runtime.InteropServices.Marshal.IsComObject(dialog) ? System.Runtime.InteropServices.Marshal.FinalReleaseComObject(dialog) : -1),
+            Ct,
+            retryOnDisconnect: false,
+            method: method));
+        await CheckTimeoutAsync(method, attempt, LimitOf(run.Gateway));
+        return call ?? new PickerCall(method, null, attempt.Code ?? attempt.Outcome, attempt.Ms);
+    }
+
+    /// <summary>
+    /// F/V around a picker: the foreground process label (read first, natively), then <see cref="ViewAsync"/>. While a
+    /// picker is open the hierarchy read may fail (perhaps <c>0x80042030</c>); that failure is kept, rowed for the
+    /// HRESULT summary, and doesn't end the step. A blocked read still stops the scenario.
+    /// </summary>
+    public async Task<PickerView> PickerViewAsync(string label)
+    {
+        var window = NativeView.GetForegroundWindow();
+        var foreground = ProbeView.ProcessLabel(NativeView.ProcessName(window), CurrentProcessName);
+        var (attempt, view) = await TryValueAsync(ViewAsync);
+        await CheckTimeoutAsync("GetHierarchy(F/V)", attempt);
+        if (!attempt.Ok)
+        {
+            Recorder.Row($"{label}-fv-read", "H", "GetHierarchy(F/V)", null, attempt, null);
+        }
+
+        return new PickerView(window.ToInt64(), foreground, view, attempt.Ok ? null : attempt);
+    }
+
     // --- Reads ----------------------------------------------------------------------------------------------------
 
     /// <remarks>Spike 4.12: <paramref name="gateway"/> (default: the session's) lets a cloud read use the cloud side gateway's limit.</remarks>
@@ -2554,3 +2696,196 @@ internal static class NavNative
 
 /// <summary>W1: <see cref="NavNative.TopLevel"/>'s result.</summary>
 internal sealed record WindowTop(bool IsWindow, bool TopLevel, bool RootIsForeground);
+
+// --- Spike 4.13: the quick filing picker (pure parts unit-tested in ProbeHelpersTests) ---------------------------------
+
+/// <summary>Spike 4.13: what <see cref="ProbeSession.RunPickerAsync"/> sets on the picker, and nothing else (plan, Always).</summary>
+internal sealed record PickerConfig(string Title, string Description, ProbeHierarchyElement TreeDepth, ulong? ParentWindowHandle, string Button)
+{
+    /// <summary>The probe's picker: sections only, one default button, no parent window.</summary>
+    public static PickerConfig Default { get; } = new(
+        "MCP probe",
+        "MCP probe: follow the instruction you were given (pick MCP Test > Probes, or Cancel).",
+        ProbeHierarchyElement.heSections,
+        null,
+        "File here");
+}
+
+/// <summary>
+/// Spike 4.13: one call made on the picker (or <c>QuickFiling</c> itself): its HRESULT, or the exception type for a
+/// failure that isn't a COM one (an <see cref="InvalidCastException"/> from the QI, say), its time, and a getter's value.
+/// </summary>
+internal sealed record PickerCall(string Method, int? HResult, string? Error, long Ms, object? Value = null, string? Message = null)
+{
+    /// <summary>What a row records when <c>QuickFiling</c> returned S_OK with no object.</summary>
+    public const string NullResult = "null (S_OK, no object)";
+
+    public bool Ok => HResult is null && Error is null;
+
+    /// <summary>The call as an <see cref="Attempt"/>, so its HRESULT joins the scenario's summary (row H).</summary>
+    public Attempt ToAttempt() =>
+        HResult is { } h
+            ? new Attempt("error", string.Create(CultureInfo.InvariantCulture, $"0x{h:x8}"), HResultMap.Name(h), Error, Ms, Message ?? Error)
+            : Error is not null ? new Attempt("error", null, null, Error, Ms, Message ?? Error) : new Attempt("ok", null, null, null, Ms, null);
+
+    /// <summary>Runs one call, keeping its failure instead of throwing.</summary>
+    public static PickerCall Do(string method, Action call)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        return Get<object?>(method, () =>
+        {
+            call();
+            return null;
+        });
+    }
+
+    /// <summary>Runs one call that returns a value, keeping the value or its failure instead of throwing.</summary>
+    public static PickerCall Get<T>(string method, Func<T> call)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            object? value = call();
+            // A COM object is named by its type only: rows never serialize a wrapper.
+            return new PickerCall(method, null, null, watch.ElapsedMilliseconds, value is null or string or ulong or uint or int or long or bool ? value : value.GetType().Name);
+        }
+        catch (Exception ex)
+        {
+            // Every exception keeps its HRESULT: the runtime maps E_INVALIDARG, E_NOTIMPL and others to non-COM types.
+            return new PickerCall(method, ex.HResult, ex.GetType().Name, watch.ElapsedMilliseconds, Message: ex.Message);
+        }
+    }
+}
+
+/// <summary>
+/// Spike 4.13: one picker the probe opened. It holds the dialog RCW (<see cref="Dialog"/>) and the callback object
+/// (<see cref="Recorder"/>) so they stay alive, and the calls (<see cref="Calls"/>), which outlive both.
+/// </summary>
+internal sealed class PickerRun(string label, ComGateway gateway)
+{
+    public string Label { get; } = label;
+
+    /// <summary>The gateway whose STA thread obtained the dialog; releases go back to it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ComGateway Gateway { get; } = gateway;
+
+    /// <summary>F8: the gateway was disposed (its STA thread ended), so the RCW can't be released through it.</summary>
+    public bool GatewayGone { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public object? Dialog { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public FilingRecorder? Recorder { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public FilingCalls Calls { get; } = new();
+
+    public List<PickerCall> Steps { get; } = [];
+
+    /// <summary>The gateway call that held the steps (ok unless it timed out or was refused).</summary>
+    public Attempt? Invoke { get; set; }
+
+    public int? StaThreadId { get; set; }
+
+    public string? StaApartment { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long? RunStarted { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long? RunReturned { get; set; }
+
+    public PickerCall? PickerWindow { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public PickerCall? RunCall => Steps.LastOrDefault(s => s.Method == "Run");
+
+    /// <summary>Whether <c>Run</c> returned without an error (so a picker may be on screen).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool RunOk => RunCall?.Ok == true;
+}
+
+/// <summary>Spike 4.13: one bounded wait for the callback (<see cref="ProbeSession.WaitForPickAsync"/>).</summary>
+internal sealed record PickWait(bool Arrived, long WaitedMs, long LimitMs, int CallsSoFar);
+
+/// <summary>Spike 4.13: F/V around a picker. <see cref="ReadFailed"/> is set when the hierarchy read failed (then <see cref="View"/> is null).</summary>
+internal sealed record PickerView(long Window, string Foreground, ViewSnapshot? View, Attempt? ReadFailed);
+
+/// <summary>Spike 4.13: the pure parts of the quick filing rows.</summary>
+internal static class FilingProbe
+{
+    /// <summary>Milliseconds between two <see cref="Stopwatch"/> timestamps (null when either is missing).</summary>
+    public static long? Ms(long? from, long? to) =>
+        from is { } f && to is { } t ? (long)Math.Round((t - f) * 1000.0 / Stopwatch.Frequency) : null;
+
+    /// <summary>
+    /// A failed getter inside the callback (<see cref="FilingRecorder.Read{T}"/>) as an <see cref="Attempt"/>, so its
+    /// HRESULT joins the summary (row H); null when the getter succeeded or its text holds no HRESULT.
+    /// </summary>
+    public static Attempt? AttemptOf(ProbeValue value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (value.HResult is not { } text || !text.StartsWith("0x", StringComparison.Ordinal) || text.Length < 10
+            || !int.TryParse(text.AsSpan(2, 8), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h))
+        {
+            return null;
+        }
+
+        return new Attempt("error", text[..10], HResultMap.Name(h), null, 0, text);
+    }
+
+    /// <summary>
+    /// How a row names a selected ID (4.1's logging rules): <c>none</c> for no ID, the path of names inside MCP Test or
+    /// MCP Test Cloud (<paramref name="testTrees"/>, sections-scope reads), else <c>other</c>. An ID outside the test
+    /// notebooks is never logged.
+    /// </summary>
+    public static FilingTarget Target(string? id, IEnumerable<XElement> testTrees)
+    {
+        ArgumentNullException.ThrowIfNull(testTrees);
+        if (string.IsNullOrEmpty(id))
+        {
+            return new FilingTarget("none", null, null);
+        }
+
+        foreach (var tree in testTrees)
+        {
+            var hit = tree.DescendantsAndSelf().FirstOrDefault(e => (string?)e.Attribute("ID") == id);
+            if (hit is not null)
+            {
+                var names = hit.AncestorsAndSelf().Reverse().Select(e => (string?)e.Attribute("name") ?? "?");
+                return new FilingTarget(hit.Name.LocalName, string.Join(" > ", names), id);
+            }
+        }
+
+        return new FilingTarget("other", null, null);
+    }
+
+    /// <summary>
+    /// One callback for a row: when it came (after <c>Run</c> returned, and after it started), on which thread (the
+    /// picker's STA thread or not) and apartment, and what it read, with the selected ID through <paramref name="target"/>.
+    /// </summary>
+    public static object Describe(FilingCall call, PickerRun run, Func<string?, FilingTarget> target)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        ArgumentNullException.ThrowIfNull(run);
+        ArgumentNullException.ThrowIfNull(target);
+        return new
+        {
+            call.Sequence,
+            msAfterRunReturned = Ms(run.RunReturned, call.Timestamp),
+            msAfterRunStarted = Ms(run.RunStarted, call.Timestamp),
+            call.ThreadId,
+            onPickerStaThread = run.StaThreadId is { } sta ? call.ThreadId == sta : (bool?)null,
+            call.Apartment,
+            call.DialogNull,
+            selected = call.SelectedItem.HResult is null ? target(call.SelectedItem.Value as string) : null,
+            selectedHResult = call.SelectedItem.HResult,
+            pressedButton = call.PressedButton,
+        };
+    }
+}
+
+/// <summary>Spike 4.13: a selected ID as a row gives it: its kind and path inside a test notebook, or <c>other</c> / <c>none</c> (no ID).</summary>
+internal sealed record FilingTarget(string Kind, string? Path, string? Id);

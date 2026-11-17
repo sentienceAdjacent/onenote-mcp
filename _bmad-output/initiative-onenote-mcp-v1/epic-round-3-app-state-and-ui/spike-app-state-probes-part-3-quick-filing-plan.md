@@ -3,13 +3,13 @@ title: 'App-state probes, part 3: quick filing'
 type: 'chore'
 ticket: '13'
 created: '2026-11-17'
-status: ready-for-dev
+status: in-progress
 baseline_revision: '55fd04930b009bb6bc7ae4d536fc77585b924de3'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/spike-app-state-probes-part-2-navigation-and-windows-plan.md'
@@ -78,9 +78,9 @@ Answered overnight with the recommendation, per Phill's standing overnight rule 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/ProbeQuickFilingInterop.cs` -- the spike's `IProbeQuickFilingDialog` and `IProbeQuickFilingDialogCallback` with the slots above, and `FilingRecorder`, a `[ComVisible(true)]` class implementing the callback that records time, thread ID, apartment, `SelectedItem` and `PressedButton` (each read in its own try) and signals a waiter -- a callback that throws or blocks would stall OneNote's UI thread.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs` -- add `RunPickerAsync(gateway, configure)` (QuickFiling, configure, Run, with timings and F/V; returns the dialog handle holder and recorder) and `WaitForPickAsync(recorder, limit)`; unit tests in `ProbeHelpersTests.cs` for the recorder (records and signals; a throwing `SelectedItem` is recorded, not rethrown) using a fake dialog, and a layout test of the two interfaces' method order.
-- [ ] `tests/OneNoteMcp.Integration/WriteProbes/AppStateFilingProbes.cs` (scenario `app-state-filing`) -- every Matrix row in the Sitting script's order; `cleanup` asks Phill to close any picker still open and removes the probe page's marker.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/ProbeQuickFilingInterop.cs` -- the spike's `IProbeQuickFilingDialog` and `IProbeQuickFilingDialogCallback` with the slots above, and `FilingRecorder`, a `[ComVisible(true)]` class implementing the callback that records time, thread ID, apartment, `SelectedItem` and `PressedButton` (each read in its own try) and signals a waiter -- a callback that throws or blocks would stall OneNote's UI thread.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/ProbeSession.cs` -- add `RunPickerAsync(gateway, configure)` (QuickFiling, configure, Run, with timings and F/V; returns the dialog handle holder and recorder) and `WaitForPickAsync(recorder, limit)`; unit tests in `ProbeHelpersTests.cs` for the recorder (records and signals; a throwing `SelectedItem` is recorded, not rethrown) using a fake dialog, and a layout test of the two interfaces' method order.
+- [x] `tests/OneNoteMcp.Integration/WriteProbes/AppStateFilingProbes.cs` (scenario `app-state-filing`) -- every Matrix row in the Sitting script's order; `cleanup` asks Phill to close any picker still open and removes the probe page's marker.
 - [ ] Live sitting (the main session's, with Phill, after 4.12's sitting) follows the Sitting script. Not part of implementation.
 - [ ] `epic-round-3-app-state-and-ui/spike-app-state-probes-part-3-quick-filing-findings.md` (after the sitting) -- one row per Matrix question, HRESULTs, "Does the callback reach us", "Can the wait be bounded", Not probed, Evidence gaps, Relied on, Left behind.
 - [ ] Spine `.memlog.md` (after the sitting) -- one `constraint` line per finding that changes an AD, naming it.
@@ -111,11 +111,39 @@ Run from the repo root with OneNote running, `$env:ONENOTE_MCP_INTEGRATION='1'`,
 
 ## Implementation Notes
 
+- 2026-11-17, implemented (code and unit tests only; nothing ran against OneNote, and no `ONENOTE_MCP_*` variable was set). `dotnet build OneNoteMcp.slnx -warnaserror` passes with 0 warnings. `OneNoteMcp.Tests`: 2965 passed. `OneNoteMcp.Integration` with no integration variables: 409 passed, 96 skipped (`app-state-filing` among the skips). Judgement calls the plan didn't settle:
+  - **The COM-facing types are public.** `IProbeQuickFilingDialog`, `IProbeQuickFilingDialogCallback`, `ProbeHierarchyElement` and `FilingRecorder` are public, unlike 4.12's internal window copies. Measured in-process (a CCW of our own object, no OneNote): while they were internal, `QueryInterface` on the recorder's CCW for the callback IID returned `0x80004002` (E_NOINTERFACE); public, it and `IDispatch` return S_OK. A unit test keeps this. Everything else stays internal (`FilingRecorder`'s constructor and `Calls` too).
+  - **Callable members.** Callable: the `Title`, `Description`, `TreeDepth` and `ParentWindowHandle` getters and setters, `AddButton`, `Run`, `SelectedItem`, `PressedButton`, and `WindowHandle` (the picker's own handle, read once after `Run` for F3: whether it is a top-level window and the foreground root; no title). The checkbox, `Position`, `SetRecentResults`, `TreeCollapsedState`, `NotebookFilterOut` and `AddInitialEditor` are `[Obsolete(error: true)]` placeholders, so a call doesn't compile.
+  - **The picker** is "MCP probe", sections only (`heSections`), one default button "File here" (`AddButton(text, heSections, heNone, true)`), no parent except in F3. F3's parent is `CurrentWindow.WindowHandle` from 4.12's `WindowsSnapshotAsync`, the value OneMore passes.
+  - **`RunPickerAsync(label, config, gateway)`** makes `QuickFiling`, the QI, each setter, `Run` and the `WindowHandle` read in one STA delegate, each in its own try, so F1 gets one row (and one HRESULT for H) per call. Every other run rows each failed call before `Run` on its own, F3 rows all of them (its `ParentWindowHandle` setter included), and a run whose `Run` wasn't reached carries the first failed call's attempt, not the gateway's ok. A failed `get_WindowHandle`, and a failed `SelectedItem` or `PressedButton` inside the callback, get rows with their HRESULT too. Every exception keeps its HRESULT, type and message, not only `COMException`; a failed QI is recorded as `InvalidCastException`, whose HRESULT is always `0x80004002` (not the QI's own), with its message. `Run` is timed with `Stopwatch` timestamps, so a callback row gives ms after `Run` returned and after it started, and whether it came on the picker's STA thread.
+  - **The callback's calls are kept apart from the callback object** (`FilingCalls`, which holds no reference to the recorder), so F7 can drop the recorder (a `WeakReference` records whether it was collected; OneNote's COM reference should keep the CCW alive) and still see a late call. The recorder's signal completes with `RunContinuationsAsynchronously`, so no probe code runs on OneNote's calling thread.
+  - **Waits.** A step waits up to 180 s for Phill's pick or cancel after a `Run` that returned ok, 3 s otherwise. F6's bounded wait is 10 s. F7 and F8 wait 3 s after `Run` before dropping the reference or disposing the side gateway.
+  - **Pauses.** A watch pause says what Phill will see and what to do in the picker. Every report pause also asks him to cancel any picker still open, and F5 asks between its two pickers when no callback came, so no step ends with a picker on screen without a pause asking him to close it. F6, F7 and F8 tell him when to pick with a pause of their own.
+  - **F/V while a picker is open.** `PickerViewAsync` reads the foreground process label first, natively, then `ViewAsync`. A failed hierarchy read (perhaps `0x80042030`) is kept in the row and rowed for H instead of ending the step; a blocked read still stops the scenario.
+  - **F4.** The probe page is `probe filing page` in MCP Test > Probes, found by title or created once through the guard (it stays for reruns; a row says whether this run created it). The write is a partial `UpdatePageContent` adding one outline with the text `probe filing marker <stamp>`, through 5.1's guard (`TryWriteAsync`) with the page's own date, plus a live check (read just before the picker opens, so it isn't itself one of F4's measured reads) that the target is a page titled `probe filing page`, outside the recycle bin, directly in the section named Probes directly in MCP Test; cleanup's delete repeats that check before each delete. Note that the guard makes two `GetHierarchy` reads before the write, so a failure while the picker is open may be the guard's read rather than the write. The row doesn't separate them (unverified whether its message does), so read it beside F4's own `GetHierarchy` row. Whether the write applied is read once both pickers are closed.
+  - **F7** calls `Marshal.FinalReleaseComObject` on the dialog on the STA thread that obtained it, drops the recorder, then forces `GC.Collect`, `WaitForPendingFinalizers`, `GC.Collect`. **F8** runs the picker on a `CreateSideGateway(60)` gateway and disposes it while the picker is open; `ComGateway.Dispose` returns at once when already disposed (checked, `ComGateway.cs` `Dispose`), so the session's second dispose is safe. `StaThread.Dispose` joins for at most 5 s and ignores the result, and the gateway doesn't expose its worker to the test assembly, so the F8 row says the thread's end is `confirmed` only when the dispose took under 5 s, else `unconfirmed`. The dialog RCW of a disposed gateway is dropped, never released from another thread. F6, F7 and F8 each end with one session-gateway `GetHierarchy` (no retry) to see whether OneNote still answers.
+  - **Selected IDs in rows** are named from sections-scope reads of MCP Test and MCP Test Cloud: the kind and path inside a test notebook, else `other` (no ID logged), or `none`.
+  - **`cleanup`** asks Phill to cancel any picker still open and to confirm none is, waits 3 s, releases every dialog the run still holds (one row each, with its callback count), then deletes every outline on the probe page holding the marker text (so a rerun of `cleanup` alone finds it) and records whether the page's hash matches the one read before F4.
+  - **For the findings doc's Left behind:** the probe page `probe filing page` in MCP Test > Probes (kept on purpose), and any picker Phill couldn't close.
+
 ## Plan Change Log
 
 - 2026-11-17: the two open questions were answered overnight with the recommendation (Decisions above), per Phill's standing overnight rule; status `ready-for-dev`, then `in-progress` for the build. Phill reviews in the morning.
 
 ## Review Triage Log
+
+- 2026-11-17, pass 1 (lens `quick`; 8 findings): high 0, medium 3, low 4, false 0, maybe-false 0, plus 1 low rejected. 7 patched, 0 deferred. After the patches: build 0 warnings; `OneNoteMcp.Tests` 2965 passed; `OneNoteMcp.Integration` 410 passed, 96 skipped (no integration variables).
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---|---|---|---|
+| 1 | A run whose `QuickFiling()` or QI failed rowed the gateway's ok, so F4's second picker (and other runs) could miss H | medium | patch | `RunCall` was null and the row fell back to `run.Invoke`. Now the first failed call's attempt |
+| 2 | F3's `ParentWindowHandle` setter result was never rowed | medium | patch | Only `bind-pick` rowed steps. F3 now rows every step, other runs each failed one |
+| 3 | The QI catch recorded `InvalidCastException.HResult` (always `0x80004002`) as if it were the QI's | low | patch | Comment corrected; the exception message is kept |
+| 4 | Only `COMException` kept its HRESULT; E_INVALIDARG and similar lost theirs | low | patch | Every exception now keeps `HResult`, type and message, in `PickerCall` and `FilingRecorder.Read` |
+| 5 | Callback getter failures never reached the HRESULT summary | low | patch | They sat in row detail with `attempt: null`. Each now gets its own row with an attempt |
+| 6 | `OnDialogClosed`'s getters are unbounded COM calls, so "returns without blocking whatever the getters do" isn't guaranteed | low | reject | They are the same reads OneMore makes in its callback (`OneNote.cs:2231`); a bound would need another thread inside OneNote's call, more than a direct fix, for a hang not seen |
+| 7 | `IsProbePage` compared the page ID with itself, so the Probes-only write check did nothing | medium | patch | Both call sites passed `f.PageId`. Now a live read: title, not in the recycle bin, directly in MCP Test > Probes; before F4 and before each cleanup delete |
+| 8 | F8 assumed the side STA thread ended; `StaThread.Dispose` ignores its 5 s join result | low | patch | The row records the dispose time and `staThreadEnded` `confirmed` (under 5 s, no error) or `unconfirmed` |
 
 ## Design Notes
 

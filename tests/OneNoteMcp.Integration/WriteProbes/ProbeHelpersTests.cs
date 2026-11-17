@@ -1051,4 +1051,246 @@ public sealed class ProbeHelpersTests
         Assert.Equal("{BP}", NavProbe.Pick(tree, "Seed", null)!.B.PageId); // the first other section
         Assert.Null(NavProbe.Pick(tree, "Missing", null));
     }
+
+    // --- Spike 4.13: the quick filing picker ---------------------------------------------------------------------------
+
+    [Fact]
+    public void ProbeQuickFilingInterop_SlotOrderMatchesTheTypeLibrary()
+    {
+        static string[] Declared(Type t) =>
+            [.. t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
+                .OrderBy(m => m.MetadataToken).Select(m => m.Name)];
+
+        // IQuickFilingDialog slots 7-29.
+        Assert.Equal(
+            [
+                "get_Title", "set_Title", "get_Description", "set_Description",
+                "GetCheckboxTextPlaceholder", "SetCheckboxTextPlaceholder", "GetCheckboxStatePlaceholder", "SetCheckboxStatePlaceholder",
+                "get_WindowHandle", "get_TreeDepth", "set_TreeDepth", "get_ParentWindowHandle", "set_ParentWindowHandle",
+                "GetPositionPlaceholder", "SetPositionPlaceholder", "SetRecentResultsPlaceholder", "AddButton", "Run",
+                "get_SelectedItem", "get_PressedButton",
+                "SetTreeCollapsedStatePlaceholder", "SetNotebookFilterOutPlaceholder", "AddInitialEditorPlaceholder",
+            ],
+            Declared(typeof(IProbeQuickFilingDialog)));
+
+        // IQuickFilingDialogCallback slot 7.
+        Assert.Equal(["OnDialogClosed"], Declared(typeof(IProbeQuickFilingDialogCallback)));
+        Assert.Equal([0, 1, 2, 4, 8], Enum.GetValues<ProbeHierarchyElement>().Select(e => (int)e));
+    }
+
+    [Fact]
+    public void ProbeQuickFilingInterop_IsDualComImport_WithTheTypeLibraryIids_AndUncallablePlaceholders()
+    {
+        foreach (var (type, iid) in new[] { (typeof(IProbeQuickFilingDialog), "1D12BD3F-89B6-4077-AA2C-C9DC2BCA42F9"), (typeof(IProbeQuickFilingDialogCallback), "627EA7B4-95B5-4980-84C1-9D20DA4460B1") })
+        {
+            Assert.True(type.IsImport);
+            Assert.True(type.IsPublic); // a CCW answers QI only for public interfaces (see the next tests)
+            Assert.Equal(new Guid(iid), type.GUID);
+            Assert.Equal(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsDual, ((System.Runtime.InteropServices.InterfaceTypeAttribute)Attribute.GetCustomAttribute(type, typeof(System.Runtime.InteropServices.InterfaceTypeAttribute))!).Value);
+        }
+
+        var methods = typeof(IProbeQuickFilingDialog).GetMethods();
+        var placeholders = methods.Where(m => m.Name.Contains("Placeholder", StringComparison.Ordinal)).ToList();
+        Assert.Equal(10, placeholders.Count);
+        Assert.All(placeholders, m => Assert.True(((ObsoleteAttribute?)Attribute.GetCustomAttribute(m, typeof(ObsoleteAttribute)))?.IsError, m.Name));
+
+        // Callable: the five setters the plan allows, getters, AddButton and Run. Nothing else.
+        var callable = methods.Where(m => Attribute.GetCustomAttribute(m, typeof(ObsoleteAttribute)) is null).Select(m => m.Name).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(
+            ["AddButton", "Run", "get_Description", "get_ParentWindowHandle", "get_PressedButton", "get_SelectedItem", "get_Title", "get_TreeDepth", "get_WindowHandle", "set_Description", "set_ParentWindowHandle", "set_Title", "set_TreeDepth"],
+            callable);
+    }
+
+    [Fact]
+    public async Task FilingRecorder_RecordsAndSignals()
+    {
+        var calls = new FilingCalls();
+        var recorder = new FilingRecorder(calls);
+        var dialog = FakeFilingDialog.Create(name => name switch
+        {
+            "get_SelectedItem" => "{S}{1}{B0}",
+            "get_PressedButton" => 1u,
+            _ => null,
+        });
+
+        Assert.False(calls.First.IsCompleted);
+        recorder.OnDialogClosed(dialog);
+
+        Assert.True(calls.First.IsCompletedSuccessfully);
+        var call = Assert.Single(calls.All);
+        Assert.Same(call, await calls.First);
+        Assert.Equal(1, call.Sequence);
+        Assert.Equal(Environment.CurrentManagedThreadId, call.ThreadId);
+        Assert.Equal(Thread.CurrentThread.GetApartmentState().ToString(), call.Apartment);
+        Assert.False(call.DialogNull);
+        Assert.Equal(ProbeValue.Ok("{S}{1}{B0}"), call.SelectedItem);
+        Assert.Equal(ProbeValue.Ok(1u), call.PressedButton);
+
+        // A second call is recorded too; the first stays the signal.
+        recorder.OnDialogClosed(dialog);
+        Assert.Equal([1, 2], calls.All.Select(c => c.Sequence));
+        Assert.Same(call, await calls.First);
+    }
+
+    [Fact]
+    public void FilingRecorder_AThrowingGetterIsRecorded_NotRethrown()
+    {
+        var calls = new FilingCalls();
+        var recorder = new FilingRecorder(calls);
+        var dialog = FakeFilingDialog.Create(name => name switch
+        {
+            "get_SelectedItem" => throw new System.Runtime.InteropServices.COMException("modal", unchecked((int)0x80042030)),
+            "get_PressedButton" => throw new InvalidOperationException("not COM"),
+            _ => null,
+        });
+
+        var ex = Record.Exception(() => recorder.OnDialogClosed(dialog));
+
+        Assert.Null(ex);
+        var call = Assert.Single(calls.All);
+        Assert.Null(call.SelectedItem.Value);
+        Assert.StartsWith("0x80042030", call.SelectedItem.HResult, StringComparison.Ordinal);
+        Assert.Equal(new ProbeValue(null, "0x80131509 " + nameof(InvalidOperationException)), call.PressedButton);
+
+        // Both failures become attempts for H.
+        Assert.Equal("0x80042030", FilingProbe.AttemptOf(call.SelectedItem)!.HResult);
+        Assert.Equal("0x80131509", FilingProbe.AttemptOf(call.PressedButton)!.HResult);
+        Assert.Null(FilingProbe.AttemptOf(ProbeValue.Ok("x")));
+    }
+
+    [Fact]
+    public void FilingRecorder_ANullDialogIsRecorded_NotRethrown()
+    {
+        var calls = new FilingCalls();
+
+        new FilingRecorder(calls).OnDialogClosed(null!);
+
+        var call = Assert.Single(calls.All);
+        Assert.True(call.DialogNull);
+        Assert.Equal(ProbeValue.None, call.SelectedItem);
+    }
+
+    [Fact]
+    public void FilingRecorder_IsExposedToComThroughTheCallbackInterface()
+    {
+        // In-process only (a CCW of our own object, no OneNote): OneNote can QI the callback for its IID and IDispatch.
+        var recorder = new FilingRecorder(new FilingCalls());
+        var unknown = System.Runtime.InteropServices.Marshal.GetIUnknownForObject(recorder);
+        try
+        {
+            foreach (var iid in new[] { typeof(IProbeQuickFilingDialogCallback).GUID, new Guid("00020400-0000-0000-C000-000000000046") })
+            {
+                var hr = System.Runtime.InteropServices.Marshal.QueryInterface(unknown, iid, out var pointer);
+                Assert.Equal(0, hr);
+                System.Runtime.InteropServices.Marshal.Release(pointer);
+            }
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.Release(unknown);
+        }
+    }
+
+    [Fact]
+    public async Task WaitForPick_ReturnsOnTheCallback_OrAfterTheLimit()
+    {
+        var calls = new FilingCalls();
+        var none = await ProbeSession.WaitForPickAsync(calls, TimeSpan.FromMilliseconds(50));
+        Assert.False(none.Arrived);
+        Assert.Equal(50, none.LimitMs);
+        Assert.Equal(0, none.CallsSoFar);
+
+        new FilingRecorder(calls).OnDialogClosed(FakeFilingDialog.Create(_ => null));
+        var arrived = await ProbeSession.WaitForPickAsync(calls, TimeSpan.FromSeconds(30));
+        Assert.True(arrived.Arrived);
+        Assert.Equal(1, arrived.CallsSoFar);
+        Assert.True(arrived.WaitedMs < 30_000);
+    }
+
+    [Fact]
+    public void PickerCall_KeepsTheHResultOrTheExceptionType_AndNamesComObjectsByType()
+    {
+        var com = PickerCall.Do("Run", () => throw new System.Runtime.InteropServices.COMException("modal", unchecked((int)0x80042030)));
+        Assert.Equal(unchecked((int)0x80042030), com.HResult);
+        Assert.False(com.Ok);
+        var attempt = com.ToAttempt();
+        Assert.Equal(("error", "0x80042030"), (attempt.Outcome, attempt.HResult));
+
+        // A non-COM exception keeps its HRESULT, type and message (E_INVALIDARG arrives as ArgumentException).
+        var arg = PickerCall.Get<object>("put_TreeDepth", () => throw new ArgumentException("bad"));
+        Assert.Equal((unchecked((int)0x80070057), nameof(ArgumentException), "bad"), (arg.HResult, arg.Error, arg.Message));
+        Assert.Equal(("error", "0x80070057", nameof(ArgumentException), "bad"), (arg.ToAttempt().Outcome, arg.ToAttempt().HResult, arg.ToAttempt().Code, arg.ToAttempt().Message));
+
+        Assert.Equal(42ul, PickerCall.Get("get_WindowHandle", () => 42ul).Value);
+        Assert.Equal(nameof(Object), PickerCall.Get("QuickFiling", () => new object()).Value);
+        Assert.Equal("ok", PickerCall.Do("put_Title", () => { }).ToAttempt().Outcome);
+    }
+
+    [Fact]
+    public void FilingTarget_NamesTestNotebookIds_AndHidesTheRest()
+    {
+        var tree = XElement.Parse($$"""
+            <one:Notebook xmlns:one="{{Ns}}" name="MCP Test" ID="{T}">
+              <one:Section name="Probes" ID="{P}" />
+              <one:SectionGroup name="Group" ID="{G}"><one:Section name="Inner" ID="{I}" /></one:SectionGroup>
+            </one:Notebook>
+            """);
+
+        Assert.Equal(new FilingTarget("Section", "MCP Test > Probes", "{P}"), FilingProbe.Target("{P}", [tree]));
+        Assert.Equal(new FilingTarget("Section", "MCP Test > Group > Inner", "{I}"), FilingProbe.Target("{I}", [tree]));
+        Assert.Equal(new FilingTarget("Notebook", "MCP Test", "{T}"), FilingProbe.Target("{T}", [tree]));
+        Assert.Equal(new FilingTarget("other", null, null), FilingProbe.Target("{ELSEWHERE}", [tree]));
+        Assert.Equal(new FilingTarget("none", null, null), FilingProbe.Target("", [tree]));
+        Assert.Equal(new FilingTarget("none", null, null), FilingProbe.Target(null, [tree]));
+    }
+
+    [Fact]
+    public void FilingProbes_StepsToRow_AllForModal_FailedOnlyElsewhere_NoneForBindPick()
+    {
+        PickerCall[] steps = [new("QuickFiling", null, null, 1), new("put_ParentWindowHandle", unchecked((int)0x80070057), "ArgumentException", 1), new("Run", null, null, 1)];
+
+        Assert.Equal(["QuickFiling", "put_ParentWindowHandle"], FilingProbes.StepsToRow("modal", steps).Select(c => c.Method));
+        Assert.Equal(["put_ParentWindowHandle"], FilingProbes.StepsToRow("late", steps).Select(c => c.Method));
+        Assert.Empty(FilingProbes.StepsToRow("bind-pick", steps));
+    }
+
+    [Fact]
+    public void FilingProbe_Ms_IsNullWithoutBothTimestamps()
+    {
+        Assert.Equal(1000, FilingProbe.Ms(0, System.Diagnostics.Stopwatch.Frequency));
+        Assert.Null(FilingProbe.Ms(null, 5));
+        Assert.Null(FilingProbe.Ms(5, null));
+    }
+
+    [Fact]
+    public void FilingProbes_DropRecorder_LeavesOnlyAWeakReference()
+    {
+        var run = new PickerRun("release", null!);
+        run.Recorder = new FilingRecorder(run.Calls);
+
+        var weak = FilingProbes.DropRecorder(run);
+
+        Assert.Null(run.Recorder);
+        Assert.NotNull(run.Calls); // the calls outlive the callback object
+        Assert.IsType<WeakReference>(weak);
+    }
+}
+
+/// <summary>Spike 4.13: a stand-in <c>IQuickFilingDialog</c> whose members answer through a handler (no COM).</summary>
+public class FakeFilingDialog : System.Reflection.DispatchProxy
+{
+    private Func<string, object?> handler = _ => null;
+
+    internal static IProbeQuickFilingDialog Create(Func<string, object?> handler)
+    {
+        var dialog = Create<IProbeQuickFilingDialog, FakeFilingDialog>();
+        ((FakeFilingDialog)(object)dialog).handler = handler;
+        return dialog;
+    }
+
+    protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
+    {
+        ArgumentNullException.ThrowIfNull(targetMethod);
+        return handler(targetMethod.Name);
+    }
 }
