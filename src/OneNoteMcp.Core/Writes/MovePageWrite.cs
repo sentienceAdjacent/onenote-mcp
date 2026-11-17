@@ -180,6 +180,23 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         var section = await walk.OwningSectionAsync(PageId, ct).ConfigureAwait(false)
             ?? throw await NotAPageAsync(ct).ConfigureAwait(false);
 
+        // Phill, 2026-11-17 (3.14 Fable review): with a position, a locked target, then a protected target's read grant,
+        // before any write grant, so the user is never shown the write-grant dialog for a move that will be refused.
+        if (position is not null)
+        {
+            var targetSelf = await services.Gateway.GetHierarchyAsync(TargetId, HierarchyScope.Self, ct).ConfigureAwait(false);
+            var target = XmlReads.Readable(() => HierarchyTarget.Read(targetSelf), "GetHierarchy");
+            if (target.Kind == HierarchyKind.Section)
+            {
+                if (target.Locked)
+                {
+                    throw new OneNoteException(ErrorCode.SectionLocked, $"Section {TargetId} is locked, so page {PageId} wasn't moved.");
+                }
+
+                CheckPositionReadGrant(target);
+            }
+        }
+
         // AD-6: both notebooks' write grants, the page's first; the pipeline asks once per notebook (3.4 Q3).
         pageNotebook = await services.WriteAccess.CheckAsync(section.Id, () => PageNotFound("isn't inside a notebook"), ct).ConfigureAwait(false);
         targetNotebook = await services.WriteAccess.CheckContainerAsync(TargetId, () => BadTarget("isn't inside a notebook"), ct).ConfigureAwait(false);
@@ -372,13 +389,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         // 3.4 security review (Phill, 2026-11-17): a position's refusals would show a protected section's page count and where
         // its subpages sit, and a move into one needs only the write grant, so without a read grant held at the call's start
         // only a missing position (last) is accepted (AD-21).
-        if (position is not null && target.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(target.Path), callStart))
-        {
-            throw new OneNoteException(
-                ErrorCode.ReadNotGranted,
-                $"Section {TargetId} is password-protected, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was moved.",
-                userAction: ProtectedPositionUserAction);
-        }
+        CheckPositionReadGrant(target);
 
         // 3.4 Q2: 1-based among the target's live pages, before the page now there, which must be top-level; omitted, last.
         // No message carries the page count (3.4 security review).
@@ -410,6 +421,21 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         }
 
         return new Plan(source, target, page, at - 1, xml);
+    }
+
+    /// <summary>
+    /// A <c>position</c> in a password-protected target needs its read grant held at the call's start, never prompted for
+    /// (3.4 security review). Step 1 checks it before the write grants (Phill, 2026-11-17), step 4 again under the lock.
+    /// </summary>
+    private void CheckPositionReadGrant(HierarchyTarget target)
+    {
+        if (position is not null && target.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(target.Path), callStart))
+        {
+            throw new OneNoteException(
+                ErrorCode.ReadNotGranted,
+                $"Section {TargetId} is password-protected, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was moved.",
+                userAction: ProtectedPositionUserAction);
+        }
     }
 
     /// <summary>Step 3's compare (AD-7): <paramref name="path"/>'s key must be the one step 1 granted.</summary>

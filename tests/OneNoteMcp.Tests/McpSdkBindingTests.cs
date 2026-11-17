@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(25, actual.Count);
+        Assert.Equal(26, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -169,7 +169,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
 
         var error = AssertInvalidArgument(result);
         Assert.Equal(
-            "create_page is missing the required argument \"sectionId\" (a string). create_page doesn't declare the argument \"section_id\". Its arguments are: sectionId, style.",
+            "create_page is missing the required argument \"sectionId\" (a string). create_page doesn't declare the argument \"section_id\". Its arguments are: sectionId, style, parentPageId.",
             error.GetProperty("message").GetString());
         Assert.False(error.TryGetProperty("outcomeUnknown", out _));
         Assert.Empty(gateway.CreateCalls);
@@ -277,7 +277,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(25, tools.Count);
+        Assert.Equal(26, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -319,7 +319,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
 
         var error = AssertInvalidArgument(result);
         Assert.Equal(
-            "create_page doesn't declare the argument \"Style\". Its arguments are: sectionId, style.",
+            "create_page doesn't declare the argument \"Style\". Its arguments are: sectionId, style, parentPageId.",
             error.GetProperty("message").GetString());
         Assert.False(error.TryGetProperty("outcomeUnknown", out _));
         Assert.Empty(gateway.CreateCalls);
@@ -361,9 +361,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllTwentyFiveTools()
+    public void SnapshotToolNames_AreAllTwentySixTools()
     {
-        Assert.Equal(25, SnapshotToolNames().Count);
+        Assert.Equal(26, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -375,10 +375,10 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var required in schema["required"]?.AsArray().Select(n => n!.GetValue<string>()) ?? [])
         {
-            // A string, or reorder_hierarchy_children's childIds, an array of strings (story 5.4).
+            // A string, reorder_hierarchy_children's childIds, an array of strings (story 5.4), or set_page_level's level, an integer (story 3.14).
             var type = schema["properties"]![required]!["type"]!.GetValue<string>();
-            Assert.Contains(type, new[] { "string", "array" });
-            arguments[required] = type == "array" ? new[] { "x" } : (name, required) == ("get_special_location", "location") ? "backUpFolder" : "x";
+            Assert.Contains(type, new[] { "string", "array", "integer" });
+            arguments[required] = type == "array" ? new[] { "x" } : type == "integer" ? 1 : (name, required) == ("get_special_location", "location") ? "backUpFolder" : "x";
         }
 
         arguments["bogusArgument"] = true;
@@ -434,9 +434,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 60 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4).
-        Assert.Equal(24, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(60, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 64 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14).
+        Assert.Equal(25, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(64, SnapshotToolProperties().Count);
     }
 
     [Theory]
@@ -524,9 +524,10 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         foreach (var required in schema["required"]?.AsArray().Select(n => n!.GetValue<string>()) ?? [])
         {
             var property = schema["properties"]![required]!;
-            arguments[required] = property["type"]?.GetValueKind() == JsonValueKind.String && property["type"]!.GetValue<string>() == "array"
+            var type = property["type"]?.GetValueKind() == JsonValueKind.String ? property["type"]!.GetValue<string>() : null;
+            arguments[required] = type == "array"
                 ? new[] { "x" }
-                : property["enum"]?.AsArray()[0]!.GetValue<string>() ?? "x";
+                : type == "integer" ? 1 : property["enum"]?.AsArray()[0]!.GetValue<string>() ?? "x";
         }
 
         return arguments;

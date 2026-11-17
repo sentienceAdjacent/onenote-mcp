@@ -33,8 +33,9 @@ public sealed record HierarchyWriteResult(IReadOnlyList<ToolWarning> Warnings);
 /// <item value="8">Between 7 and 8, the read-back: the node re-read and compared with what was sent. Differences are
 /// <c>readBackDiffers</c>, a failed re-read <c>readBackFailed</c>; neither fails the write.</item>
 /// </list>
-/// Messages carry IDs and counts only, never a name (AD-9), and in a password-protected section with no read grant at the
-/// call's start, never a page ID (AD-7, AD-21).
+/// Messages carry IDs and counts only, never a name (AD-9). A reorder of a password-protected section's pages with no read
+/// grant at the call's start is refused before any list check (backlog 7), so no message names one of its pages or counts
+/// them (AD-7, AD-21).
 /// </summary>
 [SupportedOSPlatform("windows")]
 public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
@@ -82,7 +83,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
     /// <summary>The node this write changes: the renamed node, or the reordered parent (<c>meta.objectId</c>).</summary>
     public string TargetId { get; }
 
-    /// <summary>When the call started, for the read-grant check that decides what messages may name (AD-7).</summary>
+    /// <summary>When the call started, for the read-grant checks that must hold a grant at that moment (AD-7, AD-21).</summary>
     protected DateTimeOffset CallStart { get; }
 
     /// <summary>Step 3's read of the node.</summary>
@@ -412,13 +413,48 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
     /// The refusal for a rename of <paramref name="node"/> to <paramref name="newName"/> that would move a section (the
     /// node itself, or one of <paramref name="below"/> under a section group) onto a location whose key holds a stored
     /// read grant or a live <c>once</c> window, which the section would then inherit (AD-21: a grant follows its path,
-    /// and our own write must not re-bind one). A section staying at its own key (a case-only rename) never counts.
+    /// and our own write must not re-bind one). Keys match by <see cref="GrantKeys.SameLocation"/>, percent-encoded or not,
+    /// as a move's do (backlog 8). A section staying at its own key never counts, and that comparison is on the raw keys,
+    /// ignoring case (Phill, 2026-11-17): a decoded one would let a local rename onto a literal <c>%20</c> name skip the
+    /// check. A name alone never decides it either, since a section's name can differ from its file's leaf
+    /// (<c>Ideas (2).one</c>; security review). The one other skip is <see cref="CaseOnlyInTheCloud"/>.
     /// When the server can't tell where a section would go, <paramref name="strict"/> refuses with
     /// <see cref="ErrorCode.NotSupported"/>; otherwise that is left to the strict check. Messages carry IDs and counts
     /// only, never a name or path (AD-21).
     /// </summary>
+    /// <summary>
+    /// True for a case-only rename of a node in a cloud notebook whose stored path is percent-encoded: the path's leaf,
+    /// URL-decoded (without <c>.one</c> for a section), equals the node's name and the new name, both ignoring case. On a
+    /// URL the encoded and decoded leaf are one location, so the rename moves nothing. Local paths never take this skip:
+    /// there a literal <c>%20</c> names another file.
+    /// </summary>
+    private static bool CaseOnlyInTheCloud(HierarchyTarget node, string newName)
+    {
+        if (!CloudNotebookCreate.IsUrl(node.Path))
+        {
+            return false;
+        }
+
+        var path = node.Path.TrimEnd('/', '\\');
+        var leaf = path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
+        if (node.Kind == HierarchyKind.Section && leaf.EndsWith(".one", StringComparison.OrdinalIgnoreCase))
+        {
+            leaf = leaf[..^4];
+        }
+
+        var decoded = Uri.UnescapeDataString(leaf);
+        return decoded.Length > 0
+            && string.Equals(decoded, node.Name, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(decoded, newName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private OneNoteException? GrantLocationRefusal(HierarchyTarget node, IReadOnlyList<string> below, string newName, bool strict)
     {
+        if (CaseOnlyInTheCloud(node, newName))
+        {
+            return null;
+        }
+
         IReadOnlyList<(string Before, string After)>? moved = node.Kind switch
         {
             HierarchyKind.Section => RenamedLocations.Section(node.Path, newName) is { } after ? [(node.Path, after)] : null,
@@ -439,7 +475,7 @@ public sealed class RenameHierarchyWrite(HierarchyWriteServices services, string
         var now = Services.ReadAccess.Now();
         var taken = moved.Count(m =>
             !GrantKeys.Comparer.Equals(GrantKeys.SectionKey(m.Before), GrantKeys.SectionKey(m.After))
-            && Services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(m.After), now));
+            && Services.ReadAccess.HoldsReadGrantAtLocation(GrantKeys.SectionKey(m.After), now));
         if (taken == 0)
         {
             return null;
@@ -560,9 +596,16 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
     public const string ListUserAction =
         "Read the parent with get_hierarchy (scope children) and pass the ID of every child it shows exactly once, in the new order: sections before section groups, and each page followed by its own subpages. Leave out the recycle bin. Moving something to another parent isn't supported here: ask the user to do it in OneNote.";
 
+    /// <summary>
+    /// What to do when a password-protected section's pages are reordered without a read grant held at the call's start
+    /// (backlog 7, Phill 2026-11-17): the list checks would show the section's page count and page IDs.
+    /// </summary>
+    public const string ProtectedReorderUserAction =
+        "Reordering a password-protected section's pages needs a read grant for that section, held when the call starts. Ask the user whether to grant it: reading the section with get_hierarchy (scope children) shows the grant dialog in a client that supports it, or they can run the grant command with --read-section. Then re-read the section and retry. Never run the grant command yourself.";
+
     private readonly IReadOnlyList<string> childIds = childIds ?? [];
     private IReadOnlyList<HierarchyMember> ordered = [];
-    private bool namesIds = true;
+    private bool readGranted = true;
 
     protected override string Done => "reordered";
 
@@ -585,7 +628,7 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
             throw Invalid(string.Create(CultureInfo.InvariantCulture, $"childIds holds {empty} empty ID(s), so nothing was reordered."), ListUserAction);
         }
 
-        // Counts only: the section's read grant isn't known yet (AD-7, AD-21).
+        // Counts only, of the caller's own list: the section's read grant isn't known yet (AD-7, AD-21).
         var duplicates = childIds.Count - childIds.Distinct(StringComparer.Ordinal).Count();
         if (duplicates > 0)
         {
@@ -597,11 +640,12 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
 
     protected override Task ReadMoreAsync(string xml, CancellationToken ct)
     {
-        // A protected section's pages: with no read grant at the call's start, messages carry counts only (AD-7, AD-21).
+        // A protected section's pages: with no read grant held at the call's start, step 4 refuses the reorder (backlog 7;
+        // AD-7, AD-21). Never asks and never stores.
         if (Target.Kind == HierarchyKind.Section)
         {
             var section = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
-            namesIds = Services.ReadAccess.HoldsReadGrant(section, CallStart);
+            readGranted = Services.ReadAccess.HoldsReadGrant(section, CallStart);
         }
 
         return Task.CompletedTask;
@@ -613,6 +657,18 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
     protected override string? ValidateChange()
     {
         var node = Target;
+
+        // Backlog 7 (Phill, 2026-11-17, superseding 5.2 Fable N6's counts-only rule): every list check below would show a
+        // protected section's page IDs or page count, so without a read grant held at the call's start the reorder is
+        // refused first, after the shared recycle-bin, kind and locked checks, as 3.4 refuses a move's position.
+        if (node.Kind == HierarchyKind.Section && !readGranted)
+        {
+            throw new OneNoteException(
+                ErrorCode.ReadNotGranted,
+                $"Section {TargetId} is password-protected, and reordering its pages needs a read grant for it held when the call starts, so nothing was reordered.",
+                userAction: ProtectedReorderUserAction);
+        }
+
         var live = node.Children.ToDictionary(c => c.Id, StringComparer.Ordinal);
         var foreign = childIds.Where(id => !live.ContainsKey(id)).ToList();
         var missing = node.Children.Select(c => c.Id).Where(id => !childIds.Contains(id, StringComparer.Ordinal)).ToList();
@@ -621,16 +677,12 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
             var parts = new List<string>();
             if (foreign.Count > 0)
             {
-                parts.Add(namesIds
-                    ? $"{IdList(foreign)} {(foreign.Count == 1 ? "isn't a live child" : "aren't live children")} of {TargetId}"
-                    : string.Create(CultureInfo.InvariantCulture, $"{foreign.Count} ID(s) aren't live children of {TargetId}"));
+                parts.Add($"{IdList(foreign)} {(foreign.Count == 1 ? "isn't a live child" : "aren't live children")} of {TargetId}");
             }
 
             if (missing.Count > 0)
             {
-                parts.Add(namesIds
-                    ? $"{IdList(missing)} {(missing.Count == 1 ? "is a child" : "are children")} of {TargetId} missing from childIds"
-                    : string.Create(CultureInfo.InvariantCulture, $"{missing.Count} child(ren) of {TargetId} are missing from childIds"));
+                parts.Add($"{IdList(missing)} {(missing.Count == 1 ? "is a child" : "are children")} of {TargetId} missing from childIds");
             }
 
             throw Invalid($"childIds must list every live child of {TargetId} exactly once: {string.Join("; ", parts)}. Nothing was reordered.", ListUserAction);
@@ -672,9 +724,7 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
         }
 
         throw Invalid(
-            namesIds
-                ? $"In section {TargetId}, {IdList(moved)} would no longer follow {(moved.Count == 1 ? "its" : "their")} own parent page, so nothing was reordered: a page moves with its subpages, and a subpage stays under its parent."
-                : string.Create(CultureInfo.InvariantCulture, $"In section {TargetId}, {moved.Count} page(s) would no longer follow their own parent page, so nothing was reordered: a page moves with its subpages, and a subpage stays under its parent."),
+            $"In section {TargetId}, {IdList(moved)} would no longer follow {(moved.Count == 1 ? "its" : "their")} own parent page, so nothing was reordered: a page moves with its subpages, and a subpage stays under its parent.",
             ListUserAction);
     }
 

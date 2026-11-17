@@ -54,6 +54,7 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     private const string P3 = "{A1000000-0000-4000-8000-000000000001}{1}{E31}";
     private const string V1 = "{A2000000-0000-4000-8000-000000000001}{1}{E11}";
     private const string V2 = "{A2000000-0000-4000-8000-000000000001}{1}{E21}";
+    private const string V3 = "{A2000000-0000-4000-8000-000000000001}{1}{E12}";
 
     private const string CloudId = "{B0000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string CloudPath = "https://d.docs.live.net/0123abcd/Cloud/";
@@ -109,6 +110,7 @@ public sealed class UpdateHierarchyToolTests : IDisposable
 
         Parent(V1, VaultId);
         Parent(V2, VaultId);
+        Parent(V3, VaultId);
         Parent(CloudId, string.Empty);
         Parent(CloudSectionId, CloudId);
         Parent(CloudGroupId, CloudId);
@@ -151,7 +153,7 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         Children(DeletedPagesId, $"<one:Section {Ns} {deleted} />");
         Children(LockedId, $"<one:Section {Ns} {locked} />");
         Children(IdeasId, $"<one:Section {Ns} {ideas}>{Page(P1, 1)}{Page(P1a, 2)}{Page(P1b, 2)}{Page(P2, 1)}{Page(P2a, 2)}{Page(P3, 1)}</one:Section>");
-        Children(VaultId, $"<one:Section {Ns} {vault}>{Page(V1, 1)}{Page(V2, 1)}</one:Section>");
+        Children(VaultId, $"<one:Section {Ns} {vault}>{Page(V1, 1)}{Page(V3, 2)}{Page(V2, 1)}</one:Section>");
         Children(P1, $"<one:Page {Ns} ID=\"{P1}\" name=\"P1\" pageLevel=\"1\" />");
 
         const string cloud = $"name=\"Cloud\" ID=\"{CloudId}\" path=\"{CloudPath}\" lastModifiedTime=\"{Lmt}\"";
@@ -569,6 +571,113 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         Assert.Empty(EntryFiles());
     }
 
+    // Backlog 8: a cloud key may spell a space as %20 or not, so a grant matches the new location either way
+    // (GrantKeys.SameLocation, as a move checks it).
+    [Fact]
+    public async Task RenameACloudSection_OntoAPercentEncodedGrantKey_IsInvalidArgument_BeforeCom()
+    {
+        Grant(CloudPath, CloudId);
+        ReadGrantAt($"{CloudPath}New%20Name.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "New Name", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task RenameACloudSection_InAPercentEncodedFolder_OntoADecodedGrantKey_IsInvalidArgument_BeforeCom()
+    {
+        Grant(CloudPath, CloudId);
+        Self(CloudSectionId, $"<one:Section {Ns} name=\"Web\" ID=\"{CloudSectionId}\" path=\"https://d.docs.live.net/0123abcd/My%20Cloud/Web.one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt("https://d.docs.live.net/0123abcd/My Cloud/New.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "New", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
+    [Fact]
+    public async Task RenameACloudSectionGroup_WhenASectionInsideWouldTakeOverAPercentEncodedGrant_IsInvalidArgument_BeforeTheOneDriveRefusal()
+    {
+        Grant(CloudPath, CloudId);
+        Sections(CloudGroupId, $"<one:SectionGroup {Ns} name=\"Shared\" ID=\"{CloudGroupId}\" path=\"{CloudPath}Shared\" lastModifiedTime=\"{Lmt}\"><one:Section name=\"Web Notes\" ID=\"{GoneId}\" path=\"{CloudPath}Shared/Web Notes.one\" /></one:SectionGroup>");
+        ReadGrantAt($"{CloudPath}Team%20Room/Web%20Notes.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudGroupId, "Team Room", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("1 section", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds); // refused in step 1, before the lock
+    }
+
+    [Fact]
+    public async Task RenameACloudSection_InAPercentEncodedPath_ItsOwnGrant_NeverBlocksACaseOnlyRename()
+    {
+        // The new key is built from the name sent ("my notes"), so it differs from the stored, encoded one; the rename is
+        // still case-only, so the section stays where it is and keeps nothing that isn't its own.
+        Grant(CloudPath, CloudId);
+        Self(CloudSectionId, $"<one:Section {Ns} name=\"My Notes\" ID=\"{CloudSectionId}\" path=\"{CloudPath}My%20Notes.one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt($"{CloudPath}My%20Notes.one");
+
+        Ok(await RenameTool().RenameHierarchyObject(CloudSectionId, "my notes", Basis(Lmt), Ct));
+
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    // Security review (2026-11-17): a section's name can differ from its file's leaf ("Ideas (2).one"), so a case-only
+    // change of the name can still move the file to a new key; that rename is still checked.
+    [Fact]
+    public async Task RenameASection_WhoseFileLeafDiffersFromItsName_ACaseOnlyRename_IsStillChecked()
+    {
+        Grant();
+        Self(IdeasId, $"<one:Section {Ns} name=\"Ideas\" ID=\"{IdeasId}\" path=\"C:\\notebooks\\A\\Ideas (2).one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt(@"C:\notebooks\A\ideas.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(IdeasId, "ideas", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
+    [Fact]
+    public async Task RenameACloudSection_WhoseDecodedLeafDiffersFromItsName_ACaseOnlyRename_IsStillChecked()
+    {
+        Grant(CloudPath, CloudId);
+        Self(CloudSectionId, $"<one:Section {Ns} name=\"Web\" ID=\"{CloudSectionId}\" path=\"{CloudPath}Web%20(2).one\" lastModifiedTime=\"{Lmt}\" />");
+        ReadGrantAt($"{CloudPath}web.one");
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "web", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
+    [Fact]
+    public async Task RenameACloudSection_OntoAPercentEncodedOnceWindow_IsInvalidArgument_BeforeCom()
+    {
+        Grant(CloudPath, CloudId);
+        var encoded = HierarchyNode.Root($"<one:Section {Ns} name=\"New Name\" ID=\"{GoneId}\" path=\"{CloudPath}New%20Name.one\" encrypted=\"true\" lastModifiedTime=\"{Lmt}\" />");
+        await readAccess.CheckSectionAsync(new ToolCallContext("read", Prompt: new FakePrompt(FakePrompt.Accept("New Name", ReadGrantLifetime.Once))), encoded, Ct);
+
+        var error = Error(await RenameTool().RenameHierarchyObject(CloudSectionId, "New Name", Basis(Lmt), Ct), "InvalidArgument");
+
+        Assert.Contains("read grant", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNamesNothingProtected(error);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+    }
+
     [Fact]
     public async Task RenameASectionGroup_WhoseSectionsArentInsideItsFolder_IsNotSupported_BeforeCom()
     {
@@ -618,7 +727,7 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         ReadGrantAt(@"C:\notebooks\A\Vault.one");
 
         Ok(await ReorderTool().ReorderHierarchyChildren(ArchiveId, [NotesId, PlansId, SubId], Basis(Lmt), Ct));
-        Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1], Basis(Lmt), Ct));
+        Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, V3], Basis(Lmt), Ct));
 
         Assert.Equal(2, gateway.UpdateHierarchyCalls.Count);
     }
@@ -781,41 +890,141 @@ public sealed class UpdateHierarchyToolTests : IDisposable
         Assert.Single(gateway.UpdateHierarchyCalls);
     }
 
-    [Fact]
-    public async Task ReorderPages_InAProtectedSection_WithoutAReadGrant_NeedsOnlyTheWriteGrant_AndRefusalsCarryCountsOnly()
+    // Backlog 7 (Phill, 2026-11-17): without a read grant held at the call's start, any reorder of a protected section's
+    // pages is ReadNotGranted before any list check, so no answer carries one of its page IDs or a count of them.
+    public static TheoryData<string[]> NoGrantVaultLists => new()
+    {
+        { [V2, V1, V3] },     // a valid new order
+        { [V2, V1, V3, P1] }, // a made-up (foreign) ID
+        { [V2] },             // children missing
+        { [V3, V1, V2] },     // a broken subpage block
+        { [V1, V3, V2] },     // the same order
+    };
+
+    [Theory]
+    [MemberData(nameof(NoGrantVaultLists))]
+    public async Task ReorderPages_InAProtectedSection_WithoutAReadGrant_IsReadNotGranted_NamingOnlyTheSection(string[] childIds)
     {
         Grant();
 
-        var error = Error(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, P1], Basis(Lmt), Ct), "InvalidArgument");
+        var error = Error(await ReorderTool().ReorderHierarchyChildren(VaultId, childIds, Basis(Lmt), Ct), "ReadNotGranted");
 
-        var message = error.GetProperty("message").GetString()!;
-        Assert.DoesNotContain(P1, message, StringComparison.Ordinal);
-        Assert.DoesNotContain(V1, message, StringComparison.Ordinal);
-        Assert.Contains("1 ID(s)", message, StringComparison.Ordinal);
+        Assert.Equal(
+            $"Section {VaultId} is password-protected, and reordering its pages needs a read grant for it held when the call starts, so nothing was reordered.",
+            error.GetProperty("message").GetString());
+        Assert.Equal(ReorderHierarchyWrite.ProtectedReorderUserAction, error.GetProperty("userAction").GetString());
+        foreach (var id in new[] { V1, V2, V3, P1 })
+        {
+            Assert.DoesNotContain(id, error.GetRawText(), StringComparison.Ordinal);
+        }
 
-        var root = Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1], Basis(Lmt), Ct));
-        var entry = Entry();
-        Assert.Equal(GrantKeys.SectionKey(@"C:\notebooks\A\Vault.one"), entry.SectionKey);
-        Assert.DoesNotContain(V1, RawEntryJson(Assert.Single(EntryFiles())), StringComparison.Ordinal);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+        await AssertLockFreeAsync();
+    }
 
-        // The read-back differs (the fake doesn't apply it): counts only, never a page ID.
-        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
-        Assert.Equal(ToolWarnings.ReadBackDiffers, warning.GetProperty("code").GetString());
-        Assert.DoesNotContain(V1, warning.GetRawText(), StringComparison.Ordinal);
-        Assert.DoesNotContain(V2, warning.GetRawText(), StringComparison.Ordinal);
+    [Fact]
+    public async Task ReorderPages_InAProtectedSection_TheGrantIsJudgedAtTheCallStart_NotWhenStepThreeReads()
+    {
+        // A once window open when the call starts still counts after it closes during the call: the check is made at
+        // CallStart (backlog 7). A window opened only after the call starts can't be told apart by this check (OnceWindows
+        // tracks expiry only), so that matrix row isn't tested here; see the plan's Implementation Notes.
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        await readAccess.CheckSectionAsync(new ToolCallContext("read", Prompt: new FakePrompt(FakePrompt.Accept("Vault", ReadGrantLifetime.Once))), vault, Ct);
+        var closed = false;
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            if (!closed && id == VaultId && scope == HierarchyScope.Children)
+            {
+                closed = true;
+                clock.Advance(TimeSpan.FromHours(1));
+            }
+        };
+
+        Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, V3], Basis(Lmt), Ct));
+
+        Assert.True(closed);
+        Assert.Empty(readAccess.OnceGrants());
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ReorderPages_InAProtectedSection_InsideAOnceWindowOpenAtTheCallStart_Reorders()
+    {
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        await readAccess.CheckSectionAsync(new ToolCallContext("read", Prompt: new FakePrompt(FakePrompt.Accept("Vault", ReadGrantLifetime.Once))), vault, Ct);
+        ApplyWrites();
+
+        var root = Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, V3], Basis(Lmt), Ct));
+
+        Assert.Equal(0, root.GetProperty("warnings").GetArrayLength());
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ReorderPages_InAProtectedSection_WithoutAReadGrant_NeverAsksForOne()
+    {
+        // The tool's own runner with a prompt that would accept a read grant: the reorder never asks.
+        Grant();
+        var prompt = new FakePrompt(FakePrompt.Accept("Vault", ReadGrantLifetime.Once));
+
+        var useCase = UseCase();
+
+        // As ReorderHierarchyChildrenTool runs it, with this prompt in place of the client's elicitation.
+        Error(
+            await Runner().RunAsync(
+                ReorderHierarchyWrite.OperationName,
+                useCase,
+                (context, ct) => useCase.ReorderAsync(context, VaultId, [V2, V1, V3], new PageWriteBasis(Lmt), ct),
+                Ct,
+                prompt),
+            "ReadNotGranted");
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ReorderPages_InAProtectedSection_WithAStoredReadGrant_Reorders_AndJournalsIt()
+    {
+        Grant();
+        StoreVaultReadGrant();
+        ApplyWrites();
+
+        var root = Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, V3], Basis(Lmt), Ct));
+
+        Assert.Equal(0, root.GetProperty("warnings").GetArrayLength());
+        var element = XElement.Parse(Assert.Single(gateway.UpdateHierarchyCalls));
+        Assert.Equal([V2, V1, V3], element.Elements().Select(e => (string?)e.Attribute("ID")));
+        Assert.Equal(["1", "1", "2"], element.Elements().Select(e => (string?)e.Attribute("pageLevel")));
+        Assert.Equal(GrantKeys.SectionKey(@"C:\notebooks\A\Vault.one"), Entry().SectionKey);
+
+        // On disk the protected section's entry is DPAPI-encrypted: no page ID in its raw bytes.
+        var raw = RawEntryJson(Assert.Single(EntryFiles()));
+        foreach (var id in new[] { V1, V2, V3 })
+        {
+            Assert.DoesNotContain(id, raw, StringComparison.Ordinal);
+        }
+
+        await AssertLockFreeAsync();
     }
 
     [Fact]
     public async Task ReorderPages_InAProtectedSection_WithAReadGrant_NamesTheIds()
     {
         Grant();
-        new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(
-            GrantKeys.SectionKey(@"C:\notebooks\A\Vault.one"), "Vault", GrantKeys.NotebookKey(NotebookPath), VaultId, clock.GetUtcNow(), GrantedVia.Cli));
+        StoreVaultReadGrant();
 
-        var error = Error(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, P1], Basis(Lmt), Ct), "InvalidArgument");
+        var error = Error(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, V3, P1], Basis(Lmt), Ct), "InvalidArgument");
 
         Assert.Contains(P1, error.GetProperty("message").GetString(), StringComparison.Ordinal);
     }
+
+    private void StoreVaultReadGrant() =>
+        new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(
+            GrantKeys.SectionKey(@"C:\notebooks\A\Vault.one"), "Vault", GrantKeys.NotebookKey(NotebookPath), VaultId, clock.GetUtcNow(), GrantedVia.Cli));
 
     [Fact]
     public async Task ReorderAPagesChildren_OrAPage_IsInvalidArgument()

@@ -23,6 +23,9 @@ namespace OneNoteMcp.Core.Results;
 /// the caller tells the user). A page move (<c>move_hierarchy_object</c>, story 3.4) reports <see cref="ObjectId"/> (the
 /// page's new ID), <see cref="ParentId"/> (the section it moved to), <see cref="JournalEntryId"/> (the source section's
 /// <c>hierarchy</c> entry) and <see cref="JournalEntryIds"/> (both sections' entries, source then target; 3.4 plan Q1).
+/// A page level change (<c>set_page_level</c>, story 3.14) reports <see cref="ObjectId"/> (the page), <see cref="ParentId"/>
+/// (its section) and <see cref="JournalEntryId"/> (the section's <c>hierarchy</c> entry, absent when nothing changed); a
+/// <c>create_page</c> with <c>parentPageId</c> adds <see cref="JournalEntryId"/> (the section's entry) to <see cref="PageId"/>.
 /// They are null, and so omitted on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
