@@ -218,6 +218,12 @@ context:
 
 ## Review Triage Log
 
+- 2026-11-17, automated security review, medium, verified, patched test-first. The landing-location grant check exempted `now.Entry?.SectionKey ?? OldPath` whatever the match. So a section matched by name, or by an `entryId` that picks a name match, could land where a different, earlier section's read grant still sits, and inherit it: the backlog 8 class. My quick review's fix 1 (`entryId` limited to the item's own matches) didn't cover it, because the own matches include name matches.
+  - Red test first: `ASectionMatchedByName_NeverInheritsTheReadGrantAtItsEntrysFormerKey` (both with and without `entryId`). Both cases failed with `ok:true`, restored onto the granted key.
+  - Fix: the exemption applies only when the entry matched by the section's own ID (`!ByName` and `entry.ObjectId == objectId`). Otherwise a grant at the landing key refuses the restore with `InvalidArgument`.
+  - Consequence: a protected section matched by `SectionKey` after a reopen, landing on its own old key that holds a read grant, is refused. The user revokes the grant or restores in OneNote. This is accepted as the safe side.
+  - Spine AD-8 and the memlog are updated. The team lead's call on dropping `noBasis` in the Q7 path is recorded in the memlog.
+  - Unit tests: 3,441 passed.
 - 2026-11-17, quick lens, iteration 0: 6 findings, all verified and patched test-first in the second pass. Nothing was deferred.
   - **high, patch.** `SoftDeleteEntries.ById` let an `entryId` pick another item's entry. A protected section could then be restored to another section's place, or land on another key through the own-former-key exemption. Fix: `entryId` picks only among the item's own matches.
   - **medium, patch.** A section deleted, restored and deleted again had two entries with its ID, and the restore offered them as candidates. Fix: ID matches take the newest by `TakenAtUtc`; name matches still list candidates.

@@ -713,7 +713,10 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         }
 
         var landing = GrantKeys.SectionKey(after);
-        var former = now.Entry?.SectionKey ?? (now.Entry is { } entry && SoftDeleteEntries.OldPath(entry) is { } old ? GrantKeys.SectionKey(old) : null);
+        // 3.5 security review: only an entry matched by this section's own ID proves the former key was its own. An entry
+        // matched by name, or picked by entryId among name matches, could be another section's, so it exempts nothing.
+        var ownEntry = now.Entry is { } matched && !now.ByName && string.Equals(matched.ObjectId, ObjectId, StringComparison.Ordinal) ? matched : null;
+        var former = ownEntry?.SectionKey ?? (ownEntry is not null && SoftDeleteEntries.OldPath(ownEntry) is { } old ? GrantKeys.SectionKey(old) : null);
         if (former is not null && GrantKeys.SameLocation(former, landing))
         {
             return null;

@@ -449,6 +449,24 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         Assert.Contains(entries["reopened"].ToString("D"), warning.GetProperty("message").GetString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ASectionMatchedByName_NeverInheritsTheReadGrantAtItsEntrysFormerKey(bool byEntryId)
+    {
+        // 3.5 security review: only an entry matched by the item's own ID proves the landing key was this section's. A name
+        // match (or an entryId that picks one) could be a different section, so a read grant there must still refuse it.
+        Grant();
+        ReadGrantAt(APath + @"\Archive\Reopened.one");
+
+        var error = Error(
+            await Tool().RestoreFromRecycleBin(ReopenedId, null, byEntryId ? entries["reopened"].ToString("D") : null, null, Ct),
+            "InvalidArgument");
+
+        Assert.Equal(RestoreFromRecycleBinWrite.GrantLocationUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
     [Fact]
     public async Task ASectionWithAnEmptyPath_AndAStaleParent_GoesBackToTheNotebookRoot_BeforeItsGroups()
     {
