@@ -20,7 +20,7 @@ context:
 
 **Problem:** AD-21 "What's protected" says a section under the journal's `backups` folder or an `exportRoots` entry, or in a notebook whose path is, counts as password-protected whatever its `encrypted` marker, because an opened backup, export or package carries no trustworthy marker (epic 3 Q11, kept by H1). The server doesn't do this: "protected" is the marker only, read in Core and in the Xml layer. A user who opens a `.one` export or a backup by hand gets its content read with no grant, and `open_package` (3.8) can't ship until this holds.
 
-**Approach:** One rule for "protected": the marker, or a section or notebook `path` under a protected root (each `exportRoots` entry and the journal's `backups` folder), applied everywhere "protected" is decided today: every read check, every protection-gated write and the journal snapshots (Phill, 2026-11-17, 3.8 Q4). Plus Phill's guard: an export root that holds an open notebook of the user's is refused, saying why (3.8 Q5; the mechanism is Open Question 1). Probe P3 runs before the build, because the rule depends on OneNote reporting local paths under a root.
+**Approach:** One rule for "protected": the marker, or a section or notebook `path` under a protected root (each `exportRoots` entry and the journal's `backups` folder), applied everywhere "protected" is decided today: every read check, every protection-gated write and the journal snapshots (Phill, 2026-11-17, 3.8 Q4). Plus Phill's guard: an export root that holds an open notebook of the user's is refused, saying why (3.8 Q5; the mechanism is Q1 in Decisions, provisional). Probe P3 runs before the build, because the rule depends on OneNote reporting local paths under a root.
 
 ## Boundaries & Constraints
 
@@ -50,7 +50,7 @@ context:
 | Gated write | soft delete of a page in a path-protected section | refused as for a marked one, wording per Always | `NotSupported` |
 | Journal snapshot | a group holding a path-protected section | its pages stripped; entry protected | none |
 | Restore an entry whose section is still under a root | `restore_from_journal` | restored as for a marked section | none |
-| Export root holding the user's open notebook | per Open Question 1 | refused, saying why | per Open Question 1 |
+| Export root holding an open notebook the user opened (not one with `.onenote-mcp-opened`) | any call | reads continue with a warning naming the root and why, the root still protects; writes refused | writes: `SettingsInvalid` (Q1, provisional) |
 | `settings.json` invalid, a valid read earlier in this run | any read | this run's last valid roots still protect | none (warning `settingsInvalid` as today) |
 | `settings.json` invalid at startup | any read | default root and backups folder protect; warning | none |
 | Notebook package holding a path-protected section | `publish` `onepkg`, no grant for it | refused, naming the section's ID | `ReadNotGranted` |
