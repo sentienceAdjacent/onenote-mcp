@@ -31,6 +31,7 @@ public sealed class PublishToolTests : IDisposable
     private const string VaultId = "{SP000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string LockedId = "{SL000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string GroupId = "{GF000000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string NestedLockedId = "{SN000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string PageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000001}";
     private const string VaultPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000002}";
     private const string LockedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000003}";
@@ -62,6 +63,7 @@ public sealed class PublishToolTests : IDisposable
         Section(VaultId, "Vault", "encrypted=\"true\"");
         Section(LockedId, "Locked vault", "encrypted=\"true\" locked=\"true\"");
         Self(GroupId, $"<one:SectionGroup {Ns} name=\"Group\" ID=\"{GroupId}\" path=\"{NotebookPath}\\Group\" lastModifiedTime=\"{Date}\" />");
+        NotebookSections(topLocked: false, nestedLocked: false);
         // No Self node for LockedPageId: OneNote hides a locked section's pages, so GetHierarchy of one fails while its
         // parent chain still answers (the 3.3 sitting, 2026-11-17: the page read as ObjectNotFound before this was modelled).
         foreach (var id in new[] { PageId, VaultPageId })
@@ -651,13 +653,232 @@ public sealed class PublishToolTests : IDisposable
         await AssertRefusedAsync();
     }
 
-    [Fact]
-    public async Task ANotebook_IsNotSupported_InThisRelease()
-    {
-        var error = Error(await Tool().Publish(NotebookId, "x.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
+    // --- Notebooks (story 3.7): a package only, no read grant (AD-21 Exports, H1) ------------------------------------------
 
-        Assert.Contains("notebook", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+    [Fact]
+    public async Task ANotebook_IsPublishedAsAPackage_WithNoReadGrant_AndNoWarning_ThoughItHoldsProtectedSections()
+    {
+        // Notebook W holds the Vault (protected, unlocked) and a protected section in its group; no read grant is held.
+        var root = Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        var expected = Path.Combine(CanonicalRoot, "w.onepkg");
+        var meta = root.GetProperty("meta");
+        Assert.Equal(NotebookId, meta.GetProperty("objectId").GetString());
+        Assert.Equal(expected, meta.GetProperty("outputPath").GetString());
+        Assert.Empty(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal((NotebookId, expected, ExportFormat.OneNotePackage), Assert.Single(gateway.PublishCalls));
+        Assert.True(File.Exists(expected));
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ANotebook_SkipsTheGrantAndLockedChecks_EvenWhenItsOwnNodeReadsAsProtectedAndLocked()
+    {
+        // A fixture where the section checks would fire if they ran for a notebook: its self read carries encrypted and
+        // locked (HierarchyNode reads Encrypted for sections only, so this guards the Locked check and any later change
+        // that reads protection on a notebook). No read grant is held.
+        Self(NotebookId, $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" lastModifiedTime=\"{Date}\" encrypted=\"true\" locked=\"true\" />");
+
+        var root = Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        Assert.Empty(root.GetProperty("warnings").EnumerateArray());
+        Assert.Single(gateway.PublishCalls);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ANotebookHoldingALockedSection_AnywhereInItsTree_IsSectionLocked_BeforeCom(bool topLocked, bool nestedLocked)
+    {
+        // The 3.7 sitting (Phill, 2026-11-17): packing a notebook with a locked section raises a modal dialog in OneNote
+        // that blocks the call, so a locked section anywhere, inside a section group too, refuses the package up front.
+        NotebookSections(topLocked, nestedLocked);
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "SectionLocked");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(NotebookId, message, StringComparison.Ordinal);
+        Assert.Contains(topLocked ? LockedId : NestedLockedId, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Locked vault", error.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("unlock it, or export the other sections one by one", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookWhoseSectionLocksBeforeTheLock_IsSectionLocked_AndNothingIsPublished()
+    {
+        var sectionReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == NotebookId && scope == HierarchyScope.Sections && ++sectionReads == 2)
+                {
+                    NotebookSections(topLocked: false, nestedLocked: true);
+                }
+            },
+        };
+
+        Error(await Tool(hooked).Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "SectionLocked");
+
+        Assert.Equal(2, sectionReads);
+        await AssertRefusedAsync();
+    }
+
+    [Theory]
+    [InlineData(true, false, "false")]
+    [InlineData(false, true, "false")]
+    [InlineData(false, true, "0")]
+    public async Task ANotebookHoldingASectionNotFullyDownloaded_AnywhereInItsTree_IsNotSupported_BeforeCom(bool top, bool nested, string value)
+    {
+        // The 3.7 sitting S3 (Phill, 2026-11-17): a section with areAllPagesAvailable="false" raised OneNote's pack dialog,
+        // and answering Yes writes the package without the pages that weren't downloaded, so it is refused up front.
+        NotebookSections(topLocked: false, nestedLocked: false, topNotDownloaded: top ? value : null, nestedNotDownloaded: nested ? value : null);
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(NotebookId, message, StringComparison.Ordinal);
+        Assert.Contains(top ? SectionId : NestedLockedId, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Locked vault", error.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Open\"", error.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("aren't fully downloaded", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookWithAllPagesAvailableTrue_IsPublished()
+    {
+        NotebookSections(topLocked: false, nestedLocked: false, topNotDownloaded: "true", nestedNotDownloaded: "true");
+
+        Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        Assert.Single(gateway.PublishCalls);
+    }
+
+    [Fact]
+    public async Task ANotebookWhoseSectionStopsBeingAvailableBeforeTheLock_IsNotSupported_AndNothingIsPublished()
+    {
+        var sectionReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == NotebookId && scope == HierarchyScope.Sections && ++sectionReads == 2)
+                {
+                    NotebookSections(topLocked: false, nestedLocked: false, nestedNotDownloaded: "false");
+                }
+            },
+        };
+
+        Error(await Tool(hooked).Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
+
+        Assert.Equal(2, sectionReads);
+        await AssertRefusedAsync();
+    }
+
+    [Theory]
+    [InlineData(PublishFormatArgument.Pdf, "w.pdf")]
+    [InlineData(PublishFormatArgument.Xps, "w.xps")]
+    [InlineData(PublishFormatArgument.Docx, "w.docx")]
+    [InlineData(PublishFormatArgument.Mhtml, "w.mht")]
+    [InlineData(PublishFormatArgument.Html, "w.html")]
+    [InlineData(PublishFormatArgument.Emf, "w.emf")]
+    [InlineData(PublishFormatArgument.One, "w.one")]
+    public async Task ANotebook_InAnyOtherFormat_IsNotSupported_BeforeCom_AskingForAPackage(PublishFormatArgument format, string path)
+    {
+        var error = Error(await Tool().Publish(NotebookId, path, format, Ct), "NotSupported");
+
+        Assert.Contains($"Notebook {NotebookId}", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("onepkg", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebook_WithTheDefaultFormat_IsNotSupported_AskingForAPackage()
+    {
+        var error = Error(await Tool().Publish(NotebookId, "w.pdf", cancellationToken: Ct), "NotSupported");
+
+        Assert.Contains("onepkg", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookPackage_WithAnExtensionThatDoesntFit_IsInvalidArgument_BeforeCom()
+    {
+        Error(await Tool().Publish(NotebookId, "w.pdf", PublishFormatArgument.Onepkg, Ct), "InvalidArgument");
+
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookPackage_OverAnExistingFile_IsFileExists_AndTheFileIsUntouched()
+    {
+        Directory.CreateDirectory(Root);
+        var existing = Path.Combine(Root, "w.onepkg");
+        File.WriteAllBytes(existing, [1, 2, 3]);
+
+        Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "FileExists");
+
+        Assert.Empty(gateway.PublishCalls);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(existing));
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookClosedBeforeTheLock_IsObjectNotFound_AndNothingIsPublished()
+    {
+        var notebookReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == NotebookId && scope == HierarchyScope.Self && ++notebookReads == 2)
+                {
+                    gateway.Hierarchies.Remove((NotebookId, HierarchyScope.Self));
+                }
+            },
+        };
+
+        Error(await Tool(hooked).Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "ObjectNotFound");
+
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookPackageThatLandsLate_AndEmptyFirst_CountsOnceItIsOnDisk()
+    {
+        Task? late = null;
+        gateway.OnPublish = (_, target, _) =>
+        {
+            late = Task.Run(async () =>
+            {
+                await Task.Delay(150);
+                await File.WriteAllBytesAsync(target, []);
+                await Task.Delay(150);
+                await File.WriteAllBytesAsync(target, [0x4D, 0x53, 0x43, 0x46]);
+            });
+            return Task.CompletedTask;
+        };
+
+        Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        await late!;
+        Assert.Equal(4, new FileInfo(Path.Combine(CanonicalRoot, "w.onepkg")).Length);
+    }
+
+    [Fact]
+    public async Task ANotebookPackageThatNeverLands_IsTimeout_OutcomeUnknown_NamingTheNotebookAndThePath()
+    {
+        WriteSettings(publishSeconds: 1);
+        gateway.PublishedBytes = null;
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "Timeout");
+
+        Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains($"OneNote package of notebook {NotebookId}", message, StringComparison.Ordinal);
+        Assert.Contains(Path.Combine(CanonicalRoot, "w.onepkg"), message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -766,6 +987,28 @@ public sealed class PublishToolTests : IDisposable
     }
 
     private void Self(string id, string xml) => gateway.Hierarchies[(id, HierarchyScope.Self)] = "<?xml version=\"1.0\"?>\n" + xml;
+
+    /// <summary>
+    /// W's sections-scope read: Open, the Vault (protected, unlocked), optionally Locked vault (locked), and Group holding
+    /// a protected section that is optionally locked.
+    /// </summary>
+    private void NotebookSections(bool topLocked, bool nestedLocked, string? topNotDownloaded = null, string? nestedNotDownloaded = null)
+    {
+        var openAvailable = topNotDownloaded is null ? string.Empty : $" areAllPagesAvailable=\"{topNotDownloaded}\"";
+        var innerAvailable = nestedNotDownloaded is null ? string.Empty : $" areAllPagesAvailable=\"{nestedNotDownloaded}\"";
+        var locked = topLocked
+            ? $"<one:Section name=\"Locked vault\" ID=\"{LockedId}\" path=\"{NotebookPath}\\Locked vault.one\" encrypted=\"true\" locked=\"true\" />"
+            : string.Empty;
+        var nested = nestedLocked ? " locked=\"true\"" : string.Empty;
+        gateway.Hierarchies[(NotebookId, HierarchyScope.Sections)] = "<?xml version=\"1.0\"?>\n"
+            + $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\">"
+            + $"<one:Section name=\"Open\" ID=\"{SectionId}\" path=\"{NotebookPath}\\Open.one\"{openAvailable} />"
+            + $"<one:Section name=\"Vault\" ID=\"{VaultId}\" path=\"{NotebookPath}\\Vault.one\" encrypted=\"true\" />"
+            + locked
+            + $"<one:SectionGroup name=\"Group\" ID=\"{GroupId}\" path=\"{NotebookPath}\\Group\">"
+            + $"<one:Section name=\"Locked vault\" ID=\"{NestedLockedId}\" path=\"{NotebookPath}\\Group\\Inner.one\" encrypted=\"true\"{nested}{innerAvailable} />"
+            + "</one:SectionGroup></one:Notebook>";
+    }
 
     private void Section(string id, string name, string extra) =>
         Self(id, $"<one:Section {Ns} name=\"{name}\" ID=\"{id}\" path=\"{NotebookPath}\\{name}.one\" lastModifiedTime=\"{Date}\" {extra} />");

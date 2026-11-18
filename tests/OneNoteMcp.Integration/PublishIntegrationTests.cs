@@ -20,11 +20,11 @@ using CoreScope = OneNoteMcp.Core.HierarchyScope;
 namespace OneNoteMcp.Integration;
 
 /// <summary>
-/// Stories 3.3's and 3.13's live checks for the sittings (S1 in each plan), opt-in with <c>ONENOTE_MCP_INTEGRATION=1</c> and never run in
+/// Stories 3.3's, 3.13's and 3.7's live checks for the sittings (S1 in each plan), opt-in with <c>ONENOTE_MCP_INTEGRATION=1</c> and never run in
 /// a build: <c>dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~PublishIntegrationTests</c>, with MCP
-/// Test open and its Ballast Vault unlocked. <c>settings.json</c> is a temporary one whose only export root is a temporary
+/// Test open and its Ballast Vault unlocked (3.7: and the throwaway <c>MCP Test Throwaway 1112-034716 a</c> open). <c>settings.json</c> is a temporary one whose only export root is a temporary
 /// folder, so every file lands there and is deleted afterwards. <see cref="GuardedGateway"/> lets <c>Publish</c> run only on
-/// an object inside a test notebook, and refuses every other write. The Vault check pauses (the probes' pause file) for
+/// an object inside a test notebook or the adopted throwaway, and refuses every other write. The Vault check pauses (the probes' pause file) for
 /// Phill to lock the Vault with Ctrl+Alt+L, then runs both refusals; nothing is published there. The output carries IDs,
 /// codes and sizes only.
 /// </summary>
@@ -77,8 +77,16 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         Assert.Single(Directory.GetFiles(tempDir, "*.pdf", SearchOption.AllDirectories));
     }
 
+    /// <summary>
+    /// Stories 3.3, 3.13 and 3.7 in one test, so the order is fixed and no check skips for a Vault another test locked:
+    /// the Vault's page IDs are read while it is unlocked, then the pause asks Phill to lock it. Locked and with no read
+    /// grant, a page of the Vault and the Vault itself are ReadNotGranted (3.3, 3.13), and MCP Test, which holds the locked
+    /// Vault, is SectionLocked as a package, naming the Vault's ID, with no Publish call and no file: packing a notebook with
+    /// a locked section raises a modal dialog in OneNote (the 3.7 sitting; Phill, 2026-11-17). MCP Test as PDF is
+    /// NotSupported. With a read grant, the page and the Vault are SectionLocked. Nothing is published.
+    /// </summary>
     [Fact]
-    public async Task TheBallastVault_Locked_IsReadNotGrantedWithoutAGrant_AndSectionLockedWithOne()
+    public async Task TheBallastVault_Locked_IsReadNotGrantedWithoutAGrant_MCPTestAsAPackageIsSectionLocked_AndSectionLockedWithAGrant()
     {
         await using var run = await StartAsync();
         var children = XDocument.Parse(await run.Gateway.GetHierarchyAsync(run.NotebookId, CoreScope.Children, Ct));
@@ -108,6 +116,19 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         var refusedSection = await Tool(run).Publish(vaultId, $"vault-section-{Stamp}.onepkg", PublishFormatArgument.Onepkg, Ct);
         Assert.Equal("ReadNotGranted", Code(refusedSection));
         Assert.DoesNotContain(BallastContent.VaultSectionName, refusedSection.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(0, run.Gateway.PublishCalls);
+
+        // Story 3.7: still locked and with no read grant, MCP Test as a package is SectionLocked before COM, naming the
+        // Vault's ID and never its name (the sitting's blocking dialog); as PDF it is NotSupported.
+        Assert.Empty(run.Store.Read().ProtectedSections);
+        var package = await Tool(run).Publish(run.NotebookId, $@"notebook-{Stamp}\mcp-test.onepkg", PublishFormatArgument.Onepkg, Ct);
+        Assert.Equal("SectionLocked", Code(package));
+        var packageError = package.StructuredContent!.Value.GetRawText();
+        Assert.Contains(vaultId, packageError, StringComparison.Ordinal);
+        Assert.DoesNotContain(BallastContent.VaultSectionName, packageError, StringComparison.Ordinal);
+        Assert.Equal("NotSupported", Code(await Tool(run).Publish(run.NotebookId, $"notebook-{Stamp}.pdf", PublishFormatArgument.Pdf, Ct)));
+        Assert.Equal(0, run.Gateway.PublishCalls);
+        output.WriteLine("RESULT notebook package with the Vault locked: SectionLocked, no Publish call; as pdf: NotSupported");
 
         // A CLI-style read grant in the temporary settings: SectionLocked, before COM.
         new SettingsWriter(run.Store, TimeProvider.System).SaveReadGrant(new ProtectedSectionGrant(
@@ -124,7 +145,7 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         // Nothing was published in any case.
         Assert.Equal(0, run.Gateway.PublishCalls);
         Assert.False(Directory.Exists(Root) && Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories).Any());
-        output.WriteLine("RESULT vault: page and section ReadNotGranted without a grant, SectionLocked with one; nothing published");
+        output.WriteLine("RESULT vault: page and section ReadNotGranted without a grant, SectionLocked with one; MCP Test's package SectionLocked; nothing published");
     }
 
     /// <summary>Story 3.13: each format, with the extension the plan's Q1 gives it.</summary>
@@ -141,7 +162,8 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
     };
 
     /// <summary>
-    /// Story 3.13: the test page and its section land in each format at <c>meta.outputPath</c>, each into an empty folder
+    /// Story 3.13: the test page and its section land in each format at <c>meta.outputPath</c> (a section as EMF is
+    /// refused with NotSupported instead, after the 3.13 sitting), each into an empty folder
     /// of its own, which then holds only that file (for HTML, also at most its <c>_files</c> folder, plan Q3, which is
     /// logged). Sizes and entry names are logged, never content.
     /// </summary>
@@ -158,6 +180,15 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         {
             var folder = $"{format}-{scope}-{Stamp}".ToLowerInvariant();
             var name = $@"{folder}\x{extension}";
+            if (format == PublishFormatArgument.Emf && scope == "section")
+            {
+                // The 3.13 sitting (Phill, 2026-11-17): a section's EMF holds only its first page, so it is refused before COM.
+                Assert.Equal("NotSupported", Code(await Tool(run).Publish(id, name, format, Ct)));
+                Assert.False(Directory.Exists(Path.Combine(Root, folder)));
+                output.WriteLine($"RESULT {format} {scope} {id}: NotSupported, nothing written");
+                continue;
+            }
+
             var root = Ok(await Tool(run).Publish(id, name, format, Ct));
             var outputPath = root.GetProperty("meta").GetProperty("outputPath").GetString()!;
             var expected = Path.Combine(FilePathGate.Canonical(Root, out _)!, name);
@@ -180,10 +211,55 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
             output.WriteLine($"RESULT {format} {scope} {id}: {size} bytes; beside it: [{string.Join(", ", others)}]; warnings: [{warnings}]");
         }
 
-        Assert.Equal(2, run.Gateway.PublishCalls);
+        Assert.Equal(format == PublishFormatArgument.Emf ? 1 : 2, run.Gateway.PublishCalls);
+    }
+
+    /// <summary>
+    /// Story 3.7: entry 4's second test notebook (skipped when it isn't open) exports as a package with no refusal; it holds
+    /// no protected section. The package goes with the temporary folder: entry 8 makes its own (plan Q3).
+    /// </summary>
+    [Fact]
+    public async Task TheThrowawayNotebook_ExportsAsAPackage_WithNoRefusal()
+    {
+        await using var run = await StartAsync();
+        var throwaway = await TestNotebook.AdoptThrowawayNotebookAsync(run.Gateway.Inner, Round2.LocalThrowawayName, Ct);
+        Assert.SkipWhen(throwaway is null, $"Open the throwaway notebook \"{Round2.LocalThrowawayName}\" in OneNote first.");
+        run.Gateway.Throwaways[throwaway!] = new HashSet<string>([Round2.LocalThrowawayName]);
+        var sections = XDocument.Parse(await run.Gateway.GetHierarchyAsync(throwaway!, CoreScope.Sections, Ct)).Descendants(One + "Section");
+        Assert.DoesNotContain(sections, s => (string?)s.Attribute("encrypted") is "true" or "1");
+
+        var name = $@"throwaway-{Stamp}\throwaway.onepkg";
+        var watch = Stopwatch.StartNew();
+        var root = Ok(await Tool(run).Publish(throwaway!, name, PublishFormatArgument.Onepkg, Ct));
+        watch.Stop();
+        var outputPath = root.GetProperty("meta").GetProperty("outputPath").GetString()!;
+        Assert.Empty(root.GetProperty("warnings").EnumerateArray());
+        var size = new FileInfo(outputPath).Length;
+        Assert.True(size > 0);
+        Assert.Equal(1, run.Gateway.PublishCalls);
+        output.WriteLine($"RESULT throwaway package: {throwaway} -> {size} bytes in {watch.Elapsed.TotalSeconds:F2} s");
+    }
+
+    /// <summary>Story 3.7: a section group of MCP Test (the recycle bin's, when it has no other) is NotSupported before COM (Q7).</summary>
+    [Fact]
+    public async Task ASectionGroup_IsNotSupported_BeforeCom()
+    {
+        await using var run = await StartAsync();
+        var groups = XDocument.Parse(await run.Gateway.GetHierarchyAsync(run.NotebookId, CoreScope.Children, Ct)).Root!.Elements(One + "SectionGroup").ToList();
+        var group = groups.FirstOrDefault(g => !IsRecycleBin(g)) ?? groups.FirstOrDefault();
+        Assert.SkipWhen(group is null, "MCP Test has no section group.");
+        var groupId = (string)group!.Attribute("ID")!;
+
+        var refused = await Tool(run).Publish(groupId, $"group-{Stamp}.onepkg", PublishFormatArgument.Onepkg, Ct);
+        Assert.Equal("NotSupported", Code(refused));
+        Assert.Equal(0, run.Gateway.PublishCalls);
+        Assert.False(Directory.Exists(Root) && Directory.EnumerateFileSystemEntries(Root, "*", SearchOption.AllDirectories).Any());
+        output.WriteLine($"RESULT section group {groupId} (recycle bin: {IsRecycleBin(group)}): NotSupported, no Publish call");
     }
 
     // --- Helpers --------------------------------------------------------------------------------------------------------
+
+    private static bool IsRecycleBin(XElement group) => (string?)group.Attribute("isRecycleBin") is "true" or "1";
 
     /// <summary>A real gateway over a temporary <c>settings.json</c> whose only export root is a temporary folder.</summary>
     private async Task<Run> StartAsync()
@@ -297,8 +373,8 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
     }
 
     /// <summary>
-    /// The real gateway with every write guarded: <c>Publish</c> runs only on an object inside a test notebook (it is
-    /// counted), and every other write is refused. Reads go straight through.
+    /// The real gateway with every write guarded: <c>Publish</c> runs only on an object inside a test notebook or an adopted
+    /// throwaway in <see cref="Throwaways"/> (it is counted), and every other write is refused. Reads go straight through.
     /// </summary>
     private sealed class GuardedGateway(ComGateway inner) : IOneNoteGateway
     {
@@ -306,12 +382,15 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
 
         public ComGateway Inner { get; } = inner;
 
+        /// <summary>Throwaway notebooks a test adopted by exact name (story 3.7), by ID with their names.</summary>
+        public Dictionary<string, IReadOnlySet<string>> Throwaways { get; } = new(StringComparer.Ordinal);
+
         /// <summary>How many <c>Publish</c> calls reached the real gateway.</summary>
         public int PublishCalls => Volatile.Read(ref publishCalls);
 
         public async Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct)
         {
-            await TestNotebook.EnsureTestTargetAsync(Inner, objectId, "Publish", ct);
+            await TestNotebook.EnsureTestTargetAsync(Inner, objectId, "Publish", Throwaways, ct);
             Interlocked.Increment(ref publishCalls);
             await Inner.PublishAsync(objectId, targetPath, format, ct);
         }
