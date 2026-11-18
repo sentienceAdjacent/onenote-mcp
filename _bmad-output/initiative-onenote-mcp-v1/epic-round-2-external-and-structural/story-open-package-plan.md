@@ -3,7 +3,7 @@ title: 'open_package'
 type: 'feature'
 ticket: '8'
 created: '2026-11-17'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -26,7 +26,7 @@ context:
 ## Boundaries & Constraints
 
 **Always:**
-- AD-7 step 1 (before the lock): the package is a local, fully qualified path to an existing `.onepkg` file, in any folder; network and device paths are `InvalidArgument`, as for `publish`'s target (Phill, Q3). The destination (Open Question 1) resolves under an export root like `publish`'s target and must not exist (`FileExists`). Steps 3–4 (under the lock): resolved again, still absent; the pipeline creates it (AD-7). Step 7: `OpenPackage(package, destination)`, then `OpenHierarchy(pathOut)` on the existing path (no create, no grant), then the page-listing wait (Design Notes). Never retried.
+- AD-7 step 1 (before the lock): the package is a local, fully qualified path to an existing `.onepkg` file, in any folder; network and device paths are `InvalidArgument`, as for `publish`'s target (Phill, Q3). The destination is optional: a folder the caller names, resolved under an export root like `publish`'s target, or by default `<package name> <yyyyMMdd-HHmmss>` (local time) under the first export root, created if missing (Phill, Q2); either must not exist (`FileExists`). Steps 3–4 (under the lock): resolved again, still absent; the pipeline creates it (AD-7). Step 7: `OpenPackage(package, destination)`, then `OpenHierarchy(pathOut)` on the existing path (no create, no grant), then the page-listing wait (Design Notes). Never retried.
 - A failed or timed-out step 7 names the folder (AD-11). `OpenPackage` failing with nothing written: the folder the pipeline created is removed if still empty, and the error says so; anything left behind stays and is named, as for `publish` (a retry needs a new name). `OpenHierarchy` failing after the unpack: the folder stays, `meta.completedSteps` says the unpack was done.
 - A default destination name carries a timestamp, so a folder name is never reused and no read grant carries over to another copy (Phill, Q6).
 - The result: `meta.outputPath` (the folder) and `meta.objectId` (the opened notebook's ID). No write grant (Q6 of epic 3); every section is protected by path (entry 15). The user closes the copy in OneNote (Q13); the description says so.
@@ -41,6 +41,7 @@ context:
 | Scenario | Input / State | Expected | Error |
 |---|---|---|---|
 | Open a package | throwaway's `.onepkg`, new destination | folder made, notebook opened; `meta.outputPath`, `meta.objectId` | none |
+| No destination given | throwaway's `.onepkg` | `<first root>\<package name> <yyyyMMdd-HHmmss>` made and opened | none |
 | No page listed in the wait | all sections empty, locked or protected | ok + `pagesNotListed` | none |
 | Destination outside every root | `..\x` or another drive | nothing done | `ExportPathNotAllowed` |
 | Destination exists | file or folder there | untouched | `FileExists` |
@@ -57,6 +58,7 @@ context:
 - Package paths: local, existing `.onepkg` only, as for `publish` (Q3 a).
 - Default destination names carry a timestamp (Q6 a).
 - Probe sitting S0 (P1–P3) before this story is built.
+- Destination (Q2, settled 2026-11-17 after it was read back to him: `open_package` imports a package rather than exporting one): optional; by default a timestamped folder under the first export root, unless the caller names one.
 
 </frozen-after-approval>
 
@@ -93,10 +95,6 @@ context:
 - The page-listing wait: after `OpenHierarchy`, read the notebook at `Pages` scope every 500 ms for up to 5 s (O1: 0 pages at 0 s, 1 at 5 s), under the write lock, as part of step 7. "Listed" means at least one `one:Page`. A package whose sections are all empty, locked or protected never lists one, so it always waits the 5 s and warns `pagesNotListed`; the spine accepts that (AD-7, O5), and the warning's text says it is expected for such packages.
 - `OpenPackage` failing: the pipeline made the folder, so an empty folder after the failure is the pipeline's own and is removed; a non-empty one isn't touched (it may be a partial unpack).
 
-## Open Questions
-
-1. **The destination (reopened with Phill).** He picked the optional destination with a default, and noted "a user should always be involved. Or a known established location". (a) Optional; the default is `<package name> <yyyyMMdd-HHmmss>` under the first export root, and the description tells the model to tell the user where it went (`meta.outputPath`). (b) Required, so the model must ask the user where. (c) A fixed, known location: always `<first export root>\Opened packages\<package name> <yyyyMMdd-HHmmss>`, with no destination argument. Recommended: c, which keeps the user's exports apart from opened copies and gives one known place; the coordinating session is reading this back to Phill.
-
 ## Live probes, sitting S0 before the build (Phill present; MCP Test and throwaways only)
 
 - P1: open a package of a notebook that is still open (the throwaway): does the copy open, or clash with the original?
@@ -109,6 +107,7 @@ context:
 
 - 2026-11-17, after the Fable final review (findings checked against the sources; all held): the frozen block stopped assuming the split; the Xml-layer marker reads and `CheckBroad`'s input added; step 7 failure outcomes; the ticket's Verify as Given/When/Then; tasks with file paths; probes before the build; the page wait; three more questions; citations corrected.
 - 2026-11-17, Phill's answers: the path rule moved to entry 15 (this plan keeps `open_package` only); Q3, Q4, Q5 and Q6 applied as Decisions; Q2 reopened as Open Question 1.
+- 2026-11-17, Phill settled Q2: optional destination, timestamped default under the first export root; the matrix gains the default row; no open questions left. If entry 15's guard question is answered with its marker-file option, this story also writes `.onenote-mcp-opened` into each folder it creates (entry 15 decides; a Plan Change Log entry here will add the task).
 
 ## Review Triage Log
 
