@@ -113,6 +113,18 @@ public interface IOneNoteGateway
     Task UpdateHierarchyAsync(string changesXml, CancellationToken ct);
 
     /// <summary>
+    /// A write (<c>HierarchyWrite</c>, AD-7 Merges; story 3.6): <c>MergeSections</c> of the section
+    /// <paramref name="sourceId"/> into the section <paramref name="destinationId"/>. OneNote leaves the source and its
+    /// pages untouched and puts copies under new IDs at the end of the destination (spike 3.1 Implication 4). It takes no
+    /// date, so the optimistic check is the pipeline's own (AD-17). An empty ID is refused with
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. Never retried after a disconnect (AD-3), and tracked if abandoned.
+    /// Only the write pipeline calls it, after the access check and under the write lock (AD-18). The default throws
+    /// <see cref="ErrorCode.NotSupported"/>, for test doubles that never merge.
+    /// </summary>
+    Task MergeSectionsAsync(string sourceId, string destinationId, CancellationToken ct) =>
+        Task.FromException(new OneNoteException(ErrorCode.NotSupported, "MergeSections isn't available through this gateway."));
+
+    /// <summary>
     /// A write (<c>SoftDelete</c> when <paramref name="permanent"/> is false, <c>PermanentDelete</c> when true; AD-7):
     /// <c>DeleteHierarchy</c> of the page, section or section group <paramref name="objectId"/>.
     /// <paramref name="expectedLastModified"/> is the target's hierarchy <c>lastModifiedTime</c> exactly as OneNote wrote

@@ -59,7 +59,7 @@ public sealed class FakeGatewayTests
             .Select(m => m.Name[..^"Async".Length])
             .ToHashSet();
         Assert.Equal(9, methods.Count);
-        Assert.Equal(20, typeof(IOneNoteGateway).GetMethods().Length); // + UpdateHierarchy (story 5.4) and DeleteHierarchy (story 5.5), Tasks with no content
+        Assert.Equal(21, typeof(IOneNoteGateway).GetMethods().Length); // + UpdateHierarchy (story 5.4), DeleteHierarchy (story 5.5) and MergeSections (story 3.6), Tasks with no content
 
         var served = FakeGateway.Manifest.Entries.Where(e => e.Error is null).Select(e => e.Method).ToHashSet();
 

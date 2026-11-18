@@ -134,7 +134,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
 
     public bool Dummy1 => throw new NotSupportedException();
 
-    public void MergeSections(string bstrSectionSourceId, string bstrSectionDestinationId) => throw new NotSupportedException();
+    // Recorded and scripted like the reads (story 3.6), so the gateway's argument mapping and no-retry rule can be checked.
+    public void MergeSections(string bstrSectionSourceId, string bstrSectionDestinationId) =>
+        Answer(nameof(MergeSections), [bstrSectionSourceId, bstrSectionDestinationId]);
 
     public object COMAddIns => throw new NotSupportedException();
 
