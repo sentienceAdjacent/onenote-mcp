@@ -1162,6 +1162,26 @@ public sealed class CreatePageToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AProtectedSection_AOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck_NoPageCreated()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so the recheck under the lock (CreatePageUseCase l.329 from step 4) refuses.
+        Grant();
+        LocketIs("P:1");
+        var readAccess = NewReadAccess();
+        var locket = HierarchyNode.Root(gateway.Hierarchies[(LocketId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, locket, "Locket", writeLock);
+
+        var error = Error(await ParentTool(readAccess).CreatePage(LocketId, cancellationToken: Ct, parentPageId: LocketPage("P")), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(CreatePageUseCase.ProtectedParentUserAction, error.GetProperty("userAction").GetString());
+        AssertNoWrite();
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
     public async Task ALockedSection_WithAParent_IsSectionLocked_BeforeReadNotGranted()
     {
         Grant();

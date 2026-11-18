@@ -77,7 +77,7 @@ TDD: write each test first and watch it fail before the code change. Unit tests 
 - Tests: `ReadGrantTimingTests.cs` (13 unit tests), `MidCallGrant` helpers in `ProtectedSectionKit.cs`, one mid-call-window test per refusing caller, the two degrade paths, and three re-given-under-the-lock tests that make the step-3/step-4 rechecks (PageWrite l.118, PermanentDelete l.322) the refusing check. With the old rule put back, every new-behaviour test failed (15, then the 4 recheck/degrade tests); with the fix, 3362 passed.
 - A once window can't be re-given while still open (a read passes without asking); the re-given case is a window that lapses mid-call and is reopened, refused per Q1 (a).
 - The recheck under the lock can refuse only when step 1 passed, i.e. a grant held at the start and re-given mid-call; with no grant at the start, step 1 refuses first. So page writes' recheck tests use the re-given case, not backlog 7's step-3 window (the reorder has no step-1 check).
-- Publish, move, set_page_level and create_page rechecks have no re-given-under-the-lock test; they share the same method.
+- Publish (l.422), move position (l.432), set_page_level (l.344) and create_page (l.329) rechecks each have a re-given-under-the-lock test too (team lead, 2026-11-17), each seen failing on the old rule.
 - The ticket's caller list and Verify line predate 3.14's `create_page` subpage and `set_page_level` checks and say every check refuses; this plan covers those two and the two degrade paths. The ticket is refreshed when it is next refined (a build never writes a ticket file).
 
 ## Plan Change Log

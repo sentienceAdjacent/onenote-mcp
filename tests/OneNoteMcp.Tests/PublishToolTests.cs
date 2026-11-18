@@ -427,6 +427,23 @@ public sealed class PublishToolTests : IDisposable
         Assert.True(File.Exists(Path.Combine(CanonicalRoot, "x.pdf")));
     }
 
+    [Fact]
+    public async Task AProtectedPage_AOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so the recheck under the lock (PublishUseCase l.422 from Validate) refuses.
+        var readAccess = NewReadAccess(gateway);
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, vault, "Vault", writeLock);
+
+        var result = await new PublishTool(Runner(), UseCase(readAccess: readAccess)).Publish(VaultPageId, "x.pdf", PublishFormatArgument.Pdf, Ct);
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Contains(VaultId, Error(result, "ReadNotGranted").GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
     // --- Story 3.13: every format, for a page and a section -------------------------------------------------------------
 
     public static TheoryData<string, PublishFormatArgument, string, ExportFormat> PageAndSectionFormats()
