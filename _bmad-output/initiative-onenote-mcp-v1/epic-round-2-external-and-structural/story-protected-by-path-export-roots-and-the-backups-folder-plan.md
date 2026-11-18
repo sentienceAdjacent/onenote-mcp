@@ -51,8 +51,18 @@ context:
 | Journal snapshot | a group holding a path-protected section | its pages stripped; entry protected | none |
 | Restore an entry whose section is still under a root | `restore_from_journal` | restored as for a marked section | none |
 | Export root holding the user's open notebook | per Open Question 1 | refused, saying why | per Open Question 1 |
-| `settings.json` invalid | roots unknown | per Open Question 2 | — |
-| Notebook package of a notebook with a path-protected section | `publish` `onepkg` | per Open Question 3 | — |
+| `settings.json` invalid, a valid read earlier in this run | any read | this run's last valid roots still protect | none (warning `settingsInvalid` as today) |
+| `settings.json` invalid at startup | any read | default root and backups folder protect; warning | none |
+| Notebook package holding a path-protected section | `publish` `onepkg`, no grant for it | refused, naming the section's ID | `ReadNotGranted` |
+| Same, with its read grant | `publish` `onepkg` | written | ok + `exportNotEncrypted` |
+
+## Decisions (Phill, 2026-11-17)
+
+- One story, as planned (approved).
+- **Q1, a (provisional; his final yes is pending, after he asked why the guard is needed):** refuse an export root that holds an open notebook the user opened, but not one `open_package` made (it writes `.onenote-mcp-opened` into each folder it creates, the default timestamped folder included); also a root inside an open notebook's folder. Reads continue with a warning naming the root and why, and the root still protects; writes fail `SettingsInvalid` until it's fixed.
+- **Q2, a:** while `settings.json` is invalid, keep this run's last valid roots; at startup with an invalid file, protect the default root and the backups folder, and warn.
+- **Q3, a:** a notebook package needs the read grant of every path-protected section in it (marked sections stay exempt, H1) and warns `exportNotEncrypted`.
+- Build waits for probe P3's result (sitting S0, running 2026-11-17).
 
 </frozen-after-approval>
 
@@ -69,7 +79,7 @@ context:
 - Journal: `Journal/HierarchySnapshot.cs:66–68,104`, `PageSnapshot.cs:88`.
 - Message texts saying "password-protected" (grep): Core in `Access/` (3 files), `Results/ToolErrors.cs`, the use cases and writes above; Server in `Cli/GrantCommand.cs`, `Grants/ElicitationGrantPrompt.cs` and 22 tool descriptions under `src/OneNoteMcp.Server/Tools/`.
 
-**Spine:** AD-21 l.696 already carries the writes sentence (this branch); AD-10, AD-11 and AD-21 get Open Questions 1–3's answers.
+**Spine:** AD-21 l.696 already carries the writes sentence (this branch); AD-10, AD-11 and AD-21 get the Q1–Q3 decisions in the build.
 
 ## Tasks & Acceptance
 
@@ -83,16 +93,18 @@ context:
 - [ ] `src/OneNoteMcp.Core/Access/Protection.cs` (new), `HierarchyWalk.cs`, `ReadAccess.cs`, `ProtectedSections.cs` -- build `Protection` per call and use it; `HierarchyWalk` callers pass it.
 - [ ] Every Core site in the Code Map -- replace the marker read with `Protection`; adjust message texts per the wording rule.
 - [ ] `src/OneNoteMcp.Server/Cli/GrantCommand.cs`, `Grants/ElicitationGrantPrompt.cs`, the tool descriptions -- pass roots to the grant listing; wording.
-- [ ] Per Open Questions 1–3: the guard, the invalid-settings rule, the package rule, each with red-first tests.
+- [ ] `src/OneNoteMcp.Core/Settings/SettingsStore.cs` (or a holder beside it) -- keep this run's last valid `ExportRoots` and journal path; use them, or the defaults at startup, while the file is invalid (Q2), red-first.
+- [ ] `src/OneNoteMcp.Core/Access/Protection.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` -- the export-root guard and its warning; writes refused `SettingsInvalid` (Q1, provisional), red-first.
+- [ ] `src/OneNoteMcp.Core/UseCases/PublishUseCase.cs` -- a notebook package checks every section for path protection and needs each one's read grant; warning `exportNotEncrypted` (Q3), red-first.
 - [ ] `README.md` (Limits) -- one line: sections under an export root or the backups folder are treated as password-protected.
-- [ ] Spine (AD-10, AD-11, AD-21) and `.memlog.md` -- the answers to Open Questions 1–3.
+- [ ] Spine (AD-10 for Q2, AD-11 and AD-21 Exports for Q3, AD-10/AD-21 for Q1 once final) -- the decisions.
 
 **Acceptance Criteria:**
 - Given an unmarked section under an export root, under the backups folder, or in a notebook under a root, when any read tool or gated write reaches it with no grant, then it is refused or withheld as a marked protected section is, with the wording rule's messages.
 - Given a section under `…\exports2` and a root `…\exports`, when it is read, then it is treated as unprotected.
 - Given a group holding a path-protected section, when a journal snapshot of it is taken, then that section's pages are stripped and the entry is protected.
 - Given the grant CLI's listing, when it runs, then it lists path-protected sections beside marked ones.
-- Given an export root that holds an open notebook of the user's, when a call applies the rule, then it behaves as Open Question 1's answer says.
+- Given an export root that holds an open notebook of the user's, when a call applies the rule, then it behaves as Q1's decision says (provisional).
 - Given the existing unit tests, when they run, then they pass, changed only where a fixture section sits under a root or a message's wording changed.
 - Given no integration variables, when `dotnet test tests/OneNoteMcp.Integration` runs, then it builds and every live test skips.
 
@@ -101,15 +113,11 @@ context:
 - Journal entries across a settings change: an entry taken while its section was under a root stays protected; if the root is later removed, restoring it is refused as "no longer protected" (the existing check, reworded). Entries taken before this story for such sections stay in plaintext until the journal prunes them (`retentionDays`). Neither is fixed here; the README line mentions the second.
 - `HierarchyWalk` is built without settings in four places; they get `Protection` from their use case, which already reads settings.
 
-## Open Questions
-
-1. **The guard on an export root (Phill's Q5: refuse a root that contains an open notebook, saying why).** `open_package` (3.8) deliberately opens notebooks inside a root, so the plain test would refuse every root once a package is opened, and "open notebook" needs a COM read each time. (a) Refuse a root that contains an open notebook except one `open_package` made, which it marks with a small marker file in each folder it creates (`.onenote-mcp-opened`; 3.8 writes it, this story reads it); also a root that sits inside an open notebook's folder. Checked on each call that applies the rule, from the notebooks list (one `GetHierarchy`). Effect: reads continue with a `exportRootHoldsNotebooks` warning naming the root and the reason, and that root still protects (fails closed); writes fail with `SettingsInvalid`, as for any invalid setting. (b) Only roots related to OneNote's default notebook folder (`GetSpecialLocation`): cheaper, but misses a notebook kept elsewhere, such as root `D:\Notes` holding `D:\Notes\Work`. Recommended: a.
-2. **`settings.json` invalid.** Reads continue on defaults today, so a non-default root stops protecting while the file is broken. (a) Keep the last valid roots of this server run and use them while the file is invalid; at startup with an invalid file, protect only under the default root and the backups folder, and warn. (b) While the file is invalid, refuse reads of any local section that isn't marked. (c) Accept the gap and document it. Recommended: a.
-3. **Notebook packages and path-protected sections (H1).** H1 lets a notebook package skip read grants because it keeps marked sections encrypted. A path-protected section is plaintext, so a package of a notebook holding one (an opened package, say) would copy it out with no grant. (a) A notebook package needs the read grant of every path-protected section in it (marked ones stay exempt), and warns `exportNotEncrypted`. (b) Refuse packaging a notebook that holds a path-protected section. (c) Keep H1 as is. Recommended: a.
-
 ## Implementation Notes
 
 ## Plan Change Log
+
+- 2026-11-17, Phill's answers: Q1 a (provisional), Q2 a, Q3 a and one story recorded as Decisions; the matrix rows that pointed at open questions now state the behaviour; tasks for each; no open questions left. Status stays draft until P3's result and Q1's final yes.
 
 - 2026-11-17, after the Fable final review (each finding checked against the code; all held): the site list now starts from `HierarchyWalk` and adds `PageWrite`, `HierarchyWrite`, `GetHierarchyUseCase:46`, the search use cases and `GrantCommand`, with lines; fail-closed by a required Xml predicate and the `EncryptedMarker` rename instead of an optional default; the rule's comparison lives in Core (Xml can't reference Core) as one helper shared with `ExportTarget`; null canonical paths fall back to `GetFullPath`; the notebook-path clause restored; the wording rule for messages; P3 moved before this build; Open Question 1 rewritten to deliver Phill's rule (option c dropped, as he chose to refuse); Open Questions 2 and 3 added; the ACs cover the ticket's Verify; journal-across-settings noted; citations corrected.
 
