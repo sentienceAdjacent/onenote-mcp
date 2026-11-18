@@ -456,20 +456,8 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     /// The moved page in <paramref name="after"/>: the one page whose ID the target didn't hold before, preferring the
     /// sent name, then the sent position; null when there is none.
     /// </summary>
-    private static string? MovedPage(Plan now, HierarchyTarget after)
-    {
-        var before = now.Target.Children.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
-        var added = after.Children.Where(c => !before.Contains(c.Id)).ToList();
-        var named = added.Where(c => string.Equals(c.Name, now.Page.Name, StringComparison.Ordinal)).ToList();
-        var candidates = named.Count > 0 ? named : added;
-        if (candidates.Count <= 1)
-        {
-            return candidates.SingleOrDefault()?.Id;
-        }
-
-        var atSent = now.Index < after.Children.Count ? after.Children[now.Index] : null;
-        return atSent is not null && candidates.Contains(atSent) ? atSent.Id : candidates[0].Id;
-    }
+    private static string? MovedPage(Plan now, HierarchyTarget after) =>
+        MoveReadBack.NewPageId(now.Target.Children, after, now.Page.Name, now.Index);
 
     /// <summary>After <c>0x80042004</c>: where the page is, as far as a best-effort re-read of both sections can tell (AD-7 Moves).</summary>
     private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)
@@ -551,12 +539,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     private static string ReadBackUserAction(string targetId) =>
         $"Read section {targetId} with get_hierarchy (scope children) to find the moved page and its current ID.";
 
-    private static string Why(Exception exception) => exception switch
-    {
-        OneNoteException one => one.Code.ToString(),
-        OperationCanceledException => "the write's deadline or a cancel",
-        _ => exception.GetType().Name,
-    };
+    private static string Why(Exception exception) => MoveReadBack.Why(exception);
 
     /// <summary>What step 4 decided: both sections as read, the page, the 0-based index it goes in at, and the XML to send.</summary>
     private sealed record Plan(HierarchyTarget Source, HierarchyTarget Target, SectionPage Page, int Index, string Xml);

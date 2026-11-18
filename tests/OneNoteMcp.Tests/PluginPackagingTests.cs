@@ -250,10 +250,10 @@ public sealed class PluginPackagingTests
 
     /// <summary>
     /// Round-2 tools whose skill and README text is epic 3's entry 10 ("Skill, README and harness for round 2"): story 3.3's
-    /// plan keeps that text out of the tracer ("No skill or README text"), as story 3.4's does for the move and story 3.14's for set_page_level. Entry 10 writes
+    /// plan keeps that text out of the tracer ("No skill or README text"), as story 3.4's does for the move, story 3.14's for set_page_level and story 3.5's for restore_from_recycle_bin. Entry 10 writes
     /// it and empties this set.
     /// </summary>
-    private static readonly HashSet<string> DocumentedByRound2Entry10 = new(StringComparer.Ordinal) { "publish", "move_hierarchy_object", "set_page_level" };
+    private static readonly HashSet<string> DocumentedByRound2Entry10 = new(StringComparer.Ordinal) { "publish", "move_hierarchy_object", "set_page_level", "restore_from_recycle_bin" };
 
     /// <summary>The contract's tools that the skill and the README must already name.</summary>
     private static IReadOnlyList<string> DocumentedContractToolNames() =>

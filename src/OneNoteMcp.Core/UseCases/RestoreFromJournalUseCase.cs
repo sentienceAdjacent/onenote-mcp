@@ -260,7 +260,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                 return own;
             }
 
-            var byPath = live.Where(s => SamePath(s, Entry.ParentNamePath)).ToList();
+            var byPath = JournalTargets.SectionsAt(live, Entry.ParentNamePath);
             if (byPath.Count == 1)
             {
                 fallback = "parentNamePath";
@@ -269,20 +269,6 @@ public sealed class RestoreFromJournalUseCase : IUseCase
 
             fallback = RecoveredSectionName;
             return live.FirstOrDefault(s => s.Groups.Count == 0 && string.Equals(s.Name, RecoveredSectionName, StringComparison.OrdinalIgnoreCase));
-        }
-
-        /// <summary>Segment by segment, ignoring case, as Windows names compare; names can't hold <c>/</c>, so the split is safe.</summary>
-        private static bool SamePath(NotebookSection section, string namePath)
-        {
-            if (namePath.Length == 0)
-            {
-                return false;
-            }
-
-            var segments = namePath.Split('/');
-            string[] own = [.. section.Groups, section.Name];
-            return segments.Length == own.Length
-                && segments.Zip(own).All(pair => string.Equals(pair.First, pair.Second, StringComparison.OrdinalIgnoreCase));
         }
 
         public override void Validate()

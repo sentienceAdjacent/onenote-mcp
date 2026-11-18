@@ -643,12 +643,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
     private string ReadBackUserAction() =>
         $"Read {TargetId} with get_hierarchy (scope children) to find where {ObjectId} is now.";
 
-    private static string Why(Exception exception) => exception switch
-    {
-        OneNoteException one => one.Code.ToString(),
-        OperationCanceledException => "the write's deadline or a cancel",
-        _ => exception.GetType().Name,
-    };
+    private static string Why(Exception exception) => MoveReadBack.Why(exception);
 
     /// <summary>What step 3 read: the node, its parent and the new parent (each with its XML), a group's sections, both notebooks' paths.</summary>
     private sealed record State(
