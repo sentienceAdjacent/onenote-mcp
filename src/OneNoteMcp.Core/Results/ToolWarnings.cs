@@ -144,4 +144,18 @@ public static class ToolWarnings
     /// <c>reorder_hierarchy_children</c>.
     /// </summary>
     public const string SubpageNotPlaced = "subpageNotPlaced";
+
+    /// <summary>
+    /// <c>restore_from_recycle_bin</c> matched the recycled item to its soft-delete journal entry by name, not by its
+    /// recycle-bin ID or section ID (AD-8; story 3.5 Q6): a reopen or a missing <c>recycleBinId</c>. Names the entry's ID and
+    /// the parent the item was restored under, never a name. Its userAction says to check it is the item the user meant.
+    /// </summary>
+    public const string RestoredByName = "restoredByName";
+
+    /// <summary>
+    /// <c>restore_from_recycle_bin</c> restored a section in its own notebook, but the move to the other notebook the caller
+    /// named was refused or failed (AD-8; story 3.5 Q7). The section stays restored in its own notebook (<c>meta.parentId</c>).
+    /// Gives the move's error code and message (IDs only); its userAction says to move it with <c>move_hierarchy_object</c>.
+    /// </summary>
+    public const string RestoredNotMoved = "restoredNotMoved";
 }

@@ -174,6 +174,13 @@ public static class ServerSetup
         // Story 3.4: a page move (AD-7 HierarchyWrite), one UpdateHierarchy with a hierarchy entry per section (AD-8).
         services.AddSingleton<MoveHierarchyObjectUseCase>();
 
+        // Story 3.5: a restore out of the recycle bin (AD-7 HierarchyWrite, AD-8), one UpdateHierarchy of the target with a
+        // hierarchy entry; it reads the soft-delete entries from the journal folder settings.json names, at every call.
+        services.AddSingleton(sp => new RestoreFromRecycleBinUseCase(
+            sp.GetRequiredService<HierarchyWriteServices>(),
+            sp.GetRequiredService<WritePipeline>(),
+            sp.GetRequiredService<SettingsStore>().Read));
+
         // Story 3.14: a page's subpage level (AD-7 HierarchyWrite), one UpdateHierarchy of its section with a hierarchy entry.
         services.AddSingleton<SetPageLevelUseCase>();
 
@@ -232,6 +239,7 @@ public static class ServerSetup
             .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options)
             .WithTools<MoveHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<RestoreFromRecycleBinTool>(EnvelopeJson.Options)
             .WithTools<SetPageLevelTool>(EnvelopeJson.Options)
             .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options)
