@@ -22,12 +22,13 @@ namespace OneNoteMcp.Core.UseCases;
 /// In a password-protected section a read grant held at the call's start is required, never prompted for (AD-21 Exports), else
 /// <see cref="ErrorCode.ReadNotGranted"/>. A notebook package needs no read grant (AD-21 Exports, 3.2 plan H1): it keeps
 /// every protected section encrypted, locked or not (spike 3.1 XP1, XP2). But a notebook holding a locked section anywhere
-/// is <see cref="ErrorCode.SectionLocked"/>: packing it raises a modal dialog in OneNote that blocks the call (the 3.7
-/// sitting; Phill, 2026-11-17).</item>
+/// is <see cref="ErrorCode.SectionLocked"/>, and one holding a section with <c>areAllPagesAvailable</c> false is
+/// <see cref="ErrorCode.NotSupported"/>: packing either raises a modal dialog in OneNote that blocks the call, and a Yes to
+/// it drops the undownloaded pages (the 3.7 sitting, S1 and S3; Phill, 2026-11-17).</item>
 /// <item value="3">Steps 3 and 4, under the lock: a page is walked to its section again, a section re-read (locked is
 /// <see cref="ErrorCode.SectionLocked"/>; protected since step 1 needs the read grant too), a notebook re-read (it must
-/// still be one, else <see cref="ErrorCode.ObjectNotFound"/>, and hold no locked section, else
-/// <see cref="ErrorCode.SectionLocked"/>, as in step 1), the path is resolved again and
+/// still be one, else <see cref="ErrorCode.ObjectNotFound"/>, and hold no locked or not fully downloaded section, as in
+/// step 1), the path is resolved again and
 /// must come out the same, with nothing at it (<see cref="ErrorCode.FileExists"/>), and the target's folder is created,
 /// because <c>Publish</c> into a missing folder raises a modal and blocks.</item>
 /// <item value="7">Step 7: <c>Publish</c> in the format, then the landing wait (<see cref="PublishedFile"/>) within
@@ -61,6 +62,10 @@ public sealed class PublishUseCase : IUseCase
     /// <summary>What to do with a notebook holding a locked section (the 3.7 sitting: packing one raises a blocking dialog).</summary>
     public const string NotebookLockedUserAction =
         "A notebook with a locked section can't be packaged: unlock it, or export the other sections one by one (get_hierarchy with scope sections lists them).";
+
+    /// <summary>What to do with a notebook holding a section not fully downloaded (the 3.7 sitting S3: the pack dialog).</summary>
+    public const string NotebookNotDownloadedUserAction =
+        "Some sections of this notebook aren't fully downloaded to this PC, and packing it would leave their pages out: open those sections in OneNote so they download, then try again, or export the other sections one by one (get_hierarchy with scope sections lists them).";
 
     /// <summary>What to do with a section as EMF (the 3.13 sitting: it holds only the first page).</summary>
     public const string SectionEmfUserAction =
@@ -214,11 +219,11 @@ public sealed class PublishUseCase : IUseCase
                         retryable: false);
                 }
 
-                // The 3.7 sitting (Phill, 2026-11-17): packing a notebook with a locked section raises a modal dialog that
-                // blocks the call until the user answers, so a locked section anywhere in it refuses the package first.
+                // The 3.7 sitting (Phill, 2026-11-17): packing a notebook with a locked section, or one not fully downloaded,
+                // raises a modal dialog that blocks the call until the user answers, so such a section refuses the package first.
                 if (kind == TargetKind.Notebook)
                 {
-                    await RefuseALockedSectionAsync(ct).ConfigureAwait(false);
+                    await RefuseASectionThatWouldBlockThePackageAsync(ct).ConfigureAwait(false);
                 }
 
                 // The 3.13 sitting (Phill, 2026-11-17): a section's EMF holds only its first page, so it is refused.
@@ -262,10 +267,10 @@ public sealed class PublishUseCase : IUseCase
                             : "Re-read the hierarchy (get_hierarchy) for a current section ID.");
                 }
 
-                // A section of the notebook may have been locked since step 1 (the 3.7 sitting's dialog).
+                // A section of the notebook may have been locked, or stopped being fully downloaded, since step 1.
                 if (notebook)
                 {
-                    await RefuseALockedSectionAsync(ct).ConfigureAwait(false);
+                    await RefuseASectionThatWouldBlockThePackageAsync(ct).ConfigureAwait(false);
                 }
 
                 return;
@@ -369,20 +374,31 @@ public sealed class PublishUseCase : IUseCase
         }
 
         /// <summary>
-        /// A notebook's sections, at any depth, read live: the first locked one is <see cref="ErrorCode.SectionLocked"/>,
-        /// naming its ID (the 3.7 sitting: packing a notebook with a locked section raises a modal dialog that blocks
-        /// <c>Publish</c>). No read grant is checked (H1).
+        /// A notebook's sections, at any depth, read live. Packing a notebook raises OneNote's modal "cannot pack these
+        /// sections" dialog, which blocks <c>Publish</c>, for any section that isn't fully downloaded (the 3.7 sitting), so:
+        /// the first locked section is <see cref="ErrorCode.SectionLocked"/> (S1); else the first with
+        /// <c>areAllPagesAvailable</c> false is <see cref="ErrorCode.NotSupported"/> (S3: a Yes to the dialog writes the
+        /// package without those pages). Each names the section's ID only. No read grant is checked (H1).
         /// </summary>
-        private async Task RefuseALockedSectionAsync(CancellationToken ct)
+        private async Task RefuseASectionThatWouldBlockThePackageAsync(CancellationToken ct)
         {
             var xml = await owner.gateway.GetHierarchyAsync(objectId, HierarchyScope.Sections, ct).ConfigureAwait(false);
-            var locked = XmlReads.Readable(() => HierarchyNode.Sections(xml), "GetHierarchy").FirstOrDefault(s => s.Locked);
-            if (locked is not null)
+            var sections = XmlReads.Readable(() => HierarchyNode.Sections(xml), "GetHierarchy");
+            if (sections.FirstOrDefault(s => s.Locked) is { } locked)
             {
                 throw new OneNoteException(
                     ErrorCode.SectionLocked,
                     $"Section {locked.Id} in notebook {objectId} is locked, so the notebook wasn't exported.",
                     userAction: NotebookLockedUserAction);
+            }
+
+            if (sections.FirstOrDefault(s => !s.AllPagesAvailable) is { } partial)
+            {
+                throw new OneNoteException(
+                    ErrorCode.NotSupported,
+                    $"Section {partial.Id} in notebook {objectId} isn't fully downloaded to this PC, so the notebook wasn't exported.",
+                    userAction: NotebookNotDownloadedUserAction,
+                    retryable: false);
             }
         }
 

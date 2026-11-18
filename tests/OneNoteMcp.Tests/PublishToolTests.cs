@@ -726,6 +726,58 @@ public sealed class PublishToolTests : IDisposable
     }
 
     [Theory]
+    [InlineData(true, false, "false")]
+    [InlineData(false, true, "false")]
+    [InlineData(false, true, "0")]
+    public async Task ANotebookHoldingASectionNotFullyDownloaded_AnywhereInItsTree_IsNotSupported_BeforeCom(bool top, bool nested, string value)
+    {
+        // The 3.7 sitting S3 (Phill, 2026-11-17): a section with areAllPagesAvailable="false" raised OneNote's pack dialog,
+        // and answering Yes writes the package without the pages that weren't downloaded, so it is refused up front.
+        NotebookSections(topLocked: false, nestedLocked: false, topNotDownloaded: top ? value : null, nestedNotDownloaded: nested ? value : null);
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(NotebookId, message, StringComparison.Ordinal);
+        Assert.Contains(top ? SectionId : NestedLockedId, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Locked vault", error.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Open\"", error.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("aren't fully downloaded", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookWithAllPagesAvailableTrue_IsPublished()
+    {
+        NotebookSections(topLocked: false, nestedLocked: false, topNotDownloaded: "true", nestedNotDownloaded: "true");
+
+        Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+
+        Assert.Single(gateway.PublishCalls);
+    }
+
+    [Fact]
+    public async Task ANotebookWhoseSectionStopsBeingAvailableBeforeTheLock_IsNotSupported_AndNothingIsPublished()
+    {
+        var sectionReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == NotebookId && scope == HierarchyScope.Sections && ++sectionReads == 2)
+                {
+                    NotebookSections(topLocked: false, nestedLocked: false, nestedNotDownloaded: "false");
+                }
+            },
+        };
+
+        Error(await Tool(hooked).Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
+
+        Assert.Equal(2, sectionReads);
+        await AssertRefusedAsync();
+    }
+
+    [Theory]
     [InlineData(PublishFormatArgument.Pdf, "w.pdf")]
     [InlineData(PublishFormatArgument.Xps, "w.xps")]
     [InlineData(PublishFormatArgument.Docx, "w.docx")]
@@ -940,19 +992,21 @@ public sealed class PublishToolTests : IDisposable
     /// W's sections-scope read: Open, the Vault (protected, unlocked), optionally Locked vault (locked), and Group holding
     /// a protected section that is optionally locked.
     /// </summary>
-    private void NotebookSections(bool topLocked, bool nestedLocked)
+    private void NotebookSections(bool topLocked, bool nestedLocked, string? topNotDownloaded = null, string? nestedNotDownloaded = null)
     {
+        var openAvailable = topNotDownloaded is null ? string.Empty : $" areAllPagesAvailable=\"{topNotDownloaded}\"";
+        var innerAvailable = nestedNotDownloaded is null ? string.Empty : $" areAllPagesAvailable=\"{nestedNotDownloaded}\"";
         var locked = topLocked
             ? $"<one:Section name=\"Locked vault\" ID=\"{LockedId}\" path=\"{NotebookPath}\\Locked vault.one\" encrypted=\"true\" locked=\"true\" />"
             : string.Empty;
         var nested = nestedLocked ? " locked=\"true\"" : string.Empty;
         gateway.Hierarchies[(NotebookId, HierarchyScope.Sections)] = "<?xml version=\"1.0\"?>\n"
             + $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\">"
-            + $"<one:Section name=\"Open\" ID=\"{SectionId}\" path=\"{NotebookPath}\\Open.one\" />"
+            + $"<one:Section name=\"Open\" ID=\"{SectionId}\" path=\"{NotebookPath}\\Open.one\"{openAvailable} />"
             + $"<one:Section name=\"Vault\" ID=\"{VaultId}\" path=\"{NotebookPath}\\Vault.one\" encrypted=\"true\" />"
             + locked
             + $"<one:SectionGroup name=\"Group\" ID=\"{GroupId}\" path=\"{NotebookPath}\\Group\">"
-            + $"<one:Section name=\"Locked vault\" ID=\"{NestedLockedId}\" path=\"{NotebookPath}\\Group\\Inner.one\" encrypted=\"true\"{nested} />"
+            + $"<one:Section name=\"Locked vault\" ID=\"{NestedLockedId}\" path=\"{NotebookPath}\\Group\\Inner.one\" encrypted=\"true\"{nested}{innerAvailable} />"
             + "</one:SectionGroup></one:Notebook>";
     }
 

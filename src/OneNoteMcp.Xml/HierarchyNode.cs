@@ -17,8 +17,10 @@ public enum HierarchyKind
 /// One element of hierarchy XML from <c>GetHierarchy</c>: its kind and the attributes access checks need (AD-6,
 /// AD-21), unchanged. <see cref="DisplayName"/> is a notebook's <c>nickname</c>, else its <c>name</c>.
 /// <see cref="InRecycleBin"/> is true when the element carries <c>isInRecycleBin</c> or <c>isDeletedPages</c>.
+/// <see cref="AllPagesAvailable"/> is false only when the element carries <c>areAllPagesAvailable</c> false (a section not
+/// fully downloaded to this PC; story 3.7).
 /// </summary>
-public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, string DisplayName, string Path, bool Encrypted, bool Locked, bool InRecycleBin = false)
+public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, string DisplayName, string Path, bool Encrypted, bool Locked, bool InRecycleBin = false, bool AllPagesAvailable = true)
 {
     /// <summary>The root of <paramref name="hierarchyXml"/>. Throws <see cref="OneNoteXmlException"/> when it isn't well-formed or has no root.</summary>
     public static HierarchyNode Root(string hierarchyXml) =>
@@ -49,6 +51,7 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
             (string?)element.Attribute("path") ?? string.Empty,
             kind == HierarchyKind.Section && EncryptedSections.IsEncrypted(element),
             OneNoteXml.IsTrue((string?)element.Attribute("locked")),
-            HierarchyElements.InRecycleBin(element));
+            HierarchyElements.InRecycleBin(element),
+            (string?)element.Attribute("areAllPagesAvailable") is not ("false" or "0"));
     }
 }
