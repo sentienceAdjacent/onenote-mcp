@@ -3,7 +3,7 @@ title: 'Protected by path: export roots and the backups folder'
 type: 'feature'
 ticket: '15'
 created: '2026-11-17'
-status: 'in-review'
+status: 'built'
 baseline_revision: '4be192b2e404aec66c89a5da059bb075af6c7800'
 route: 'full'
 route_source: 'auto'
@@ -89,12 +89,12 @@ context:
 
 **Execution:**
 - [x] `tests/OneNoteMcp.Tests/PathUnderTests.cs` (new) -- first, red: segment boundary, case, separators, missing root, mapped-drive root falling back to `GetFullPath`, URL path; `ExportTarget`'s existing tests still pass on it.
-- [x] `tests/OneNoteMcp.Tests/ProtectedByPathTests.cs` (new) -- first, red: each matrix row, the `one:OpenSections` row with a fixture shaped as P3 saw it, through the real use cases on `FakeGateway`: `get_hierarchy`, `get_page_content`, `find_pages`, `find_meta`, `get_binary_page_content`, the grant listing, `update_page_content`, `delete_page_content`, `create_page`, `set_page_level`, a move, soft delete, permanent delete, `restore_from_journal`, `publish`, and a journal snapshot; plus the wording rule.
+- [x] `tests/OneNoteMcp.Tests/ProtectedByPathTests.cs` (new) -- **Partly** (see the Review Triage Log and deferred-work: no path-mode test for `update_page_content`, `create_page` subpage, `set_page_level`, `restore_from_journal`, or `one:OpenSections` through a read tool) -- first, red: each matrix row, the `one:OpenSections` row with a fixture shaped as P3 saw it, through the real use cases on `FakeGateway`: `get_hierarchy`, `get_page_content`, `find_pages`, `find_meta`, `get_binary_page_content`, the grant listing, `update_page_content`, `delete_page_content`, `create_page`, `set_page_level`, a move, soft delete, permanent delete, `restore_from_journal`, `publish`, and a journal snapshot; plus the wording rule.
 - [x] `src/OneNoteMcp.Core/Writes/PathUnder.cs` (new), `ExportTarget.cs` -- the one helper.
 - [x] `src/OneNoteMcp.Xml/EncryptedSections.cs`, `HierarchyNode.cs`, `HierarchyTarget.cs`, `NotebookSections.cs`, `DeleteTargets.cs` -- the required predicate and the rename.
 - [x] `src/OneNoteMcp.Core/Access/Protection.cs` (new), `HierarchyWalk.cs`, `ReadAccess.cs`, `ProtectedSections.cs` -- build `Protection` per call and use it; `HierarchyWalk` callers pass it.
 - [x] Every Core site in the Code Map -- replace the marker read with `Protection`; adjust message texts per the wording rule.
-- [x] `src/OneNoteMcp.Server/Cli/GrantCommand.cs`, `Grants/ElicitationGrantPrompt.cs`, the tool descriptions -- pass roots to the grant listing; wording.
+- [x] `src/OneNoteMcp.Server/Cli/GrantCommand.cs`, `Grants/ElicitationGrantPrompt.cs`, the tool descriptions -- pass roots to the grant listing; wording. **Deviation:** the 22 tool descriptions are unchanged (still true for marked sections; the README explains the path rule); the CLI, the dialog and the Core messages are reworded.
 - [x] `src/OneNoteMcp.Core/Settings/SettingsStore.cs` (or a holder beside it) -- keep this run's last valid `ExportRoots` and journal path; use them, or the defaults at startup, while the file is invalid (Q2), red-first.
 - [x] `src/OneNoteMcp.Core/Access/Protection.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` -- the export-root guard and its warning; writes refused `SettingsInvalid` (Q1), red-first.
 - [x] `src/OneNoteMcp.Core/UseCases/PublishUseCase.cs` -- a notebook package checks every section for path protection and needs each one's read grant; warning `exportNotEncrypted` (Q3), red-first.
@@ -135,6 +135,17 @@ context:
 - 2026-11-17, after the Fable final review (each finding checked against the code; all held): the site list now starts from `HierarchyWalk` and adds `PageWrite`, `HierarchyWrite`, `GetHierarchyUseCase:46`, the search use cases and `GrantCommand`, with lines; fail-closed by a required Xml predicate and the `EncryptedMarker` rename instead of an optional default; the rule's comparison lives in Core (Xml can't reference Core) as one helper shared with `ExportTarget`; null canonical paths fall back to `GetFullPath`; the notebook-path clause restored; the wording rule for messages; P3 moved before this build; Open Question 1 rewritten to deliver Phill's rule (option c dropped, as he chose to refuse); Open Questions 2 and 3 added; the ACs cover the ticket's Verify; journal-across-settings noted; citations corrected.
 
 ## Review Triage Log
+
+- 2026-11-17, quick lens, iteration 0 (the reviewer wrote its findings to a file in the build's scratchpad): 9 findings. Each checked against the code: 0 high, 3 medium, 5 low, 1 rejected; 7 patched, 1 deferred in part, no loopback.
+  - **medium, patch.** The main read refusal (`ReadAccess.NotGranted`) and the broad withheld warning still said "password-protected" for path-protected sections. Fix: `NotGranted` takes the section and uses `Protection.Phrase`; `BroadAccess.ByPath` marks the path-only withheld IDs, whose warning says why. Test: `ProtectedByPathTests.ANotebookFolderUnderARoot_…_SayingWhy`.
+  - **low, patch.** Other refusals and userActions reached by path-protected sections (`PageWrite` x2, `HierarchyWrite` reorder, `PermanentDeleteUseCase` x2 and its userActions, `ResultGrantCheck`, `ToolErrors.ReadNotGrantedUserAction`, the grant CLI). Fix: "protected (password-protected, or under an export root or the backups folder)" where the section's marker isn't known, `Protection.Phrase` where it is (the reorder keeps its old text for a marked section).
+  - **low, patch.** The grant dialog opened "Claude wants to read a password-protected OneNote section". Fix: "a protected OneNote section (password-protected, or a copy under an export or backups folder)"; `GrantCommandTests` updated.
+  - **low, patch.** The tool-descriptions task was ticked though not done. Fix: recorded as a deviation on the task.
+  - **low, rejected.** Restore's advice to password-protect the section again is given for path-protected entries too: an entry's `SectionKey` doesn't record which cause applied, and the message already offers both remedies (password, or the export root back in settings).
+  - **medium, patch.** `PathUnder.IsUnder` made each root canonical (file I/O) on every section test of a broad read. Fix: `Protection` builds the root prefixes once; `PathUnder.IsUnderPrefixes` tests without I/O.
+  - **medium, patch.** While `settings.json` was invalid the guard checked the default roots, not the last valid ones that protect, and in a write it ran before the invalid-settings refusal. Fix: `ReadAccess` remembers the last valid export roots and gives those to the guard; `WritePipeline` runs the guard only on a readable file.
+  - **low, patch / defer.** Matrix rows without a use-case test: added the look-alike root, case and separator variants, the notebook folder under a root beside marked sections (`ProtectedByPathTests`), and `delete_page_content` (`DeletePageContentToolTests`). Deferred: `update_page_content`, `create_page` subpage, `set_page_level`, `restore_from_journal` under a root, and `one:OpenSections` through a read tool (deferred-work). The fixture move of the vault paths to `C:\vaults` in marker mode was rejected as an AC 6 breach: no assertion's meaning changed, only fixture constants.
+  - **low, patch.** AD-10 named only Q2; it now also says writes fail `SettingsInvalid` under the export-root guard (Q1).
 
 ## Verification
 
