@@ -123,5 +123,6 @@ context:
 
 **Sitting steps (main session with Phill; MCP Test and the throwaway only):**
 - S0 (before the build): probes P1 and P2 (P3 was settled by entry 15's S0; P1 also checks the opened notebook's paths).
+  Probe code: `tests/OneNoteMcp.Integration/WriteProbes/OpenPackageProbes.cs`, scenario `open-package-p1-p2`, with a guarded `TestNotebook.CloseOpenedCopyAsync` (closes only a notebook this run opened whose live path is under the probes' publish folder). Run: `ONENOTE_MCP_INTEGRATION=1 ONENOTE_MCP_SCENARIO=open-package-p1-p2 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~OpenPackageProbes`; the log lands in `%LOCALAPPDATA%\OneNoteMcp-Test\probes\open-package-p1-p2-<utc>.jsonl`.
 - S1: `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~OpenPackageIntegrationTests` with the throwaway open. Expected: all pass, the copy closed, only temp folders.
 - S2: with `onenote-dev`, open a package from Claude Code and read one of its pages: the grant dialog appears; Phill denies once (refused) and allows once (read). Phill closes the copy in OneNote.

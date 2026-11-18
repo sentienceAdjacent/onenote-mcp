@@ -394,6 +394,37 @@ internal sealed class TestNotebook
     }
 
     /// <summary>
+    /// Story 3.8's probe P2: <c>CloseNotebook</c> (not forced) of a notebook this run opened from <paramref name="publishRoot"/>.
+    /// Refuses (throws, nothing sent) unless <paramref name="notebookId"/> is in <paramref name="openedThisRun"/>, is open now,
+    /// and its live <c>path</c> lies under <paramref name="publishRoot"/>, so neither a test notebook nor a throwaway (which
+    /// live under <see cref="ThrowawayRoot"/>, outside the publish folder) can ever be closed.
+    /// </summary>
+    public static async Task CloseOpenedCopyAsync(ComGateway gateway, string notebookId, IReadOnlySet<string> openedThisRun, string publishRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(openedThisRun);
+        const string Method = "CloseNotebook(copy)";
+        if (!openedThisRun.Contains(notebookId))
+        {
+            throw new InvalidOperationException($"Refusing {Method}: {notebookId} wasn't opened by this run.");
+        }
+
+        var notebooks = XDocument.Parse(await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct)).Root!;
+        var live = notebooks.Elements(OneNoteXml.Namespace2013 + "Notebook").FirstOrDefault(n => (string?)n.Attribute("ID") == notebookId)
+            ?? throw new InvalidOperationException($"Refusing {Method}: {notebookId} isn't open.");
+        TestNotebookGuard.EnsureUnder(Method, (string?)live.Attribute("path") ?? string.Empty, publishRoot);
+        await gateway.InvokeAsync(
+            app =>
+            {
+                app.CloseNotebook(notebookId, false);
+                return true;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+    }
+
+    /// <summary>
     /// Story 5.1 (Q1 a): the one folder local throwaway notebooks are created and accepted in,
     /// <c>%LOCALAPPDATA%\OneNoteMcp-Test</c>. Fixed: it never follows <see cref="FolderOverrideVariable"/> (review finding 8).
     /// </summary>
