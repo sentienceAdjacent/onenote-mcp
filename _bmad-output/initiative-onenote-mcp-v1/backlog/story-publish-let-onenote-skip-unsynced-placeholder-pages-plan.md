@@ -47,5 +47,5 @@ Quick lens, pass 1 (2026-11-17): 3 patched, 1 deferred, 1 noted.
 - **patched:** spine l.480 had dropped the still-open "section- or page-scope export … untested (backlog 10)" sentence; restored beside the new one.
 - **patched:** spine l.480's spliced clause chained two colons; now a full stop before "In S3".
 - **patched:** the ticket still described the dropped opt-in (title, Description, ACs, Verify, hitl); rewritten to the wording-only scope (now not hitl, risk low), Notes kept.
-- **deferred:** spine AD-7 table row l.326 still says "not fully downloaded"; left out to keep the diff to the three named lines beside the 3.15 and 3.5 lanes, and recorded in the ticket's Boundaries as a follow-up.
-- **noted:** the frozen block was rewritten to Phill's 2026-11-17 decision (relayed by the team lead); his yes on the build is still needed before merge.
+- **deferred:** spine AD-7 table row l.326 still says "not fully downloaded"; left out to keep the diff to the three named lines beside the 3.15 and 3.5 lanes, and recorded in the ticket's Boundaries and in `deferred-work.md` as a follow-up.
+- **noted:** the frozen block was renegotiated by Phill on 2026-11-17 (scope cut to the wording; relayed by the team lead), so its rewrite stands. His yes on the build is still needed before merge.

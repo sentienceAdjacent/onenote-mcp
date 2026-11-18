@@ -46,3 +46,4 @@ Verify: `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNo
 
 - Filed 2026-11-17 at Phill's request, after the backlog 10 sitting.
 - 2026-11-17, Phill: build only the clearer refusal (message, `userAction`, tool description, spine wording). The `allowUnsyncedPages` opt-in is dropped: its plan review showed the dialog blocks the COM call, freezing writes (`ComBusy`) until the user answers, and a Yes after a timeout is silent. It can return as its own story if unsynced pages come up often.
+- 2026-11-17: title, Description, Acceptance Criteria, Verify line and Boundaries rewritten to the wording-only scope, authorised by the team lead under Phill's decision above.
