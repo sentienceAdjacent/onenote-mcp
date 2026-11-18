@@ -26,6 +26,23 @@ internal sealed class OnceWindows
         }
     }
 
+    /// <summary>
+    /// True when a window for <paramref name="key"/> was opened at or before <paramref name="at"/> and is still open then
+    /// (backlog 9): a window opened, or reopened, after <paramref name="at"/> doesn't count. An empty key never has one.
+    /// </summary>
+    internal bool OpenedBy(string key, DateTimeOffset at)
+    {
+        if (key.Length == 0)
+        {
+            return false;
+        }
+
+        lock (gate)
+        {
+            return windows.TryGetValue(key, out var window) && window.GrantedAt <= at && !window.IsExpired(at);
+        }
+    }
+
     /// <summary>Opens <paramref name="window"/>, replacing any window for the same key.</summary>
     internal void Open(ProtectedSectionGrant window)
     {

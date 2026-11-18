@@ -19,8 +19,8 @@ public enum HierarchyKind
 /// <see cref="InRecycleBin"/> is true when the element carries <c>isInRecycleBin</c> or <c>isDeletedPages</c>.
 /// <see cref="EncryptedMarker"/> is a section's <c>encrypted</c> attribute only: whether the section counts as protected
 /// is decided in Core, which also applies AD-21's path rule (entry 15), so nothing here should be read as "protected".
-/// <see cref="AllPagesAvailable"/> is false only when the element carries <c>areAllPagesAvailable</c> false (a section not
-/// fully downloaded to this PC; story 3.7).
+/// <see cref="AllPagesAvailable"/> is false only when the element carries <c>areAllPagesAvailable</c> false (a section with a
+/// page stub added from another computer that never synced; story 3.7, the backlog 10 sitting).
 /// </summary>
 public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, string DisplayName, string Path, bool EncryptedMarker, bool Locked, bool InRecycleBin = false, bool AllPagesAvailable = true)
 {

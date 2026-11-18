@@ -326,7 +326,7 @@ public sealed class CreatePageUseCase(IOneNoteGateway gateway, WriteAccess acces
                 throw new OneNoteException(ErrorCode.SectionLocked, $"Section {sectionId} is locked, so no page was created.");
             }
 
-            if (readAccess!.Protection().IsProtected(section) && !readAccess.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
+            if (readAccess!.Protection().IsProtected(section) && !readAccess.HoldsReadGrantGivenBy(GrantKeys.SectionKey(section.Path), callStart))
             {
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,

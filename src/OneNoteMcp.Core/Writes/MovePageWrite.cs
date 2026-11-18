@@ -429,7 +429,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     /// </summary>
     private void CheckPositionReadGrant(HierarchyTarget target)
     {
-        if (position is not null && services.ReadAccess.Protection().IsProtected(target) && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(target.Path), callStart))
+        if (position is not null && services.ReadAccess.Protection().IsProtected(target) && !services.ReadAccess.HoldsReadGrantGivenBy(GrantKeys.SectionKey(target.Path), callStart))
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,

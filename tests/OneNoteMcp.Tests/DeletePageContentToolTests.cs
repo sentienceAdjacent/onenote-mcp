@@ -449,6 +449,43 @@ public sealed class DeletePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ProtectedWithAOnceWindowOpenedDuringTheCall_IsReadNotGranted_NothingReadOrDeleted_ARetryDeletes()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Equal(DeletePageContentWrite.ReadFirstUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+
+        gateway.OnGetHierarchy = null;
+        Deletes(VaultPageId);
+        Ok(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct));
+        Assert.Single(gateway.DeleteCalls);
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck_NothingReadOrDeleted()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so step 3's recheck (PageWrite l.118) refuses before the page is read.
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, vault, "Vault", writeLock);
+
+        var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(DeletePageContentWrite.ReadFirstUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task ProtectedWithoutAReadGrant_AndNoWriteGrant_IsReadNotGranted_BeforeTheWriteGrantDialog()
     {
         // AD-7 step 1 as amended by 5.2: the no-prompt read-grant check comes before the write grant, so the user is never

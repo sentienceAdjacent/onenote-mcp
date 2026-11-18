@@ -341,7 +341,7 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
             throw new OneNoteException(ErrorCode.SectionLocked, $"Section {section.Id} is locked, so the level of page {PageId} wasn't changed.");
         }
 
-        if (services.ReadAccess.Protection().IsProtected(section) && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
+        if (services.ReadAccess.Protection().IsProtected(section) && !services.ReadAccess.HoldsReadGrantGivenBy(GrantKeys.SectionKey(section.Path), callStart))
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
