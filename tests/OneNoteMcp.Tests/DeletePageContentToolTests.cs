@@ -393,6 +393,19 @@ public sealed class DeletePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task UnderAnExportRoot_WithoutAReadGrant_IsReadNotGranted_SayingWhy_NothingReadOrDeleted()
+    {
+        // Entry 15: the open section carries no marker, but the notebook's folder is an export root.
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W");
+
+        var error = Error(await Tool().DeletePageContent(PageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task ProtectedWithoutAReadGrant_ThroughTheTool_IsReadNotGranted_AndItsUserAction()
     {
         var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");

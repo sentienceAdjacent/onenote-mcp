@@ -93,7 +93,7 @@ public sealed class SoftDeleteReadsTests
 
         Assert.Equal(
             (HierarchyKind.Section, "{S}", "Vault", @"C:\n\Vault.one", "2026-11-13T10:00:00.000Z", false, false, true, true),
-            (section.Kind, section.Id, section.Name, section.Path, section.LastModifiedTime, section.IsRecycleBin, section.InRecycleBin, section.Encrypted, section.Locked));
+            (section.Kind, section.Id, section.Name, section.Path, section.LastModifiedTime, section.IsRecycleBin, section.InRecycleBin, section.EncryptedMarker, section.Locked));
         Assert.True(bin.IsRecycleBin);
         Assert.True(deletedPages.InRecycleBin);
     }
@@ -132,11 +132,11 @@ public sealed class SoftDeleteReadsTests
             </one:SectionGroup>
             """;
 
-        var kept = XDocument.Parse(DeleteTargets.WithoutProtectedPages(group)).Root!;
+        var kept = XDocument.Parse(DeleteTargets.WithoutProtectedPages(group, _ => false)).Root!;
 
         Assert.Equal(["{S1}", "{S2}", "{S3}"], kept.Descendants(OneNoteXml.One + "Section").Select(s => (string?)s.Attribute("ID")));
         Assert.Equal(["{P1}"], kept.Descendants(OneNoteXml.One + "Page").Select(p => (string?)p.Attribute("ID")));
-        Assert.DoesNotContain("Secret", DeleteTargets.WithoutProtectedPages(group), StringComparison.Ordinal);
+        Assert.DoesNotContain("Secret", DeleteTargets.WithoutProtectedPages(group, _ => false), StringComparison.Ordinal);
         Assert.Equal(["{P1}", "{P2}", "{P3}"], DeleteTargets.PageIds(group));
     }
 
@@ -145,6 +145,6 @@ public sealed class SoftDeleteReadsTests
     {
         var group = $$"""<one:SectionGroup {{Ns}} name="G" ID="{G}"><one:Section name="Open" ID="{S1}"><one:Page ID="{P1}" name="Visible" /></one:Section></one:SectionGroup>""";
 
-        Assert.Same(group, DeleteTargets.WithoutProtectedPages(group));
+        Assert.Same(group, DeleteTargets.WithoutProtectedPages(group, _ => false));
     }
 }

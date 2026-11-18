@@ -578,6 +578,21 @@ public sealed class PermanentDeleteToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ASectionUnderAnExportRoot_IsNotSupported_AsAProtectedOne_SayingWhy()
+    {
+        // Entry 15: Tree carries no marker, but the notebook's folder is an export root, so it is protected by path.
+        Grant(permanentDelete: false);
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W");
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "anything"));
+
+        var error = Error(await RunAsync(TreeId, null, prompt), "NotSupported");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
+        AssertNothingWritten();
+    }
+
+    [Fact]
     public async Task TheRecycleBin_IsObjectNotFound()
     {
         Error(await Tool().PermanentlyDeleteHierarchyObject(RecycleBinId, null, Ct), "ObjectNotFound");
@@ -925,7 +940,7 @@ public sealed class PermanentDeleteToolTests : IDisposable
         Assert.True(bin.IsRecycleBin);
         Assert.Equal((true, true, SectionDate), (deleted.IsInRecycleBin, deleted.IsDeletedPages, deleted.LastModifiedTime));
         Assert.False(deleted.IsRecycleBin);
-        Assert.Equal((true, true), (vault.Encrypted, vault.Locked));
+        Assert.Equal((true, true), (vault.EncryptedMarker, vault.Locked));
         Assert.Equal(0, PermanentDeleteReads.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\" />"));
         Assert.Equal(2, PermanentDeleteReads.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\"><one:SectionGroup ID=\"H\"><one:Section ID=\"S\" /></one:SectionGroup></one:SectionGroup>"));
     }

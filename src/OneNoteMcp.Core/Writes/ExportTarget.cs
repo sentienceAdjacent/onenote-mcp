@@ -141,17 +141,11 @@ public static class ExportTarget
     private static bool EndsInOneOf(string path, IReadOnlyList<string> extensions) =>
         extensions.Any(e => path.EndsWith(e, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>True when <paramref name="target"/> (already canonical) sits strictly inside <paramref name="root"/>'s canonical form.</summary>
-    private static bool Contains(string root, string target)
-    {
-        if (string.IsNullOrWhiteSpace(root) || FilePathGate.Canonical(root, out _) is not { } canonicalRoot)
-        {
-            return false;
-        }
-
-        var prefix = canonicalRoot.EndsWith(Path.DirectorySeparatorChar) ? canonicalRoot : canonicalRoot + Path.DirectorySeparatorChar;
-        return target.Length > prefix.Length && target.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
-    }
+    /// <summary>
+    /// True when <paramref name="target"/> (already canonical) sits strictly inside <paramref name="root"/>: the one test
+    /// the protected-by-path rule uses too (<see cref="PathUnder"/>, entry 15).
+    /// </summary>
+    private static bool Contains(string root, string target) => PathUnder.IsUnder(target, [root]);
 
     /// <summary>A file, a folder or a link (dangling or not) at <paramref name="path"/>.</summary>
     private static bool Exists(string path)

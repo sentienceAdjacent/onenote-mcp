@@ -9,7 +9,8 @@ namespace OneNoteMcp.Core.Access;
 /// <summary>
 /// AD-21's one access check, run by every read use case before any content is returned and before the
 /// <c>SectionLocked</c> check, and by <c>read_result</c>. A section is protected when its <c>one:Section</c> has
-/// <c>encrypted</c> true, read live from <c>GetHierarchy</c> on every call and never cached. A read grant is keyed by
+/// <c>encrypted</c> true, or its path lies under an export root or the journal's backups folder (<see cref="Protection"/>,
+/// entry 15), read live from <c>GetHierarchy</c> on every call and never cached. A read grant is keyed by
 /// <see cref="GrantKeys.SectionKey"/> of the section's live <c>path</c>. Stored grants are re-read from
 /// <c>settings.json</c> at every check (AD-10); an invalid or newer file's grants count as absent.
 /// <para>
@@ -32,7 +33,7 @@ namespace OneNoteMcp.Core.Access;
 public sealed class ReadAccess
 {
     public static string WithheldUserAction { get; } =
-        "Reading a password-protected section needs the user's permission, which you can't give. Tell the user, and if they want it read, "
+        "Reading a protected section (password-protected, or under an export root or the backups folder) needs the user's permission, which you can't give. Tell the user, and if they want it read, "
         + "they can run " + GrantCli.Run("--read-section \"<section name>\"") + ", or accept the dialog that appears when you read one of its pages "
         + "(get_page_content) in a client that supports it, such as Claude Code. Then repeat this call.";
 
@@ -46,12 +47,17 @@ public sealed class ReadAccess
     private readonly HierarchyWalk walk;
     private readonly OnceWindows windows = new();
     private readonly GrantDialog dialog;
+    private readonly ExportRootGuard? guard;
+    private readonly Lock rootsGate = new();
+    private IReadOnlyList<string>? lastValidRoots;
+    private IReadOnlyList<string>? lastValidExportRoots;
 
     /// <param name="gateway">The gateway the owning section is resolved through.</param>
     /// <param name="settings">Reads <c>settings.json</c>; called once per check.</param>
     /// <param name="writer">Stores <c>hours</c> and <c>untilRevoked</c> grants; null, every such grant becomes a <c>once</c> window (<c>grantNotSaved</c>).</param>
     /// <param name="clock">The clock grant expiry runs on.</param>
-    public ReadAccess(IOneNoteGateway gateway, Func<SettingsSnapshot> settings, SettingsWriter? writer, TimeProvider clock)
+    /// <param name="guard">The export-root guard (entry 15 Q1); null leaves reads without its warning (tests that don't exercise it).</param>
+    public ReadAccess(IOneNoteGateway gateway, Func<SettingsSnapshot> settings, SettingsWriter? writer, TimeProvider clock, ExportRootGuard? guard = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(settings);
@@ -61,6 +67,71 @@ public sealed class ReadAccess
         this.clock = clock;
         walk = new HierarchyWalk(gateway);
         dialog = new GrantDialog(walk, windows, writer, clock);
+        this.guard = guard;
+    }
+
+    /// <summary>
+    /// AD-21's protection rule for this call (entry 15), from <c>settings.json</c> read now. While the file is invalid or
+    /// newer, this run's last valid roots keep protecting; with none yet, the default export root and the default journal's
+    /// backups folder do, with the warning <c>settingsInvalid</c> (Phill, 2026-11-17, Q2). Never reads OneNote.
+    /// </summary>
+    public Protection Protection()
+    {
+        var snapshot = settings();
+        if (snapshot.Status is SettingsStatus.Ok or SettingsStatus.Absent)
+        {
+            var roots = Access.Protection.RootsOf(snapshot);
+            lock (rootsGate)
+            {
+                lastValidRoots = roots;
+                lastValidExportRoots = snapshot.ExportRoots.Paths;
+            }
+
+            return new Protection(roots);
+        }
+
+        IReadOnlyList<string>? remembered;
+        lock (rootsGate)
+        {
+            remembered = lastValidRoots;
+        }
+
+        if (remembered is not null)
+        {
+            return new Protection(remembered);
+        }
+
+        return new Protection(
+            Access.Protection.RootsOf(NoSettings()),
+            [new ToolWarning(
+                ToolWarnings.SettingsInvalid,
+                $"settings.json is unreadable ({snapshot.Reason}), so only the default export folder and the journal's backups folder count as protected locations.",
+                "Fix settings.json, then retry.")]);
+    }
+
+    /// <summary>
+    /// <see cref="Protection()"/> plus the export-root guard's verdict (Q1) as the warning <c>exportRootHoldsNotebooks</c>.
+    /// The root keeps protecting either way.
+    /// </summary>
+    public async Task<Protection> ProtectionAsync(CancellationToken ct)
+    {
+        var protection = Protection();
+
+        // The guard checks the export roots that protect this call: this run's last valid ones while the file is invalid (Q2).
+        IReadOnlyList<string> exportRoots;
+        lock (rootsGate)
+        {
+            exportRoots = lastValidExportRoots ?? NoSettings().ExportRoots.Paths;
+        }
+
+        if (guard is null || await guard.ProblemAsync(exportRoots, ct).ConfigureAwait(false) is not { } problem)
+        {
+            return protection;
+        }
+
+        return new Protection(
+            protection.Roots,
+            [.. protection.Warnings, new ToolWarning(ToolWarnings.ExportRootHoldsNotebooks, problem, "Tell the user, and ask them to change exportRoots in settings.json.")]);
     }
 
     /// <summary>A check with no stored grants and nowhere to store one, for use cases built by hand. It still withholds.</summary>
@@ -88,7 +159,10 @@ public sealed class ReadAccess
     {
         ArgumentNullException.ThrowIfNull(context);
         var section = await walk.OwningSectionAsync(objectId, ct).ConfigureAwait(false);
-        return section is { Encrypted: true } ? await CheckSectionAsync(context, section, ct).ConfigureAwait(false) : TargetAccess.Unprotected;
+        var protection = await ProtectionAsync(ct).ConfigureAwait(false);
+        return section is not null && protection.IsProtected(section)
+            ? With(await CheckProtectedAsync(context, section, ct).ConfigureAwait(false), protection.Warnings)
+            : new TargetAccess(null, protection.Warnings);
     }
 
     /// <summary>
@@ -99,11 +173,18 @@ public sealed class ReadAccess
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(section);
-        if (!section.Encrypted)
-        {
-            return TargetAccess.Unprotected;
-        }
+        var protection = await ProtectionAsync(ct).ConfigureAwait(false);
+        return protection.IsProtected(section)
+            ? With(await CheckProtectedAsync(context, section, ct).ConfigureAwait(false), protection.Warnings)
+            : new TargetAccess(null, protection.Warnings);
+    }
 
+    private static TargetAccess With(TargetAccess access, IReadOnlyList<ToolWarning> warnings) =>
+        warnings.Count == 0 ? access : access with { Warnings = [.. warnings, .. access.Warnings] };
+
+    /// <summary>The grant check for a section already known to be protected.</summary>
+    private async Task<TargetAccess> CheckProtectedAsync(ToolCallContext context, HierarchyNode section, CancellationToken ct)
+    {
         var key = GrantKeys.SectionKey(section.Path);
         var snapshot = settings();
         var now = clock.GetUtcNow();
@@ -128,7 +209,7 @@ public sealed class ReadAccess
     public bool HoldsReadGrant(HierarchyNode section, DateTimeOffset? at = null)
     {
         ArgumentNullException.ThrowIfNull(section);
-        if (!section.Encrypted)
+        if (!Protection().IsProtected(section))
         {
             return true;
         }
@@ -177,20 +258,22 @@ public sealed class ReadAccess
 
     /// <summary>
     /// A broad read (AD-21): <paramref name="sections"/> are the protected sections in its scope, found with
-    /// <see cref="EncryptedSections"/>. Never asks. <paramref name="includesPages"/> is false for a read that returns no
+    /// <see cref="EncryptedSections"/> under <paramref name="protection"/>'s roots, whose warnings the result carries. Never asks. <paramref name="includesPages"/> is false for a read that returns no
     /// pages at all (a scope above pages), which then withholds nothing and needs no grant.
     /// </summary>
-    public BroadAccess CheckBroad(IReadOnlyList<EncryptedSection> sections, bool includesPages)
+    public BroadAccess CheckBroad(IReadOnlyList<EncryptedSection> sections, bool includesPages, Protection protection)
     {
         ArgumentNullException.ThrowIfNull(sections);
+        ArgumentNullException.ThrowIfNull(protection);
         if (!includesPages || sections.Count == 0)
         {
-            return BroadAccess.None;
+            return protection.Warnings.Count == 0 ? BroadAccess.None : BroadAccess.None with { Extra = protection.Warnings };
         }
 
         var snapshot = settings();
         var now = clock.GetUtcNow();
         var withheld = new List<string>();
+        var byPath = new List<string>();
         var granted = new List<ResultGrant>();
         foreach (var section in sections)
         {
@@ -206,10 +289,14 @@ public sealed class ReadAccess
             else if (!withheld.Contains(section.Id, StringComparer.Ordinal))
             {
                 withheld.Add(section.Id);
+                if (!section.Marked)
+                {
+                    byPath.Add(section.Id);
+                }
             }
         }
 
-        return new BroadAccess(withheld, granted);
+        return new BroadAccess(withheld, granted) { Extra = protection.Warnings, ByPath = byPath };
     }
 
     /// <summary>
@@ -221,24 +308,25 @@ public sealed class ReadAccess
     {
         var xml = await gateway.GetHierarchyAsync(startNodeId ?? string.Empty, HierarchyScope.Sections, ct).ConfigureAwait(false);
         var root = Readable(() => HierarchyNode.Root(xml));
+        var protection = await ProtectionAsync(ct).ConfigureAwait(false);
         if (root.Kind == HierarchyKind.Page)
         {
             var section = await walk.OwningSectionAsync(startNodeId!, ct).ConfigureAwait(false);
-            if (section is not { Encrypted: true })
+            if (section is null || !protection.IsProtected(section))
             {
-                return BroadAccess.None;
+                return BroadAccess.None with { Extra = protection.Warnings };
             }
 
             // Every result is in the start page's section, so a grant for it covers the whole stored result (bug 1.22).
-            var access = CheckBroad([new EncryptedSection(section.Id, section.Name, section.Path, section.Locked, [])], includesPages: true);
+            var access = CheckBroad([new EncryptedSection(section.Id, section.Name, section.Path, section.Locked, [], Marked: section.EncryptedMarker)], includesPages: true, protection);
             return access.Withheld.Count > 0 ? access with { WithholdAll = true } : WholeResult(access, section.Id);
         }
 
         // A start node that is itself a protected section: every result is in it, whatever the search XML wraps them in.
         // Withheld, everything is; granted, the grant covers the whole stored result, since the section is its root,
         // whose ID a stored result's index never holds (AD-20, bug 1.22).
-        var broad = CheckBroad(Readable(() => EncryptedSections.Find(xml)), includesPages: true);
-        if (root.Kind != HierarchyKind.Section || !root.Encrypted)
+        var broad = CheckBroad(Readable(() => EncryptedSections.Find(xml, protection.UnderRoot)), includesPages: true, protection);
+        if (root.Kind != HierarchyKind.Section || !protection.IsProtected(root))
         {
             return broad;
         }
@@ -270,9 +358,9 @@ public sealed class ReadAccess
         stored.ExpiresAt,
         wholeResult);
 
-    internal static OneNoteException NotGranted(string sectionId, string why) => new(
+    internal static OneNoteException NotGranted(HierarchyNode section, string why) => new(
         ErrorCode.ReadNotGranted,
-        $"Section {sectionId} is password-protected, and reading it needs a read grant from the user. {why}",
+        $"Section {section.Id} {Access.Protection.Phrase(section.EncryptedMarker)}, and reading it needs a read grant from the user. {why}",
         userAction: ToolErrors.ReadNotGrantedUserAction);
 
     private static T Readable<T>(Func<T> read) => XmlReads.Readable(read, "GetHierarchy");
