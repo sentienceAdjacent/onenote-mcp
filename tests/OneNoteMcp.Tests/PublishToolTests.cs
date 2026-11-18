@@ -768,7 +768,8 @@ public sealed class PublishToolTests : IDisposable
     public async Task ANotebookHoldingASectionNotFullyDownloaded_AnywhereInItsTree_IsNotSupported_BeforeCom(bool top, bool nested, string value)
     {
         // The 3.7 sitting S3 (Phill, 2026-11-17): a section with areAllPagesAvailable="false" raised OneNote's pack dialog,
-        // and answering Yes writes the package without the pages that weren't downloaded, so it is refused up front.
+        // and answering Yes writes the package without those pages, so it is refused up front. The flag marks a page stub
+        // added from another computer that never synced (the backlog 10 sitting), so the advice is backlog 11's.
         NotebookSections(topLocked: false, nestedLocked: false, topNotDownloaded: top ? value : null, nestedNotDownloaded: nested ? value : null);
 
         var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
@@ -778,7 +779,11 @@ public sealed class PublishToolTests : IDisposable
         Assert.Contains(top ? SectionId : NestedLockedId, message, StringComparison.Ordinal);
         Assert.DoesNotContain("Locked vault", error.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("\"Open\"", error.GetRawText(), StringComparison.Ordinal);
-        Assert.Contains("aren't fully downloaded", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("hasn't synced from the computer that added it", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("downloaded to this PC", message, StringComparison.Ordinal);
+        Assert.Equal(PublishUseCase.NotebookNotDownloadedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains("delete its placeholder page", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("so they download", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
     }
 

@@ -614,3 +614,6 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-round-2-external-and-structural/story-tracer-publish-a-page-to-pdf-under-an-export-root-plan.md`
   summary: Open for entry 3.10 (skill, README and harness for round 2): `PluginPackagingTests` exempts `publish` from `GuideSkill_MentionsEveryContractTool` and `Readme_NamesEveryContractTool` through the `DocumentedByRound2Entry10` set. 3.10 documents the round-2 tools and empties the set.
   evidence: story 3.3's plan keeps skill and README text out of scope ("No skill or README text (entry 10)"), and those two tests fail for any contract tool that the skill and README don't name.
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/backlog/story-publish-let-onenote-skip-unsynced-placeholder-pages-plan.md`
+  summary: Spine AD-7 operation-class table, ExternalWrite row (l.326), still says "nor a notebook holding a locked or not fully downloaded section"; reword to the unsynced placeholder page once the 3.15 and 3.5 lanes have merged.
+  evidence: backlog 11 corrected the reason at l.313, l.480 and l.750 only, to merge cleanly beside those lanes (team lead, 2026-11-17).
