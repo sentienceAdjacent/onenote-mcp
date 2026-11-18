@@ -132,6 +132,8 @@ context:
 - **Q8.** One story.
 - **Q7, decided (Phill 2026-11-17).** A section restore whose `parentId` is in another notebook is one call in two steps: restore in place in its own notebook, then the existing `MoveContainerWrite` cross-notebook move, so every move rule applies. Two journal entries. If the move fails or is refused, the section stays restored in its own notebook, and the result says the move didn't happen and why. A protected section is never moved.
 
+- **Protected by path, no SectionKey (Phill 2026-11-18, option a).** A recycled section that counts as protected by its path (under an export root or the backups folder, entry 15), but whose journal entry has no `SectionKey` because it wasn't protected when deleted, is `ObjectNotFound` whatever `parentId` is given: its own place can't be proven.
+
 </frozen-after-approval>
 
 ## Code Map
@@ -291,3 +293,10 @@ Considered matching every item by name only. Going with the bin ID (or the secti
   1. Soft-delete a run section in MCP Test, then restore it with `parentId` = a section group in the local throwaway notebook (`MCP Test Throwaway 1112-034716 a`). Expected: `ok`, the section is in the throwaway with its ID, and there are two journal entries.
   2. Soft-delete a section in MCP Test Cloud, then restore it with `parentId` = a section group in MCP Test (local). Expected: `ok` with `restoredNotMoved` (the move's J1 refusal, `NotSupported`). The section is back in its MCP Test Cloud parent, and nothing is in MCP Test. Check sync status before and after.
 - **S3 (optional; it tests the reopen fallback, Q5).** Phill closes and reopens MCP Test after a section soft delete. Then Claude restores it, and the result carries `restoredByName`.
+
+**Sitting result (2026-11-18, with Phill): passed.**
+- S1: `RestoreFromRecycleBinIntegrationTests` 6 of 6 passed. The six cover page position, a section, same-named candidates, `parentId`, the protected section, and S4.1 into the throwaway.
+- S2, local: in a run section in MCP Test, a page was soft-deleted and restored to its section under a new ID. A section was soft-deleted and restored to the notebook root with its ID and both pages.
+- S2, cloud: the same in MCP Test Cloud. The page was restored with no warnings, and the section with `settled`. Phill confirmed there was no sync error.
+- S4.2: a cloud section was soft-deleted, then restored with `parentId` set to a section group in MCP Test. The result was `ok` with `settled` and `restoredNotMoved` (the move was `NotSupported`: cloud into another notebook's group). The section was back in MCP Test Cloud and the MCP Test group was unchanged. Phill confirmed there was no sync error after Sync Now.
+- S3 (optional): not run. The name fallback is covered by unit tests.
