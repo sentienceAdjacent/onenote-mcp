@@ -61,7 +61,7 @@ context:
 - [x] `spikes/stress-harness/ProbeSectionSync.cs` -- new mode `--probe-section-sync --section <ID> [--max-seconds <n>]` (n 30-1800, default 300). Reads `GetHierarchy(sectionId, hsPages)`; the root must be `one:Section`, not `locked`, not `encrypted`, not `isInRecycleBin`/`isDeletedPages`, with `areAllPagesAvailable` false. Prints a "before" line (attribute, page count, foreground process, ONENOTE visible window count), polls the same line every 2 s for a 60 s baseline, prints "calling SyncHierarchy" before the call, then the HRESULT and ms, then a line per 2 s poll with elapsed seconds until the attribute clears or `--max-seconds`, then the end state. Every COM call caught; the body never throws. Never prints the ID. -- the measurement.
 - [x] `spikes/stress-harness/Options.cs`, `Program.cs` -- parse `--probe-section-sync`, `--section`, `--max-seconds`; validate before the notebook check: `--section` required and non-empty; refuse `--notebook`, `--notebook-name`, `--out`, `--page`, and every other probe and diag mode with it; add it to the l.170 list and to `Usage`; dispatch in `Program.cs`. -- wiring.
 - [x] `spikes/stress-harness/README.md` -- document the mode beside `--probe-sync`: the `AppState` warning, the approval rule, the baseline, Ctrl+C is safe (it only reads and requests a sync), and a hang after "calling SyncHierarchy" means look at OneNote.
-- [ ] After the sitting: this plan's `## Sitting findings` (dated: storage kind, attribute and page counts before/after, baseline result, call and download times, focus and window counts, sync status, the pack step's result); add the lesson to `research-onemore-lessons.md` row 23; answer the 3.7 plan's open item. Send the ticket-Notes update to the team lead (a build never writes a ticket file).
+- [x] After the sitting: this plan's `## Sitting findings` (dated: storage kind, attribute and page counts before/after, baseline result, call and download times, focus and window counts, sync status, the pack step's result); add the lesson to `research-onemore-lessons.md` row 23; answer the 3.7 plan's open item. Send the ticket-Notes update to the team lead (a build never writes a ticket file).
 
 **Acceptance Criteria:**
 - Given the harness builds with no warnings, when the mode runs with no `--section`, an empty one, or another mode's option, then it refuses with exit 2 before any process or COM check.
@@ -77,6 +77,19 @@ context:
 5. If the attribute cleared: `get_hierarchy` on the notebook confirms no section still reports it, and, only with Phill's explicit exception as for 3.7 Q2, a notebook `publish` that 3.7 refused now runs with no dialog, recorded as in step 4. If it didn't: record "not downloaded in N s", and whether opening the section in OneNote by hand then clears it.
 6. Record the findings (task 4) and send them to the team lead for the "download first" follow-up.
 
+## Sitting findings
+
+**2026-11-17, main session with Phill (relayed by the team lead).** Notebook B, one section; OneDrive for Business. No names or IDs recorded.
+
+- Before: OneNote's sync status healthy (Phill). Baseline 60 s: `areAllPagesAvailable` false, 5 pages, no change; foreground other; 1 visible ONENOTE window.
+- `SyncHierarchy(section)`: `0x00000000` in 1 ms. No focus change, no new window, no dialog.
+- After: polled 300.8 s; still false, 5 pages. Exit 0, "not downloaded".
+- Opening the section in OneNote by hand: still false; `GetHierarchy` still lists 5 pages. Shift+F9 (Sync This Notebook Now): still false.
+- **Cause** (Phill's screenshot): OneNote's UI shows a sixth page, an untitled placeholder reading "Page Not Yet Available — … this page was added from another computer and hasn't synced yet". `GetHierarchy` leaves that placeholder out (5 pages). So `areAllPagesAvailable="false"` marks a page stub whose content never reached the server; nothing on this PC (`SyncHierarchy`, opening the section, a manual sync) can download it.
+- Pack step (Decisions Q2 a): skipped; no second such section exists. So the 3.7 open item (does a section-scope pack of such a section raise the dialog?) stays unanswered.
+- Step 5: not applicable; the flag didn't clear.
+- **Conclusion:** "download first" isn't possible for this case, and 3.7's refusal is right. Its `userAction` ("open those sections in OneNote so they download") is wrong for it: the advice should be to sync the page from the computer that added it, or delete the placeholder page in OneNote, or export the other sections one by one. That wording change is a small follow-up (team lead to file), not part of this ticket's probe.
+
 ## Verification
 
 Unit tests can't cover the probe (it needs real OneNote); the harness has no test project.
@@ -87,6 +100,8 @@ Unit tests can't cover the probe (it needs real OneNote); the harness has no tes
 - `& spikes/stress-harness/bin/Release/net10.0-windows/StressHarness.exe --probe-section-sync` -- expected: usage refusal, exit 2, OneNote untouched (likewise with `--section ""` and with `--section x --notebook y`)
 
 ## Implementation Notes
+
+- After the sitting (2026-11-17): findings recorded below in Sitting findings, in `research-onemore-lessons.md` row 23, and beside the 3.7 plan's S3 finding.
 
 - 2026-11-17: built in worktree bl10. The probe reads the root with `HierarchyNode.Root` (kind, locked, encrypted, recycle bin) and its own `State` for the raw `areAllPagesAvailable` value (printed as `absent`, `true`, `false`, `1`, `0` or `other`) and the `one:Page` count. "Cleared" means a successful read whose value isn't `false` or `0`. The whole STA body is in a catch that prints the exception type and HRESULT only (exit 5); the first read's COM failure is exit 4 with its HRESULT. Window snapshot: `GetForegroundWindow` and `EnumWindows` + `IsWindowVisible`, matched against this session's `ONENOTE` process IDs.
 - `--probe-section-sync` is validated first in `Options.Parse`, before the `--fake-server` and `--contract-only` branches, so no other mode's option rides along. `--section` and `--max-seconds` without the mode are also a usage refusal (not in the plan; it stops a stray ID being taken as nothing).
