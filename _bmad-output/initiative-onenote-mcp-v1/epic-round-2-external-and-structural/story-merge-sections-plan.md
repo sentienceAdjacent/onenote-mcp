@@ -154,7 +154,7 @@ context:
     - failure settle removed and the re-resolve opted out: 2 failed;
     - locked and empty checks removed: 4 failed.
   - **The cancel-path re-read token is now proven.** `FakeGateway.GetHierarchyAsync` fails on a spent token, as the real gateway does. With the re-read changed to use the call's token, `ACancelDuringTheCall_IsCancelled_OutcomeUnknown_WithTheReReadsFindings` failed. Restored, it passes, and the rest of the suite stays green with the stricter fake.
-- **Verification (2026-11-18):** build 0 warnings; unit tests 3,650 passed, 3 skipped; integration without the variable 217 passed, 123 skipped, 0 failed. The sitting hasn't run.
+- **Verification (2026-11-18):** build 0 warnings; unit tests 3,650 passed, 3 skipped; integration without the variable 217 passed, 123 skipped, 0 failed. The sitting passed on 2026-11-18 (see Verification).
 
 ## Plan Change Log
 
@@ -200,3 +200,14 @@ Considered building the merge as an `UpdateHierarchy` page move of every source 
   3. With the throwaway's grant removed, the merge is `WriteNotGranted`.
   4. At the pause Phill locks the Vault. A merge of a Vault section is `NotSupported`, a merge into it is `SectionLocked`, and no `MergeSections` call is sent.
 - **S2.** Through onenote-dev, Claude merges one MCP Test section into another and one MCP Test Cloud section into another, checking the sync status at every cloud step and running Sync Now at the end. Phill checks in OneNote, and on the web for cloud, that the copies are there and the sources unchanged.
+
+**Sitting result (2026-11-18, with Phill): passed.**
+- S1: `MergeSectionsIntegrationTests` passed 3 of 3, in about 9.5 minutes including the pause.
+  - Within MCP Test: three clean runs. Each put 3 copies at positions 2–4 under new IDs and left the source untouched.
+  - To the throwaway: run 1 returned `0x8004201F`, handled as `Internal` with `outcomeUnknown`. The re-read found the destination still at 1 page, so nothing was copied. Runs 2 and 3 were clean. The Q5 (a) pass rule (at least one clean merge per case) was met. Observed rate of `0x8004201F` for local cross-notebook merges: 1 in 3 here.
+  - Without the throwaway's grant: `WriteNotGranted`.
+  - With the Vault locked at the pause: merging out of it gave `NotSupported`, merging into it gave `SectionLocked`, and no `MergeSections` call was sent.
+- S2, through onenote-dev:
+  - In MCP Test, a 2-page section merged into a new 1-page section: `ok`, 2 `pageIds`, no warnings.
+  - In MCP Test Cloud, the same: `ok`, 2 `pageIds`, `settled`.
+  - Phill confirmed that both destinations held 3 pages, that the sources were unchanged, and that there was no sync error after Sync Now.
