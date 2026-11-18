@@ -3,7 +3,7 @@ title: 'merge_sections'
 type: 'feature'
 ticket: '6'
 created: '2026-11-18'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -32,7 +32,8 @@ context:
   - Each is found by its walk to its notebook, never by a `self` read first, because a locked section hides its pages (3.3 S1).
   - Then, in this order:
     - a protected source (AD-21's test: the `encrypted` marker or a path under an export root or the backups folder, entry 15), locked or not, is `NotSupported`, with a `userAction` to merge it in OneNote; this is checked first (AD-7 Merges, E8, Decision H2);
-    - a locked destination is `SectionLocked`, because `MergeSections` answers `0x8004201B` and changes nothing.
+    - a locked destination is `SectionLocked`, because `MergeSections` answers `0x8004201B` and changes nothing;
+    - a source with no live pages is `InvalidArgument` ("nothing to merge"), so an unprobed call is never sent (Q7 a).
   - Only then does it ask for the write grants: the source's notebook, then the destination's (AD-6). The pipeline asks once per notebook (3.4 Q3) and re-resolves both under the lock (story 3.12 ledger).
 - A destination in an unlocked protected section needs only the write grant (AD-21 Writes): the copies land inside its encryption (spike 3.1 SP).
 - **Step 3:** both sections are walked to their notebooks again, as the moves do (recycle-bin membership and protection by path come from that walk), and read at `Children` scope, under the lock. **Step 4** repeats every step-1 refusal against those reads.
@@ -46,7 +47,7 @@ context:
   - The copies are the pages in the destination whose IDs weren't there before. If the count differs from the source's live page count, the result warns `readBackDiffers`.
   - A source that no longer reads back with its ID and all its page IDs is `readBackDiffers` too; it has never happened (spike 3.1).
   - A failed re-read gives `readBackFailed`.
-- **Result** (Q1): `meta.objectId` is the source (untouched), `meta.parentId` is the destination, `meta.journalEntryId` is the destination's entry, and a new `meta.pageIds` lists the copies' new IDs in destination order. Messages carry IDs and counts only (AD-9).
+- **Result** (Q1 a, Q6 a): `meta.objectId` is the source (untouched), `meta.parentId` is the destination, `meta.journalEntryId` is the destination's entry, and a new `meta.pageIds` lists the copies' new IDs in destination order. For a protected destination (AD-21's test), `meta.pageIds` is left out and messages give counts only, since a write-grant-only write returns nothing from inside the section. Messages carry IDs and counts only (AD-9).
 - **Cloud** (Q2): when either section is in a cloud notebook, a 10 s settle under the write lock before the read-back, with `settled` (AD-7 Moves, M2).
 - The search cache drops nothing: no existing page changes.
 
@@ -64,7 +65,7 @@ context:
 |---|---|---|---|
 | Same notebook | plain source (2 pages + subpage) into plain destination | copies at the end under new IDs, subpage kept at level 2; source untouched; one entry | none |
 | Other notebook | into a section of the granted throwaway | as above | none |
-| Into protected | plain into an unlocked protected section | copies inside it; entry encrypted | none |
+| Into protected | plain into an unlocked protected section | copies inside it; entry encrypted; no `meta.pageIds` | none |
 | Not granted | destination's notebook not granted, no dialog | nothing sent | `WriteNotGranted` |
 | Protected source | marker or path protected, locked or not | nothing sent, no grant dialog | `NotSupported` |
 | Locked destination | locked section | nothing sent | `SectionLocked` |
@@ -73,67 +74,21 @@ context:
 | Same section | `sourceId == destinationId` | — | `InvalidArgument` |
 | Stale | basis ≠ source's date | — | `StaleWrite` |
 | Merge failed | `MergeSections` → `0x8004201F` after a partial copy | destination re-read, findings in message | `Internal`, `outcomeUnknown` |
+| Empty source | source with no live pages | nothing sent | `InvalidArgument` |
 | Count differs | read-back finds fewer copies than source pages | merged | warning `readBackDiffers` |
 | Cloud | either side in a cloud notebook | merged, then 10 s settle | warning `settled` |
 
+## Decisions (Phill, 2026-11-18, plan approved, all as recommended)
+
+- **Q1, a.** A new optional `meta.pageIds` lists the copies' new IDs.
+- **Q2, a.** A merge touching a cloud notebook settles 10 s under the write lock, with `settled`.
+- **Q3, a.** `0x8004201F` is `outcomeUnknown` with the re-read findings in the message. It is never retried, and the message says to delete partial copies before merging again.
+- **Q4, a.** No separate probe; the sitting's repeats gather the evidence.
+- **Q5, a.** The sitting passes with at least one clean merge per case (within MCP Test, and to the throwaway) out of three runs. If a case has none, the build stops at the sitting, and a probe story runs before 3.6 is done.
+- **Q6, a.** For a protected destination `meta.pageIds` is left out, with counts only.
+- **Q7, a.** A source with no live pages is refused before COM with `InvalidArgument`.
+
 </frozen-after-approval>
-
-## Open Questions
-
-- **Q1. How the result lists the copies.** The contract has no field for a list of new page IDs; `pageEntryIds` is a permanent delete's.
-  - (a) A new `meta.pageIds`, the copies' new IDs in destination order.
-  - (b) No list: the model re-reads the destination.
-  - (c) The list in a warning's message.
-
-  (a) makes the copies usable straight away, for example to move or delete them. It is one optional field, so the change is additive (AD-14). (b) costs a read for every follow-up. (c) puts data in prose.
-
-  Recommended: (a).
-- **Q2. A merge touching a cloud notebook.**
-  - (a) The 10 s settle under the write lock, with `settled`, as for section moves (3.2 M2).
-  - (b) No settle.
-
-  Spike 3.1's cross-storage merges ran with a 10 s settle and were clean. The crash the settle guards against came after a section move, not a merge.
-
-  Recommended: (a), since it costs 10 s.
-- **Q3. hrMergeFailed and a retry.** Spike 3.1 saw `0x8004201F` three times in 18 merges, twice after a partial copy (Deferred: cause unknown).
-  - (a) As approved: `outcomeUnknown`, with the re-read findings in the message, never retried. The `userAction` says to check the destination and delete partial copies before merging again.
-  - (b) As (a), and also refuse a second merge of the same pair within the same session until the user confirms.
-
-  (b) guards against duplicates but adds state.
-
-  Recommended: (a).
-- **Q4. Probe the hrMergeFailed cause first?**
-  - (a) No probe story. The sitting repeats the plain merge within a notebook (spike S1, which failed locally once) and to the throwaway (S2) three times each, and records any `0x8004201F`.
-  - (b) A short probe before the build.
-
-  The spine's Deferred row says the cause "needn't hold up entry 6".
-
-  Note: spike 3.1 ran both of the ticket's local cases once, and both failed: S1 within a notebook (after a partial copy) and S2 to the local throwaway (nothing copied). So this machine has no clean local run of either yet, which strengthens (b). (a) still gathers the evidence without delay, and Q5 says what happens if it shows no clean merge.
-
-  Recommended: (a), with Q5 (a).
-
-- **Q5. What the sitting needs to pass** (for Q4 a).
-  - (a) At least one clean merge per case (within MCP Test, and to the throwaway) out of three runs. If either case has none, the build stops at the sitting, and a probe story (Q4 b) runs before 3.6 is done.
-  - (b) Every run clean.
-  - (c) Any outcome, recorded.
-
-  (a) proves the tool works in each case without failing on a OneNote fault that is already known. (b) may never pass, given the spike. (c) proves nothing.
-
-  Recommended: (a).
-- **Q6. The copies' IDs when the destination is password-protected.** A merge into an unlocked protected section needs only the write grant (AD-21), and AD-21's reason is that such writes return nothing from inside the section.
-  - (a) Leave `meta.pageIds` out for a protected destination, and give the count only, as a move's message does (`MovePageWrite` l.489).
-  - (b) List them: they are copies of the caller's own source pages, like a moved page's new ID.
-
-  (a) keeps AD-21's rule. With (b), a write-grant-only caller learns new page IDs inside a protected section; they are unguessable, but they are inside it.
-
-  Recommended: (a).
-- **Q7. A source with no pages.**
-  - (a) Refuse before COM with `InvalidArgument` ("nothing to merge").
-  - (b) Send it, untested: spike 3.1 never merged an empty section.
-
-  (a) is cheap, and avoids an unprobed call.
-
-  Recommended: (a).
 
 ## Code Map
 
@@ -171,7 +126,7 @@ context:
 - Given a plain source and an unlocked protected destination, when Claude merges, then the copies land inside it and its journal entry is encrypted.
 - Given `MergeSections` fails with `0x8004201F` after a partial copy, when the result comes back, then it is `Internal` with `outcomeUnknown`, and the message names the copies found and says to delete them before merging again.
 - Given a basis whose date differs from the source section's hierarchy `lastModifiedTime`, when Claude merges, then nothing is sent: `StaleWrite`.
-- (If Phill picks Q2 a.) Given a source or destination in a cloud notebook, when Claude merges, then the write lock is held for the 10 s settle before the read-back, and the result carries the warning `settled`.
+- Given a source or destination in a cloud notebook, when Claude merges, then the write lock is held for the 10 s settle before the read-back, and the result carries the warning `settled`.
 - Given the existing move, restore and soft-delete tests, when they run, then they pass unchanged.
 
 ## Implementation Notes
@@ -209,7 +164,7 @@ Considered building the merge as an `UpdateHierarchy` page move of every source 
 
 **Sitting steps.** The main session runs these with Phill. The build never runs them, never sets the integration variable, never touches OneNote, and never reads OneNoteMcp's app-data folders.
 - **S1.** MCP Test open, `MCP Test Throwaway 1112-034716 a` open, and the Ballast Vault unlocked at the start. Run `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~MergeSectionsIntegrationTests`. In sections the run makes:
-  1. A source with 2 pages and a subpage is merged into a 1-page destination in MCP Test. Expected: copies at positions 2–4 under new IDs (in `meta.pageIds`), the subpage at level 2, the source untouched, one entry. Three runs, each with fresh run sections. A `0x8004201F` is asserted as `Internal` with `outcomeUnknown` and the re-read findings, and is counted, never retried. The pass rule is Q5's.
+  1. A source with 2 pages and a subpage is merged into a 1-page destination in MCP Test. Expected: copies at positions 2–4 under new IDs (in `meta.pageIds`), the subpage at level 2, the source untouched, one entry. Three runs, each with fresh run sections. A `0x8004201F` is asserted as `Internal` with `outcomeUnknown` and the re-read findings, and is counted, never retried. The pass rule is Q5 (a): at least one clean merge per case.
   2. The same into a run section in the throwaway (skipped if it isn't open), three runs, same rules. Spike 3.1 ran each of these two cases locally once, and both failed (S1 after a partial copy, S2 with nothing copied).
   3. With the throwaway's grant removed, the merge is `WriteNotGranted`.
   4. At the pause Phill locks the Vault. A merge of a Vault section is `NotSupported`, a merge into it is `SectionLocked`, and no `MergeSections` call is sent.
