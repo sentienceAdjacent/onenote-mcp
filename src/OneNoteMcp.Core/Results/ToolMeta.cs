@@ -26,6 +26,10 @@ namespace OneNoteMcp.Core.Results;
 /// A page level change (<c>set_page_level</c>, story 3.14) reports <see cref="ObjectId"/> (the page), <see cref="ParentId"/>
 /// (its section) and <see cref="JournalEntryId"/> (the section's <c>hierarchy</c> entry, absent when nothing changed); a
 /// <c>create_page</c> with <c>parentPageId</c> adds <see cref="JournalEntryId"/> (the section's entry) to <see cref="PageId"/>.
+/// A merge (<c>merge_sections</c>, story 3.6) reports <see cref="ObjectId"/> (the source, untouched), <see cref="ParentId"/>
+/// (the destination), <see cref="JournalEntryId"/> (the destination's <c>hierarchy</c> entry) and <see cref="PageIds"/> (the
+/// copies' new IDs in destination order; Phill, 2026-11-18, 3.6 plan Q1), left out for a password-protected destination
+/// (Q6) and when the read-back failed.
 /// They are null, and so omitted on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
@@ -48,7 +52,8 @@ public sealed record ToolMeta(
     string? BackupFile = null,
     IReadOnlyList<string>? PageEntryIds = null,
     string? OutputPath = null,
-    IReadOnlyList<string>? JournalEntryIds = null);
+    IReadOnlyList<string>? JournalEntryIds = null,
+    IReadOnlyList<string>? PageIds = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read

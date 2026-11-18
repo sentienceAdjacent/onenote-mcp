@@ -447,6 +447,29 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task MergeSectionsAsync(string sourceId, string destinationId, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.MergeSections);
+        if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(destinationId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no source or destination section ID was given.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.MergeSections(sourceId, destinationId);
+                return true;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
     public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct)
     {
         const string method = nameof(IApplication.DeleteHierarchy);

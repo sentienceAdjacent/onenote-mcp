@@ -50,4 +50,44 @@ public static class NotebookSections
 
         return sections;
     }
+
+    /// <summary>
+    /// Every <c>one:SectionGroup</c> in <paramref name="sectionsScopeXml"/> (a <c>GetHierarchy</c> read of a notebook at
+    /// <c>Sections</c> scope) outside the recycle bin, in document order (<c>restore_from_recycle_bin</c>, story 3.5: a
+    /// section's original parent by its group path). The recycle bin itself, anything in it, and any group inside a group
+    /// in it are skipped. Throws <see cref="OneNoteXmlException"/> when the XML isn't well-formed.
+    /// </summary>
+    public static IReadOnlyList<NotebookSectionGroup> FindGroups(string sectionsScopeXml)
+    {
+        var document = OneNoteXml.Parse(sectionsScopeXml);
+        var found = new List<NotebookSectionGroup>();
+        foreach (var group in document.Descendants(OneNoteXml.One + "SectionGroup"))
+        {
+            var around = group.Ancestors(OneNoteXml.One + "SectionGroup").Reverse().ToList();
+            if (HierarchyElements.IsRecycleBin(group) || HierarchyElements.InRecycleBin(group)
+                || around.Any(g => HierarchyElements.IsRecycleBin(g) || HierarchyElements.InRecycleBin(g)))
+            {
+                continue;
+            }
+
+            found.Add(new NotebookSectionGroup(
+                (string?)group.Attribute("ID") ?? string.Empty,
+                (string?)group.Attribute("name") ?? string.Empty,
+                (string?)group.Attribute("path") ?? string.Empty,
+                [.. around.Select(g => (string?)g.Attribute("name") ?? string.Empty)]));
+        }
+
+        return found;
+    }
+}
+
+/// <summary>
+/// One section group of a notebook as <see cref="NotebookSections.FindGroups"/> lists it: its <c>ID</c>, <c>name</c> and
+/// <c>path</c>, unchanged (AD-4), and <see cref="Groups"/>, the <c>name</c>s of the section groups around it inside the
+/// notebook, outermost first (empty directly under the notebook).
+/// </summary>
+public sealed record NotebookSectionGroup(string Id, string Name, string Path, IReadOnlyList<string> Groups)
+{
+    /// <summary>The group's name path inside the notebook: the groups around it and its own name, joined by <c>/</c>.</summary>
+    public string NamePath => string.Join('/', [.. Groups, Name]);
 }
