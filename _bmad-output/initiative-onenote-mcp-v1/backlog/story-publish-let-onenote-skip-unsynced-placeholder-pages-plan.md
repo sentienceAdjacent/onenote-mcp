@@ -3,7 +3,7 @@ title: 'publish: a clearer refusal for a notebook with an unsynced placeholder p
 type: 'bugfix'
 ticket: '11'
 created: '2026-11-17'
-status: 'built'
+status: 'done'
 baseline_revision: 'e5c1e2bae8091476191a9c8b3752f633ed223bc9'
 route: 'oneshot'
 route_source: 'auto'
