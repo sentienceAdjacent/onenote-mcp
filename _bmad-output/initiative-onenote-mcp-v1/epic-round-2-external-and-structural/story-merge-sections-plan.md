@@ -3,7 +3,7 @@ title: 'merge_sections'
 type: 'feature'
 ticket: '6'
 created: '2026-11-18'
-status: 'built'
+status: done
 baseline_revision: '556875ae7a35c74c810e8961190c709f71d45947'
 route: 'full'
 route_source: 'auto'

@@ -3,7 +3,7 @@ title: 'restore_from_recycle_bin'
 type: 'feature'
 ticket: '5'
 created: '2026-11-17'
-status: 'built'
+status: done
 baseline_revision: '64c3f290cc86ef64aa66f1fc9b591a16ff1f94bb'
 route: 'full'
 route_source: 'auto'
