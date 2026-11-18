@@ -3,12 +3,13 @@ title: 'A write counts a read grant only from when it was given'
 type: 'bugfix'
 ticket: '9'
 created: '2026-11-17'
-status: 'draft'
+status: 'built'
+baseline_revision: '030499a91a3cd56301000431bad84e6960cf5280'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -26,6 +27,8 @@ context:
 
 **Always:** Fail closed. Reads, `read_result`, `list_grants` and the grant dialog are unchanged. Messages and `userAction`s are unchanged: a grant given mid-call gets the same `ReadNotGranted` as no grant, and a retry passes. `GrantedAt` is read as stored (UTC, ms precision, truncated, so a grant given before the call never reads as later; a stored grant given under 1 ms after the call's start can still count, so tests move the clock by at least 1 ms).
 
+**Decisions (Phill, 2026-11-17):** Q1 (a): a grant renewed during the call counts as given after its start, so the write is refused and a retry passes. Q2 (a): no spine edit; this plan records it as a deliberate departure from the spine's literal wording ("no grant that would let a read of that section pass at the call's start"), since a renewed grant did let a read pass then.
+
 **Never:** Touch OneNote in tests. Prompt from a write. Change the settings file's shape. Change `HoldsReadGrantAtLocation` or the location semantics of `HoldsReadGrantAt`.
 
 ## I/O & Edge-Case Matrix
@@ -37,14 +40,9 @@ context:
 | Expired at call start | `hours` grant expired before `callStart` | Refused, as today | `ReadNotGranted` |
 | Location check | rename or move onto a key whose grant appears after the call's start | Still refused, as today | `InvalidArgument` |
 | Stored `grantedAt` in the future | a clock stepped back, or a hand-edited file | Reads pass; every write that needs the grant is refused until the clock passes it (accepted, fail-closed) | `ReadNotGranted` |
-| Grant re-given mid-call | a grant held at call start is replaced (new `GrantedAt`) during the call | See Open Questions 1 | |
+| Grant re-given mid-call | a grant held at call start is replaced (new `GrantedAt`) during the call | Refused, as with no grant; a retry passes (Phill, 2026-11-17, Q1 a) | `ReadNotGranted` |
 
 </frozen-after-approval>
-
-## Open Questions
-
-1. **A grant re-given during the call** (fills the matrix's last row before approval). `OnceWindows.Open` replaces a window, and saving a stored grant for the same key replaces it, both with a new `GrantedAt`. A grant held at the call's start and renewed mid-call then reads as given after it. Options: (a) accept it: the write is refused fail-closed and a retry passes. This is a known departure from the spine's literal wording (a read would have passed at the call's start), and the window is longer than it looks: the call's start is taken before the write-grant dialog, so a call can last minutes; (b) keep the earlier `GrantedAt` when a window is replaced while still open (a stored grant can't keep it without changing the file's meaning). Recommended: (a); (b) adds state to fix a case nobody will meet.
-2. **Spine and memlog.** The spine's wording already says "no grant that would let a read of that section pass at the call's start", so the fix brings the code to it, except for 1(a)'s renewed-grant case. Options: (a) no spine edit; the plan and the commit record the change; (b) add one clause to AD-21 "Where the check runs": "a grant counts from when it was given (`grantedAt`, or a `once` window's opening)", plus a memlog event. Two other lanes (3.8, 3.5) are editing the spine and memlog now. Recommended: (a) if Phill takes 1(a) as a recorded departure in this plan; (b) if he wants the spine to state the rule exactly. Either way the team lead sequences any spine edit.
 
 ## Code Map
 
@@ -56,10 +54,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/Access/ReadAccess.cs`, `OnceWindows.cs` -- add `HoldsReadGrantGivenBy(string key, DateTimeOffset at)`: a stored grant or open window for `key` with `GrantedAt <= at` and unexpired at `at`; `OnceWindows` gains the matching query. `HoldsReadGrant(section, at)` uses it (it has write callers only). Fold `HoldsReadGrantAt` into `HoldsReadGrantAtLocation` (or make it private), keeping its location meaning, so no write can call it again. -- one place for the rule.
-- [ ] `src/OneNoteMcp.Core/Writes/MovePageWrite.cs` l.432, `src/OneNoteMcp.Core/UseCases/CreatePageUseCase.cs` l.329, `src/OneNoteMcp.Core/Writes/SetPageLevelWrite.cs` l.344 -- switch `HoldsReadGrantAt(…, callStart)` to `HoldsReadGrantGivenBy`. The six `HoldsReadGrant` sites (`PageWrite.cs` l.118, l.187; `PermanentDeleteUseCase.cs` l.243, l.322; `PublishUseCase.cs` l.422; `HierarchyWrite.cs` l.648) change through it with no edit. -- every "held at the call's start" check at once.
-- [ ] `tests/OneNoteMcp.Tests/ReadGrantTimingTests.cs` (new; `ReadAccess` over a temporary settings store and a fake clock, as `ProtectedSectionToolTests.cs` builds it, with `ProtectedSectionKit.cs` helpers) -- unit tests for the matrix's first three rows on both stored grants and windows, the future-`grantedAt` row, and `HoldsReadGrantAtLocation` still true for a grant given after `at`. Stored and window grants are both covered here. -- the rule itself.
-- [ ] `tests/OneNoteMcp.Tests/{UpdatePageContentToolTests,DeletePageContentToolTests,PermanentDeleteToolTests,PublishToolTests,UpdateHierarchyToolTests,MoveHierarchyObjectToolTests,CreatePageToolTests,SetPageLevelToolTests}.cs` -- one test per refusing caller with a `once` window opened in the step-3 read hook after the call's start (as backlog 7 measured it), seen failing first; plus the two degrade paths: an `update_page_content` with no hash and no `objectID` whose grant arrives mid-call gives counts-only warnings, `readBackWithheld` and no `meta.basis`, and the permanent delete's l.243 path the same way. In `UpdateHierarchyToolTests.cs` replace the l.929-931 comment ("can't be told apart") with the reorder's new test. -- the Verify line.
+- [x] `src/OneNoteMcp.Core/Access/ReadAccess.cs`, `OnceWindows.cs` -- add `HoldsReadGrantGivenBy(string key, DateTimeOffset at)`: a stored grant or open window for `key` with `GrantedAt <= at` and unexpired at `at`; `OnceWindows` gains the matching query. `HoldsReadGrant(section, at)` uses it (it has write callers only). Fold `HoldsReadGrantAt` into `HoldsReadGrantAtLocation` (or make it private), keeping its location meaning, so no write can call it again. -- one place for the rule.
+- [x] `src/OneNoteMcp.Core/Writes/MovePageWrite.cs` l.432, `src/OneNoteMcp.Core/UseCases/CreatePageUseCase.cs` l.329, `src/OneNoteMcp.Core/Writes/SetPageLevelWrite.cs` l.344 -- switch `HoldsReadGrantAt(…, callStart)` to `HoldsReadGrantGivenBy`. The six `HoldsReadGrant` sites (`PageWrite.cs` l.118, l.187; `PermanentDeleteUseCase.cs` l.243, l.322; `PublishUseCase.cs` l.422; `HierarchyWrite.cs` l.648) change through it with no edit. -- every "held at the call's start" check at once.
+- [x] `tests/OneNoteMcp.Tests/ReadGrantTimingTests.cs` (new; `ReadAccess` over a temporary settings store and a fake clock, as `ProtectedSectionToolTests.cs` builds it, with `ProtectedSectionKit.cs` helpers) -- unit tests for the matrix's first three rows on both stored grants and windows, the future-`grantedAt` row, and `HoldsReadGrantAtLocation` still true for a grant given after `at`. Stored and window grants are both covered here. -- the rule itself.
+- [x] `tests/OneNoteMcp.Tests/{UpdatePageContentToolTests,DeletePageContentToolTests,PermanentDeleteToolTests,PublishToolTests,UpdateHierarchyToolTests,MoveHierarchyObjectToolTests,CreatePageToolTests,SetPageLevelToolTests}.cs` -- one test per refusing caller with a `once` window opened in the step-3 read hook after the call's start (as backlog 7 measured it), seen failing first; plus the two degrade paths: an `update_page_content` with no hash and no `objectID` whose grant arrives mid-call gives counts-only warnings, `readBackWithheld` and no `meta.basis`, and the permanent delete's l.243 path the same way. In `UpdateHierarchyToolTests.cs` replace the l.929-931 comment ("can't be told apart") with the reorder's new test. -- the Verify line.
 
 **Acceptance Criteria:**
 - Given a write that needs a read grant, when the grant is given after the call starts, then the write answers as if there were none; when it was given before, the write passes as today.
@@ -75,10 +73,21 @@ TDD: write each test first and watch it fail before the code change. Unit tests 
 
 ## Implementation Notes
 
+- Built 2026-11-17. `ReadAccess.HoldsReadGrantGivenBy(key, at)` and `OnceWindows.OpenedBy(key, at)` carry the rule; `HoldsReadGrant` goes through it; `HoldsReadGrantAt` is folded into `HoldsReadGrantAtLocation` (location meaning kept). Three sites switched (MovePageWrite l.432, CreatePageUseCase l.329, SetPageLevelWrite l.344); location checks untouched.
+- Tests: `ReadGrantTimingTests.cs` (13 unit tests), `MidCallGrant` helpers in `ProtectedSectionKit.cs`, one mid-call-window test per refusing caller, the two degrade paths, and three re-given-under-the-lock tests that make the step-3/step-4 rechecks (PageWrite l.118, PermanentDelete l.322) the refusing check. With the old rule put back, every new-behaviour test failed (15, then the 4 recheck/degrade tests); with the fix, 3362 passed.
+- A once window can't be re-given while still open (a read passes without asking); the re-given case is a window that lapses mid-call and is reopened, refused per Q1 (a).
+- The recheck under the lock can refuse only when step 1 passed, i.e. a grant held at the start and re-given mid-call; with no grant at the start, step 1 refuses first. So page writes' recheck tests use the re-given case, not backlog 7's step-3 window (the reorder has no step-1 check).
+- Publish, move, set_page_level and create_page rechecks have no re-given-under-the-lock test; they share the same method.
 - The ticket's caller list and Verify line predate 3.14's `create_page` subpage and `set_page_level` checks and say every check refuses; this plan covers those two and the two degrade paths. The ticket is refreshed when it is next refined (a build never writes a ticket file).
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+Quick lens, pass 1 (2026-11-17): 1 medium patched, 1 low patched, 1 false.
+
+- **medium, patched:** the per-caller tests opened the window on the call's first `GetHierarchy`, so for page writes and the permanent delete step 1 refused and the under-lock rechecks (PageWrite l.118 refusal, PermanentDelete l.322) had no regression test. Added three re-given-under-the-lock tests (the only state in which the recheck refuses), each seen failing on the old rule.
+- **low, patched:** the `NoHashOrObjectId` degrade test now opens the window under the lock, after step 1, so `NamesIds` is set at l.118 (`Assert.Single(holds)`).
+- **false:** soft delete of a page (`SoftDeletePage : PageWrite`) needs no read grant: a page in a protected section is refused `NotSupported` before any grant check.
 
 Fable final review (low effort, 2026-11-17), 9 findings, all checked against the code and applied: F1 tests for the two degrade paths (`PageWrite` `NamesIds`, permanent delete l.243); F2 file paths and the true site count (three edited sites, six through `HoldsReadGrant`); F3 the matrix's last row is filled from Open Questions 1's answer before approval; F4 Open Questions 1(a) named as a departure from the spine's literal wording, with the real window (the call's start precedes the write-grant dialog); F5 future `grantedAt` row; F6 the sub-millisecond note and ≥1 ms clock moves; F7 `HoldsReadGrantAt` folded or made private; F8 the stale reorder test comment; F9 per-caller tests use a `once` window, stored grants in the unit tests, and the ticket refresh noted.

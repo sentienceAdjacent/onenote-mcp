@@ -329,6 +329,26 @@ public sealed class SetPageLevelToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AProtectedSection_AOnceWindowOpenedDuringTheCall_IsReadNotGranted_NothingSent_ARetryChangesTheLevel()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var error = Error(await Tool().SetPageLevel(V2, 2, null, Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Equal(SetPageLevelWrite.ProtectedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+
+        gateway.OnGetHierarchy = null;
+        Ok(await Tool().SetPageLevel(V2, 2, null, Ct));
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
     public async Task AProtectedSection_WithAReadGrant_ChangesTheLevel_AndItsEntryIsEncrypted()
     {
         Grant();

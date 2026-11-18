@@ -408,6 +408,25 @@ public sealed class PublishToolTests : IDisposable
         Assert.True(File.Exists(Path.Combine(CanonicalRoot, "x.pdf")));
     }
 
+    [Fact]
+    public async Task AProtectedPage_AOnceWindowOpenedDuringTheCall_IsReadNotGranted_ARetryPublishes()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        var readAccess = NewReadAccess(gateway);
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var result = await new PublishTool(Runner(), UseCase(readAccess: readAccess)).Publish(VaultPageId, "x.pdf", PublishFormatArgument.Pdf, Ct);
+
+        Assert.True(opened());
+        Assert.Contains(VaultId, Error(result, "ReadNotGranted").GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+
+        gateway.OnGetHierarchy = null;
+        Ok(await new PublishTool(Runner(), UseCase(readAccess: readAccess)).Publish(VaultPageId, "x.pdf", PublishFormatArgument.Pdf, Ct));
+        Assert.True(File.Exists(Path.Combine(CanonicalRoot, "x.pdf")));
+    }
+
     // --- Story 3.13: every format, for a page and a section -------------------------------------------------------------
 
     public static TheoryData<string, PublishFormatArgument, string, ExportFormat> PageAndSectionFormats()
@@ -1022,17 +1041,19 @@ public sealed class PublishToolTests : IDisposable
             clock.GetUtcNow(),
             GrantedVia.Cli));
 
-    private PublishUseCase UseCase(IOneNoteGateway? over = null)
+    private PublishUseCase UseCase(IOneNoteGateway? over = null, ReadAccess? readAccess = null)
     {
         var used = over ?? gateway;
         return new PublishUseCase(
             used,
-            new ReadAccess(used, Store.Read, new SettingsWriter(Store, clock), clock),
+            readAccess ?? NewReadAccess(used),
             Store.Read,
             new WritePipeline(writeLock, used, null, Store.Read, TimeProvider.System),
             TimeProvider.System,
             TimeSpan.FromMilliseconds(10));
     }
+
+    private ReadAccess NewReadAccess(IOneNoteGateway used) => new(used, Store.Read, new SettingsWriter(Store, clock), clock);
 
     private static ToolRunner Runner() => new(NullLogger<ToolRunner>.Instance);
 

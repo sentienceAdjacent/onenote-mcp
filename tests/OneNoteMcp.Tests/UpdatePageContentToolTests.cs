@@ -371,6 +371,70 @@ public sealed class UpdatePageContentToolTests : IDisposable
         Assert.Null(success.Meta.Basis);
     }
 
+    [Fact]
+    public async Task ProtectedWithAOnceWindowOpenedDuringTheCall_NoHashOrObjectId_IsCountsOnly_Withheld_AndNoMetaBasis()
+    {
+        // Backlog 9: step 3's NamesIds (PageWrite l.118) counts a grant only from when it was given, so a window opened under
+        // the lock, after step 1 passed and before that check, degrades the write as if there were none.
+        var readAccess = NewReadAccess(gateway);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, VaultSection(), "Vault", MidCallGrant.UnderTheLock(writeLock));
+        var sent = Sent(NewOutline("alignment=\"right\""), VaultPageId);
+        VaultAfterWrite(p => p.Add(new XElement(One + "Outline", new XAttribute("objectID", G(60)), new XElement(One + "OEChildren",
+            new XElement(One + "OE", new XAttribute("objectID", G(61)), new XElement(One + "T", "new"))))));
+
+        var success = await UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, null, Ct);
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Null(success.Meta.Basis);
+        Assert.Equal(["noBasis", "readBackDiffers", "readBackWithheld"], success.Warnings.Select(w => w.Code));
+        Assert.All(success.Warnings, w => Assert.DoesNotContain("{B0}", w.Message, StringComparison.Ordinal));
+        Assert.Contains("1 attribute(s)", success.Warnings[1].Message, StringComparison.Ordinal);
+        Assert.Single(gateway.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowOpenedDuringTheCall_AnObjectId_IsReadNotGranted_ARetryWrites()
+    {
+        // Backlog 9: a grant opened after the call's start is no grant; the retry starts inside the window and passes.
+        var readAccess = NewReadAccess(gateway);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, VaultSection(), "Vault");
+        var sent = Sent(OutlineAsRead(40), VaultPageId);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, [], Ct));
+
+        Assert.True(opened());
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.Equal(UpdatePageContentWrite.ReadFirstUserAction, ex.UserAction);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+
+        gateway.OnGetHierarchy = null;
+        var success = await UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, [], Ct);
+        Assert.Single(gateway.UpdateCalls);
+        Assert.DoesNotContain("readBackWithheld", success.Warnings.Select(w => w.Code));
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowReGivenUnderTheLock_AnObjectId_IsReadNotGranted_ByTheRecheck()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so step 3's recheck (PageWrite l.118) refuses before the page is read.
+        var readAccess = NewReadAccess(gateway);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, VaultSection(), "Vault", writeLock);
+        var sent = Sent(OutlineAsRead(40), VaultPageId);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, [], Ct));
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    private HierarchyNode VaultSection() => HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+
     // --- Date-only basis without a read grant (AD-17 as amended by 5.2; Phill, 2026-11-12, story 2.9 security review) --
 
     public static TheoryData<string> OraclesWithoutAReadGrant => ["existing objectID", "element hash", "pageHash", "removeObjectIds", "objectID on a new element"];
@@ -968,18 +1032,20 @@ public sealed class UpdatePageContentToolTests : IDisposable
         return new PageBasisArgument(date ?? basis.LastModifiedTime, basis.PageHash, hashes);
     }
 
-    private PageWriteServices Services(IOneNoteGateway g, IssuedPathCaches? issued = null) => new(
+    private PageWriteServices Services(IOneNoteGateway g, IssuedPathCaches? issued = null, ReadAccess? readAccess = null) => new(
         g,
         new WriteAccess(g, Store.Read),
-        new ReadAccess(g, Store.Read, new SettingsWriter(Store, clock), clock),
+        readAccess ?? NewReadAccess(g),
         new PageSnapshot(g, new JournalStore(Store.Read), clock),
         issued);
 
-    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null, bool withDialog = false, IssuedPathCaches? issued = null)
+    private ReadAccess NewReadAccess(IOneNoteGateway g) => new(g, Store.Read, new SettingsWriter(Store, clock), clock);
+
+    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null, bool withDialog = false, IssuedPathCaches? issued = null, ReadAccess? readAccess = null)
     {
         var g = over ?? gateway;
         var dialog = withDialog ? new WriteGrantDialog(g, new SettingsWriter(Store, clock), clock) : null;
-        return new UpdatePageContentUseCase(Services(g, issued), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, dialog: dialog));
+        return new UpdatePageContentUseCase(Services(g, issued, readAccess), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, dialog: dialog));
     }
 
     /// <summary>
