@@ -158,3 +158,7 @@ context:
 - S0 (before the build): probe P3. `publish` an MCP Test section as `.one` into the test root and into the default root `Documents\OneNote Exports`; open each by hand in OneNote; record the `path` `get_hierarchy` reports for it (local path or URL). Phill closes both and deletes the files.
 - S1 (after the build): open such a `.one` by hand, read a page of it with `onenote-dev`: the grant dialog appears; Phill denies once (refused) and allows once (read). If the copy lists no pages at first (spine l.348), wait and list again. Then try a soft delete of one of its pages: refused. Phill closes the copy and deletes the file.
 - S2: permanently delete a throwaway section of MCP Test (its `.one` backup lands in the journal's `backups` folder, AD-8), open that backup in place by hand in OneNote, and read a page of it: refused without a grant. Phill closes it.
+
+**Sitting status (2026-11-17, results relayed by the coordinating session):**
+- S1 passed: withheld pages carry the new wording; a declined grant gives `ReadNotGranted` with the path reason; an allowed grant reads all 19 pages. One finding: soft-deleting a page of the hand-opened copy (a loose section under `one:OpenSections`) returned `ObjectNotFound` "isn't a page", not the protected refusal; nothing was written. It predates this story (page writes' step 1 needs an owning notebook, and its fallback message is "isn't a page"; this story didn't change `WriteAccess`, `HierarchyWalk` or that fallback), so it is filed as backlog 12.
+- S2: pending.
