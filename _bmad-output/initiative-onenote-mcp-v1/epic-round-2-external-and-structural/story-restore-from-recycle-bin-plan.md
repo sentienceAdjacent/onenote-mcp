@@ -218,6 +218,15 @@ context:
 
 ## Review Triage Log
 
+- 2026-11-17, Fable final review of the spine sync, low effort: 6 must fix and 8 optional. Phill had all 14 applied (Inbox, 2026-11-17).
+  - **Finding 4, a code change, the 3.14 pattern.** After an `outcomeUnknown` or cancelled move in the restore-then-move path, `restoredNotMoved` says the section "may or may not have been moved", its `userAction` says to re-read the target and its own notebook, and `meta.parentId` is absent. Red test first: `ASection_IntoAnotherNotebook_WhoseMoveOutcomeIsUnknown_SaysItMayOrMayNotHaveMoved_AndClaimsNoParent` (Timeout and Cancelled). Both cases failed on the missing wording before the fix. The tool description and the `ToolWarnings` doc were updated.
+  - **The other 13, spine and memlog only:**
+    - AD-5: the Q7 exception (`restoredNotMoved`, not `completedSteps`).
+    - AD-8: the restore section restructured with labelled bullets. It covers the three-entry count, the `noBasis` drop, the name clash, the grant-key rule for every section, `restoredByName` unless `entryId`, the step 1/3/4 wording and the Q7 move-side checks. It adds the read-back, the arguments and case sensitivity, and puts the protected order first, with the Q4 reading.
+    - AD-9: `journalEntryIds`, plus restore causes in the ObjectNotFound, InvalidArgument, WriteNotGranted, ReadNotGranted and NotSupported rows.
+    - AD-21: "its own place".
+    - The memlog has one entry for Phill's decisions.
+  - Verification: build with 0 warnings; unit tests 3,443 passed; integration without the variable 217 passed, 120 skipped, 0 failed.
 - 2026-11-17, automated security review, medium, verified, patched test-first. The landing-location grant check exempted `now.Entry?.SectionKey ?? OldPath` whatever the match. So a section matched by name, or by an `entryId` that picks a name match, could land where a different, earlier section's read grant still sits, and inherit it: the backlog 8 class. My quick review's fix 1 (`entryId` limited to the item's own matches) didn't cover it, because the own matches include name matches.
   - Red test first: `ASectionMatchedByName_NeverInheritsTheReadGrantAtItsEntrysFormerKey` (both with and without `entryId`). Both cases failed with `ok:true`, restored onto the granted key.
   - Fix: the exemption applies only when the entry matched by the section's own ID (`!ByName` and `entry.ObjectId == objectId`). Otherwise a grant at the landing key refuses the restore with `InvalidArgument`.

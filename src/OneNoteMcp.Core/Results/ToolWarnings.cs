@@ -154,7 +154,8 @@ public static class ToolWarnings
 
     /// <summary>
     /// <c>restore_from_recycle_bin</c> restored a section in its own notebook, but the move to the other notebook the caller
-    /// named was refused or failed (AD-8; story 3.5 Q7). The section stays restored in its own notebook (<c>meta.parentId</c>).
+    /// named was refused or failed (AD-8; story 3.5 Q7). The section stays restored in its own notebook (<c>meta.parentId</c>);
+    /// after an outcome-unknown or cancelled move it may or may not have moved, and <c>meta.parentId</c> is absent (3.5 Fable finding 4).
     /// Gives the move's error code and message (IDs only); its userAction says to move it with <c>move_hierarchy_object</c>.
     /// </summary>
     public const string RestoredNotMoved = "restoredNotMoved";

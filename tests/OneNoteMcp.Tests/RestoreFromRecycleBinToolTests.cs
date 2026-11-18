@@ -546,6 +546,35 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         Assert.Contains(GoneId, children[ArchiveId]);
     }
 
+    [Theory]
+    [InlineData(ErrorCode.Timeout)]
+    [InlineData(ErrorCode.Cancelled)]
+    public async Task ASection_IntoAnotherNotebook_WhoseMoveOutcomeIsUnknown_SaysItMayOrMayNotHaveMoved_AndClaimsNoParent(ErrorCode code)
+    {
+        // Phill, 2026-11-17 (3.5 Fable finding 4, the 3.14 pattern): after an outcomeUnknown or cancelled move, the section
+        // may be in either notebook, so the warning says so and meta.parentId names neither.
+        Grant();
+        Grant(OtherPath, OtherId);
+        var calls = 0;
+        gateway.OnUpdateHierarchyCall = _ =>
+        {
+            if (++calls == 2)
+            {
+                throw new OneNoteException(code, "UpdateHierarchy did not return in time.");
+            }
+
+            return Task.CompletedTask;
+        };
+
+        var root = Ok(await Tool().RestoreFromRecycleBin(GoneId, OtherId, null, null, Ct));
+
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal("restoredNotMoved", warning.GetProperty("code").GetString());
+        Assert.Contains("may or may not have been moved", warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("re-read", warning.GetProperty("userAction").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.False(root.GetProperty("meta").TryGetProperty("parentId", out _));
+    }
+
     [Fact]
     public async Task ASection_IntoAnotherNotebook_WithNoOriginalParent_SendsNothing_AndAsksForAParentInItsOwnNotebook()
     {

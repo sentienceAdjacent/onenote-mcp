@@ -32,6 +32,13 @@ public sealed class RestoreFromRecycleBinUseCase(
     public const string RestoredNotMovedUserAction =
         "The section is restored in its own notebook (meta.parentId), but it wasn't moved. Tell the user. To move it, deal with what the move's error says, then use move_hierarchy_object; or leave it where it is.";
 
+    /// <summary>
+    /// What to do after an outcome-unknown or cancelled move (Phill, 2026-11-17, 3.5 Fable finding 4, the 3.14 pattern):
+    /// the section may be in either notebook.
+    /// </summary>
+    public const string MoveUnknownUserAction =
+        "The section was restored in its own notebook, but the move to the other notebook may or may not have happened. Re-read the target with get_hierarchy (scope children), and its own notebook, to find where it is now, then tell the user. Don't retry the move until you know.";
+
     public OperationClass Class => OperationClass.HierarchyWrite;
 
     /// <summary>
@@ -68,7 +75,7 @@ public sealed class RestoreFromRecycleBinUseCase(
         // Q7 step 2: the existing section move, its own pipeline run, so every move rule applies (grants, J1, settle...).
         var move = new MoveContainerWrite(services, context.CorrelationId, write.ObjectId, moveTo, position, basis: null, wait);
         var warnings = new List<ToolWarning>(result.Warnings);
-        string finalParent;
+        string? finalParent;
         try
         {
             var moved = await pipeline.RunAsync(context, move, ct).ConfigureAwait(false);
@@ -80,11 +87,20 @@ public sealed class RestoreFromRecycleBinUseCase(
         catch (Exception ex) when (ex is OneNoteException or OperationCanceledException)
         {
             var code = ex is OneNoteException one ? one.Code.ToString() : nameof(ErrorCode.Cancelled);
-            warnings.Add(new ToolWarning(
-                ToolWarnings.RestoredNotMoved,
-                $"Section {write.ObjectId} was restored under {write.TargetId} in its own notebook, but moving it to {moveTo} didn't happen: {code}: {ex.Message}",
-                RestoredNotMovedUserAction));
-            finalParent = write.TargetId ?? string.Empty;
+
+            // Finding 4: an outcome-unknown or cancelled move may have happened, so neither notebook is claimed (meta.parentId absent).
+            var unknown = ex is OperationCanceledException
+                || (ex is OneNoteException failed && (failed.OutcomeUnknown || failed.Code == ErrorCode.Cancelled || WritePipeline.IsAmbiguous(failed)));
+            warnings.Add(unknown
+                ? new ToolWarning(
+                    ToolWarnings.RestoredNotMoved,
+                    $"Section {write.ObjectId} was restored under {write.TargetId} in its own notebook, but it may or may not have been moved to {moveTo}: {code}: {ex.Message}",
+                    MoveUnknownUserAction)
+                : new ToolWarning(
+                    ToolWarnings.RestoredNotMoved,
+                    $"Section {write.ObjectId} was restored under {write.TargetId} in its own notebook, but moving it to {moveTo} didn't happen: {code}: {ex.Message}",
+                    RestoredNotMovedUserAction));
+            finalParent = unknown ? null : write.TargetId ?? string.Empty;
         }
 
         var entries = new[] { write.JournalEntryId }.OfType<Guid>().Concat(move.JournalEntryIds)
