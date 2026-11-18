@@ -28,7 +28,12 @@ public sealed class Protection
         ArgumentNullException.ThrowIfNull(roots);
         Roots = [.. roots.Where(r => !string.IsNullOrWhiteSpace(r))];
         Warnings = warnings ?? [];
+
+        // Made canonical once here, not once per section (a broad read tests every section of every notebook).
+        prefixes = [.. Roots.SelectMany(PathUnder.Prefixes).Distinct(StringComparer.OrdinalIgnoreCase)];
     }
+
+    private readonly IReadOnlyList<string> prefixes;
 
     /// <summary>The protected roots: the export roots, then the journal's <c>backups</c> folder.</summary>
     public IReadOnlyList<string> Roots { get; }
@@ -47,7 +52,7 @@ public sealed class Protection
     public static Protection From(SettingsSnapshot settings) => new(RootsOf(settings));
 
     /// <summary>True when <paramref name="path"/> lies under a protected root (<see cref="PathUnder"/>).</summary>
-    public bool UnderRoot(string? path) => PathUnder.IsUnder(path, Roots);
+    public bool UnderRoot(string? path) => PathUnder.IsUnderPrefixes(path, prefixes);
 
     /// <summary>True for a section that is marked <c>encrypted</c> or under a protected root. Anything else isn't protected.</summary>
     public bool IsProtected(HierarchyNode node)

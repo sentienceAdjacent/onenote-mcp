@@ -595,7 +595,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {sectionId} is password-protected and has no read grant, so a write to it may carry only a basis lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds. Nothing was written.",
+                $"Section {sectionId} is protected (password-protected, or under an export root or the backups folder) and has no read grant, so a write to it may carry only a basis lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds. Nothing was written.",
                 userAction: ReadFirstUserAction);
         }
     }
@@ -861,7 +861,7 @@ public sealed class DeletePageContentWrite : PageWrite
         + "send its Outline with update_page_content and name the OE in removeObjectIds. Images and ink can't be deleted in this version.";
 
     public const string ReadFirstUserAction =
-        "In a password-protected section, delete_page_content needs a read grant for the section. Read the page with get_page_content first "
+        "In a protected section, delete_page_content needs a read grant for the section. Read the page with get_page_content first "
         + "(it asks the user for the grant), then call delete_page_content again with the meta.basis from that read.";
 
     public const string StillThereUserAction =
@@ -907,7 +907,7 @@ public sealed class DeletePageContentWrite : PageWrite
     protected override void CheckWithoutReadGrant(string sectionId) =>
         throw new OneNoteException(
             ErrorCode.ReadNotGranted,
-            $"Section {sectionId} is password-protected, and {Operation} there needs a read grant for it held when the call starts, so nothing was read or written.",
+            $"Section {sectionId} is protected (password-protected, or under an export root or the backups folder), and {Operation} there needs a read grant for it held when the call starts, so nothing was read or written.",
             userAction: ReadFirstUserAction);
 
     public override void Validate()

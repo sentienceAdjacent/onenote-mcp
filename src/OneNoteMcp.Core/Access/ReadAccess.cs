@@ -33,7 +33,7 @@ namespace OneNoteMcp.Core.Access;
 public sealed class ReadAccess
 {
     public static string WithheldUserAction { get; } =
-        "Reading a password-protected section needs the user's permission, which you can't give. Tell the user, and if they want it read, "
+        "Reading a protected section (password-protected, or under an export root or the backups folder) needs the user's permission, which you can't give. Tell the user, and if they want it read, "
         + "they can run " + GrantCli.Run("--read-section \"<section name>\"") + ", or accept the dialog that appears when you read one of its pages "
         + "(get_page_content) in a client that supports it, such as Claude Code. Then repeat this call.";
 
@@ -50,6 +50,7 @@ public sealed class ReadAccess
     private readonly ExportRootGuard? guard;
     private readonly Lock rootsGate = new();
     private IReadOnlyList<string>? lastValidRoots;
+    private IReadOnlyList<string>? lastValidExportRoots;
 
     /// <param name="gateway">The gateway the owning section is resolved through.</param>
     /// <param name="settings">Reads <c>settings.json</c>; called once per check.</param>
@@ -83,6 +84,7 @@ public sealed class ReadAccess
             lock (rootsGate)
             {
                 lastValidRoots = roots;
+                lastValidExportRoots = snapshot.ExportRoots.Paths;
             }
 
             return new Protection(roots);
@@ -114,7 +116,15 @@ public sealed class ReadAccess
     public async Task<Protection> ProtectionAsync(CancellationToken ct)
     {
         var protection = Protection();
-        if (guard is null || await guard.ProblemAsync(settings().ExportRoots.Paths, ct).ConfigureAwait(false) is not { } problem)
+
+        // The guard checks the export roots that protect this call: this run's last valid ones while the file is invalid (Q2).
+        IReadOnlyList<string> exportRoots;
+        lock (rootsGate)
+        {
+            exportRoots = lastValidExportRoots ?? NoSettings().ExportRoots.Paths;
+        }
+
+        if (guard is null || await guard.ProblemAsync(exportRoots, ct).ConfigureAwait(false) is not { } problem)
         {
             return protection;
         }
@@ -260,6 +270,7 @@ public sealed class ReadAccess
         var snapshot = settings();
         var now = clock.GetUtcNow();
         var withheld = new List<string>();
+        var byPath = new List<string>();
         var granted = new List<ResultGrant>();
         foreach (var section in sections)
         {
@@ -275,10 +286,14 @@ public sealed class ReadAccess
             else if (!withheld.Contains(section.Id, StringComparer.Ordinal))
             {
                 withheld.Add(section.Id);
+                if (!section.Marked)
+                {
+                    byPath.Add(section.Id);
+                }
             }
         }
 
-        return new BroadAccess(withheld, granted) { Extra = protection.Warnings };
+        return new BroadAccess(withheld, granted) { Extra = protection.Warnings, ByPath = byPath };
     }
 
     /// <summary>
@@ -340,9 +355,9 @@ public sealed class ReadAccess
         stored.ExpiresAt,
         wholeResult);
 
-    internal static OneNoteException NotGranted(string sectionId, string why) => new(
+    internal static OneNoteException NotGranted(HierarchyNode section, string why) => new(
         ErrorCode.ReadNotGranted,
-        $"Section {sectionId} is password-protected, and reading it needs a read grant from the user. {why}",
+        $"Section {section.Id} {Access.Protection.Phrase(section.EncryptedMarker)}, and reading it needs a read grant from the user. {why}",
         userAction: ToolErrors.ReadNotGrantedUserAction);
 
     private static T Readable<T>(Func<T> read) => XmlReads.Readable(read, "GetHierarchy");

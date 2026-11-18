@@ -116,7 +116,11 @@ public sealed class WritePipeline
             // dialog at most once per notebook key, so a move between two notebooks can ask for both (story 3.4 Q3).
             // Entry 15 (Phill, 2026-11-17, Q1): an export root that holds the user's notebooks disables writes, like an
             // invalid settings.json, until the user changes it.
-            if (guard is not null && await guard.ProblemAsync(settings().ExportRoots.Paths, token).ConfigureAwait(false) is { } problem)
+            // An invalid or newer file is refused by each write's own EnsureWritable, with its own message, so the guard
+            // runs only on a readable one.
+            if (guard is not null
+                && settings() is { Status: SettingsStatus.Ok or SettingsStatus.Absent } readable
+                && await guard.ProblemAsync(readable.ExportRoots.Paths, token).ConfigureAwait(false) is { } problem)
             {
                 throw new OneNoteException(ErrorCode.SettingsInvalid, problem + " Writes are disabled until then.", userAction: "Ask the user to change exportRoots in settings.json, then retry.");
             }

@@ -110,7 +110,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
 
     /// <summary>AD-21's protected-section <c>userAction</c> (5.2 plan Q1).</summary>
     public const string ProtectedSectionUserAction =
-        "A password-protected section can't be deleted permanently here: its backup would be written unencrypted. Ask the user to soft-delete it (delete it in OneNote), then empty the recycle bin in OneNote.";
+        "A protected section (password-protected, or under an export root or the backups folder) can't be deleted permanently here: its backup would be written unencrypted. Ask the user to soft-delete it (delete it in OneNote), then empty the recycle bin in OneNote.";
 
     public const string RecycledPageUserAction =
         "This page is already in the recycle bin, where COM can't delete it. Ask the user to empty the recycle bin in OneNote (or delete the page from Deleted Pages there).";
@@ -140,7 +140,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     /// without naming what is inside the section (AD-21).
     /// </summary>
     public static string ProtectedNoConfirmationUserAction { get; } =
-        "This page is in a password-protected section you can't read, so the user can't be asked to confirm its permanent delete in a dialog. "
+        "This page is in a protected section you can't read, so the user can't be asked to confirm its permanent delete in a dialog. "
         + "Ask the user whether they want it deleted for good. They can allow permanent deletes in the notebook by running "
         + GrantCli.Run("--permanent-delete \"<notebook name>\"") + " (with the notebook's name), then you retry; or you can read the page with get_page_content first "
         + "(which asks them for the section's read grant) and retry, when a dialog asks them to confirm. Never run the grant command yourself.";
@@ -149,7 +149,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         "Pass basis as {lastModifiedTime, pageHash} from get_page_content's meta.basis for a page, or {lastModifiedTime} from the node's element in get_hierarchy for a section or section group; leave out elementHashes.";
 
     public const string ReadFirstUserAction =
-        "In a password-protected section, a permanent delete may carry only basis.lastModifiedTime unless the section has a read grant. Read the page with get_page_content first "
+        "In a protected section, a permanent delete may carry only basis.lastModifiedTime unless the section has a read grant. Read the page with get_page_content first "
         + "(it asks the user for the grant), or pass only basis.lastModifiedTime.";
 
     private readonly PermanentDeleteServices services;
@@ -271,7 +271,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         {
             throw new OneNoteException(
                 ErrorCode.PermanentDeleteNotGranted,
-                $"Section {owner!.Id} is password-protected and has no read grant, so this delete can't be confirmed in a dialog, and notebook {access.Target.NotebookId} has no permanent-delete grant; {objectId} wasn't deleted.",
+                $"Section {owner!.Id} is protected (password-protected, or under an export root or the backups folder) and has no read grant, so this delete can't be confirmed in a dialog, and notebook {access.Target.NotebookId} has no permanent-delete grant; {objectId} wasn't deleted.",
                 userAction: ProtectedNoConfirmationUserAction);
         }
 
@@ -673,7 +673,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {sectionId} is password-protected and has no read grant, so a permanent delete there may carry only basis.lastModifiedTime. Nothing was deleted.",
+                $"Section {sectionId} is protected (password-protected, or under an export root or the backups folder) and has no read grant, so a permanent delete there may carry only basis.lastModifiedTime. Nothing was deleted.",
                 userAction: ReadFirstUserAction);
         }
     }

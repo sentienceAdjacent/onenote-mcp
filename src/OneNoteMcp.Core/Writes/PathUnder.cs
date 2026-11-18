@@ -35,6 +35,16 @@ public static class PathUnder
     }
 
     /// <summary>
+    /// True when <paramref name="path"/> is under any of <paramref name="prefixes"/>, already built with
+    /// <see cref="Prefixes"/>: no file I/O, for a caller that tests many paths against the same roots.
+    /// </summary>
+    public static bool IsUnderPrefixes(string? path, IReadOnlyList<string> prefixes)
+    {
+        ArgumentNullException.ThrowIfNull(prefixes);
+        return Full(path) is { } full && prefixes.Any(prefix => IsUnderPrefix(full, prefix));
+    }
+
+    /// <summary>
     /// The prefixes <paramref name="root"/> stands for, each ending in a separator: its canonical form and its plain full
     /// path (one entry when they agree). Empty for a root that isn't a fully qualified local path.
     /// </summary>
