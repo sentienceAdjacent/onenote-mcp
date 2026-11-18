@@ -3,7 +3,7 @@ title: 'Protected by path: export roots and the backups folder'
 type: 'feature'
 ticket: '15'
 created: '2026-11-17'
-status: 'built'
+status: done
 baseline_revision: '4be192b2e404aec66c89a5da059bb075af6c7800'
 route: 'full'
 route_source: 'auto'
