@@ -8,6 +8,7 @@ using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
+using OneNoteMcp.Core.Writes;
 using OneNoteMcp.Server;
 using OneNoteMcp.Xml;
 using Xunit;
@@ -27,36 +28,47 @@ internal sealed class VaultGateway : IOneNoteGateway
     public const string OpenSectionId = "{SO}{1}{B0}";
     public const string OpenPageId = "{SO}{1}{E1}";
     public const string VaultId = "{SV}{1}{B0}";
-    public const string VaultPath = @"C:\notebooks\A\Vault.one";
+    public const string VaultPath = @"C:\vaults\Vault.one";
     public const string VaultPageId = "{SV}{1}{E1}";
     public const string VaultPage2Id = "{SV}{1}{E2}";
     public const string GroupId = "{G}{1}{B0}";
     public const string GroupVaultId = "{SV2}{1}{B0}";
-    public const string GroupVaultPath = @"C:\notebooks\A\Group\Vault.one";
+    public const string GroupVaultPath = @"C:\vaults\Group\Vault.one";
     public const string GroupVaultPageId = "{SV2}{1}{E1}";
     public const string RecycleBinId = "{RB}{1}{B0}";
     public const string DeletedSectionId = "{SD}{1}{B0}";
     public const string DeletedPageId = "{SD}{1}{E1}";
     public const string VaultName = "Vault";
+
+    /// <summary>
+    /// The folder both vaults sit in (entry 15): in <c>byPath</c> mode it is the only export root, so the vaults are
+    /// protected by their path and carry no <c>encrypted</c> marker. It sits outside the notebook's folder, so the
+    /// export-root guard (3.15 Q1) has nothing to say about it.
+    /// </summary>
+    public const string VaultsFolder = @"C:\vaults";
     public const string Secret = "SECRET-VAULT-TEXT";
 
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
 
     private readonly XElement notebook;
 
-    public VaultGateway(bool locked = false)
+    public VaultGateway(bool locked = false, bool byPath = false)
     {
         Locked = locked;
+        ByPath = byPath;
         notebook = new XElement(One + "Notebook",
             new XAttribute("name", "Notebook A"), new XAttribute("nickname", "Notebook A"), new XAttribute("ID", NotebookId), new XAttribute("path", NotebookPath),
             Section("Open", OpenSectionId, @"C:\notebooks\A\Open.one", encrypted: false, Page(OpenPageId, "Open page")),
-            Section(VaultName, VaultId, VaultPath, encrypted: true, Page(VaultPageId, "Vault page one"), Page(VaultPage2Id, "Vault page two")),
+            Section(VaultName, VaultId, VaultPath, encrypted: !byPath, Page(VaultPageId, "Vault page one"), Page(VaultPage2Id, "Vault page two")),
             new XElement(One + "SectionGroup", new XAttribute("name", "Group"), new XAttribute("ID", GroupId), new XAttribute("path", @"C:\notebooks\A\Group"),
-                Section(VaultName, GroupVaultId, GroupVaultPath, encrypted: true, Page(GroupVaultPageId, "Group vault page"))),
+                Section(VaultName, GroupVaultId, GroupVaultPath, encrypted: !byPath, Page(GroupVaultPageId, "Group vault page"))),
             new XElement(One + "SectionGroup", new XAttribute("name", "OneNote_RecycleBin"), new XAttribute("ID", RecycleBinId), new XAttribute("path", @"C:\notebooks\A\OneNote_RecycleBin"), new XAttribute("isRecycleBin", "true"),
                 new XElement(One + "Section", new XAttribute("name", "Deleted Pages"), new XAttribute("ID", DeletedSectionId), new XAttribute("path", @"C:\notebooks\A\OneNote_RecycleBin\OneNote_DeletedPages.one"), new XAttribute("isInRecycleBin", "true"), new XAttribute("isDeletedPages", "true"),
                     Page(DeletedPageId, "Deleted page", inRecycleBin: true))));
     }
+
+    /// <summary>True: the vaults are protected by their path under <see cref="VaultsFolder"/>, not by a marker (entry 15).</summary>
+    public bool ByPath { get; }
 
     /// <summary>True: the protected sections are locked, so OneNote shows no pages in them and page reads give SectionLocked.</summary>
     public bool Locked { get; }
@@ -113,7 +125,8 @@ internal sealed class VaultGateway : IOneNoteGateway
         }
 
         var section = node.Parent!;
-        var isProtected = (string?)section.Attribute("encrypted") == "true";
+        var isProtected = (string?)section.Attribute("encrypted") == "true"
+            || (ByPath && ((string?)section.Attribute("path") ?? string.Empty).StartsWith(VaultsFolder + @"\", StringComparison.OrdinalIgnoreCase));
         if (isProtected && Locked)
         {
             return Task.FromException<string>(new OneNoteException(ErrorCode.SectionLocked, "GetPageContent failed: hrSectionLocked (0x8004201B).", unchecked((int)0x8004201B)));
@@ -337,13 +350,25 @@ internal sealed class VaultHarness : IDisposable
 {
     private readonly TempDirectory temp = new();
 
-    public VaultHarness(bool locked = false, int inlineMaxChars = 100_000)
+    public VaultHarness(bool locked = false, int inlineMaxChars = 100_000, bool byPath = false, bool guard = false, bool prime = true)
     {
-        Gateway = new VaultGateway(locked);
+        Gateway = new VaultGateway(locked, byPath);
         SettingsPath = temp.Combine("settings.json");
+        if (byPath)
+        {
+            // Entry 15: the vaults' folder is the only export root, so they are protected by path alone.
+            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(new { schemaVersion = 1, exportRoots = new[] { VaultGateway.VaultsFolder } }));
+        }
+
         Settings = new SettingsStore(SettingsPath, temp.Combine("journal"));
         Writer = new SettingsWriter(Settings, Clock);
-        Access = new ReadAccess(Gateway, Settings.Read, Writer, Clock);
+        Access = new ReadAccess(Gateway, Settings.Read, Writer, Clock, guard ? new ExportRootGuard(Gateway, Clock) : null);
+        if (prime)
+        {
+            // A server that has read a valid settings.json once this run (entry 15, Q2: its roots then outlive an invalid file).
+            Access.Protection();
+        }
+
         ResultSettings = new ResultSettings(inlineMaxChars, TtlMinutes: 30, MaxStoreMB: 16);
         Store = new ResultStore(Clock, () => ResultSettings);
         Runner = new ToolRunner(NullLogger<ToolRunner>.Instance, new ResultDelivery(Store, EnvelopeMeasure.Instance));
@@ -502,4 +527,78 @@ internal static class Grants
         [.. root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()!)];
 
     public static string Xml(JsonElement root) => root.GetProperty("xml").GetString()!;
+}
+
+/// <summary>
+/// Backlog 9: a read grant given during a write. Installs a <see cref="FakeGateway.OnGetHierarchy"/> hook that, on the
+/// first <c>GetHierarchy</c> <paramref name="when"/> accepts (any, when null), moves the clock <paramref name="advance"/>
+/// (1 s when null) and opens a <c>once</c> window for <paramref name="section"/> in <paramref name="access"/>, as a read made in that
+/// moment would. The returned function says whether it opened.
+/// </summary>
+internal static class MidCallGrant
+{
+    public static Func<bool> OpenWindowDuringCall(
+        FakeGateway gateway,
+        FakeClock clock,
+        ReadAccess access,
+        HierarchyNode section,
+        string typed,
+        Func<string, HierarchyScope, bool>? when = null,
+        TimeSpan? advance = null)
+    {
+        var opened = false;
+        var opening = false;
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            if (opened || opening || !(when?.Invoke(id, scope) ?? true))
+            {
+                return;
+            }
+
+            opening = true;
+            clock.Advance(advance ?? TimeSpan.FromSeconds(1));
+            var prompt = new FakePrompt(FakePrompt.Accept(typed, ReadGrantLifetime.Once));
+            var result = access.CheckSectionAsync(new ToolCallContext("mid-call read", Prompt: prompt), section, CancellationToken.None).GetAwaiter().GetResult();
+            Assert.NotNull(result.Grant);
+            opened = true;
+        };
+        return () => opened;
+    }
+
+    /// <summary>
+    /// Backlog 9's re-given grant, refused by the recheck under the write lock: opens a <c>once</c> window now, moves the
+    /// clock to 1 s before it ends (the default 5-minute window), and hooks the first <c>GetHierarchy</c> made while
+    /// the write holds <paramref name="writeLock"/> to move the clock 2 s (the window has ended) and open a new one. So
+    /// step 1 passes on the window held at the call's start, and step 3's recheck sees only a window given after it.
+    /// </summary>
+    public static async Task<Func<bool>> RegiveWindowUnderTheLockAsync(
+        FakeGateway gateway,
+        FakeClock clock,
+        ReadAccess access,
+        HierarchyNode section,
+        string typed,
+        WriteLock writeLock)
+    {
+        var prompt = new FakePrompt(FakePrompt.Accept(typed, ReadGrantLifetime.Once));
+        var before = await access.CheckSectionAsync(new ToolCallContext("read before the call", Prompt: prompt), section, CancellationToken.None);
+        Assert.NotNull(before.Grant);
+        clock.Advance(TimeSpan.FromMinutes(5) - TimeSpan.FromSeconds(1));
+        return OpenWindowDuringCall(gateway, clock, access, section, typed, UnderTheLock(writeLock), TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>
+    /// A <c>when</c> filter for <see cref="OpenWindowDuringCall"/>: only while the write holds <paramref name="writeLock"/>
+    /// (step 3 on), probed by trying its named mutex without waiting. The lock's own callback fires only on release.
+    /// </summary>
+    public static Func<string, HierarchyScope, bool> UnderTheLock(WriteLock writeLock) => (_, _) =>
+    {
+        using var mutex = new Mutex(initiallyOwned: false, writeLock.Name);
+        if (mutex.WaitOne(0))
+        {
+            mutex.ReleaseMutex();
+            return false;
+        }
+
+        return true;
+    };
 }

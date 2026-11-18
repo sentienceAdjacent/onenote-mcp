@@ -42,6 +42,13 @@ public static class ToolWarnings
     public const string SettingsInvalid = "settingsInvalid";
 
     /// <summary>
+    /// Entry 15 (Phill, 2026-11-17, Q1): an <c>exportRoots</c> entry holds a notebook of the user's, or sits inside one, so
+    /// that notebook's sections count as password-protected (AD-21, protected by path). The read went on; writes fail with
+    /// <c>SettingsInvalid</c> until the user changes the setting. The message names the root (the user's own setting).
+    /// </summary>
+    public const string ExportRootHoldsNotebooks = "exportRootHoldsNotebooks";
+
+    /// <summary>
     /// A page write in a password-protected section with no read grant: the read-back ran, but what OneNote kept, and a
     /// basis for the next write, are withheld from the result (AD-7, AD-21). Count-free; the counts-only
     /// <c>readBackDiffers</c> and <c>imageLost</c> warnings may come with it.

@@ -42,3 +42,4 @@ Verify: the probe's findings are recorded (attribute before and after `SyncHiera
 
 - Filed 2026-11-17 at Phill's request, with 3.7's decision to refuse `areAllPagesAvailable="false"` up front.
 - Open from 3.7, untested: whether a section-scope or page-scope `publish` of a section that isn't fully downloaded raises the same dialog or drops pages. This probe can check it in the same sitting.
+- 2026-11-17 sitting (notebook B, one OneDrive for Business section): `SyncHierarchy`, opening the section and Shift+F9 all left `areAllPagesAvailable` false. The flag marks a page stub added from another computer that never synced, which nothing on this PC can download, so "download first" isn't possible and 3.7's refusal stays. The probe (`--probe-section-sync`, PR #87) stays in the stress harness for reuse. Follow-up: correct the refusal's `userAction` (see backlog 11).

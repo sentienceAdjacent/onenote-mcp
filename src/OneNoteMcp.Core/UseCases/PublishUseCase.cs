@@ -24,10 +24,11 @@ namespace OneNoteMcp.Core.UseCases;
 /// every protected section encrypted, locked or not (spike 3.1 XP1, XP2). But a notebook holding a locked section anywhere
 /// is <see cref="ErrorCode.SectionLocked"/>, and one holding a section with <c>areAllPagesAvailable</c> false is
 /// <see cref="ErrorCode.NotSupported"/>: packing either raises a modal dialog in OneNote that blocks the call, and a Yes to
-/// it drops the undownloaded pages (the 3.7 sitting, S1 and S3; Phill, 2026-11-17).</item>
+/// it drops those pages (the 3.7 sitting, S1 and S3; Phill, 2026-11-17). The flag marks a page stub added from another
+/// computer that never synced, which nothing on this PC can download (the backlog 10 sitting).</item>
 /// <item value="3">Steps 3 and 4, under the lock: a page is walked to its section again, a section re-read (locked is
 /// <see cref="ErrorCode.SectionLocked"/>; protected since step 1 needs the read grant too), a notebook re-read (it must
-/// still be one, else <see cref="ErrorCode.ObjectNotFound"/>, and hold no locked or not fully downloaded section, as in
+/// still be one, else <see cref="ErrorCode.ObjectNotFound"/>, and hold no locked section and no unsynced page, as in
 /// step 1), the path is resolved again and
 /// must come out the same, with nothing at it (<see cref="ErrorCode.FileExists"/>), and the target's folder is created,
 /// because <c>Publish</c> into a missing folder raises a modal and blocks.</item>
@@ -63,9 +64,12 @@ public sealed class PublishUseCase : IUseCase
     public const string NotebookLockedUserAction =
         "A notebook with a locked section can't be packaged: unlock it, or export the other sections one by one (get_hierarchy with scope sections lists them).";
 
-    /// <summary>What to do with a notebook holding a section not fully downloaded (the 3.7 sitting S3: the pack dialog).</summary>
+    /// <summary>
+    /// What to do with a notebook holding a section with <c>areAllPagesAvailable</c> false (the 3.7 sitting S3: the pack
+    /// dialog): a page there was added on another computer and never synced (the backlog 10 sitting; backlog 11).
+    /// </summary>
     public const string NotebookNotDownloadedUserAction =
-        "Some sections of this notebook aren't fully downloaded to this PC, and packing it would leave their pages out: open those sections in OneNote so they download, then try again, or export the other sections one by one (get_hierarchy with scope sections lists them).";
+        "A page in that section was added on another computer and hasn't synced, so this PC can't download it and packing would leave it out. Sync it from the computer that added it, or delete its placeholder page in OneNote, then try again; or export the other sections one by one (get_hierarchy with scope sections lists them).";
 
     /// <summary>What to do with a section as EMF (the 3.13 sitting: it holds only the first page).</summary>
     public const string SectionEmfUserAction =
@@ -219,7 +223,7 @@ public sealed class PublishUseCase : IUseCase
                         retryable: false);
                 }
 
-                // The 3.7 sitting (Phill, 2026-11-17): packing a notebook with a locked section, or one not fully downloaded,
+                // The 3.7 sitting (Phill, 2026-11-17): packing a notebook with a locked section, or one with an unsynced page,
                 // raises a modal dialog that blocks the call until the user answers, so such a section refuses the package first.
                 if (kind == TargetKind.Notebook)
                 {
@@ -267,7 +271,7 @@ public sealed class PublishUseCase : IUseCase
                             : "Re-read the hierarchy (get_hierarchy) for a current section ID.");
                 }
 
-                // A section of the notebook may have been locked, or stopped being fully downloaded, since step 1.
+                // A section of the notebook may have been locked, or gained an unsynced page, since step 1.
                 if (notebook)
                 {
                     await RefuseASectionThatWouldBlockThePackageAsync(ct).ConfigureAwait(false);
@@ -375,10 +379,13 @@ public sealed class PublishUseCase : IUseCase
 
         /// <summary>
         /// A notebook's sections, at any depth, read live. Packing a notebook raises OneNote's modal "cannot pack these
-        /// sections" dialog, which blocks <c>Publish</c>, for any section that isn't fully downloaded (the 3.7 sitting), so:
+        /// sections" dialog, which blocks <c>Publish</c>, for a locked section or one with an unsynced page (the 3.7 sitting), so:
         /// the first locked section is <see cref="ErrorCode.SectionLocked"/> (S1); else the first with
         /// <c>areAllPagesAvailable</c> false is <see cref="ErrorCode.NotSupported"/> (S3: a Yes to the dialog writes the
-        /// package without those pages). Each names the section's ID only. No read grant is checked (H1).
+        /// package without those pages; the flag marks a page stub that never synced from the computer that added it). Each
+        /// names the section's ID only. A marked section needs no read grant (H1: the package keeps it encrypted); a section
+        /// protected by its path alone is plaintext in the package, so it needs its read grant held at the call's start, and
+        /// the result warns <c>exportNotEncrypted</c> (Phill, 2026-11-17, 3.15 Q3).
         /// </summary>
         private async Task RefuseASectionThatWouldBlockThePackageAsync(CancellationToken ct)
         {
@@ -396,9 +403,15 @@ public sealed class PublishUseCase : IUseCase
             {
                 throw new OneNoteException(
                     ErrorCode.NotSupported,
-                    $"Section {partial.Id} in notebook {objectId} isn't fully downloaded to this PC, so the notebook wasn't exported.",
+                    $"A page in section {partial.Id} of notebook {objectId} hasn't synced from the computer that added it, so packing would leave it out, and the notebook wasn't exported.",
                     userAction: NotebookNotDownloadedUserAction,
                     retryable: false);
+            }
+
+            var protection = owner.readAccess.Protection();
+            foreach (var byPath in sections.Where(protection.ByPathOnly))
+            {
+                CheckReadGrant(byPath);
             }
         }
 
@@ -414,7 +427,7 @@ public sealed class PublishUseCase : IUseCase
         /// </summary>
         private void CheckReadGrant(HierarchyNode node)
         {
-            if (!node.Encrypted)
+            if (!owner.readAccess.Protection().IsProtected(node))
             {
                 return;
             }
@@ -423,7 +436,7 @@ public sealed class PublishUseCase : IUseCase
             {
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
-                    $"Section {node.Id} is password-protected, and exporting from it needs a read grant for it held when the call starts, so nothing was exported.",
+                    $"Section {node.Id} {Protection.Phrase(node.EncryptedMarker)}, and exporting from it needs a read grant for it held when the call starts, so nothing was exported.",
                     userAction: ReadFirstUserAction);
             }
 
@@ -432,9 +445,12 @@ public sealed class PublishUseCase : IUseCase
                 warnedNotEncrypted = true;
                 warnings.Add(new ToolWarning(
                     ToolWarnings.ExportNotEncrypted,
-                    kind == TargetKind.Section
-                        ? $"Section {objectId} is password-protected; the exported {FormatName(format)} isn't encrypted."
-                        : $"Page {objectId} is in password-protected section {node.Id}; the exported {FormatName(format)} isn't encrypted.",
+                    kind switch
+                    {
+                        TargetKind.Section => $"Section {objectId} {Protection.Phrase(node.EncryptedMarker)}; the exported {FormatName(format)} isn't encrypted.",
+                        TargetKind.Notebook => $"Notebook {objectId} holds section {node.Id}, which {Protection.Phrase(node.EncryptedMarker)}; the exported {FormatName(format)} keeps it unencrypted.",
+                        _ => $"Page {objectId} is in section {node.Id}, which {Protection.Phrase(node.EncryptedMarker)}; the exported {FormatName(format)} isn't encrypted.",
+                    },
                     NotEncryptedUserAction));
             }
         }

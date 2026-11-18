@@ -42,7 +42,7 @@ public sealed class ResultGrantCheck(Func<SettingsSnapshot> settings, TimeProvid
                 // the user grants the same section again, so it keeps the table's flag (bug 1.22).
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
-                    $"This part of result {entry.ResultId} may hold pages of password-protected section {grant.SectionId}, and the read grant that allowed the original call has ended.",
+                    $"This part of result {entry.ResultId} may hold pages of protected section {grant.SectionId}, and the read grant that allowed the original call has ended.",
                     userAction: ReadAccess.LapsedUserAction,
                     retryable: grant.Lifetime == ReadGrantLifetime.Hours && grant.ExpiresAt is { } expiry && now >= expiry ? false : null);
             }

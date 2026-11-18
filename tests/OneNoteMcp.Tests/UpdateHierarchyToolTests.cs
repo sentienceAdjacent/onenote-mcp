@@ -927,8 +927,7 @@ public sealed class UpdateHierarchyToolTests : IDisposable
     public async Task ReorderPages_InAProtectedSection_TheGrantIsJudgedAtTheCallStart_NotWhenStepThreeReads()
     {
         // A once window open when the call starts still counts after it closes during the call: the check is made at
-        // CallStart (backlog 7). A window opened only after the call starts can't be told apart by this check (OnceWindows
-        // tracks expiry only), so that matrix row isn't tested here; see the plan's Implementation Notes.
+        // CallStart (backlog 7). One opened only after the call starts doesn't count (backlog 9, the test below).
         Grant();
         var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
         await readAccess.CheckSectionAsync(new ToolCallContext("read", Prompt: new FakePrompt(FakePrompt.Accept("Vault", ReadGrantLifetime.Once))), vault, Ct);
@@ -946,6 +945,27 @@ public sealed class UpdateHierarchyToolTests : IDisposable
 
         Assert.True(closed);
         Assert.Empty(readAccess.OnceGrants());
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ReorderPages_InAProtectedSection_AOnceWindowOpenedDuringTheCall_DoesNotCount_ARetryReorders()
+    {
+        // Backlog 9: a grant counts only from when it was given, so one opened after the call's start is no grant.
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault", (id, scope) => id == VaultId && scope == HierarchyScope.Children);
+
+        Error(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, V3], Basis(Lmt), Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
+        await AssertLockFreeAsync();
+
+        gateway.OnGetHierarchy = null;
+        ApplyWrites();
+        Ok(await ReorderTool().ReorderHierarchyChildren(VaultId, [V2, V1, V3], Basis(Lmt), Ct));
         Assert.Single(gateway.UpdateHierarchyCalls);
     }
 

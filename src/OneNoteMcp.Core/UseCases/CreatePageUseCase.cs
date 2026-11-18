@@ -180,7 +180,7 @@ public sealed class CreatePageUseCase(IOneNoteGateway gateway, WriteAccess acces
 
             // Step 6 (3.14): the section's hierarchy before the create and the placement (AD-8); a protected one is encrypted.
             JournalEntryId = (await snapshot!.TakeAsync(
-                new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.Create, sectionId, childrenXml),
+                new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.Create, sectionId, childrenXml, readAccess!.Protection()),
                 ct).ConfigureAwait(false)).EntryId;
         }
 
@@ -326,11 +326,11 @@ public sealed class CreatePageUseCase(IOneNoteGateway gateway, WriteAccess acces
                 throw new OneNoteException(ErrorCode.SectionLocked, $"Section {sectionId} is locked, so no page was created.");
             }
 
-            if (section.Encrypted && !readAccess!.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
+            if (readAccess!.Protection().IsProtected(section) && !readAccess.HoldsReadGrantGivenBy(GrantKeys.SectionKey(section.Path), callStart))
             {
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
-                    $"Section {sectionId} is password-protected, and adding a subpage to it needs a read grant for it held when the call starts, so no page was created.",
+                    $"Section {sectionId} {Protection.Phrase(section.EncryptedMarker)}, and adding a subpage to it needs a read grant for it held when the call starts, so no page was created.",
                     userAction: ProtectedParentUserAction);
             }
         }

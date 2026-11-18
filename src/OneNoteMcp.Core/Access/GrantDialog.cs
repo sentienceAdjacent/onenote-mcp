@@ -18,13 +18,13 @@ internal sealed class GrantDialog(HierarchyWalk walk, OnceWindows windows, Setti
     {
         if (context.Prompt is not { } prompt)
         {
-            throw ReadAccess.NotGranted(section.Id, "This client can't show the grant dialog.");
+            throw ReadAccess.NotGranted(section, "This client can't show the grant dialog.");
         }
 
         // An empty path gives an empty key, which settings.json can't hold (AD-21): no grant, and no dialog.
         if (key.Length == 0)
         {
-            throw ReadAccess.NotGranted(section.Id, "OneNote reports no path for this section, so no grant can be made for it.");
+            throw ReadAccess.NotGranted(section, "OneNote reports no path for this section, so no grant can be made for it.");
         }
 
         // Read before the dialog: no gateway call is in flight and no lock is held while the user decides.
@@ -51,18 +51,18 @@ internal sealed class GrantDialog(HierarchyWalk walk, OnceWindows windows, Setti
         switch (answer.Status)
         {
             case GrantPromptStatus.Unsupported:
-                throw ReadAccess.NotGranted(section.Id, "This client can't show the grant dialog.");
+                throw ReadAccess.NotGranted(section, "This client can't show the grant dialog.");
             case GrantPromptStatus.Declined:
-                throw ReadAccess.NotGranted(section.Id, "The user declined the grant dialog.");
+                throw ReadAccess.NotGranted(section, "The user declined the grant dialog.");
             case GrantPromptStatus.Cancelled:
-                throw ReadAccess.NotGranted(section.Id, "The grant dialog was cancelled.");
+                throw ReadAccess.NotGranted(section, "The grant dialog was cancelled.");
         }
 
         // The trimmed typed text must equal the section's name as the dialog showed it, ignoring case; anything else makes
         // no grant (AD-21). The grant itself is keyed by the section's path, never by the shown text.
         if (!DialogText.Matches(answer.TypedName, question.ExpectedText))
         {
-            throw ReadAccess.NotGranted(section.Id, "The name typed in the grant dialog didn't match the section's name, so nothing was granted.");
+            throw ReadAccess.NotGranted(section, "The name typed in the grant dialog didn't match the section's name, so nothing was granted.");
         }
 
         var notebookPath = notebook?.Path ?? string.Empty;
@@ -75,7 +75,7 @@ internal sealed class GrantDialog(HierarchyWalk walk, OnceWindows windows, Setti
         var hours = answer.Hours ?? ReadGrantLifetimes.DefaultHours;
         if (lifetime == ReadGrantLifetime.Hours && hours is < ReadGrantLifetimes.MinHours or > ReadGrantLifetimes.MaxHours)
         {
-            throw ReadAccess.NotGranted(section.Id, $"The grant dialog's hours must be from {ReadGrantLifetimes.MinHours} to {ReadGrantLifetimes.MaxHours}, so nothing was granted.");
+            throw ReadAccess.NotGranted(section, $"The grant dialog's hours must be from {ReadGrantLifetimes.MinHours} to {ReadGrantLifetimes.MaxHours}, so nothing was granted.");
         }
 
         var now = clock.GetUtcNow();

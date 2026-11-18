@@ -392,6 +392,20 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ASourceUnderAnExportRoot_IsNotSupported_AsAProtectedOne_NothingSent()
+    {
+        // Entry 15: Ideas carries no marker, but the notebook's folder is an export root.
+        Grant();
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\A");
+
+        var error = Error(await Tool().MoveHierarchyObject(P2, PlansId, null, null, Ct), "NotSupported");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task ALockedTarget_IsSectionLocked_NothingSent()
     {
         Grant();
@@ -563,6 +577,45 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
 
         Assert.Equal(NewId, root.GetProperty("meta").GetProperty("objectId").GetString());
         Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task AProtectedTarget_WithAPosition_AOnceWindowOpenedDuringTheCall_IsReadNotGranted_ARetryMoves()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var error = Error(await Tool().MoveHierarchyObject(P2, VaultId, 1, Basis(Lmt), Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Equal(MovePageWrite.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+
+        gateway.OnGetHierarchy = null;
+        ApplyMoves();
+        Ok(await Tool().MoveHierarchyObject(P2, VaultId, 1, Basis(Lmt), Ct));
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task AProtectedTarget_WithAPosition_AOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so the recheck under the lock (MovePageWrite l.432 from step 4) refuses.
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, vault, "Vault", writeLock);
+
+        var error = Error(await Tool().MoveHierarchyObject(P2, VaultId, 1, Basis(Lmt), Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(MovePageWrite.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(EntryFiles());
     }
 
     [Fact]

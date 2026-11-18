@@ -26,6 +26,7 @@ internal sealed record Options
         usage: StressHarness (--notebook <ID> | --notebook-name <nickname>) --out <dir outside the repo> [options]
                StressHarness --fake-server <chars> [--fake-variant filler|structured|contract-no-readonly|contract-ok] [--fake-filler words|xml]
                StressHarness --contract-only [--exe <path>] [--exe-arg <arg>]...
+               StressHarness --probe-section-sync --section <ID> [--max-seconds <n>]
 
           --notebook <ID>           the notebook to test, by OneNote ID
           --notebook-name <name>    the notebook to test, by nickname or name (resolved here, never echoed)
@@ -41,6 +42,9 @@ internal sealed record Options
           --diag-callbacks          with --notebook*: CallbackIDs by parent element and raw outcome (no --out)
           --probe-sync              with --notebook <ID> [--page <ID>]: SyncHierarchy image-download probe (no server)
           --probe-navigate          with --notebook <ID> [--page <ID>]: NavigateTo image-download probe (no server; takes focus)
+          --probe-section-sync      with --section <ID> [--max-seconds <n>]: SyncHierarchy section-download probe (no server; runs alone)
+          --section <ID>            the section --probe-section-sync watches (never echoed)
+          --max-seconds <n>         how long --probe-section-sync polls after the call, 30 to 1800 (default 300)
           --fake-server <chars>     run as a one-tool MCP server returning <chars> (13 or more) of filler (the cap probe)
           --contract-only           run only the startup contract check against the server, then exit (no notebook, no --out)
         """;
@@ -88,15 +92,27 @@ internal sealed record Options
 
     public string? ProbePage { get; init; }
 
+    /// <summary>The section-download probe (backlog 10): SyncHierarchy on one section Phill approves. Needs --section.</summary>
+    public bool ProbeSectionSync { get; init; }
+
+    public string? Section { get; init; }
+
+    /// <summary>Seconds the section-download probe polls after its SyncHierarchy call; null means the default.</summary>
+    public int? MaxSeconds { get; init; }
+
+    public const int DefaultMaxSeconds = 300;
+
     public bool IsDiag => DiagPage is not null || DiagCallbacks;
 
     public static Options Parse(string[] args)
     {
         var o = new Options();
         var exeArgs = new List<string>();
+        var named = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < args.Length; i++)
         {
             var a = args[i];
+            named.Add(a);
             string Next()
             {
                 if (i + 1 >= args.Length)
@@ -110,6 +126,17 @@ internal sealed record Options
             int NextInt(int min)
             {
                 if (!int.TryParse(Next(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || n < min)
+                {
+                    throw new RefusalException(Exit.Usage, "a numeric option has an invalid value");
+                }
+
+                return n;
+            }
+
+            int NextIntInRange(int min, int max)
+            {
+                var n = NextInt(min);
+                if (n > max)
                 {
                     throw new RefusalException(Exit.Usage, "a numeric option has an invalid value");
                 }
@@ -136,6 +163,9 @@ internal sealed record Options
                 "--probe-sync" => o with { ProbeSync = true },
                 "--probe-navigate" => o with { ProbeNavigate = true },
                 "--page" => o with { ProbePage = Next() },
+                "--probe-section-sync" => o with { ProbeSectionSync = true },
+                "--section" => o with { Section = Next() },
+                "--max-seconds" => o with { MaxSeconds = NextIntInRange(30, 1800) },
                 "--fake-variant" => o with { FakeVariant = Next() },
                 "--contract-only" => o with { ContractOnly = true },
                 // The unknown argument itself is never echoed: it could be a name typed in the wrong place.
@@ -144,6 +174,28 @@ internal sealed record Options
         }
 
         o = o with { ExeArgs = exeArgs };
+
+        // Checked first, before the other modes' branches, so no other mode's option can ride along with it.
+        if (o.ProbeSectionSync)
+        {
+            if (string.IsNullOrEmpty(o.Section))
+            {
+                throw new RefusalException(Exit.Usage, "--probe-section-sync needs a non-empty --section <ID>");
+            }
+
+            // Every option other than its own is refused, so nothing is silently ignored. Option values are never echoed.
+            if (named.Any(n => n.StartsWith("--", StringComparison.Ordinal) && n is not ("--probe-section-sync" or "--section" or "--max-seconds")))
+            {
+                throw new RefusalException(Exit.Usage, "--probe-section-sync runs alone: pass only --section and --max-seconds");
+            }
+
+            return o;
+        }
+
+        if (o.Section is not null || o.MaxSeconds is not null)
+        {
+            throw new RefusalException(Exit.Usage, "--section and --max-seconds belong to --probe-section-sync");
+        }
         if (o.FakeServerChars is not null)
         {
             if (o.ContractOnly)
@@ -167,7 +219,7 @@ internal sealed record Options
         if (o.ContractOnly)
         {
             // The check needs only the server: anything that reads a notebook or writes a file runs without it.
-            if (o.NotebookId is not null || o.NotebookName is not null || o.Out is not null || o.IsDiag || o.ProbeSync || o.ProbeNavigate)
+            if (o.NotebookId is not null || o.NotebookName is not null || o.Out is not null || o.IsDiag || o.ProbeSync || o.ProbeNavigate || o.ProbeSectionSync)
             {
                 throw new RefusalException(Exit.Usage, "--contract-only takes no notebook, --out, diag or probe mode; pass only --exe and --exe-arg");
             }

@@ -93,7 +93,7 @@ public sealed class ElicitationGrantPrompt(McpServer server) : IGrantPrompt
         return new ElicitRequestParams
         {
             Message =
-                "Claude wants to read a password-protected OneNote section. "
+                "Claude wants to read a protected OneNote section (password-protected, or a copy under an export or backups folder). "
                 + $"Its name is \"{question.SectionName}\"{groups}{notebook}. "
                 + $"To allow it, type \"{question.ExpectedText}\" and choose for how long. "
                 + "Decline to keep it private. Only you can grant this: the model can't.",

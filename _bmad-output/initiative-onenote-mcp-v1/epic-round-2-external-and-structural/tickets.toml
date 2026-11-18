@@ -127,13 +127,24 @@ notes = ["3.2 H1 (Phill 2026-11-16): a notebook package needs no read grant, sin
 
 
 [[entry]]
+id = 15
+type = "story"
+title = "Protected by path: export roots and the backups folder"
+description = "AD-21 What's protected, by path: a section under an exportRoots entry or the journal's backups folder, or in a notebook whose path is, counts as protected whatever its encrypted marker, for every read check and every protection-gated write and journal snapshot (Phill 2026-11-17, 3.8 Q4), in Core and in the Xml layer; and an export root that would make the user's own notebooks protected is refused with a reason (3.8 Q5). Split out of entry 8 (Phill 2026-11-17, 3.8 Q1)."
+verify = "Unit tests show an unmarked section under an export root, under the backups folder, and in a notebook under a root treated as protected by get_hierarchy, get_page_content, find_pages, the grant listing, a journal snapshot and a gated write, a look-alike root (exports2) not matching, and the refused export root; existing tests pass, changed only where a fixture sits under a root."
+covers = ["E8"]
+after = [3]
+hitl = true
+risk = "medium"
+
+[[entry]]
 id = 8
 type = "story"
 title = "open_package"
 description = "OpenPackage through ExternalWrite with entry 3's export-root code: a package from any path and no automatic write grant (Q6), a new destination folder under an export root, the folder and the opened notebook in the result, and every section in the opened notebook counting as protected under AD-21 (Q11); the user closes the notebook (Q13), and this entry extends the integration guard, which never closes a notebook today, to close the -unpacked notebooks its tests open."
 verify = "The package entry 7 made of the second test notebook opens into a new folder under the export root and the result names the opened notebook, a destination outside every root returns ExportPathNotAllowed, an integration test shows a page of the opened notebook refused with ReadNotGranted until it has a read grant (Q11), and the test closes what it opened as Q13 says; unit tests cover the unlocked path."
 covers = ["E3", "E8"]
-after = [7]
+after = [7, 15]
 hitl = false
 risk = "medium"
 

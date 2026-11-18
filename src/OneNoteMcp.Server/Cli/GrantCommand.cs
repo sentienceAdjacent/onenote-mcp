@@ -39,7 +39,7 @@ public sealed class GrantCommand
         + "  OneNoteMcp grant --revoke --write [\"<notebook name>\"]         remove that permission (and permanent deletes)\n"
         + "  OneNoteMcp grant --permanent-delete [\"<notebook name>\"]       allow permanent deletes in a notebook you allow writing to\n"
         + "  OneNoteMcp grant --revoke --permanent-delete [\"<notebook name>\"]  remove that permission only\n"
-        + "  OneNoteMcp grant --read-section [\"<section name>\"]            allow reading a password-protected section\n"
+        + "  OneNoteMcp grant --read-section [\"<section name>\"]            allow reading a protected section\n"
         + "  OneNoteMcp grant --revoke --read-section [\"<section name>\"]   remove that permission\n"
         + "Run it yourself in a terminal: it asks you to confirm, and it refuses to run without an interactive terminal.";
 
@@ -150,7 +150,7 @@ public sealed class GrantCommand
         var matches = sections.Where(s => GrantKeys.NameMatches(name, s.Name)).ToList();
         if (matches.Count == 0)
         {
-            output.WriteLine("No password-protected section with that name is open in OneNote. Check the name, and that its notebook is open.");
+            output.WriteLine("No protected section with that name is open in OneNote. Check the name, and that its notebook is open.");
             return 1;
         }
 
@@ -450,8 +450,12 @@ public sealed class GrantCommand
         return 0;
     }
 
+    /// <summary>
+    /// The protected sections of every open notebook, marked or under a protected root (entry 15): the roots come from
+    /// <c>settings.json</c> as it reads now (the defaults when it is invalid).
+    /// </summary>
     private async Task<IReadOnlyList<ProtectedSection>> ProtectedSectionsAsync(CancellationToken ct) =>
-        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false));
+        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false), Protection.From(writer.Store.Read()));
 
     /// <summary>The only match, or the one the user picks from a numbered list; default when they pick none.</summary>
     private T? Pick<T>(IReadOnlyList<T> matches, Func<T, string> describe, string what = "sections")

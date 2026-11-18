@@ -3,10 +3,10 @@ namespace OneNoteMcp.Xml;
 /// <summary>
 /// One section of a notebook as <see cref="NotebookSections.Find"/> lists it: its <c>ID</c>, <c>name</c> and
 /// <c>path</c>, unchanged (AD-4); <see cref="Groups"/>, the <c>name</c>s of the section groups around it inside the
-/// notebook, outermost first (empty directly under the notebook); and its <c>encrypted</c>, <c>locked</c> and
+/// notebook, outermost first (empty directly under the notebook); and its <c>encrypted</c> marker (Core decides "protected", entry 15), <c>locked</c> and
 /// recycle-bin state (<c>isInRecycleBin</c>, <c>isDeletedPages</c>, or a group around it in the recycle bin).
 /// </summary>
-public sealed record NotebookSection(string Id, string Name, string Path, IReadOnlyList<string> Groups, bool Encrypted, bool Locked, bool InRecycleBin)
+public sealed record NotebookSection(string Id, string Name, string Path, IReadOnlyList<string> Groups, bool EncryptedMarker, bool Locked, bool InRecycleBin)
 {
     /// <summary>The section's name path inside the notebook, as a journal entry's <c>parentNamePath</c> holds it: groups and name joined by <c>/</c>.</summary>
     public string NamePath => string.Join('/', [.. Groups, Name]);

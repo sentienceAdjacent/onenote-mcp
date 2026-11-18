@@ -226,10 +226,10 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         // AD-8: a hierarchy entry per parent, old then new (AD-7 Moves).
         var now = Planned.State;
         SourceEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, MovePageWrite.OperationName, OperationClass.HierarchyWrite, now.Source.Id, now.SourceXml),
+            new HierarchySnapshotRequest(correlationId, MovePageWrite.OperationName, OperationClass.HierarchyWrite, now.Source.Id, now.SourceXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
         TargetEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, MovePageWrite.OperationName, OperationClass.HierarchyWrite, now.Target.Id, now.TargetXml),
+            new HierarchySnapshotRequest(correlationId, MovePageWrite.OperationName, OperationClass.HierarchyWrite, now.Target.Id, now.TargetXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
     }
 
@@ -407,21 +407,22 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         }
 
         // AD-7, AD-21 (epic 3 Q9, Q14, 3.2 H2): a protected section, or a group holding one, first, locked or not.
-        if (self.Kind == HierarchyKind.Section && self.Encrypted)
+        var protection = services.ReadAccess.Protection();
+        if (protection.IsProtected(self))
         {
             throw new OneNoteException(
                 ErrorCode.NotSupported,
-                $"Section {ObjectId} is password-protected, and moving a protected section isn't supported, so nothing was moved.",
+                $"Section {ObjectId} {Protection.Phrase(self.EncryptedMarker)}, and moving a protected section isn't supported, so nothing was moved.",
                 userAction: ProtectedUserAction,
                 retryable: false);
         }
 
-        var below = now.BelowXml is { } xml ? XmlReads.Readable(() => EncryptedSections.Find(xml), "GetHierarchy") : [];
+        var below = now.BelowXml is { } xml ? XmlReads.Readable(() => EncryptedSections.Find(xml, protection.UnderRoot), "GetHierarchy") : [];
         if (below.Count > 0)
         {
             throw new OneNoteException(
                 ErrorCode.NotSupported,
-                string.Create(CultureInfo.InvariantCulture, $"Section group {ObjectId} holds {below.Count} password-protected section(s), and moving a protected section isn't supported, so nothing was moved."),
+                string.Create(CultureInfo.InvariantCulture, $"Section group {ObjectId} holds {below.Count} protected section(s) (password-protected, or under an export root or the backups folder), and moving a protected section isn't supported, so nothing was moved."),
                 userAction: ProtectedUserAction,
                 retryable: false);
         }
