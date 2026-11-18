@@ -121,10 +121,9 @@ public sealed class ReadAccess
     }
 
     /// <summary>
-    /// For a write's own reads (AD-7, AD-21): true when a read of <paramref name="section"/> would pass without asking at
-    /// <paramref name="at"/> (the write call's start; now when null): the section isn't protected, or a stored grant or
-    /// a live <c>once</c> window covers it. Never asks and never stores. Without one, a <c>PageWrite</c>'s refusals and
-    /// warnings name nothing inside the page.
+    /// For a write's own reads (AD-7, AD-21): true when <paramref name="section"/> isn't protected, or when
+    /// <see cref="HoldsReadGrantGivenBy"/> holds for it at <paramref name="at"/> (the write call's start; now when null).
+    /// Never asks and never stores. Without one, a <c>PageWrite</c>'s refusals and warnings name nothing inside the page.
     /// </summary>
     public bool HoldsReadGrant(HierarchyNode section, DateTimeOffset? at = null)
     {
@@ -134,38 +133,42 @@ public sealed class ReadAccess
             return true;
         }
 
-        return HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), at);
+        return HoldsReadGrantGivenBy(GrantKeys.SectionKey(section.Path), at ?? clock.GetUtcNow());
     }
 
     /// <summary>
-    /// True when a stored read grant (<c>hours</c> not yet expired, or <c>untilRevoked</c>) or a live <c>once</c> window is
-    /// held for the section key <paramref name="key"/> at <paramref name="at"/> (now when null), whatever section is at
-    /// that location now, or none. A rename checks the locations it would move sections to, so our own write never hands
-    /// one section's grant to another (AD-21; story 5.4 security review). Never asks and never stores.
+    /// The one rule for a write that needs a read grant held at the call's start (AD-7, AD-21; backlog 9): true when a
+    /// stored read grant or a <c>once</c> window for the section key <paramref name="key"/> was given at or before
+    /// <paramref name="at"/> (its <see cref="ProtectedSectionGrant.GrantedAt"/>) and is unexpired then. A grant saved, or
+    /// a window opened, after <paramref name="at"/> doesn't count, a grant renewed during the call included (Phill,
+    /// 2026-11-17, Q1 a), so the write answers as if there were none and a retry passes. A stored <c>grantedAt</c> in the
+    /// future counts for no write until the clock passes it. Never asks and never stores.
     /// </summary>
-    public bool HoldsReadGrantAt(string key, DateTimeOffset? at = null)
+    public bool HoldsReadGrantGivenBy(string key, DateTimeOffset at)
     {
         ArgumentNullException.ThrowIfNull(key);
-        var now = at ?? clock.GetUtcNow();
-        return Stored(settings(), key, now) is not null || windows.IsOpen(key, now);
+        return (Stored(settings(), key, at) is { } stored && stored.GrantedAt <= at) || windows.OpenedBy(key, at);
     }
 
     /// <summary>
-    /// <see cref="HoldsReadGrantAt"/> for a check that must not miss a grant (3.12 security review): true when a stored
-    /// read grant or a live <c>once</c> window is held at <paramref name="at"/> for any key that names the same location
-    /// as <paramref name="key"/> by <see cref="GrantKeys.SameLocation"/>, percent-encoded or not. A move checks where it
-    /// would put sections, and where they read back, with it. Never asks, never stores, and never allows a read.
+    /// For a check that must not miss a grant (story 5.4 and 3.12 security reviews): true when a stored read grant
+    /// (<c>hours</c> not yet expired, or <c>untilRevoked</c>) or a live <c>once</c> window is held at <paramref name="at"/>
+    /// (now when null), whenever it was given, for <paramref name="key"/> or any key that names the same location by
+    /// <see cref="GrantKeys.SameLocation"/>, percent-encoded or not, whatever section is at that location now, or none.
+    /// A rename or move checks where it would put sections, and where they read back, with it, so our own write never
+    /// hands one section's grant to another (AD-21). Never asks, never stores, and never allows a read.
     /// </summary>
     public bool HoldsReadGrantAtLocation(string key, DateTimeOffset? at = null)
     {
         ArgumentNullException.ThrowIfNull(key);
         var now = at ?? clock.GetUtcNow();
-        if (HoldsReadGrantAt(key, now))
+        var snapshot = settings();
+        if (Stored(snapshot, key, now) is not null || windows.IsOpen(key, now))
         {
             return true;
         }
 
-        return settings().ProtectedSections.Values.Any(g => !g.IsExpired(now) && GrantKeys.SameLocation(g.Key, key))
+        return snapshot.ProtectedSections.Values.Any(g => !g.IsExpired(now) && GrantKeys.SameLocation(g.Key, key))
             || windows.Live(now).Any(w => GrantKeys.SameLocation(w.Key, key));
     }
 

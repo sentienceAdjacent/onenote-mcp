@@ -8,6 +8,7 @@ using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
+using OneNoteMcp.Core.Writes;
 using OneNoteMcp.Server;
 using OneNoteMcp.Xml;
 using Xunit;
@@ -502,4 +503,78 @@ internal static class Grants
         [.. root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()!)];
 
     public static string Xml(JsonElement root) => root.GetProperty("xml").GetString()!;
+}
+
+/// <summary>
+/// Backlog 9: a read grant given during a write. Installs a <see cref="FakeGateway.OnGetHierarchy"/> hook that, on the
+/// first <c>GetHierarchy</c> <paramref name="when"/> accepts (any, when null), moves the clock <paramref name="advance"/>
+/// (1 s when null) and opens a <c>once</c> window for <paramref name="section"/> in <paramref name="access"/>, as a read made in that
+/// moment would. The returned function says whether it opened.
+/// </summary>
+internal static class MidCallGrant
+{
+    public static Func<bool> OpenWindowDuringCall(
+        FakeGateway gateway,
+        FakeClock clock,
+        ReadAccess access,
+        HierarchyNode section,
+        string typed,
+        Func<string, HierarchyScope, bool>? when = null,
+        TimeSpan? advance = null)
+    {
+        var opened = false;
+        var opening = false;
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            if (opened || opening || !(when?.Invoke(id, scope) ?? true))
+            {
+                return;
+            }
+
+            opening = true;
+            clock.Advance(advance ?? TimeSpan.FromSeconds(1));
+            var prompt = new FakePrompt(FakePrompt.Accept(typed, ReadGrantLifetime.Once));
+            var result = access.CheckSectionAsync(new ToolCallContext("mid-call read", Prompt: prompt), section, CancellationToken.None).GetAwaiter().GetResult();
+            Assert.NotNull(result.Grant);
+            opened = true;
+        };
+        return () => opened;
+    }
+
+    /// <summary>
+    /// Backlog 9's re-given grant, refused by the recheck under the write lock: opens a <c>once</c> window now, moves the
+    /// clock to 1 s before it ends (the default 5-minute window), and hooks the first <c>GetHierarchy</c> made while
+    /// the write holds <paramref name="writeLock"/> to move the clock 2 s (the window has ended) and open a new one. So
+    /// step 1 passes on the window held at the call's start, and step 3's recheck sees only a window given after it.
+    /// </summary>
+    public static async Task<Func<bool>> RegiveWindowUnderTheLockAsync(
+        FakeGateway gateway,
+        FakeClock clock,
+        ReadAccess access,
+        HierarchyNode section,
+        string typed,
+        WriteLock writeLock)
+    {
+        var prompt = new FakePrompt(FakePrompt.Accept(typed, ReadGrantLifetime.Once));
+        var before = await access.CheckSectionAsync(new ToolCallContext("read before the call", Prompt: prompt), section, CancellationToken.None);
+        Assert.NotNull(before.Grant);
+        clock.Advance(TimeSpan.FromMinutes(5) - TimeSpan.FromSeconds(1));
+        return OpenWindowDuringCall(gateway, clock, access, section, typed, UnderTheLock(writeLock), TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>
+    /// A <c>when</c> filter for <see cref="OpenWindowDuringCall"/>: only while the write holds <paramref name="writeLock"/>
+    /// (step 3 on), probed by trying its named mutex without waiting. The lock's own callback fires only on release.
+    /// </summary>
+    public static Func<string, HierarchyScope, bool> UnderTheLock(WriteLock writeLock) => (_, _) =>
+    {
+        using var mutex = new Mutex(initiallyOwned: false, writeLock.Name);
+        if (mutex.WaitOne(0))
+        {
+            mutex.ReleaseMutex();
+            return false;
+        }
+
+        return true;
+    };
 }
