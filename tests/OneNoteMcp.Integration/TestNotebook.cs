@@ -409,10 +409,7 @@ internal sealed class TestNotebook
             throw new InvalidOperationException($"Refusing {Method}: {notebookId} wasn't opened by this run.");
         }
 
-        var notebooks = XDocument.Parse(await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct)).Root!;
-        var live = notebooks.Elements(OneNoteXml.Namespace2013 + "Notebook").FirstOrDefault(n => (string?)n.Attribute("ID") == notebookId)
-            ?? throw new InvalidOperationException($"Refusing {Method}: {notebookId} isn't open.");
-        TestNotebookGuard.EnsureUnder(Method, (string?)live.Attribute("path") ?? string.Empty, publishRoot);
+        TestNotebookGuard.EnsureCopyToClose(Method, await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct), notebookId, publishRoot);
         await gateway.InvokeAsync(
             app =>
             {
@@ -885,6 +882,17 @@ internal static partial class TestNotebookGuard
         }
 
         return ids;
+    }
+
+    /// <summary>
+    /// Story 3.8 P2: refuses (throws) unless <paramref name="notebookId"/> is open in <paramref name="notebooksXml"/> and its
+    /// live <c>path</c> lies under <paramref name="publishRoot"/>. The XML part of <see cref="TestNotebook.CloseOpenedCopyAsync"/>.
+    /// </summary>
+    public static void EnsureCopyToClose(string method, string notebooksXml, string notebookId, string publishRoot)
+    {
+        var live = XDocument.Parse(notebooksXml).Root!.Elements(One + "Notebook").FirstOrDefault(n => (string?)n.Attribute("ID") == notebookId)
+            ?? throw new InvalidOperationException($"Refusing {method}: {notebookId} isn't open.");
+        EnsureUnder(method, (string?)live.Attribute("path") ?? string.Empty, publishRoot);
     }
 
     /// <summary>The <c>path</c> of the open notebook <paramref name="notebookId"/>, or null.</summary>

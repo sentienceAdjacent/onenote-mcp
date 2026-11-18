@@ -109,6 +109,9 @@ public sealed class OpenPackageProbes(ITestOutputHelper output)
             originalUnchanged = originalAfter is not null && Equals(originalAfter.Path, originalBefore?.Path),
             copy,
             pages = id is null ? null : await Round2.PagesNowAndLaterAsync(s, id),
+
+            // The first run (2026-11-18) saw 0 sections at once (as O1 saw 0 pages): read again after the 5 s page wait.
+            copyAfter5s = id is null ? null : await NotebookViewAsync(s, id),
         });
         return (packageFolder, copyFolder, id);
     }
