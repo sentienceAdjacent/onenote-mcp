@@ -3,7 +3,7 @@ title: 'Make a page a subpage'
 type: 'feature'
 ticket: '14'
 created: '2026-11-17'
-status: 'built'
+status: done
 baseline_revision: '2af944aecc2c726e090624b438162d1e63806855'
 route: 'full'
 route_source: 'auto'
