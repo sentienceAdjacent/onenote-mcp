@@ -3,7 +3,7 @@ title: 'Probe: does SyncHierarchy download a section that is not fully downloade
 type: 'feature'
 ticket: '10'
 created: '2026-11-17'
-status: 'built'
+status: 'done'
 baseline_revision: '2bdf598e004f07ca5dfced0ed45a75422ad17fd1'
 route: 'full'
 route_source: 'auto'
