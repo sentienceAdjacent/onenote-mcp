@@ -49,6 +49,12 @@ public static class ToolWarnings
     public const string ExportRootHoldsNotebooks = "exportRootHoldsNotebooks";
 
     /// <summary>
+    /// Story 3.8: <c>open_package</c> opened the copy, but no page was listed within the wait (spike 3.1 O1: an opened copy
+    /// lists late). Expected for a package whose sections are all empty, locked or protected (O5).
+    /// </summary>
+    public const string PagesNotListed = "pagesNotListed";
+
+    /// <summary>
     /// A page write in a password-protected section with no read grant: the read-back ran, but what OneNote kept, and a
     /// basis for the next write, are withheld from the result (AD-7, AD-21). Count-free; the counts-only
     /// <c>readBackDiffers</c> and <c>imageLost</c> warnings may come with it.

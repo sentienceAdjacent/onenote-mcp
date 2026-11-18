@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(28, actual.Count);
+        Assert.Equal(29, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -278,7 +278,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(28, tools.Count);
+        Assert.Equal(29, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -364,7 +364,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolNames_AreAllTwentyEightTools()
     {
-        Assert.Equal(28, SnapshotToolNames().Count);
+        Assert.Equal(29, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -436,9 +436,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 71 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6).
-        Assert.Equal(27, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(71, SnapshotToolProperties().Count);
+        // Every tool but list_grants, which takes no arguments; 71 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6; open_package's two, story 3.8).
+        Assert.Equal(28, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
+        Assert.Equal(73, SnapshotToolProperties().Count);
     }
 
     [Theory]

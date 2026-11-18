@@ -74,18 +74,61 @@ public static class ExportTarget
             throw Invalid($"The path {raw} doesn't end in {string.Join(" or ", extensions)}, the extension of its format, so nothing was exported.");
         }
 
+        var target = UnderARoot(raw, roots, Exported, extensions);
+        if (format == ExportFormat.Html && FilesFolder(target) is var folder && Exists(folder))
+        {
+            throw new OneNoteException(
+                ErrorCode.FileExists,
+                $"Something already exists at {folder}, where the web page's images would go, so nothing was exported.",
+                userAction: ExistsUserAction,
+                retryable: false);
+        }
+
+        return target;
+    }
+
+    /// <summary>What to do about a destination folder this check refuses as malformed (story 3.8).</summary>
+    public const string InvalidFolderUserAction =
+        "Pass a new folder name, such as \"Opened trip\", which lands under the export root, or a full local path (C:\\…) under an export root, "
+        + "or leave destination out for a folder named after the package. No network or device paths, no ':' after the drive, and none of < > \" | ? *.";
+
+    /// <summary>
+    /// Story 3.8 (<c>open_package</c>): the canonical path for <paramref name="raw"/>, a new folder, under
+    /// <paramref name="roots"/>, with <see cref="Resolve"/>'s rules but no extension, or throws
+    /// <see cref="ErrorCode.InvalidArgument"/>, <see cref="ErrorCode.ExportPathNotAllowed"/> or
+    /// <see cref="ErrorCode.FileExists"/>; messages say nothing was opened. The same root test as exports and AD-21's path
+    /// rule (<see cref="PathUnder"/>).
+    /// </summary>
+    public static string ResolveFolder(string raw, ExportRoots roots)
+    {
+        ArgumentNullException.ThrowIfNull(roots);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            throw new OneNoteException(ErrorCode.InvalidArgument, "The argument destination is empty, so nothing was opened.", userAction: InvalidFolderUserAction, retryable: false);
+        }
+
+        return UnderARoot(raw.TrimEnd('\\', '/'), roots, Opened, extensions: null);
+    }
+
+    private const string Exported = "nothing was exported";
+
+    private const string Opened = "nothing was opened";
+
+    /// <summary>The checks <see cref="Resolve"/> and <see cref="ResolveFolder"/> share, in the class summary's order.</summary>
+    private static string UnderARoot(string raw, ExportRoots roots, string nothing, IReadOnlyList<string>? extensions)
+    {
         var full = raw;
         if (!Path.IsPathRooted(raw))
         {
             if (roots.Paths.Count == 0)
             {
-                throw NotAllowed(raw, "no export root is configured");
+                throw NotAllowed(raw, "no export root is configured", nothing);
             }
 
             // The first root must itself be a usable local folder; otherwise the root is at fault, not the caller's name.
             if (string.IsNullOrWhiteSpace(roots.Paths[0]) || FilePathGate.Canonical(roots.Paths[0], out _) is not { } firstRoot)
             {
-                throw NotAllowed(raw, "the first export root isn't a usable local folder");
+                throw NotAllowed(raw, "the first export root isn't a usable local folder", nothing);
             }
 
             full = Path.Combine(firstRoot, raw);
@@ -94,40 +137,31 @@ public static class ExportTarget
         // A ':' anywhere but after the drive letter names an NTFS stream or isn't a Windows path at all.
         if (full.IndexOf(':', 2) >= 0 || (full.Contains(':', StringComparison.Ordinal) && full.IndexOf(':', StringComparison.Ordinal) != 1))
         {
-            throw Invalid($"The path {raw} has a ':' after its drive, so nothing was exported.");
+            throw Invalid($"The path {raw} has a ':' after its drive, so {nothing}.", extensions is null);
         }
 
         if (FilePathGate.Canonical(full, out var refusal) is not { } target)
         {
-            throw Invalid($"The path {raw} {Why(refusal)}, so nothing was exported.");
+            throw Invalid($"The path {raw} {Why(refusal)}, so {nothing}.", extensions is null);
         }
 
-        if (!EndsInOneOf(target, extensions) || target.IndexOf(':', 2) >= 0)
+        if ((extensions is not null && !EndsInOneOf(target, extensions)) || target.IndexOf(':', 2) >= 0)
         {
             // A link followed to a name with another extension (the caller's own path passed the check above).
-            throw NotAllowed(raw, $"it leads to a file that doesn't end in {string.Join(" or ", extensions)}");
+            throw NotAllowed(raw, extensions is null ? "it leads somewhere that isn't a plain local path" : $"it leads to a file that doesn't end in {string.Join(" or ", extensions)}", nothing);
         }
 
         if (!roots.Paths.Any(root => Contains(root, target)))
         {
-            throw NotAllowed(raw, "it isn't inside an export root");
+            throw NotAllowed(raw, "it isn't inside an export root", nothing);
         }
 
         if (Exists(full) || Exists(target))
         {
             throw new OneNoteException(
                 ErrorCode.FileExists,
-                $"Something already exists at {target}, so nothing was exported.",
-                userAction: ExistsUserAction,
-                retryable: false);
-        }
-
-        if (format == ExportFormat.Html && FilesFolder(target) is var folder && Exists(folder))
-        {
-            throw new OneNoteException(
-                ErrorCode.FileExists,
-                $"Something already exists at {folder}, where the web page's images would go, so nothing was exported.",
-                userAction: ExistsUserAction,
+                $"Something already exists at {target}, so {nothing}.",
+                userAction: extensions is null ? "Nothing is opened into an existing folder: choose a new folder name, or leave destination out." : ExistsUserAction,
                 retryable: false);
         }
 
@@ -170,9 +204,9 @@ public static class ExportTarget
         _ => "isn't a fully qualified local path (C:\\…) or a name relative to the export root",
     };
 
-    private static OneNoteException Invalid(string message) =>
-        new(ErrorCode.InvalidArgument, message, userAction: InvalidPathUserAction, retryable: false);
+    private static OneNoteException Invalid(string message, bool folder = false) =>
+        new(ErrorCode.InvalidArgument, message, userAction: folder ? InvalidFolderUserAction : InvalidPathUserAction, retryable: false);
 
-    private static OneNoteException NotAllowed(string raw, string why) =>
-        new(ErrorCode.ExportPathNotAllowed, $"The path {raw} isn't allowed: {why}, so nothing was exported.", userAction: NotAllowedUserAction, retryable: false);
+    private static OneNoteException NotAllowed(string raw, string why, string nothing = Exported) =>
+        new(ErrorCode.ExportPathNotAllowed, $"The path {raw} isn't allowed: {why}, so {nothing}.", userAction: NotAllowedUserAction, retryable: false);
 }

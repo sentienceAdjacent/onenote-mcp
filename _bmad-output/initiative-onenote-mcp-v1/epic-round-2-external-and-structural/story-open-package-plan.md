@@ -3,12 +3,13 @@ title: 'open_package'
 type: 'feature'
 ticket: '8'
 created: '2026-11-17'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_revision: '2982032d3e2a65718031195099ab5f3670605ea6'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -77,12 +78,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution (after entry 15 is built and S0 has run):**
-- [ ] `tests/OneNoteMcp.Tests/OpenPackageToolTests.cs` (new) -- first, red: each matrix row on `FakeGateway`, including the marker file in a default and a named folder, and a guarded `ReadAccess` that then gives no `exportRootHoldsNotebooks` warning for the copy.
-- [ ] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, and every implementation in the Code Map -- the two methods.
-- [ ] `src/OneNoteMcp.Core/Writes/ExportTarget.cs` -- the folder variant.
-- [ ] `src/OneNoteMcp.Core/UseCases/OpenPackageUseCase.cs` -- including the marker file, written after the folder is created and before `OpenPackage`; a failure to write it fails the call before COM and removes the empty folder. `src/OneNoteMcp.Server/Tools/OpenPackageTool.cs` (new), `ToolArguments.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` (`pagesNotListed`), registration in `src/OneNoteMcp.Server/ServerSetup.cs`, `tool-contract.json`.
-- [ ] `tests/OneNoteMcp.Integration/TestNotebook.cs` -- a guarded `CloseNotebookAsync` that closes only a notebook this run opened, under the run's temp root.
-- [ ] `tests/OneNoteMcp.Integration/OpenPackageIntegrationTests.cs` (new) -- publish the throwaway as a package into the temp root (an export root in the test's settings), open it, check the marker file, read one of its pages (`ReadNotGranted`, then allowed with a CLI-style grant), close it, delete the folders.
+- [x] `tests/OneNoteMcp.Tests/OpenPackageToolTests.cs` (new) -- first, red: each matrix row on `FakeGateway`, including the marker file in a default and a named folder, and a guarded `ReadAccess` that then gives no `exportRootHoldsNotebooks` warning for the copy.
+- [x] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, and every implementation in the Code Map -- the two methods.
+- [x] `src/OneNoteMcp.Core/Writes/ExportTarget.cs` -- the folder variant.
+- [x] `src/OneNoteMcp.Core/UseCases/OpenPackageUseCase.cs` -- including the marker file, written after the folder is created and before `OpenPackage`; a failure to write it fails the call before COM and removes the empty folder. `src/OneNoteMcp.Server/Tools/OpenPackageTool.cs` (new), `ToolArguments.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` (`pagesNotListed`), registration in `src/OneNoteMcp.Server/ServerSetup.cs`, `tool-contract.json`.
+- [x] `tests/OneNoteMcp.Integration/TestNotebook.cs` -- a guarded `CloseNotebookAsync` that closes only a notebook this run opened, under the run's temp root.
+- [x] `tests/OneNoteMcp.Integration/OpenPackageIntegrationTests.cs` (new) -- publish the throwaway as a package into the temp root (an export root in the test's settings), open it, check the marker file, read one of its pages (`ReadNotGranted`, then allowed with a CLI-style grant), close it, delete the folders.
 
 **Acceptance Criteria:**
 - Given the throwaway's package, when `open_package` opens it into a new folder under the export root, then the folder exists, the result names the opened notebook's ID, and `get_hierarchy` lists it.
@@ -111,6 +112,13 @@ context:
 - P3: **settled by entry 15's sitting S0 (2026-11-17):** a `.one` under the default root (OneDrive-redirected Documents) and under the test root, opened by hand, reported local paths, not URLs. Still to confirm in P1: that a notebook opened from a package with `OpenHierarchy` (not a loose file) reports its folder and section paths under the export root the same way.
 
 ## Implementation Notes
+
+- Implemented directly in this lane (no implementation subagents). **Test-first:** `OpenPackageToolTests` (15) ran red against a stub use case (15 failed), then green; the five `ComGatewayLifecycleTests.OpenPackage*`/`OpenHierarchy*` refusal and pass-through tests were written after `ComGateway`'s two methods but ran red on the two that reach COM (the fake application threw for `OpenPackage`), green once it recorded the call; the integration test came after the code (it can't run without OneNote).
+- `IOneNoteGateway.OpenPackageAsync` and `OpenHierarchyAsync` have default bodies that refuse with `NotSupported`, so the 21 test gateways needn't change; `ComGateway` and `FakeGateway` implement them. `OpenPackage` runs under `timeouts.publishSeconds`; neither is retried after a disconnect.
+- `ExportTarget.ResolveFolder` shares one private core (`UnderARoot`) with `Resolve`, so the folder variant uses the same root test (`PathUnder`) as exports and AD-21's path rule; its messages say "nothing was opened".
+- `OpenPackageUseCase`: step 1 checks the package (fully qualified, local, existing, `.onepkg`) and resolves the destination (default `<package name> <yyyyMMdd-HHmmss>`, local time); under the lock it re-resolves, creates the folder and writes the marker (a failure removes the folder); step 7 unpacks, checks the reported path is the destination, opens it, and waits for a page (500 ms polls, 5 s). New warning `pagesNotListed`.
+- **Deviation from the plan (for Phill):** "`meta.completedSteps`" after an `OpenHierarchy` failure is carried in the error's message ("The package was unpacked into <folder>; opening it there failed."), not as a meta field: the error envelope's `meta` holds only `correlationId`, and a new field there would change the public error contract (AD-9, AD-14) for every tool.
+- Contract: `open_package` added to `tool-contract.json` (570 lines added, nothing else changed; `<Version>` stays `0.9.0-rc.1`, unreleased since `v0.8.0-rc.2`); tool counts 28→29, property counts 71→73; `open_package` joins the tools whose skill and README text waits for entry 10.
 
 ## Plan Change Log
 

@@ -255,6 +255,50 @@ internal sealed class FakeGateway : IOneNoteGateway
         return Task.FromResult(OnCreateNotebook?.Invoke(folderPath) ?? CreatedNotebookId(CreateNotebookCalls.Count));
     }
 
+    /// <summary>Every <c>OpenPackage</c> call (story 3.8), in order.</summary>
+    public List<(string Package, string Destination)> OpenPackageCalls { get; } = [];
+
+    /// <summary>Thrown by <c>OpenPackage</c> when set.</summary>
+    public Exception? OpenPackageFailure { get; set; }
+
+    /// <summary>
+    /// What <c>OpenPackage</c> does: by default it writes <c>Open Notebook.onetoc2</c> into the destination (as an unpack
+    /// would) and returns the destination, as spike 3.1 O1 saw.
+    /// </summary>
+    public Func<string, string, string>? OnOpenPackage { get; set; }
+
+    public Task<string> OpenPackageAsync(string packagePath, string destinationFolder, CancellationToken ct)
+    {
+        OpenPackageCalls.Add((packagePath, destinationFolder));
+        if ((Failure ?? OpenPackageFailure) is { } failure)
+        {
+            return Task.FromException<string>(failure);
+        }
+
+        if (OnOpenPackage is { } hook)
+        {
+            return Task.FromResult(hook(packagePath, destinationFolder));
+        }
+
+        File.WriteAllText(Path.Combine(destinationFolder, "Open Notebook.onetoc2"), "toc");
+        return Task.FromResult(destinationFolder);
+    }
+
+    /// <summary>Every <c>OpenHierarchy</c> (open an existing path) call (story 3.8), in order.</summary>
+    public List<string> OpenHierarchyCalls { get; } = [];
+
+    /// <summary>Thrown by <c>OpenHierarchy</c> when set.</summary>
+    public Exception? OpenHierarchyFailure { get; set; }
+
+    /// <summary>The ID <c>OpenHierarchy</c> returns.</summary>
+    public string OpenedId { get; set; } = "{CPY00000-0000-4000-8000-000000000001}{1}{B0}";
+
+    public Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
+    {
+        OpenHierarchyCalls.Add(path);
+        return (Failure ?? OpenHierarchyFailure) is { } failure ? Task.FromException<string>(failure) : Task.FromResult(OpenedId);
+    }
+
     /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
     public List<(string PageXml, string ExpectedLastModified)> UpdateCalls { get; } = [];
 

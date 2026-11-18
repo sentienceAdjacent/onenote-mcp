@@ -361,6 +361,52 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task<string> OpenPackageAsync(string packagePath, string destinationFolder, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenPackage);
+        if (LocalFileProblem(packagePath) is { } packageProblem)
+        {
+            return Task.FromException<string>(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: the package {packageProblem}.", retryable: false));
+        }
+
+        if (LocalFileProblem(destinationFolder?.TrimEnd('\\')) is { } folderProblem)
+        {
+            return Task.FromException<string>(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: the destination folder {folderProblem}.", retryable: false));
+        }
+
+        // Story 3.8: an ExternalWrite under timeouts.publishSeconds (a big package takes a while), never retried (AD-3).
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.OpenPackage(packagePath, destinationFolder!, out var pathOut);
+                return pathOut;
+            },
+            CallKind.Write,
+            ct,
+            publish: true);
+    }
+
+    public Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenHierarchy);
+        if (LocalFileProblem(path?.TrimEnd('\\')) is { } problem)
+        {
+            return Task.FromException<string>(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: the path {problem}.", retryable: false));
+        }
+
+        // Story 3.8: open an existing folder or file (cftNone never creates); AppState, never retried after a disconnect.
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.OpenHierarchy(path!, string.Empty, out var id, CreateFileType.cftNone);
+                return id;
+            },
+            CallKind.Write,
+            ct);
+    }
+
     private const string NameUserAction = "Use a name with no path separators, no '..' and no characters a Windows file name can't hold.";
 
     /// <summary>
