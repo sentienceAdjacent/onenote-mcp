@@ -170,6 +170,8 @@ context:
 - Given a locked destination, when Claude merges into it, then nothing is sent: `SectionLocked`.
 - Given a plain source and an unlocked protected destination, when Claude merges, then the copies land inside it and its journal entry is encrypted.
 - Given `MergeSections` fails with `0x8004201F` after a partial copy, when the result comes back, then it is `Internal` with `outcomeUnknown`, and the message names the copies found and says to delete them before merging again.
+- Given a basis whose date differs from the source section's hierarchy `lastModifiedTime`, when Claude merges, then nothing is sent: `StaleWrite`.
+- (If Phill picks Q2 a.) Given a source or destination in a cloud notebook, when Claude merges, then the write lock is held for the 10 s settle before the read-back, and the result carries the warning `settled`.
 - Given the existing move, restore and soft-delete tests, when they run, then they pass unchanged.
 
 ## Implementation Notes
