@@ -84,6 +84,10 @@ public sealed class OpenPackageIntegrationTests(ITestOutputHelper output) : IDis
             Assert.NotEqual(throwaway, copyId);
             Assert.True(File.Exists(Path.Combine(folder, ExportRootGuard.MarkerFileName)));
 
+            // AC 1: get_hierarchy lists the copy while it is open.
+            var listed = XDocument.Parse(await com.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, Ct)).Root!.Elements(One + "Notebook").Select(n => (string?)n.Attribute("ID")).ToList();
+            Assert.Contains(copyId, listed);
+
             // A page of the copy: protected by its path (entry 15), so refused without a grant, read with one.
             var pages = XDocument.Parse(await com.GetHierarchyAsync(copyId, CoreScope.Pages, Ct)).Root!;
             var page = pages.Descendants(One + "Page").FirstOrDefault();
@@ -115,7 +119,22 @@ public sealed class OpenPackageIntegrationTests(ITestOutputHelper output) : IDis
         var open = XDocument.Parse(await com.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, Ct)).Root!.Elements(One + "Notebook").Select(n => (string?)n.Attribute("ID")).ToList();
         Assert.DoesNotContain(copyId, open);
         Assert.Contains(throwaway, open);
-        output.WriteLine("RESULT close: the copy is closed, the throwaway still open");
+
+        // AC 4: its folder goes too (OneNote may hold its files for a moment after the close).
+        for (var i = 0; i < 50 && Directory.Exists(folder); i++)
+        {
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                await Task.Delay(200, Ct);
+            }
+        }
+
+        Assert.False(Directory.Exists(folder), "The copy's folder couldn't be deleted after the close.");
+        output.WriteLine("RESULT close: the copy is closed and its folder deleted, the throwaway still open");
     }
 
     private static async Task WaitForFileAsync(string path)

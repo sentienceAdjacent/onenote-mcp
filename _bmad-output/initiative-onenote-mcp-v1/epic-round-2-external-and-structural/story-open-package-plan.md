@@ -3,7 +3,7 @@ title: 'open_package'
 type: 'feature'
 ticket: '8'
 created: '2026-11-17'
-status: 'in-review'
+status: 'built'
 baseline_revision: '2982032d3e2a65718031195099ab5f3670605ea6'
 route: 'full'
 route_source: 'auto'
@@ -128,6 +128,17 @@ context:
 - 2026-11-17, Phill settled Q2: optional destination, timestamped default under the first export root; the matrix gains the default row; no open questions left. If entry 15's guard question is answered with its marker-file option, this story also writes `.onenote-mcp-opened` into each folder it creates (entry 15 decides; a Plan Change Log entry here will add the task).
 
 ## Review Triage Log
+
+- 2026-11-18, quick lens, iteration 0 (findings written to the build's scratchpad): 9 findings, each checked against the code: 0 high, 2 medium, 5 low, 1 rejected, 1 for Phill. Patched test-first where a test fit (7 new tests in `OpenPackageToolTests`; 4 ran red first, the other 3 passed before the patch and stay as guards); no loopback.
+  - **medium, patch.** A cancel or the pipeline's deadline during the page wait turned a successful open into a failure saying "opening it there failed", losing the copy's ID. Fix: the wait ends on a cancel with `pagesNotListed` and the result keeps `meta.objectId`; once `OpenHierarchy` has succeeded the failure note names the opened notebook. Test: `ACancelDuringThePageWait_…`.
+  - **for Phill.** `meta.completedSteps` (frozen block, spine AD-5) is carried in the error message, not a meta field: the error envelope's `meta` holds only `correlationId` for every tool, and adding a field changes the public error contract (AD-9, AD-14). Phill decides: keep the message (and amend the plan and spine) or add the field.
+  - **low, patch.** The "nothing was unpacked, folder removed" branch disagreed with the pipeline's own test of "may have written" (`ComUnavailable`, `Cancelled`, `0x800706BE`). Fix: it now uses `WritePipeline.IsAmbiguous`. Test: `AComUnavailableFromOpenPackage_KeepsTheFolder_…`.
+  - **low, patch.** An `OpenHierarchy` failure replaced the gateway's `userAction` and dropped the inner exception. Fix: both kept (a fallback action when there is none). Test: `AnOpenHierarchyFailure_KeepsItsOwnUserAction`.
+  - **low, patch.** Missing tests: a file at the destination, `OpenPackage` reporting another path, and a guarded `ReadAccess` and `WritePipeline` after an open (no warning, the next write not refused). Added; all passed on the existing code. Rejected: a unit test for reading the copy's page (entry 15's tests cover the rule; the integration test covers the copy) and for a marker-write failure (no seam short of a file-system fake).
+  - **low, patch.** The integration test didn't check the copy is listed while open (AC 1) or that its folder is gone (AC 4). Added. Rejected: the "opened this run" set built from the copy's own ID is tautological; it is the ID this run opened, and the path-under-the-root check guards it.
+  - **low, patch.** A folder made between the re-resolve and the create would have been unpacked into. Fix: an existence check right before the create, and the marker written with `CreateNew`.
+  - **low, patch.** A destination inside an open notebook's folder (an earlier copy's) was accepted. Fix: refused with `ExportPathNotAllowed` after one notebooks read in step 1 (a failed read gives no verdict). Test: `ADestinationInsideAnOpenNotebooksFolder_…`.
+  - **low, patch.** A stale comment ("71 properties") and test name ("TwentyEight"). Fixed.
 
 ## Verification
 

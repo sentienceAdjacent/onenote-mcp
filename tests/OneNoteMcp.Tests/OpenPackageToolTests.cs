@@ -194,6 +194,104 @@ public sealed class OpenPackageToolTests : IDisposable
         Assert.Contains(folder, message, StringComparison.OrdinalIgnoreCase);
     }
 
+    // --- After the quick review (2026-11-18) --------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ACancelDuringThePageWait_StillReturnsTheOpenedCopy_WithPagesNotListed()
+    {
+        Pages(listed: false);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            if (id == gateway.OpenedId && scope == HierarchyScope.Pages)
+            {
+                cts.Cancel();
+            }
+        };
+
+        var root = Ok(await Tool().OpenPackage(package, "Opened trip", cts.Token));
+
+        Assert.Equal(gateway.OpenedId, root.GetProperty("meta").GetProperty("objectId").GetString());
+        Assert.Equal(ToolWarnings.PagesNotListed, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task AComUnavailableFromOpenPackage_KeepsTheFolder_AndIsOutcomeUnknown()
+    {
+        gateway.OpenPackageFailure = new OneNoteException(ErrorCode.ComUnavailable, "OpenPackage failed: the RPC server is unavailable.");
+
+        var error = Error(await Tool().OpenPackage(package, "Opened trip", Ct), "ComUnavailable");
+
+        Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
+        Assert.True(Directory.Exists(Path.Combine(Root, "Opened trip")));
+        Assert.DoesNotContain("removed", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnOpenHierarchyFailure_KeepsItsOwnUserAction()
+    {
+        gateway.OpenHierarchyFailure = new OneNoteException(ErrorCode.ModalDialogOpen, "OpenHierarchy failed: a dialog is open.", userAction: "Close the dialog in OneNote, then retry.");
+
+        var error = Error(await Tool().OpenPackage(package, "Opened trip", Ct), "ModalDialogOpen");
+
+        Assert.Equal("Close the dialog in OneNote, then retry.", error.GetProperty("userAction").GetString());
+    }
+
+    [Fact]
+    public async Task AFileAtTheDestination_IsFileExists_AndLeftAlone()
+    {
+        Directory.CreateDirectory(Root);
+        File.WriteAllText(Path.Combine(Root, "Opened trip"), "mine");
+
+        Error(await Tool().OpenPackage(package, "Opened trip", Ct), "FileExists");
+
+        Assert.Equal("mine", File.ReadAllText(Path.Combine(Root, "Opened trip")));
+        Assert.Empty(gateway.OpenPackageCalls);
+    }
+
+    [Fact]
+    public async Task OpenPackageReportingAnotherPath_IsInternal_TheFolderKept_NothingOpened()
+    {
+        gateway.OnOpenPackage = (_, destination) =>
+        {
+            File.WriteAllText(Path.Combine(destination, "Open Notebook.onetoc2"), "toc");
+            return destination + "-elsewhere";
+        };
+
+        Error(await Tool().OpenPackage(package, "Opened trip", Ct), "Internal");
+
+        Assert.True(Directory.Exists(Path.Combine(Root, "Opened trip")));
+        Assert.Empty(gateway.OpenHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task WithTheGuard_TheOpenedCopyGivesNoWarningOnReads_AndDoesntBlockTheNextWrite()
+    {
+        var folder = Ok(await Tool().OpenPackage(package, "Opened trip", Ct)).GetProperty("meta").GetProperty("outputPath").GetString()!;
+        gateway.Hierarchies[(string.Empty, HierarchyScope.Notebooks)] =
+            $"<?xml version=\"1.0\"?>\n<one:Notebooks {Ns}><one:Notebook name=\"Opened trip\" ID=\"{gateway.OpenedId}\" path=\"{folder}\" /></one:Notebooks>";
+        var guard = new ExportRootGuard(gateway, clock);
+
+        var protection = await new ReadAccess(gateway, Store.Read, null, clock, guard).ProtectionAsync(Ct);
+        Assert.Empty(protection.Warnings);
+
+        var guarded = new OpenPackageTool(
+            new ToolRunner(NullLogger<ToolRunner>.Instance),
+            new OpenPackageUseCase(gateway, Store.Read, new WritePipeline(writeLock, gateway, null, Store.Read, TimeProvider.System, guard: guard), clock, TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(80)));
+        Ok(await guarded.OpenPackage(package, "Second copy", Ct));
+    }
+
+    [Fact]
+    public async Task ADestinationInsideAnOpenNotebooksFolder_IsExportPathNotAllowed_NothingDone()
+    {
+        gateway.Hierarchies[(string.Empty, HierarchyScope.Notebooks)] =
+            $"<?xml version=\"1.0\"?>\n<one:Notebooks {Ns}><one:Notebook name=\"Earlier copy\" ID=\"{{E}}\" path=\"{Path.Combine(Root, "Earlier copy")}\" /></one:Notebooks>";
+
+        Error(await Tool().OpenPackage(package, @"Earlier copy\inner", Ct), "ExportPathNotAllowed");
+
+        Assert.Empty(gateway.OpenPackageCalls);
+    }
+
     // --- Helpers -----------------------------------------------------------------------------------------------------------
 
     /// <summary>The copy's pages-scope read: one page when <paramref name="listed"/>, else none.</summary>

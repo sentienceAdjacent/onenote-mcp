@@ -111,6 +111,7 @@ public sealed class OpenPackageUseCase : IUseCase
         private string? raw;
         private string? folder;
         private bool unpacked;
+        private string? openedId;
 
         public override OperationClass Class => OperationClass.ExternalWrite;
 
@@ -119,18 +120,48 @@ public sealed class OpenPackageUseCase : IUseCase
 
         public override string? FailureNote => folder is null
             ? null
-            : unpacked
-                ? $"The package was unpacked into {folder}; opening it there failed."
-                : $"The output path is {folder}.";
+            : openedId is not null
+                ? $"The package was unpacked into {folder} and opened as notebook {openedId}."
+                : unpacked
+                    ? $"The package was unpacked into {folder}; opening it there failed."
+                    : $"The output path is {folder}.";
 
-        public override Task AuthorizeAsync(CancellationToken ct)
+        public override async Task AuthorizeAsync(CancellationToken ct)
         {
             packagePath = CheckPackage(package);
             snapshot = owner.settings();
             snapshot.EnsureWritable();
             raw = string.IsNullOrWhiteSpace(destination) ? DefaultName(packagePath) : destination;
             folder = ExportTarget.ResolveFolder(raw, snapshot.ExportRoots);
-            return Task.CompletedTask;
+            await RefuseInsideAnOpenNotebookAsync(ct).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The 3.8 review: a destination inside an open notebook's folder (an earlier copy's, say) would unpack into that
+        /// notebook, where OneNote reads a subfolder as a section group, so it is <see cref="ErrorCode.ExportPathNotAllowed"/>.
+        /// A failed read of the notebooks gives no verdict: the call itself meets the same error later.
+        /// </summary>
+        private async Task RefuseInsideAnOpenNotebookAsync(CancellationToken ct)
+        {
+            IReadOnlyList<string> notebooks;
+            try
+            {
+                var xml = await owner.gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, ct).ConfigureAwait(false);
+                notebooks = [.. HierarchyNode.Notebooks(xml).Select(n => PathUnder.Full(n.Path)).OfType<string>()];
+            }
+            catch (Exception ex) when (ex is OneNoteException or OneNoteXmlException)
+            {
+                return;
+            }
+
+            if (notebooks.Any(n => PathUnder.IsUnder(folder, [n])))
+            {
+                throw new OneNoteException(
+                    ErrorCode.ExportPathNotAllowed,
+                    $"The destination {raw} is inside an open notebook's folder, so nothing was opened.",
+                    userAction: "Choose a destination outside every open notebook's folder, or leave destination out for a new folder named after the package.",
+                    retryable: false);
+            }
         }
 
         public override Task ReadAsync(CancellationToken ct) => Task.CompletedTask;
@@ -149,11 +180,23 @@ public sealed class OpenPackageUseCase : IUseCase
                     retryable: false);
             }
 
-            // The folder, then the marker before anything is unpacked: the guard must never see the copy without it.
+            // The folder, then the marker before anything is unpacked: the guard must never see the copy without it. A
+            // folder that appeared since the re-resolve is never unpacked into (CreateNew fails on an existing marker).
+            if (Directory.Exists(folder!) || File.Exists(folder!))
+            {
+                throw new OneNoteException(
+                    ErrorCode.FileExists,
+                    $"Something already exists at {folder}, so nothing was opened.",
+                    userAction: "Nothing is opened into an existing folder: choose a new folder name, or leave destination out.",
+                    retryable: false);
+            }
+
             try
             {
                 Directory.CreateDirectory(folder!);
-                File.WriteAllText(Path.Combine(folder!, ExportRootGuard.MarkerFileName), string.Empty);
+                using (new FileStream(Path.Combine(folder!, ExportRootGuard.MarkerFileName), FileMode.CreateNew, FileAccess.Write))
+                {
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
@@ -175,7 +218,7 @@ public sealed class OpenPackageUseCase : IUseCase
             {
                 pathOut = await owner.gateway.OpenPackageAsync(packagePath!, target, ct).ConfigureAwait(false);
             }
-            catch (OneNoteException ex) when (!ex.OutcomeUnknown && ex.Code != ErrorCode.Timeout && RemoveIfOnlyTheMarker())
+            catch (OneNoteException ex) when (!ex.OutcomeUnknown && !WritePipeline.IsAmbiguous(ex) && RemoveIfOnlyTheMarker())
             {
                 // Nothing was unpacked: the folder was the pipeline's own, and it is gone again.
                 throw new OneNoteException(ex.Code, $"{ex.Message} Nothing was unpacked; the empty folder {target} was removed.", ex.ComHResult, userAction: ex.UserAction, retryable: ex.Retryable);
@@ -202,9 +245,18 @@ public sealed class OpenPackageUseCase : IUseCase
             }
             catch (OneNoteException ex)
             {
-                throw new OneNoteException(ex.Code, $"{ex.Message} The package was unpacked into {target}; opening it there failed.", ex.ComHResult, userAction: CheckTheFolderUserAction, retryable: false);
+                // The unpack is done; the gateway's own userAction (close a dialog, say) still fits, so it is kept.
+                throw new OneNoteException(
+                    ex.Code,
+                    $"{ex.Message} The package was unpacked into {target}; opening it there failed.",
+                    ex.ComHResult,
+                    ex,
+                    ex.OutcomeUnknown,
+                    ex.UserAction ?? "The package is unpacked in the output path's folder; the user can open it in OneNote (File > Open), or delete the folder and try again with a new destination.",
+                    ex.Retryable);
             }
 
+            openedId = id;
             return new Opened(id, await PageWaitAsync(id, ct).ConfigureAwait(false));
         }
 
@@ -226,6 +278,11 @@ public sealed class OpenPackageUseCase : IUseCase
                 {
                     // A copy that can't be read yet counts as not listed; the open itself succeeded.
                 }
+                catch (OperationCanceledException)
+                {
+                    // The open succeeded: a cancel or the deadline during the wait only ends the wait (the 3.8 review).
+                    return NotListed(id);
+                }
 
                 if (owner.clock.GetElapsedTime(started) >= owner.listWait)
                 {
@@ -238,9 +295,24 @@ public sealed class OpenPackageUseCase : IUseCase
                     ];
                 }
 
-                await Task.Delay(owner.pollInterval, ct).ConfigureAwait(false);
+                try
+                {
+                    await Task.Delay(owner.pollInterval, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return NotListed(id);
+                }
             }
         }
+
+        private IReadOnlyList<ToolWarning> NotListed(string id) =>
+        [
+            new ToolWarning(
+                ToolWarnings.PagesNotListed,
+                $"Notebook {id} is open, but no page was listed within the wait. That is expected when every section is empty, locked or password-protected; otherwise its pages list a little later.",
+                "Read the notebook again with get_hierarchy in a few seconds; its sections need the user's read grant to show their pages."),
+        ];
 
         /// <summary>Removes the folder when it holds nothing but the marker (or nothing); true when it is gone.</summary>
         private bool RemoveIfOnlyTheMarker()

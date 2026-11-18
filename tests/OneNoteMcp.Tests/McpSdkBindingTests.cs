@@ -362,7 +362,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllTwentyEightTools()
+    public void SnapshotToolNames_AreAllTwentyNineTools()
     {
         Assert.Equal(29, SnapshotToolNames().Count);
     }
@@ -436,7 +436,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 71 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6; open_package's two, story 3.8).
+        // Every tool but list_grants, which takes no arguments; 73 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6; open_package's two, story 3.8).
         Assert.Equal(28, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
         Assert.Equal(73, SnapshotToolProperties().Count);
     }
