@@ -40,7 +40,7 @@ context:
 
 | Scenario | Input / State | Expected | Error |
 |---|---|---|---|
-| Open a package | throwaway's `.onepkg`, new destination | folder made, notebook opened; `meta.outputPath`, `meta.objectId` | none |
+| Open a package | throwaway's `.onepkg`, new destination | folder made with the marker file, notebook opened; `meta.outputPath`, `meta.objectId` | none |
 | No destination given | throwaway's `.onepkg` | `<first root>\<package name> <yyyyMMdd-HHmmss>` made and opened | none |
 | No page listed in the wait | all sections empty, locked or protected | ok + `pagesNotListed` | none |
 | Destination outside every root | `..\x` or another drive | nothing done | `ExportPathNotAllowed` |
@@ -51,6 +51,7 @@ context:
 | `OpenPackage` times out | — | folder kept, named | `Timeout`, `outcomeUnknown` |
 | `OpenHierarchy` fails after the unpack | — | folder kept | mapped code + `meta.completedSteps` |
 | Read a page of the opened copy | no read grant | refused | `ReadNotGranted` (entry 15) |
+| A call after the open | the copy open under the export root, marker present | no `exportRootHoldsNotebooks` warning; writes not refused by the guard | none |
 
 ## Decisions (Phill, 2026-11-17)
 
@@ -59,6 +60,7 @@ context:
 - Default destination names carry a timestamp (Q6 a).
 - Probe sitting S0 (P1–P3) before this story is built.
 - Destination (Q2, settled 2026-11-17 after it was read back to him: `open_package` imports a package rather than exporting one): optional; by default a timestamped folder under the first export root, unless the caller names one.
+- Marker file (Phill's final yes on entry 15 Q1, 2026-11-17): `open_package` writes `.onenote-mcp-opened` (`ExportRootGuard.MarkerFileName`) into every folder it creates, the default timestamped one and a named one alike, so the export-root guard doesn't count the opened copy as the user's own notebook.
 
 </frozen-after-approval>
 
@@ -66,21 +68,21 @@ context:
 
 - `src/OneNoteMcp.Com/Interop/IApplication.cs` -- `OpenPackage` (l.106) and `OpenHierarchy` (l.32) are declared; `ComGateway.CreateNotebookAsync` (l.339) is the `OpenHierarchy` pattern.
 - `src/OneNoteMcp.Core/IOneNoteGateway.cs` gets `OpenPackageAsync` and `OpenHierarchyAsync` (existing path); every implementation must follow: `ComGateway`, and 21 test files (grep `: IOneNoteGateway` under `tests`), among them `tests/OneNoteMcp.Tests/FakeGateway.cs` and the integration gateways in `Move…`, `PermanentDelete…`, `ProtectedSection…`, `Publish…`, `SetPageLevel…`, `UpdateHierarchy…IntegrationTests.cs`.
-- `src/OneNoteMcp.Core/Writes/ExportTarget.cs` -- `Resolve` (l.63) is file-and-extension shaped; add a folder variant sharing its root and canonical checks.
+- `src/OneNoteMcp.Core/Writes/ExportTarget.cs` -- `Resolve` (l.63) is file-and-extension shaped; add a folder variant beside it. Its root test is `Contains` (l.148), which entry 15 made `PathUnder.IsUnder` (`Writes/PathUnder.cs`), the same test AD-21's path rule uses: reuse it, don't write another.
 - `src/OneNoteMcp.Core/UseCases/PublishUseCase.cs` -- the `ExternalWrite` shape; `src/OneNoteMcp.Server/Tools/PublishTool.cs`, `ToolArguments.cs`, `ServerSetup.cs` (registration); `src/OneNoteMcp.Core/Results/ToolWarnings.cs`; `tests/OneNoteMcp.Tests/Contract/tool-contract.json` (a new tool).
 - `tests/OneNoteMcp.Integration/TestNotebook.cs` -- `OpenPackageAsync` (l.377), `AdoptThrowawayNotebookAsync`, `Round2.LocalThrowawayName`; no test closes a notebook yet.
-- Entry 15's `ProtectedRoots` and read checks make the opened copy protected; nothing here re-implements them.
+- Entry 15 (merged as 8524d7d): `Core/Access/Protection.cs` (built per call by `ReadAccess.Protection()`) makes every section of the opened copy protected, because the copy's folder is under an export root; nothing here re-implements it. `Core/Access/ExportRootGuard.cs` warns on reads and refuses writes (`SettingsInvalid`) while an export root holds an open notebook without `ExportRootGuard.MarkerFileName` in its folder; its verdict is cached for `CacheFor` (30 s). So the marker must be in the folder before `OpenHierarchy` opens it: write it right after the pipeline creates the folder, before `OpenPackage` (spike O2: `OpenPackage` unpacks beside an existing file). `open_package` itself is a write, so the guard refuses it while a user notebook sits under a root.
 - Prior art: OneMore calls neither `OpenPackage` nor `MergeFiles` (research note row 18).
 
 ## Tasks & Acceptance
 
 **Execution (after entry 15 is built and S0 has run):**
-- [ ] `tests/OneNoteMcp.Tests/OpenPackageToolTests.cs` (new) -- first, red: each matrix row on `FakeGateway`.
+- [ ] `tests/OneNoteMcp.Tests/OpenPackageToolTests.cs` (new) -- first, red: each matrix row on `FakeGateway`, including the marker file in a default and a named folder, and a guarded `ReadAccess` that then gives no `exportRootHoldsNotebooks` warning for the copy.
 - [ ] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, and every implementation in the Code Map -- the two methods.
 - [ ] `src/OneNoteMcp.Core/Writes/ExportTarget.cs` -- the folder variant.
-- [ ] `src/OneNoteMcp.Core/UseCases/OpenPackageUseCase.cs`, `src/OneNoteMcp.Server/Tools/OpenPackageTool.cs` (new), `ToolArguments.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` (`pagesNotListed`), registration in `src/OneNoteMcp.Server/ServerSetup.cs`, `tool-contract.json`.
+- [ ] `src/OneNoteMcp.Core/UseCases/OpenPackageUseCase.cs` -- including the marker file, written after the folder is created and before `OpenPackage`; a failure to write it fails the call before COM and removes the empty folder. `src/OneNoteMcp.Server/Tools/OpenPackageTool.cs` (new), `ToolArguments.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` (`pagesNotListed`), registration in `src/OneNoteMcp.Server/ServerSetup.cs`, `tool-contract.json`.
 - [ ] `tests/OneNoteMcp.Integration/TestNotebook.cs` -- a guarded `CloseNotebookAsync` that closes only a notebook this run opened, under the run's temp root.
-- [ ] `tests/OneNoteMcp.Integration/OpenPackageIntegrationTests.cs` (new) -- publish the throwaway as a package into the temp root, open it, read one of its pages, close it, delete the folders.
+- [ ] `tests/OneNoteMcp.Integration/OpenPackageIntegrationTests.cs` (new) -- publish the throwaway as a package into the temp root (an export root in the test's settings), open it, check the marker file, read one of its pages (`ReadNotGranted`, then allowed with a CLI-style grant), close it, delete the folders.
 
 **Acceptance Criteria:**
 - Given the throwaway's package, when `open_package` opens it into a new folder under the export root, then the folder exists, the result names the opened notebook's ID, and `get_hierarchy` lists it.
@@ -99,7 +101,7 @@ context:
 
 - P1: open a package of a notebook that is still open (the throwaway): does the copy open, or clash with the original?
 - P2: `CloseNotebook` on a copy a test opened: focus, dialogs, time; the original stays open.
-- P3: the `path` OneNote reports for the opened copy's notebook and sections, under the test root and under the default root `Documents\OneNote Exports` (often OneDrive-redirected): a local path, or a URL that entry 15's rule wouldn't match?
+- P3: **settled by entry 15's sitting S0 (2026-11-17):** a `.one` under the default root (OneDrive-redirected Documents) and under the test root, opened by hand, reported local paths, not URLs. Still to confirm in P1: that a notebook opened from a package with `OpenHierarchy` (not a loose file) reports its folder and section paths under the export root the same way.
 
 ## Implementation Notes
 
@@ -107,6 +109,7 @@ context:
 
 - 2026-11-17, after the Fable final review (findings checked against the sources; all held): the frozen block stopped assuming the split; the Xml-layer marker reads and `CheckBroad`'s input added; step 7 failure outcomes; the ticket's Verify as Given/When/Then; tasks with file paths; probes before the build; the page wait; three more questions; citations corrected.
 - 2026-11-17, Phill's answers: the path rule moved to entry 15 (this plan keeps `open_package` only); Q3, Q4, Q5 and Q6 applied as Decisions; Q2 reopened as Open Question 1.
+- 2026-11-18, after entry 15 merged (8524d7d; origin/main merged into this branch): the marker file recorded as Phill's decision (entry 15 Q1 final) with a matrix row and tasks; the Code Map names `Protection`, `PathUnder` (the shared root test the folder variant must reuse) and `ExportRootGuard` (marker before `OpenHierarchy`; the guard can refuse `open_package` itself); P3 marked settled by entry 15's S0, with P1 checking the opened notebook's paths. No other change; status stays `ready-for-dev`, build after S0.
 - 2026-11-17, Phill settled Q2: optional destination, timestamped default under the first export root; the matrix gains the default row; no open questions left. If entry 15's guard question is answered with its marker-file option, this story also writes `.onenote-mcp-opened` into each folder it creates (entry 15 decides; a Plan Change Log entry here will add the task).
 
 ## Review Triage Log
@@ -119,6 +122,6 @@ context:
 - `dotnet test tests/OneNoteMcp.Integration` (no variables) -- builds, live tests skip.
 
 **Sitting steps (main session with Phill; MCP Test and the throwaway only):**
-- S0 (before the build): probes P1–P3.
+- S0 (before the build): probes P1 and P2 (P3 was settled by entry 15's S0; P1 also checks the opened notebook's paths).
 - S1: `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~OpenPackageIntegrationTests` with the throwaway open. Expected: all pass, the copy closed, only temp folders.
 - S2: with `onenote-dev`, open a package from Claude Code and read one of its pages: the grant dialog appears; Phill denies once (refused) and allows once (read). Phill closes the copy in OneNote.
