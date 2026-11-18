@@ -17,8 +17,8 @@ public enum HierarchyKind
 /// One element of hierarchy XML from <c>GetHierarchy</c>: its kind and the attributes access checks need (AD-6,
 /// AD-21), unchanged. <see cref="DisplayName"/> is a notebook's <c>nickname</c>, else its <c>name</c>.
 /// <see cref="InRecycleBin"/> is true when the element carries <c>isInRecycleBin</c> or <c>isDeletedPages</c>.
-/// <see cref="AllPagesAvailable"/> is false only when the element carries <c>areAllPagesAvailable</c> false (a section not
-/// fully downloaded to this PC; story 3.7).
+/// <see cref="AllPagesAvailable"/> is false only when the element carries <c>areAllPagesAvailable</c> false (a section with a
+/// page stub added from another computer that never synced; story 3.7, the backlog 10 sitting).
 /// </summary>
 public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, string DisplayName, string Path, bool Encrypted, bool Locked, bool InRecycleBin = false, bool AllPagesAvailable = true)
 {
