@@ -21,10 +21,13 @@ namespace OneNoteMcp.Core.UseCases;
 /// (<see cref="SettingsSnapshot.EnsureWritable"/>). The path is resolved and checked by <see cref="ExportTarget.Resolve"/>.
 /// In a password-protected section a read grant held at the call's start is required, never prompted for (AD-21 Exports), else
 /// <see cref="ErrorCode.ReadNotGranted"/>. A notebook package needs no read grant (AD-21 Exports, 3.2 plan H1): it keeps
-/// every protected section encrypted, locked or not (spike 3.1 XP1, XP2).</item>
+/// every protected section encrypted, locked or not (spike 3.1 XP1, XP2). But a notebook holding a locked section anywhere
+/// is <see cref="ErrorCode.SectionLocked"/>: packing it raises a modal dialog in OneNote that blocks the call (the 3.7
+/// sitting; Phill, 2026-11-17).</item>
 /// <item value="3">Steps 3 and 4, under the lock: a page is walked to its section again, a section re-read (locked is
 /// <see cref="ErrorCode.SectionLocked"/>; protected since step 1 needs the read grant too), a notebook re-read (it must
-/// still be one, else <see cref="ErrorCode.ObjectNotFound"/>; a locked section inside it is no obstacle, XP2), the path is resolved again and
+/// still be one, else <see cref="ErrorCode.ObjectNotFound"/>, and hold no locked section, else
+/// <see cref="ErrorCode.SectionLocked"/>, as in step 1), the path is resolved again and
 /// must come out the same, with nothing at it (<see cref="ErrorCode.FileExists"/>), and the target's folder is created,
 /// because <c>Publish</c> into a missing folder raises a modal and blocks.</item>
 /// <item value="7">Step 7: <c>Publish</c> in the format, then the landing wait (<see cref="PublishedFile"/>) within
@@ -54,6 +57,10 @@ public sealed class PublishUseCase : IUseCase
     /// <summary>What to do with a notebook in a format other than a package (spike 3.1 X1; Phill, 3.7 plan Q1).</summary>
     public const string NotebookUserAction =
         "A notebook exports only as a OneNote package: call publish again with format onepkg and a path ending in .onepkg. For another format, export the notebook's sections one by one (get_hierarchy with scope sections lists them).";
+
+    /// <summary>What to do with a notebook holding a locked section (the 3.7 sitting: packing one raises a blocking dialog).</summary>
+    public const string NotebookLockedUserAction =
+        "A notebook with a locked section can't be packaged: unlock it, or export the other sections one by one (get_hierarchy with scope sections lists them).";
 
     /// <summary>What to do with a section as EMF (the 3.13 sitting: it holds only the first page).</summary>
     public const string SectionEmfUserAction =
@@ -207,6 +214,13 @@ public sealed class PublishUseCase : IUseCase
                         retryable: false);
                 }
 
+                // The 3.7 sitting (Phill, 2026-11-17): packing a notebook with a locked section raises a modal dialog that
+                // blocks the call until the user answers, so a locked section anywhere in it refuses the package first.
+                if (kind == TargetKind.Notebook)
+                {
+                    await RefuseALockedSectionAsync(ct).ConfigureAwait(false);
+                }
+
                 // The 3.13 sitting (Phill, 2026-11-17): a section's EMF holds only its first page, so it is refused.
                 if (kind == TargetKind.Section && format == ExportFormat.Emf)
                 {
@@ -248,6 +262,12 @@ public sealed class PublishUseCase : IUseCase
                             : "Re-read the hierarchy (get_hierarchy) for a current section ID.");
                 }
 
+                // A section of the notebook may have been locked since step 1 (the 3.7 sitting's dialog).
+                if (notebook)
+                {
+                    await RefuseALockedSectionAsync(ct).ConfigureAwait(false);
+                }
+
                 return;
             }
 
@@ -264,8 +284,8 @@ public sealed class PublishUseCase : IUseCase
             var now = current ?? throw new InvalidOperationException("Validate runs after ReadAsync.");
 
             // A section protected since step 1 needs the grant too; the protected check comes before the locked one (AD-21).
-            // A notebook has neither check: its package keeps protected sections encrypted, and a locked one inside is no
-            // obstacle (H1; spike 3.1 XP2).
+            // A notebook has neither check on its own node: its package keeps protected sections encrypted (H1), and its
+            // sections' locked state was checked in ReadAsync (the 3.7 sitting).
             if (kind != TargetKind.Notebook)
             {
                 CheckReadGrant(now);
@@ -346,6 +366,24 @@ public sealed class PublishUseCase : IUseCase
                     $"Object {objectId} isn't a page in a section, a section or a notebook, so nothing was exported.",
                     userAction: "Re-read the hierarchy (get_hierarchy) for a current page, section or notebook ID."),
             };
+        }
+
+        /// <summary>
+        /// A notebook's sections, at any depth, read live: the first locked one is <see cref="ErrorCode.SectionLocked"/>,
+        /// naming its ID (the 3.7 sitting: packing a notebook with a locked section raises a modal dialog that blocks
+        /// <c>Publish</c>). No read grant is checked (H1).
+        /// </summary>
+        private async Task RefuseALockedSectionAsync(CancellationToken ct)
+        {
+            var xml = await owner.gateway.GetHierarchyAsync(objectId, HierarchyScope.Sections, ct).ConfigureAwait(false);
+            var locked = XmlReads.Readable(() => HierarchyNode.Sections(xml), "GetHierarchy").FirstOrDefault(s => s.Locked);
+            if (locked is not null)
+            {
+                throw new OneNoteException(
+                    ErrorCode.SectionLocked,
+                    $"Section {locked.Id} in notebook {objectId} is locked, so the notebook wasn't exported.",
+                    userAction: NotebookLockedUserAction);
+            }
         }
 
         private async Task<HierarchyNode> SelfAsync(CancellationToken ct)

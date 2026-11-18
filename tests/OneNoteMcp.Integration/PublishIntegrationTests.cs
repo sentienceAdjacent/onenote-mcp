@@ -80,13 +80,13 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
     /// <summary>
     /// Stories 3.3, 3.13 and 3.7 in one test, so the order is fixed and no check skips for a Vault another test locked:
     /// the Vault's page IDs are read while it is unlocked, then the pause asks Phill to lock it. Locked and with no read
-    /// grant, a page of the Vault and the Vault itself are ReadNotGranted (3.3, 3.13), and MCP Test, which holds the Vault,
-    /// exports as a package with no warning into a folder of its own, its size and seconds logged, while MCP Test as PDF is
-    /// NotSupported (3.7, 3.2 H1). With a read grant, the page and the Vault are SectionLocked. The package goes with the
-    /// temporary folder: entry 8 makes its own (3.7 plan Q3).
+    /// grant, a page of the Vault and the Vault itself are ReadNotGranted (3.3, 3.13), and MCP Test, which holds the locked
+    /// Vault, is SectionLocked as a package, naming the Vault's ID, with no Publish call and no file: packing a notebook with
+    /// a locked section raises a modal dialog in OneNote (the 3.7 sitting; Phill, 2026-11-17). MCP Test as PDF is
+    /// NotSupported. With a read grant, the page and the Vault are SectionLocked. Nothing is published.
     /// </summary>
     [Fact]
-    public async Task TheBallastVault_Locked_IsReadNotGrantedWithoutAGrant_MCPTestStillExportsAsAPackage_AndSectionLockedWithAGrant()
+    public async Task TheBallastVault_Locked_IsReadNotGrantedWithoutAGrant_MCPTestAsAPackageIsSectionLocked_AndSectionLockedWithAGrant()
     {
         await using var run = await StartAsync();
         var children = XDocument.Parse(await run.Gateway.GetHierarchyAsync(run.NotebookId, CoreScope.Children, Ct));
@@ -118,21 +118,17 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         Assert.DoesNotContain(BallastContent.VaultSectionName, refusedSection.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
         Assert.Equal(0, run.Gateway.PublishCalls);
 
-        // Story 3.7: still locked and with no read grant, MCP Test exports as a package (3.2 H1), alone in its folder.
+        // Story 3.7: still locked and with no read grant, MCP Test as a package is SectionLocked before COM, naming the
+        // Vault's ID and never its name (the sitting's blocking dialog); as PDF it is NotSupported.
         Assert.Empty(run.Store.Read().ProtectedSections);
-        var packageName = $@"notebook-{Stamp}\mcp-test.onepkg";
-        var watch = Stopwatch.StartNew();
-        var package = Ok(await Tool(run).Publish(run.NotebookId, packageName, PublishFormatArgument.Onepkg, Ct));
-        watch.Stop();
-        var packagePath = package.GetProperty("meta").GetProperty("outputPath").GetString()!;
-        Assert.Equal(Path.Combine(FilePathGate.Canonical(Root, out _)!, packageName), packagePath, ignoreCase: true);
-        Assert.Empty(package.GetProperty("warnings").EnumerateArray());
-        var packageSize = new FileInfo(packagePath).Length;
-        Assert.True(packageSize > 0);
-        Assert.Equal([Path.GetFileName(packagePath)], Directory.GetFileSystemEntries(Path.GetDirectoryName(packagePath)!).Select(Path.GetFileName));
-        output.WriteLine($"RESULT notebook package: MCP Test {run.NotebookId} -> {packageSize} bytes in {watch.Elapsed.TotalSeconds:F2} s, Vault locked, no read grant");
+        var package = await Tool(run).Publish(run.NotebookId, $@"notebook-{Stamp}\mcp-test.onepkg", PublishFormatArgument.Onepkg, Ct);
+        Assert.Equal("SectionLocked", Code(package));
+        var packageError = package.StructuredContent!.Value.GetRawText();
+        Assert.Contains(vaultId, packageError, StringComparison.Ordinal);
+        Assert.DoesNotContain(BallastContent.VaultSectionName, packageError, StringComparison.Ordinal);
         Assert.Equal("NotSupported", Code(await Tool(run).Publish(run.NotebookId, $"notebook-{Stamp}.pdf", PublishFormatArgument.Pdf, Ct)));
-        Assert.Equal(1, run.Gateway.PublishCalls);
+        Assert.Equal(0, run.Gateway.PublishCalls);
+        output.WriteLine("RESULT notebook package with the Vault locked: SectionLocked, no Publish call; as pdf: NotSupported");
 
         // A CLI-style read grant in the temporary settings: SectionLocked, before COM.
         new SettingsWriter(run.Store, TimeProvider.System).SaveReadGrant(new ProtectedSectionGrant(
@@ -146,10 +142,10 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         Assert.Equal("SectionLocked", Code(await Tool(run).Publish(pageId!, $"vault-{Stamp}.pdf", PublishFormatArgument.Pdf, Ct)));
         Assert.Equal("SectionLocked", Code(await Tool(run).Publish(vaultId, $"vault-section-{Stamp}.onepkg", PublishFormatArgument.Onepkg, Ct)));
 
-        // Nothing but the package was published.
-        Assert.Equal(1, run.Gateway.PublishCalls);
-        Assert.Equal([packagePath], Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories), StringComparer.OrdinalIgnoreCase);
-        output.WriteLine("RESULT vault: page and section ReadNotGranted without a grant, SectionLocked with one; MCP Test's package the only file");
+        // Nothing was published in any case.
+        Assert.Equal(0, run.Gateway.PublishCalls);
+        Assert.False(Directory.Exists(Root) && Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories).Any());
+        output.WriteLine("RESULT vault: page and section ReadNotGranted without a grant, SectionLocked with one; MCP Test's package SectionLocked; nothing published");
     }
 
     /// <summary>Story 3.13: each format, with the extension the plan's Q1 gives it.</summary>
@@ -166,7 +162,8 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
     };
 
     /// <summary>
-    /// Story 3.13: the test page and its section land in each format at <c>meta.outputPath</c>, each into an empty folder
+    /// Story 3.13: the test page and its section land in each format at <c>meta.outputPath</c> (a section as EMF is
+    /// refused with NotSupported instead, after the 3.13 sitting), each into an empty folder
     /// of its own, which then holds only that file (for HTML, also at most its <c>_files</c> folder, plan Q3, which is
     /// logged). Sizes and entry names are logged, never content.
     /// </summary>
@@ -183,6 +180,15 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         {
             var folder = $"{format}-{scope}-{Stamp}".ToLowerInvariant();
             var name = $@"{folder}\x{extension}";
+            if (format == PublishFormatArgument.Emf && scope == "section")
+            {
+                // The 3.13 sitting (Phill, 2026-11-17): a section's EMF holds only its first page, so it is refused before COM.
+                Assert.Equal("NotSupported", Code(await Tool(run).Publish(id, name, format, Ct)));
+                Assert.False(Directory.Exists(Path.Combine(Root, folder)));
+                output.WriteLine($"RESULT {format} {scope} {id}: NotSupported, nothing written");
+                continue;
+            }
+
             var root = Ok(await Tool(run).Publish(id, name, format, Ct));
             var outputPath = root.GetProperty("meta").GetProperty("outputPath").GetString()!;
             var expected = Path.Combine(FilePathGate.Canonical(Root, out _)!, name);
@@ -205,7 +211,7 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
             output.WriteLine($"RESULT {format} {scope} {id}: {size} bytes; beside it: [{string.Join(", ", others)}]; warnings: [{warnings}]");
         }
 
-        Assert.Equal(2, run.Gateway.PublishCalls);
+        Assert.Equal(format == PublishFormatArgument.Emf ? 1 : 2, run.Gateway.PublishCalls);
     }
 
     /// <summary>

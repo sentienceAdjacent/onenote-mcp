@@ -31,6 +31,13 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
     public static IReadOnlyList<HierarchyNode> Notebooks(string hierarchyXml) =>
         [.. OneNoteXml.Parse(hierarchyXml).Descendants(OneNoteXml.One + "Notebook").Select(From)];
 
+    /// <summary>
+    /// Every <c>one:Section</c> in <paramref name="hierarchyXml"/>, at any depth (inside section groups too), in document
+    /// order. Throws <see cref="OneNoteXmlException"/> when the XML isn't well-formed.
+    /// </summary>
+    public static IReadOnlyList<HierarchyNode> Sections(string hierarchyXml) =>
+        [.. OneNoteXml.Parse(hierarchyXml).Descendants(OneNoteXml.One + "Section").Select(From)];
+
     private static HierarchyNode From(XElement element)
     {
         var kind = HierarchyElements.KindOf(element);

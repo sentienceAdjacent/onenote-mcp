@@ -31,6 +31,7 @@ public sealed class PublishToolTests : IDisposable
     private const string VaultId = "{SP000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string LockedId = "{SL000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string GroupId = "{GF000000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string NestedLockedId = "{SN000000-0000-4000-8000-000000000001}{1}{B0}";
     private const string PageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000001}";
     private const string VaultPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000002}";
     private const string LockedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000003}";
@@ -62,6 +63,7 @@ public sealed class PublishToolTests : IDisposable
         Section(VaultId, "Vault", "encrypted=\"true\"");
         Section(LockedId, "Locked vault", "encrypted=\"true\" locked=\"true\"");
         Self(GroupId, $"<one:SectionGroup {Ns} name=\"Group\" ID=\"{GroupId}\" path=\"{NotebookPath}\\Group\" lastModifiedTime=\"{Date}\" />");
+        NotebookSections(topLocked: false, nestedLocked: false);
         // No Self node for LockedPageId: OneNote hides a locked section's pages, so GetHierarchy of one fails while its
         // parent chain still answers (the 3.3 sitting, 2026-11-17: the page read as ObjectNotFound before this was modelled).
         foreach (var id in new[] { PageId, VaultPageId })
@@ -656,7 +658,7 @@ public sealed class PublishToolTests : IDisposable
     [Fact]
     public async Task ANotebook_IsPublishedAsAPackage_WithNoReadGrant_AndNoWarning_ThoughItHoldsProtectedSections()
     {
-        // Notebook W holds the Vault (protected) and Locked vault (protected and locked); no read grant is held.
+        // Notebook W holds the Vault (protected, unlocked) and a protected section in its group; no read grant is held.
         var root = Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
 
         var expected = Path.Combine(CanonicalRoot, "w.onepkg");
@@ -681,6 +683,46 @@ public sealed class PublishToolTests : IDisposable
 
         Assert.Empty(root.GetProperty("warnings").EnumerateArray());
         Assert.Single(gateway.PublishCalls);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ANotebookHoldingALockedSection_AnywhereInItsTree_IsSectionLocked_BeforeCom(bool topLocked, bool nestedLocked)
+    {
+        // The 3.7 sitting (Phill, 2026-11-17): packing a notebook with a locked section raises a modal dialog in OneNote
+        // that blocks the call, so a locked section anywhere, inside a section group too, refuses the package up front.
+        NotebookSections(topLocked, nestedLocked);
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "SectionLocked");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(NotebookId, message, StringComparison.Ordinal);
+        Assert.Contains(topLocked ? LockedId : NestedLockedId, message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Locked vault", error.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("unlock it, or export the other sections one by one", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ANotebookWhoseSectionLocksBeforeTheLock_IsSectionLocked_AndNothingIsPublished()
+    {
+        var sectionReads = 0;
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == NotebookId && scope == HierarchyScope.Sections && ++sectionReads == 2)
+                {
+                    NotebookSections(topLocked: false, nestedLocked: true);
+                }
+            },
+        };
+
+        Error(await Tool(hooked).Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "SectionLocked");
+
+        Assert.Equal(2, sectionReads);
+        await AssertRefusedAsync();
     }
 
     [Theory]
@@ -893,6 +935,26 @@ public sealed class PublishToolTests : IDisposable
     }
 
     private void Self(string id, string xml) => gateway.Hierarchies[(id, HierarchyScope.Self)] = "<?xml version=\"1.0\"?>\n" + xml;
+
+    /// <summary>
+    /// W's sections-scope read: Open, the Vault (protected, unlocked), optionally Locked vault (locked), and Group holding
+    /// a protected section that is optionally locked.
+    /// </summary>
+    private void NotebookSections(bool topLocked, bool nestedLocked)
+    {
+        var locked = topLocked
+            ? $"<one:Section name=\"Locked vault\" ID=\"{LockedId}\" path=\"{NotebookPath}\\Locked vault.one\" encrypted=\"true\" locked=\"true\" />"
+            : string.Empty;
+        var nested = nestedLocked ? " locked=\"true\"" : string.Empty;
+        gateway.Hierarchies[(NotebookId, HierarchyScope.Sections)] = "<?xml version=\"1.0\"?>\n"
+            + $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\">"
+            + $"<one:Section name=\"Open\" ID=\"{SectionId}\" path=\"{NotebookPath}\\Open.one\" />"
+            + $"<one:Section name=\"Vault\" ID=\"{VaultId}\" path=\"{NotebookPath}\\Vault.one\" encrypted=\"true\" />"
+            + locked
+            + $"<one:SectionGroup name=\"Group\" ID=\"{GroupId}\" path=\"{NotebookPath}\\Group\">"
+            + $"<one:Section name=\"Locked vault\" ID=\"{NestedLockedId}\" path=\"{NotebookPath}\\Group\\Inner.one\" encrypted=\"true\"{nested} />"
+            + "</one:SectionGroup></one:Notebook>";
+    }
 
     private void Section(string id, string name, string extra) =>
         Self(id, $"<one:Section {Ns} name=\"{name}\" ID=\"{id}\" path=\"{NotebookPath}\\{name}.one\" lastModifiedTime=\"{Date}\" {extra} />");

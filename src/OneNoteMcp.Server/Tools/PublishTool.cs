@@ -33,6 +33,7 @@ public sealed class PublishTool(ToolRunner runner, PublishUseCase useCase)
         + "A path outside every export root fails with ExportPathNotAllowed; a network, device or malformed path, or one whose extension doesn't fit format, with InvalidArgument. "
         + "Nothing is ever overwritten: an existing file at the path (for html, also an existing <file name>_files folder) fails with FileExists, so choose a new name. "
         + "A notebook exports only as onepkg: any other format for a notebook, the default pdf included, fails with NotSupported, so pass format onepkg. A notebook package needs no read grant: password-protected sections stay encrypted inside it, and open locked. "
+        + "But a notebook with any locked section fails with SectionLocked: the user unlocks it, or you export the other sections one by one. "
         + "A section group fails with NotSupported (export its sections one by one). A locked section, or a page in one, fails with SectionLocked. "
         + "Exporting a password-protected section, or a page in one, needs the user's read grant for that section, held when the call starts; without one it fails with ReadNotGranted (read a page of it with get_page_content first, which asks the user). "
         + "Such an export succeeds with the warning exportNotEncrypted: the file is not password-protected, so tell the user. "
