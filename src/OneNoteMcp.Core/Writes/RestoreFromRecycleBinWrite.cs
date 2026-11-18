@@ -728,22 +728,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     }
 
     /// <summary>The settle before a failed cloud restore's re-read (as a move, 3.12 Q4); a cancel or the deadline cuts it short silently.</summary>
-    private async Task SettleQuietlyAsync(Plan now, CancellationToken ct)
-    {
-        if (!now.TouchesCloud)
-        {
-            return;
-        }
-
-        try
-        {
-            await settle(MoveContainerWrite.SettleTime, ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // The original failure is what the caller gets; the settle only spaces the next write.
-        }
-    }
+    private Task SettleQuietlyAsync(Plan now, CancellationToken ct) => CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct);
 
     /// <summary>After <c>0x80042004</c>: what a best-effort re-read of the target finds (as a move, AD-7 Moves).</summary>
     private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)

@@ -43,7 +43,7 @@ namespace OneNoteMcp.Core.Writes;
 public sealed class MoveContainerWrite : WriteOperation<MoveResult>
 {
     /// <summary>The settle after a section or group move that touches a cloud notebook (AD-7 Moves, J5).</summary>
-    public static readonly TimeSpan SettleTime = TimeSpan.FromSeconds(10);
+    public static readonly TimeSpan SettleTime = CloudSettle.Time;
 
     /// <summary>hrFolderDoesNotExist: a group moved to a cloud notebook's root (spike 3.1 Implication 5; J3).</summary>
     public const int FolderMissingHResult = unchecked((int)0x80042018);
@@ -554,22 +554,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         !string.IsNullOrEmpty(a) && !string.IsNullOrEmpty(b) && GrantKeys.Comparer.Equals(GrantKeys.NotebookKey(a), GrantKeys.NotebookKey(b));
 
     /// <summary>The settle before a failed cloud move's re-read (3.12 Q4); a cancel or the deadline cuts it short silently.</summary>
-    private async Task SettleQuietlyAsync(Plan now, CancellationToken ct)
-    {
-        if (!now.TouchesCloud)
-        {
-            return;
-        }
-
-        try
-        {
-            await settle(SettleTime, ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // The original failure is what the caller gets; the settle only spaces the next write.
-        }
-    }
+    private Task SettleQuietlyAsync(Plan now, CancellationToken ct) => CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct);
 
     /// <summary>After <c>0x80042004</c>: where the node is, as far as a best-effort re-read of both parents can tell (AD-7 Moves).</summary>
     private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)

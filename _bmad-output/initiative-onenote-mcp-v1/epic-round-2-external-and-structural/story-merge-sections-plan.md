@@ -3,12 +3,13 @@ title: 'merge_sections'
 type: 'feature'
 ticket: '6'
 created: '2026-11-18'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '556875ae7a35c74c810e8961190c709f71d45947'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -109,14 +110,14 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs` -- `MergeSectionsAsync` as a tracked write -- the COM call.
-- [ ] `src/OneNoteMcp.Core/Writes/CloudSettle.cs` (new) -- the settle extracted unchanged from `MoveContainerWrite` and `RestoreFromRecycleBinWrite`, and used by both -- one copy, not four. Their tests pass unchanged.
-- [ ] `src/OneNoteMcp.Core/Writes/MergeSectionsWrite.cs` (new) -- the operation, per the Always rules.
-- [ ] `src/OneNoteMcp.Core/UseCases/MergeSectionsUseCase.cs` (new), `src/OneNoteMcp.Server/Tools/MergeSectionsTool.cs` (new), `src/OneNoteMcp.Server/ServerSetup.cs` -- `merge_sections`. The description says: the source stays; the copies get new IDs at the end of the destination; the basis is the source's date, and it can't detect an earlier merge of the same pair; and after any `outcomeUnknown`, the model compares the destination's pages (count and names) with the source before any retry, because the copies have new IDs.
-- [ ] `src/OneNoteMcp.Core/Results/ToolMeta.cs` -- `PageIds` (Q1). `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs`, `ToolContractTests.cs`, `NavigateToToolTests.cs` and `PluginPackagingTests.cs` -- the new tool and field.
-- [ ] `tests/OneNoteMcp.Tests/MergeSectionsToolTests.cs` (new) -- every matrix row, the call sent, the entry, the step-1 refusals before any grant dialog, and step 4's repeat.
-- [ ] `tests/OneNoteMcp.Integration/MergeSectionsIntegrationTests.cs` (new) -- see S1.
-- [ ] `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` -- the spine sync: AD-5 and AD-14 (the tool), AD-7 Merges (Q1–Q7; the failure re-read is by the destination's ID, not by name as the spine now says), AD-9 (`meta.pageIds`); a `.memlog.md` entry.
+- [x] `src/OneNoteMcp.Core/IOneNoteGateway.cs`, `src/OneNoteMcp.Com/ComGateway.cs`, `tests/OneNoteMcp.Tests/FakeGateway.cs` -- `MergeSectionsAsync` as a tracked write -- the COM call.
+- [x] `src/OneNoteMcp.Core/Writes/CloudSettle.cs` (new) -- the settle extracted unchanged from `MoveContainerWrite` and `RestoreFromRecycleBinWrite`, and used by both -- one copy, not four. Their tests pass unchanged.
+- [x] `src/OneNoteMcp.Core/Writes/MergeSectionsWrite.cs` (new) -- the operation, per the Always rules.
+- [x] `src/OneNoteMcp.Core/UseCases/MergeSectionsUseCase.cs` (new), `src/OneNoteMcp.Server/Tools/MergeSectionsTool.cs` (new), `src/OneNoteMcp.Server/ServerSetup.cs` -- `merge_sections`. The description says: the source stays; the copies get new IDs at the end of the destination; the basis is the source's date, and it can't detect an earlier merge of the same pair; and after any `outcomeUnknown`, the model compares the destination's pages (count and names) with the source before any retry, because the copies have new IDs.
+- [x] `src/OneNoteMcp.Core/Results/ToolMeta.cs` -- `PageIds` (Q1). `tests/OneNoteMcp.Tests/Contract/tool-contract.json`, `McpSdkBindingTests.cs`, `ToolContractTests.cs`, `NavigateToToolTests.cs` and `PluginPackagingTests.cs` -- the new tool and field.
+- [x] `tests/OneNoteMcp.Tests/MergeSectionsToolTests.cs` (new) -- every matrix row, the call sent, the entry, the step-1 refusals before any grant dialog, and step 4's repeat.
+- [x] `tests/OneNoteMcp.Integration/MergeSectionsIntegrationTests.cs` (new) -- see S1.
+- [x] `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` -- the spine sync: AD-5 and AD-14 (the tool), AD-7 Merges (Q1–Q7; the failure re-read is by the destination's ID, not by name as the spine now says), AD-9 (`meta.pageIds`); a `.memlog.md` entry.
 
 **Acceptance Criteria:**
 - Given two plain sections in a granted notebook, when Claude merges one into the other, then the destination gains a copy of each source page under new IDs listed in `meta.pageIds`, the source keeps its ID and pages, and one journal entry holds the destination's hierarchy as it was.
@@ -131,9 +132,39 @@ context:
 
 ## Implementation Notes
 
+- **What was built:**
+  - `MergeSectionsWrite`, `MergeSectionsUseCase` and `MergeSectionsTool`.
+  - `IOneNoteGateway.MergeSectionsAsync`, a default method that throws `NotSupported`, as `PublishAsync` does. `ComGateway` implements it as a write: empty IDs are refused before COM, it is never retried, and it is tracked if abandoned.
+  - `ToolMeta.PageIds`, and `CloudSettle`: the failure-path settle extracted unchanged, and now used by the move, the restore and the merge.
+  - Contract: 28 tools and 71 properties; `pageIds` appears in every output schema's meta. `<Version>` is unchanged.
+  - Spine: AD-5, AD-7 Merges, AD-9 and AD-14, plus two memlog entries.
+- **Choices beyond the plan:**
+  - After a cancel or the deadline, the destination re-read runs on its own 5 s token, so the findings outlive the spent call token.
+  - A cloud merge also settles after an ordinary, unambiguous failure (for example `SectionLocked`), as a move does (3.12 Q4), so the next write waits. This is kept deliberately: it costs 10 s on a refused cloud merge and keeps every cloud section write alike.
+  - The source read-back warns only when pages are missing. It doesn't check the source's ID, because a children read by `SourceId` always returns that ID (quick review).
+- **TDD:**
+  - Written first and seen failing:
+    - `CloudSettleTests` (4): CS0103, no `CloudSettle`.
+    - The four `ComGatewayLifecycleTests.MergeSections_*`: CS1061, no `MergeSectionsAsync`.
+    - `MergeSectionsToolTests` (54): CS0246 first. Then, with stub steps, all 54 failed with `NotImplementedException`. With the real code, 53 passed; the one failure was bad test data (a locked section merged into itself), and the data was fixed, not the code.
+  - Written after their code: the `FakeGatewayTests` port count, the contract and registration test updates and the snapshot, and the integration file, which can only compile and skip here.
+  - Mutation checks on `MergeSectionsWrite`, each restored afterwards:
+    - recycle-bin checks removed: 7 tests failed;
+    - `pageIds` returned for a protected destination: 1 failed;
+    - failure settle removed and the re-resolve opted out: 2 failed;
+    - locked and empty checks removed: 4 failed.
+  - **The cancel-path re-read token is now proven.** `FakeGateway.GetHierarchyAsync` fails on a spent token, as the real gateway does. With the re-read changed to use the call's token, `ACancelDuringTheCall_IsCancelled_OutcomeUnknown_WithTheReReadsFindings` failed. Restored, it passes, and the rest of the suite stays green with the stricter fake.
+- **Verification (2026-11-18):** build 0 warnings; unit tests 3,650 passed, 3 skipped; integration without the variable 217 passed, 123 skipped, 0 failed. The sitting hasn't run.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-18, quick lens, iteration 0: 0 high, 0 medium, 3 low, 1 false. All three lows were patched; nothing was deferred.
+  - **low, patch.** The `McpSdkBindingTests` comment said 68 properties while the assertion said 71. The comment now says 71.
+  - **low, patch.** The source read-back warning fired on an ID mismatch with a "0 pages missing" message. The condition is now `missing > 0` only, since a children read by `SourceId` returns that ID.
+  - **low, patch.** The live S1 test didn't check that exactly one journal entry was written. It now asserts one new entry file per clean merge.
+  - **false.** "The cancel path skips the settle the plan places before the re-read." With the call token spent, the settle would return at once, so nothing is lost. The spine and memlog describe what the code does.
 
 - 2026-11-18, Fable final review of the draft, low effort: 5 must fix, 8 optional, all checked against the cited code and sources.
   - Factual fixes applied:

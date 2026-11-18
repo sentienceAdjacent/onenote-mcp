@@ -187,6 +187,9 @@ public static class ServerSetup
         // Story 3.14: a page's subpage level (AD-7 HierarchyWrite), one UpdateHierarchy of its section with a hierarchy entry.
         services.AddSingleton<SetPageLevelUseCase>();
 
+        // Story 3.6: a merge (AD-7 HierarchyWrite), one MergeSections with a hierarchy entry of the destination (AD-8).
+        services.AddSingleton<MergeSectionsUseCase>();
+
         // Story 5.5: soft delete (AD-7 SoftDelete). A page takes a page snapshot as a page write does; a section or section
         // group takes a hierarchy snapshot (AD-8).
         services.AddSingleton(sp => new SoftDeleteUseCase(
@@ -244,6 +247,7 @@ public static class ServerSetup
             .WithTools<MoveHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<RestoreFromRecycleBinTool>(EnvelopeJson.Options)
             .WithTools<SetPageLevelTool>(EnvelopeJson.Options)
+            .WithTools<MergeSectionsTool>(EnvelopeJson.Options)
             .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PublishTool>(EnvelopeJson.Options);

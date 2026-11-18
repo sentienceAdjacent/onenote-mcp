@@ -945,6 +945,56 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task MergeSections_SendsTheSourceThenTheDestination()
+    {
+        // Story 3.6: one MergeSections(source, destination), a write (AD-7 HierarchyWrite).
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.MergeSectionsAsync("{source}", "{destination}", Ct);
+
+        Assert.Equal([["{source}", "{destination}"]], app.Calls.Where(c => c.Method == "MergeSections").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("", "{destination}")]
+    [InlineData("{source}", "")]
+    public async Task MergeSections_RefusesAnEmptyId_BeforeCom(string source, string destination)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync(source, destination, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task MergeSections_IsNotRetriedAfterADisconnect_AndItsHResultsMapLikeAnyCall()
+    {
+        // A write: a disconnect that reached COM is never repeated (AD-3); the pipeline then reports outcomeUnknown.
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        // hrMergeFailed stays Internal (AD-9; the merge write adds outcomeUnknown); a locked section is SectionLocked.
+        app.OnCall = _ => throw new COMException("merge", unchecked((int)0x8004201F));
+        var failed = await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct));
+        Assert.Equal(ErrorCode.Internal, failed.Code);
+        Assert.Equal(unchecked((int)0x8004201F), failed.ComHResult);
+        app.OnCall = _ => throw new COMException("locked", unchecked((int)0x8004201B));
+        Assert.Equal(ErrorCode.SectionLocked, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct))).Code);
+        app.OnCall = _ => throw new COMException("dialog", unchecked((int)0x80042030));
+        Assert.Equal(ErrorCode.ModalDialogOpen, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct))).Code);
+        Assert.Equal(4, app.Calls.Count);
+    }
+
+    [Fact]
     public async Task CreateSectionGroup_OpensTheNameUnderTheParentId_WithCftFolder_AndReturnsTheNewId()
     {
         var app = new FakeApplication { OnCall = _ => "{group}" };

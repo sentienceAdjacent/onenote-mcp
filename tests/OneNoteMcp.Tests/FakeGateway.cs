@@ -82,6 +82,12 @@ internal sealed class FakeGateway : IOneNoteGateway
 
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct)
     {
+        // A spent token fails the read, as the real gateway does, so a read that must outlive a cancel is proven (3.6).
+        if (ct.IsCancellationRequested)
+        {
+            return Task.FromCanceled<string>(ct);
+        }
+
         Calls.Add((startNodeId, scope));
         OnGetHierarchy?.Invoke(startNodeId, scope);
         return HierarchyXml is not null && Failure is null ? Task.FromResult(HierarchyXml)
@@ -335,6 +341,37 @@ internal sealed class FakeGateway : IOneNoteGateway
         }
 
         OnUpdateHierarchy?.Invoke(changesXml);
+    }
+
+    /// <summary>Every <c>MergeSections</c> call, source then destination, in order (story 3.6). It has no fixture: it records and succeeds.</summary>
+    public List<(string SourceId, string DestinationId)> MergeSectionsCalls { get; } = [];
+
+    /// <summary>When set, <c>MergeSections</c> alone throws it, after <see cref="OnMergeSectionsCall"/> (a partial copy first, if the hook makes one).</summary>
+    public Exception? MergeSectionsFailure { get; set; }
+
+    /// <summary>
+    /// Runs with the source and destination after each <c>MergeSections</c> call that succeeds, so a test can copy the
+    /// source's pages into the destination under new IDs, as OneNote does (spike 3.1 Implication 4).
+    /// </summary>
+    public Action<string, string>? OnMergeSections { get; set; }
+
+    /// <summary>When set, runs inside <c>MergeSections</c> before it answers, with the call's token (a hook to make a partial copy, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnMergeSectionsCall { get; set; }
+
+    public async Task MergeSectionsAsync(string sourceId, string destinationId, CancellationToken ct)
+    {
+        MergeSectionsCalls.Add((sourceId, destinationId));
+        if (OnMergeSectionsCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? MergeSectionsFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        OnMergeSections?.Invoke(sourceId, destinationId);
     }
 
     /// <summary>Every <c>DeleteHierarchy</c> call, in order (story 5.5). It has no fixture: it records and succeeds.</summary>
