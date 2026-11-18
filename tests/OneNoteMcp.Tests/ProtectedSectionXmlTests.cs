@@ -20,7 +20,7 @@ public sealed class ProtectedSectionXmlTests
     [Fact]
     public void EncryptedSections_FindsTrueAndOne_WithLocationAndNotebookPath()
     {
-        var found = EncryptedSections.Find(Tree);
+        var found = EncryptedSections.Find(Tree, _ => false);
 
         Assert.Equal(["{S1}", "{S2}"], found.Select(s => s.Id));
         Assert.Equal(("V1", @"C:\nb\V1.one", false), (found[0].Name, found[0].Path, found[0].Locked));
@@ -33,7 +33,7 @@ public sealed class ProtectedSectionXmlTests
     [Fact]
     public void EncryptedSections_ARootSection_IsFound()
     {
-        var found = Assert.Single(EncryptedSections.Find("<one:Section " + Ns + " name=\"V\" ID=\"{S}\" path=\"p\" encrypted=\"true\" />"));
+        var found = Assert.Single(EncryptedSections.Find("<one:Section " + Ns + " name=\"V\" ID=\"{S}\" path=\"p\" encrypted=\"true\" />", _ => false));
 
         Assert.Equal("{S}", found.Id);
         Assert.Empty(found.Location);
@@ -42,7 +42,7 @@ public sealed class ProtectedSectionXmlTests
 
     [Fact]
     public void EncryptedSections_Malformed_Throws() =>
-        Assert.Throws<OneNoteXmlException>(() => EncryptedSections.Find("<one:Section"));
+        Assert.Throws<OneNoteXmlException>(() => EncryptedSections.Find("<one:Section", _ => false));
 
     [Theory]
     [InlineData("<one:Notebooks " + Ns + " />", HierarchyKind.Other)]
@@ -60,8 +60,8 @@ public sealed class ProtectedSectionXmlTests
         var notebook = HierarchyNode.Root("<one:Notebook " + Ns + " ID=\"{N}\" name=\"n\" nickname=\"nick\" path=\"C:\\nb\" />");
         var section = HierarchyNode.Root("<one:Section " + Ns + " ID=\"{S}\" name=\"s\" path=\"C:\\nb\\s.one\" encrypted=\"true\" locked=\"1\" />");
 
-        Assert.Equal(("{N}", "n", "nick", @"C:\nb", false), (notebook.Id, notebook.Name, notebook.DisplayName, notebook.Path, notebook.Encrypted));
-        Assert.Equal((true, true), (section.Encrypted, section.Locked));
+        Assert.Equal(("{N}", "n", "nick", @"C:\nb", false), (notebook.Id, notebook.Name, notebook.DisplayName, notebook.Path, notebook.EncryptedMarker));
+        Assert.Equal((true, true), (section.EncryptedMarker, section.Locked));
     }
 
     [Fact]

@@ -408,6 +408,42 @@ public sealed class PublishToolTests : IDisposable
         Assert.True(File.Exists(Path.Combine(CanonicalRoot, "x.pdf")));
     }
 
+    [Fact]
+    public async Task AProtectedPage_AOnceWindowOpenedDuringTheCall_IsReadNotGranted_ARetryPublishes()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        var readAccess = NewReadAccess(gateway);
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var result = await new PublishTool(Runner(), UseCase(readAccess: readAccess)).Publish(VaultPageId, "x.pdf", PublishFormatArgument.Pdf, Ct);
+
+        Assert.True(opened());
+        Assert.Contains(VaultId, Error(result, "ReadNotGranted").GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+
+        gateway.OnGetHierarchy = null;
+        Ok(await new PublishTool(Runner(), UseCase(readAccess: readAccess)).Publish(VaultPageId, "x.pdf", PublishFormatArgument.Pdf, Ct));
+        Assert.True(File.Exists(Path.Combine(CanonicalRoot, "x.pdf")));
+    }
+
+    [Fact]
+    public async Task AProtectedPage_AOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so the recheck under the lock (PublishUseCase l.422 from Validate) refuses.
+        var readAccess = NewReadAccess(gateway);
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, vault, "Vault", writeLock);
+
+        var result = await new PublishTool(Runner(), UseCase(readAccess: readAccess)).Publish(VaultPageId, "x.pdf", PublishFormatArgument.Pdf, Ct);
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Contains(VaultId, Error(result, "ReadNotGranted").GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
     // --- Story 3.13: every format, for a page and a section -------------------------------------------------------------
 
     public static TheoryData<string, PublishFormatArgument, string, ExportFormat> PageAndSectionFormats()
@@ -605,6 +641,60 @@ public sealed class PublishToolTests : IDisposable
         await AssertRefusedAsync();
     }
 
+    // --- Entry 15: protected by path (AD-21) -------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task APageInASectionUnderAnExportRoot_WithoutAReadGrant_IsReadNotGranted_BeforeCom()
+    {
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks\W");
+
+        var error = Error(await Tool().Publish(PageId, "x.pdf", PublishFormatArgument.Pdf, Ct), "ReadNotGranted");
+
+        Assert.Contains(SectionId, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task APageInASectionUnderAnExportRoot_WithAReadGrant_IsPublished_WithExportNotEncrypted()
+    {
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks\W");
+        GrantRead(SectionId, "Open");
+
+        var root = Ok(await Tool().Publish(PageId, "x.pdf", PublishFormatArgument.Pdf, Ct));
+
+        Assert.Equal("exportNotEncrypted", Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task ANotebookPackage_HoldingAPathProtectedSection_NeedsItsReadGrant_MarkedOnesStayExempt()
+    {
+        // 3.15 Q3 (Phill, 2026-11-17): Open is plaintext in a package, so it needs its grant; the marked vaults keep H1.
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks\W");
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "ReadNotGranted");
+        Assert.Contains(SectionId, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.PublishCalls);
+
+        GrantRead(SectionId, "Open");
+        var root = Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+        Assert.Equal("exportNotEncrypted", Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        Assert.Single(gateway.PublishCalls);
+    }
+
+    [Fact]
+    public async Task AWrite_WhileAnExportRootHoldsAUserNotebook_IsSettingsInvalid_SayingWhichRootAndWhy()
+    {
+        // 3.15 Q1 (Phill, 2026-11-17): notebook W sits under C:\notebooks and wasn't made by open_package.
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks");
+        gateway.Hierarchies[(string.Empty, HierarchyScope.Notebooks)] =
+            $"<?xml version=\"1.0\"?>\n<one:Notebooks {Ns}><one:Notebook name=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" /></one:Notebooks>";
+
+        var error = Error(await new PublishTool(Runner(), UseCase(guard: true)).Publish(SectionId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SettingsInvalid");
+
+        Assert.Contains(@"C:\notebooks", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
     [Fact]
     public async Task AProtectedUnlockedSection_WithAReadGrant_IsPublished_WithExportNotEncrypted_NamingTheFormat()
     {
@@ -732,7 +822,8 @@ public sealed class PublishToolTests : IDisposable
     public async Task ANotebookHoldingASectionNotFullyDownloaded_AnywhereInItsTree_IsNotSupported_BeforeCom(bool top, bool nested, string value)
     {
         // The 3.7 sitting S3 (Phill, 2026-11-17): a section with areAllPagesAvailable="false" raised OneNote's pack dialog,
-        // and answering Yes writes the package without the pages that weren't downloaded, so it is refused up front.
+        // and answering Yes writes the package without those pages, so it is refused up front. The flag marks a page stub
+        // added from another computer that never synced (the backlog 10 sitting), so the advice is backlog 11's.
         NotebookSections(topLocked: false, nestedLocked: false, topNotDownloaded: top ? value : null, nestedNotDownloaded: nested ? value : null);
 
         var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "NotSupported");
@@ -742,7 +833,11 @@ public sealed class PublishToolTests : IDisposable
         Assert.Contains(top ? SectionId : NestedLockedId, message, StringComparison.Ordinal);
         Assert.DoesNotContain("Locked vault", error.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("\"Open\"", error.GetRawText(), StringComparison.Ordinal);
-        Assert.Contains("aren't fully downloaded", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("hasn't synced from the computer that added it", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("downloaded to this PC", message, StringComparison.Ordinal);
+        Assert.Equal(PublishUseCase.NotebookNotDownloadedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains("delete its placeholder page", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("so they download", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
     }
 
@@ -1022,17 +1117,20 @@ public sealed class PublishToolTests : IDisposable
             clock.GetUtcNow(),
             GrantedVia.Cli));
 
-    private PublishUseCase UseCase(IOneNoteGateway? over = null)
+    private PublishUseCase UseCase(IOneNoteGateway? over = null, ReadAccess? readAccess = null, bool guard = false)
     {
         var used = over ?? gateway;
+        var rootGuard = guard ? new ExportRootGuard(used, clock) : null;
         return new PublishUseCase(
             used,
-            new ReadAccess(used, Store.Read, new SettingsWriter(Store, clock), clock),
+            readAccess ?? NewReadAccess(used, rootGuard),
             Store.Read,
-            new WritePipeline(writeLock, used, null, Store.Read, TimeProvider.System),
+            new WritePipeline(writeLock, used, null, Store.Read, TimeProvider.System, guard: rootGuard),
             TimeProvider.System,
             TimeSpan.FromMilliseconds(10));
     }
+
+    private ReadAccess NewReadAccess(IOneNoteGateway used, ExportRootGuard? guard = null) => new(used, Store.Read, new SettingsWriter(Store, clock), clock, guard);
 
     private static ToolRunner Runner() => new(NullLogger<ToolRunner>.Instance);
 

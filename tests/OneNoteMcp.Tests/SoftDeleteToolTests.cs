@@ -342,6 +342,33 @@ public sealed class SoftDeleteToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Page_InASectionUnderAnExportRoot_IsNotSupported_AsIfPasswordProtected_SayingWhy()
+    {
+        // Entry 15 (AD-21 protected by path): Plans carries no marker, but its folder is an export root.
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W\Archive");
+
+        var error = Error(await Tool().DeleteHierarchyObject(PlansPageId, null, Ct), "NotSupported");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task Group_UnderAnExportRoot_ItsEntryHoldsNoPagesOfItsPathProtectedSections()
+    {
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W\Archive");
+
+        Ok(await Tool().DeleteHierarchyObject(GroupId, new DeleteBasisArgument(SectionDate), Ct));
+
+        var file = Assert.Single(Directory.GetFiles(Folder));
+        var layout = XDocument.Parse(JournalStore.Read(file).Xml!).Root!;
+        Assert.Equal([PlansId, InnerVaultId], layout.Descendants(OneNoteXml.One + "Section").Select(s => (string?)s.Attribute("ID")));
+        Assert.Empty(layout.Descendants(OneNoteXml.One + "Page"));
+        Assert.DoesNotContain(PlansPageId, RawEntry(file), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Page_WithSubpages_IsInvalidArgument_GivingTheCountOnly()
     {
         var error = Error(await Tool().DeleteHierarchyObject(ParentPageId, null, Ct), "InvalidArgument");

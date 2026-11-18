@@ -33,6 +33,11 @@ static async Task<int> MainAsync(string[] args)
 {
     var options = Options.Parse(args);
 
+    if (options.ProbeSectionSync)
+    {
+        return ProbeSectionSync.Run(options.Section!, options.MaxSeconds ?? Options.DefaultMaxSeconds);
+    }
+
     if (options.ProbeNavigate)
     {
         return ProbeNavigate.Run(options.NotebookId!, options.ProbePage);

@@ -69,10 +69,12 @@ public static class ServerSetup
         services.AddSingleton<ITextBlockMeasure>(EnvelopeMeasure.Instance);
         // AD-21: one access check, re-reading settings.json at every check (AD-10); the writer stores the user's grants.
         services.AddSingleton(sp => new SettingsWriter(sp.GetRequiredService<SettingsStore>(), TimeProvider.System));
+        // Entry 15 (Phill, 2026-11-17, Q1): one export-root guard, its verdict cached, shared by reads (a warning) and writes (refused).
+        services.AddSingleton(sp => new ExportRootGuard(sp.GetRequiredService<IOneNoteGateway>(), TimeProvider.System));
         services.AddSingleton(sp =>
         {
             var settings = sp.GetRequiredService<SettingsStore>();
-            return new ReadAccess(sp.GetRequiredService<IOneNoteGateway>(), settings.Read, sp.GetRequiredService<SettingsWriter>(), TimeProvider.System);
+            return new ReadAccess(sp.GetRequiredService<IOneNoteGateway>(), settings.Read, sp.GetRequiredService<SettingsWriter>(), TimeProvider.System, sp.GetRequiredService<ExportRootGuard>());
         });
         services.AddSingleton(sp => sp.GetRequiredService<ReadAccess>().Results);
         services.AddSingleton<ResultDelivery>();
@@ -113,7 +115,8 @@ public static class ServerSetup
             sp.GetRequiredService<PageTextCache>(),
             sp.GetRequiredService<SettingsStore>().Read,
             TimeProvider.System,
-            dialog: sp.GetRequiredService<WriteGrantDialog>()));
+            dialog: sp.GetRequiredService<WriteGrantDialog>(),
+            guard: sp.GetRequiredService<ExportRootGuard>()));
         // Story 3.14: with parentPageId, create_page checks a protected section's read grant and takes a hierarchy entry.
         services.AddSingleton(sp => new CreatePageUseCase(
             sp.GetRequiredService<IOneNoteGateway>(),

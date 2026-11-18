@@ -243,7 +243,7 @@ public sealed class RestoreFromRecycleBinIntegrationTests(ITestOutputHelper outp
             var elsewhere = await CreateGroupAsync(run, run.NotebookId, $"Restore 3-5 elsewhere {Stamp}");
             await SoftDeleteAsync(run, vaultId);
             var binned = HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(vaultId, CoreScope.Self, Ct));
-            output.WriteLine($"vault {vaultId} in the bin: inRecycleBin={binned.InRecycleBin}, encrypted={binned.Encrypted}, locked={binned.Locked}");
+            output.WriteLine($"vault {vaultId} in the bin: inRecycleBin={binned.InRecycleBin}, encrypted={binned.EncryptedMarker}, locked={binned.Locked}");
 
             var calls = run.Gateway.UpdateHierarchyCalls;
             var refused = await Tool(run).RestoreFromRecycleBin(vaultId, elsewhere, null, null, Ct);
@@ -257,7 +257,7 @@ public sealed class RestoreFromRecycleBinIntegrationTests(ITestOutputHelper outp
             Assert.Equal(groupId, root.GetProperty("meta").GetProperty("parentId").GetString());
             var back = HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(vaultId, CoreScope.Self, Ct));
             Assert.False(back.InRecycleBin);
-            Assert.True(back.Encrypted);
+            Assert.True(back.EncryptedMarker);
             Assert.True(back.Locked);
             Assert.DoesNotContain(HandVaultName, root.GetRawText(), StringComparison.Ordinal);
             output.WriteLine($"RESULT S1.5 vault {vaultId} back in {groupId}, encrypted and locked; elsewhere refused; warnings {root.GetProperty("warnings").GetRawText()}");

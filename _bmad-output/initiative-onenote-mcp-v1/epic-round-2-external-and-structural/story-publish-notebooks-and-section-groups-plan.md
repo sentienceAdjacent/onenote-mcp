@@ -3,7 +3,7 @@ title: 'publish: notebooks and section groups'
 type: 'feature'
 ticket: '7'
 created: '2026-11-17'
-status: 'built'
+status: done
 baseline_revision: '935ed20515257f633dd97caee2945f59f6dfec41'
 route: 'full'
 route_source: 'auto'
@@ -138,4 +138,5 @@ context:
 - S2: MCP Test Cloud as a package, 623,083 bytes, no dialog.
 - S3 (Phill's exception, which his reply extended to two notebooks, neither named here): real notebook A (cloud, OneDrive for Business, about 33 sections, none locked or protected, all pages available), 29,746,567 bytes in about 76 s, no dialog, no warnings. Real notebook B (cloud, OneDrive for Business, about 37 sections, none locked or protected, one section with `areAllPagesAvailable="false"`), 943,164 bytes in about 58 s, no warnings, **but it raised the pack dialog** ("OneNote cannot pack these sections because some sections have not yet been fully synced and could not be downloaded. These pages will not be saved. Continue anyway?"; Phill's screenshot at 20:50:45, during the export from 20:50:07 to 20:51:05), and Phill answered **Yes** (Continue anyway). So B's time includes the dialog wait, and its package was written without the pages that weren't downloaded, as the dialog said it would be (the package's contents weren't checked). Times are wall-clock around the MCP call, tool overhead included; both inside `publishSeconds` (300 s). Both files and the sitting folder were deleted. (Corrected 2026-11-17: an earlier version of this line said neither raised a dialog.)
 - **Finding (2026-11-17):** the pack dialog fires for any section that isn't fully downloaded, not only for a locked one. Two triggers seen: a locked section (S1, MCP Test's Ballast Vault) and a section with `areAllPagesAvailable="false"` (S3, notebook B; inferred as the trigger, since A had no such section and raised no dialog). Both are now refused up front (Decisions, Phill 2026-11-17).
+- **Follow-up (backlog 10 sitting, 2026-11-17):** in notebook B, `areAllPagesAvailable="false"` marked a page stub added from another computer that never synced (OneNote shows "Page Not Yet Available"; `GetHierarchy` omits the stub). `SyncHierarchy`, opening the section and Shift+F9 all left the flag false, so the refusal is right and no "download first" step is possible; the `userAction`'s "open those sections in OneNote so they download" doesn't fit this case (a wording follow-up is to be filed). Open item still unanswered: whether a section-scope pack of such a section raises the same dialog (no second such section to try).
 - Not yet re-run: S1 against the locked-section refusal and the fixed EMF row (commit 1ac37c3); the Vault test now expects MCP Test's package to be `SectionLocked` with no dialog.

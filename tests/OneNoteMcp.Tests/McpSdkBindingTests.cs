@@ -111,7 +111,8 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var envelope = result.StructuredContent.Value;
         Assert.True(envelope.GetProperty("ok").GetBoolean());
         Assert.Equal(NotebooksXml, envelope.GetProperty("xml").GetString());
-        Assert.Equal([(string.Empty, HierarchyScope.Notebooks)], gateway.Calls);
+        // The read, then the export-root guard's one read of the open notebooks (entry 15, Q1).
+        Assert.Equal([(string.Empty, HierarchyScope.Notebooks), (string.Empty, HierarchyScope.Notebooks)], gateway.Calls);
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         await Client.CallToolAsync("get_hierarchy", new Dictionary<string, object?> { ["scope"] = "sections" }, cancellationToken: Ct);
 
-        Assert.Equal([(string.Empty, HierarchyScope.Sections)], gateway.Calls);
+        Assert.Equal([(string.Empty, HierarchyScope.Sections), (string.Empty, HierarchyScope.Notebooks)], gateway.Calls);
     }
 
     [Fact]

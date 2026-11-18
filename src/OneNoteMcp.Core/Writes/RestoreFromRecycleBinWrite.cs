@@ -252,7 +252,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         // AD-8: one hierarchy entry of the target parent; the item stays in the bin if the call fails.
         var now = Planned.State;
         JournalEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Target.Id, now.TargetXml),
+            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Target.Id, now.TargetXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
     }
 
@@ -469,7 +469,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         }
 
         var binned = XmlReads.Readable(() => HierarchyNode.Sections(parentXml), "GetHierarchy").Select(s => s.Id).ToList();
-        return new Item(SoftDeleteKind.Section, ObjectId, self.Name, self.Path, self.Encrypted, parentId!, binned);
+        return new Item(SoftDeleteKind.Section, ObjectId, self.Name, self.Path, services.ReadAccess.Protection().IsProtected(self), parentId!, binned);
     }
 
     /// <summary>The item's soft-delete entry (AD-8; Q1, Q5, Q10): <c>entryId</c> when given, else the match; several are refused, listed.</summary>
@@ -611,11 +611,11 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             }
 
             // As a move (3.4 security review; AD-7 step 1.2): a position in a protected section needs its read grant, held at the call's start.
-            if (position is not null && target.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(target.Path), callStart))
+            if (position is not null && services.ReadAccess.Protection().IsProtected(target) && !services.ReadAccess.HoldsReadGrantGivenBy(GrantKeys.SectionKey(target.Path), callStart))
             {
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
-                    $"Section {target.Id} is password-protected, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was restored.",
+                    $"Section {target.Id} {Protection.Phrase(target.EncryptedMarker)}, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was restored.",
                     userAction: MovePageWrite.ProtectedPositionUserAction);
             }
 
@@ -768,7 +768,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
                     .ToList();
                 found = copies.Count == 0
                     ? $"section {target.Id} has no new page with its name"
-                    : target.Encrypted
+                    : services.ReadAccess.Protection().IsProtected(target)
                         ? string.Create(CultureInfo.InvariantCulture, $"section {target.Id} has {copies.Count} new page(s) with its name")
                         : string.Create(CultureInfo.InvariantCulture, $"section {target.Id} has {copies.Count} new page(s) with its name ({string.Join(", ", copies)})");
             }

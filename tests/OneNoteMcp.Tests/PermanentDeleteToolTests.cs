@@ -193,6 +193,64 @@ public sealed class PermanentDeleteToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Page_InAProtectedSection_AOnceWindowOpenedDuringTheCall_AHashBasis_IsReadNotGranted_ARetryDeletes()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, VaultSection(), "Vault");
+        var prompt = new FakePrompt();
+
+        var error = Error(await RunAsync(VaultPageId, PageBasis(VaultPageId).ToCore(), prompt), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Contains("get_page_content", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
+        Assert.Empty(holds);
+        AssertNothingWritten();
+
+        gateway.OnGetHierarchy = null;
+        Ok(await RunAsync(VaultPageId, PageBasis(VaultPageId).ToCore(), prompt));
+        Assert.Single(gateway.DeleteHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task Page_InAProtectedSection_AOnceWindowReGivenUnderTheLock_AHashBasis_IsReadNotGranted_ByTheRecheck()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so step 3's recheck (PermanentDeleteUseCase l.322) refuses.
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, VaultSection(), "Vault", writeLock);
+        var prompt = new FakePrompt();
+
+        var error = Error(await RunAsync(VaultPageId, PageBasis(VaultPageId).ToCore(), prompt), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Contains("get_page_content", error.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task AProtectedPage_AOnceWindowOpenedDuringTheCall_NoStoredGrant_IsPermanentDeleteNotGranted_WithNoDialog()
+    {
+        // Backlog 9, the step-1 view (readGrant): a window opened after the call's start shows nothing inside the section,
+        // so there is no confirmation to raise, as with no grant.
+        Grant(permanentDelete: false);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, VaultSection(), "Vault");
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "Synthetic Update"));
+
+        var result = await RunAsync(VaultPageId, new PageWriteBasis("2026-11-12T00:00:00.000Z"), prompt);
+
+        Assert.True(opened());
+        Error(result, "PermanentDeleteNotGranted");
+        Assert.DoesNotContain("Synthetic Update", result.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
+        Assert.Empty(holds);
+        AssertNothingWritten();
+    }
+
+    private HierarchyNode VaultSection() => HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+
+    [Fact]
     public async Task Page_WithSubpages_IsInvalidArgument_WithTheCount()
     {
         var error = Error(await Tool().PermanentlyDeleteHierarchyObject(ParentPageId, null, Ct), "InvalidArgument");
@@ -516,6 +574,21 @@ public sealed class PermanentDeleteToolTests : IDisposable
         Assert.Equal(userAction, error.GetProperty("userAction").GetString());
         Assert.Empty(prompt.Order);
         Assert.Empty(holds);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ASectionUnderAnExportRoot_IsNotSupported_AsAProtectedOne_SayingWhy()
+    {
+        // Entry 15: Tree carries no marker, but the notebook's folder is an export root, so it is protected by path.
+        Grant(permanentDelete: false);
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W");
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "anything"));
+
+        var error = Error(await RunAsync(TreeId, null, prompt), "NotSupported");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
         AssertNothingWritten();
     }
 
@@ -867,7 +940,7 @@ public sealed class PermanentDeleteToolTests : IDisposable
         Assert.True(bin.IsRecycleBin);
         Assert.Equal((true, true, SectionDate), (deleted.IsInRecycleBin, deleted.IsDeletedPages, deleted.LastModifiedTime));
         Assert.False(deleted.IsRecycleBin);
-        Assert.Equal((true, true), (vault.Encrypted, vault.Locked));
+        Assert.Equal((true, true), (vault.EncryptedMarker, vault.Locked));
         Assert.Equal(0, PermanentDeleteReads.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\" />"));
         Assert.Equal(2, PermanentDeleteReads.ContainersBeneath($"<one:SectionGroup {Ns} ID=\"G\"><one:SectionGroup ID=\"H\"><one:Section ID=\"S\" /></one:SectionGroup></one:SectionGroup>"));
     }

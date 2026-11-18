@@ -393,6 +393,19 @@ public sealed class DeletePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task UnderAnExportRoot_WithoutAReadGrant_IsReadNotGranted_SayingWhy_NothingReadOrDeleted()
+    {
+        // Entry 15: the open section carries no marker, but the notebook's folder is an export root.
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W");
+
+        var error = Error(await Tool().DeletePageContent(PageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task ProtectedWithoutAReadGrant_ThroughTheTool_IsReadNotGranted_AndItsUserAction()
     {
         var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
@@ -433,6 +446,43 @@ public sealed class DeletePageContentToolTests : IDisposable
         Assert.Empty(prompt.Questions);
         Assert.Single(gateway.DeleteCalls);
         await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowOpenedDuringTheCall_IsReadNotGranted_NothingReadOrDeleted_ARetryDeletes()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Equal(DeletePageContentWrite.ReadFirstUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+
+        gateway.OnGetHierarchy = null;
+        Deletes(VaultPageId);
+        Ok(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct));
+        Assert.Single(gateway.DeleteCalls);
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck_NothingReadOrDeleted()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so step 3's recheck (PageWrite l.118) refuses before the page is read.
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, vault, "Vault", writeLock);
+
+        var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(DeletePageContentWrite.ReadFirstUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
     }
 
     [Fact]

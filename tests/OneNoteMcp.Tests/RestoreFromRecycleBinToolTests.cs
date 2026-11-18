@@ -368,6 +368,34 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
     }
 
     [Fact]
+    public async Task APosition_InATargetProtectedByPath_WithoutAReadGrant_IsReadNotGranted()
+    {
+        // Entry 15 (story 3.15): a section under an export root counts as protected without the marker.
+        Grant();
+        TestSettings.SetExportRoots(Store.Path, APath);
+
+        var error = Error(await Tool().RestoreFromRecycleBin(LostId, PlansId, null, 1, Ct), "ReadNotGranted");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ASectionProtectedByPath_IsRestoredOnlyAsAProtectedOne_NeverSentElsewhere()
+    {
+        // Entry 15: under an export root the recycled section counts as protected. Its entry was written without a
+        // SectionKey (it wasn't protected then), so its own place can't be proven: the protected orphan answer, and
+        // nothing is sent, whatever parentId says.
+        Grant();
+        TestSettings.SetExportRoots(Store.Path, APath);
+
+        Error(await Tool().RestoreFromRecycleBin(GoneId, AId, null, null, Ct), "ObjectNotFound");
+        Error(await Tool().RestoreFromRecycleBin(GoneId, null, null, null, Ct), "ObjectNotFound");
+
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
     public async Task IntoAProtectedTarget_WithoutAPosition_NeedsOnlyTheWriteGrant()
     {
         Grant();
@@ -691,7 +719,7 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         Assert.Equal(SecretId, root.GetProperty("meta").GetProperty("objectId").GetString());
         Assert.Equal(ArchiveId, (string?)XElement.Parse(Assert.Single(gateway.UpdateHierarchyCalls)).Attribute("ID"));
         var self = HierarchyTarget.Read(gateway.Hierarchies[(SecretId, HierarchyScope.Self)]);
-        Assert.True(self.Encrypted);
+        Assert.True(self.EncryptedMarker);
         Assert.True(self.Locked);
         Assert.False(self.InRecycleBin);
     }

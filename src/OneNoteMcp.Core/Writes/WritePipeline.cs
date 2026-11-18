@@ -62,6 +62,7 @@ public sealed class WritePipeline
     private readonly TimeProvider clock;
     private readonly TimeSpan? deadlineOverride;
     private readonly WriteGrantDialog? dialog;
+    private readonly ExportRootGuard? guard;
 
     /// <param name="writeLock">The write lock (AD-18).</param>
     /// <param name="gateway">The gateway the operations call, asked after a step-7 failure whether an abandoned write is still running.</param>
@@ -70,7 +71,8 @@ public sealed class WritePipeline
     /// <param name="clock">The clock the deadline runs on.</param>
     /// <param name="deadline">The pipeline deadline for every class, a test's override; when null, each class's own (<see cref="DeadlineFor"/>).</param>
     /// <param name="dialog">The write-grant dialog step 1 raises (AD-6), or null for none.</param>
-    public WritePipeline(WriteLock writeLock, IOneNoteGateway gateway, PageTextCache? cache, Func<SettingsSnapshot> settings, TimeProvider? clock = null, TimeSpan? deadline = null, WriteGrantDialog? dialog = null)
+    /// <param name="guard">The export-root guard (entry 15 Q1): step 1 refuses every write with <c>SettingsInvalid</c> while it reports a problem; null for none.</param>
+    public WritePipeline(WriteLock writeLock, IOneNoteGateway gateway, PageTextCache? cache, Func<SettingsSnapshot> settings, TimeProvider? clock = null, TimeSpan? deadline = null, WriteGrantDialog? dialog = null, ExportRootGuard? guard = null)
     {
         ArgumentNullException.ThrowIfNull(writeLock);
         ArgumentNullException.ThrowIfNull(gateway);
@@ -82,6 +84,7 @@ public sealed class WritePipeline
         this.clock = clock ?? TimeProvider.System;
         deadlineOverride = deadline;
         this.dialog = dialog;
+        this.guard = guard;
     }
 
     /// <summary>The deadline for a class that doesn't publish: the constructor's, else <see cref="DefaultDeadline"/>.</summary>
@@ -111,6 +114,17 @@ public sealed class WritePipeline
             // 1. Access check. A missing write grant may raise the grant dialog (AD-6), and new file paths in a page write
             // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once, the grant
             // dialog at most once per notebook key, so a move between two notebooks can ask for both (story 3.4 Q3).
+            // Entry 15 (Phill, 2026-11-17, Q1): an export root that holds the user's notebooks disables writes, like an
+            // invalid settings.json, until the user changes it.
+            // An invalid or newer file is refused by each write's own EnsureWritable, with its own message, so the guard
+            // runs only on a readable one.
+            if (guard is not null
+                && settings() is { Status: SettingsStatus.Ok or SettingsStatus.Absent } readable
+                && await guard.ProblemAsync(readable.ExportRoots.Paths, token).ConfigureAwait(false) is { } problem)
+            {
+                throw new OneNoteException(ErrorCode.SettingsInvalid, problem + " Writes are disabled until then.", userAction: "Ask the user to change exportRoots in settings.json, then retry.");
+            }
+
             var askedGrant = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var askedPaths = false;
             var askedPermanent = false;

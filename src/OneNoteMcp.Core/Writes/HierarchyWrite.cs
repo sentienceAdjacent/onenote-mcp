@@ -217,7 +217,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
         }
 
         var written = await Services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(CorrelationId, Operation, OperationClass.HierarchyWrite, TargetId, targetXml ?? string.Empty),
+            new HierarchySnapshotRequest(CorrelationId, Operation, OperationClass.HierarchyWrite, TargetId, targetXml ?? string.Empty, Services.ReadAccess.Protection()),
             ct).ConfigureAwait(false);
         JournalEntryId = written.EntryId;
     }
@@ -601,7 +601,7 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
     /// (backlog 7, Phill 2026-11-17): the list checks would show the section's page count and page IDs.
     /// </summary>
     public const string ProtectedReorderUserAction =
-        "Reordering a password-protected section's pages needs a read grant for that section, held when the call starts. Ask the user whether to grant it: reading the section with get_hierarchy (scope children) shows the grant dialog in a client that supports it, or they can run the grant command with --read-section. Then re-read the section and retry. Never run the grant command yourself.";
+        "Reordering a protected section's pages needs a read grant for that section, held when the call starts. Ask the user whether to grant it: reading the section with get_hierarchy (scope children) shows the grant dialog in a client that supports it, or they can run the grant command with --read-section. Then re-read the section and retry. Never run the grant command yourself.";
 
     private readonly IReadOnlyList<string> childIds = childIds ?? [];
     private IReadOnlyList<HierarchyMember> ordered = [];
@@ -665,7 +665,7 @@ public sealed class ReorderHierarchyWrite(HierarchyWriteServices services, strin
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {TargetId} is password-protected, and reordering its pages needs a read grant for it held when the call starts, so nothing was reordered.",
+                $"Section {TargetId} {Protection.Phrase(node.EncryptedMarker)}, and reordering its pages needs a read grant for it held when the call starts, so nothing was reordered.",
                 userAction: ProtectedReorderUserAction);
         }
 

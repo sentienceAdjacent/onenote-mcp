@@ -19,10 +19,14 @@ public sealed record ProtectedSection(string Id, string Name, string Key, bool L
 public static class ProtectedSections
 {
     /// <summary>
-    /// Every protected section in <paramref name="hierarchyXml"/> (<c>GetHierarchy</c> output), in document order. Throws
+    /// Every protected section in <paramref name="hierarchyXml"/> (<c>GetHierarchy</c> output) under
+    /// <paramref name="protection"/>'s rule (marked, or by path, entry 15), in document order. Throws
     /// <see cref="ErrorCode.InvalidXml"/> when the XML can't be read.
     /// </summary>
-    public static IReadOnlyList<ProtectedSection> Find(string hierarchyXml) =>
-        [.. XmlReads.Readable(() => EncryptedSections.Find(hierarchyXml), "GetHierarchy")
+    public static IReadOnlyList<ProtectedSection> Find(string hierarchyXml, Protection protection)
+    {
+        ArgumentNullException.ThrowIfNull(protection);
+        return [.. XmlReads.Readable(() => EncryptedSections.Find(hierarchyXml, protection.UnderRoot), "GetHierarchy")
             .Select(s => new ProtectedSection(s.Id, s.Name, GrantKeys.SectionKey(s.Path), s.Locked, s.NotebookName, s.NotebookPath, s.SectionGroups))];
+    }
 }

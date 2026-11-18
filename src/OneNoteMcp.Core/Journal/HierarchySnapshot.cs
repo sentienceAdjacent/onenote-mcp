@@ -9,7 +9,7 @@ namespace OneNoteMcp.Core.Journal;
 /// and its AD-7 class, the node at the snapshot's root, and the <c>GetHierarchy</c> XML step 3 already read for it (the
 /// snapshot never reads it again).
 /// </summary>
-public sealed record HierarchySnapshotRequest(string CorrelationId, string Operation, OperationClass OperationClass, string ObjectId, string HierarchyXml);
+public sealed record HierarchySnapshotRequest(string CorrelationId, string Operation, OperationClass OperationClass, string ObjectId, string HierarchyXml, Protection Protection);
 
 /// <summary>
 /// AD-7 step 6 for a hierarchy write (AD-8; stories 5.4 and 5.5): one <c>hierarchy</c> entry holding step 3's XML of the
@@ -63,9 +63,9 @@ public sealed class HierarchySnapshot
 
             // A protected section's own entry is encrypted whole; anything else never keeps a protected section's pages
             // (AD-8, AD-21; story 5.5).
-            xml = root.Kind == HierarchyKind.Section && root.Encrypted
+            xml = request.Protection.IsProtected(root)
                 ? request.HierarchyXml!
-                : DeleteTargets.WithoutProtectedPages(request.HierarchyXml!);
+                : DeleteTargets.WithoutProtectedPages(request.HierarchyXml!, request.Protection.UnderRoot);
         }
         catch (OneNoteXmlException ex)
         {
@@ -101,7 +101,7 @@ public sealed class HierarchySnapshot
             NotebookName = notebook.DisplayName,
             ParentId = parentId,
             ParentNamePath = string.Join('/', groups),
-            SectionKey = root.Kind == HierarchyKind.Section && root.Encrypted ? GrantKeys.SectionKey(root.Path) : null,
+            SectionKey = request.Protection.IsProtected(root) ? GrantKeys.SectionKey(root.Path) : null,
             Title = root.DisplayName,
             TakenAtUtc = clock.GetUtcNow().UtcDateTime,
             BinaryComplete = true,
