@@ -138,7 +138,7 @@ public sealed class SoftDeleteUseCase : IUseCase
 
     private async Task<ToolSuccess> DeleteNodeAsync(ToolCallContext context, string objectId, PageWriteBasis? basis, CancellationToken ct)
     {
-        var delete = new SoftDeleteNode(pageServices.Gateway, pageServices.WriteAccess, hierarchySnapshot, context.CorrelationId, objectId, basis?.LastModifiedTime, basis is null);
+        var delete = new SoftDeleteNode(pageServices.Gateway, pageServices.WriteAccess, hierarchySnapshot, pageServices.ReadAccess, context.CorrelationId, objectId, basis?.LastModifiedTime, basis is null);
         var warnings = await pipeline.RunAsync(context, delete, ct).ConfigureAwait(false);
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId, ObjectId: objectId, JournalEntryId: Id(delete.JournalEntryId)), warnings);
     }
@@ -193,11 +193,13 @@ public sealed class SoftDeleteUseCase : IUseCase
         /// <summary>AD-21 Deletes: a page in a protected section is refused until 5.5's probe says where it would land.</summary>
         protected override void CheckSection(HierarchyNode owningSection)
         {
-            if (owningSection.Encrypted)
+            if (Services.ReadAccess.Protection().IsProtected(owningSection))
             {
                 throw new OneNoteException(
                     ErrorCode.NotSupported,
-                    $"Page {PageId} is in password-protected section {owningSection.Id}, where it can't be soft-deleted, so nothing was deleted.",
+                    owningSection.EncryptedMarker
+                        ? $"Page {PageId} is in password-protected section {owningSection.Id}, where it can't be soft-deleted, so nothing was deleted."
+                        : $"Page {PageId} is in section {owningSection.Id}, which {Access.Protection.Phrase(marked: false)}; it can't be soft-deleted there, so nothing was deleted.",
                     userAction: ProtectedPageUserAction,
                     retryable: false);
             }
@@ -308,6 +310,7 @@ public sealed class SoftDeleteUseCase : IUseCase
         IOneNoteGateway gateway,
         WriteAccess access,
         HierarchySnapshot snapshot,
+        ReadAccess readAccess,
         string correlationId,
         string objectId,
         string? basisDate,
@@ -423,7 +426,7 @@ public sealed class SoftDeleteUseCase : IUseCase
 
         public override async Task SnapshotAsync(CancellationToken ct)
         {
-            var written = await snapshot.TakeAsync(new HierarchySnapshotRequest(correlationId, OperationName, Class, objectId, xml!), ct).ConfigureAwait(false);
+            var written = await snapshot.TakeAsync(new HierarchySnapshotRequest(correlationId, OperationName, Class, objectId, xml!, readAccess.Protection()), ct).ConfigureAwait(false);
             JournalEntryId = written.EntryId;
         }
 

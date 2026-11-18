@@ -41,9 +41,13 @@ public sealed record BroadAccess(IReadOnlyList<string> Withheld, IReadOnlyList<R
         IsWithheld(sectionId)
         || (sectionId.Length > 0 ? Granted.Any(g => string.Equals(g.SectionId, sectionId, StringComparison.Ordinal)) : Granted.Count > 0);
 
-    /// <summary>One <c>readNotGranted</c> warning per withheld section, naming its ID only (AD-9).</summary>
+    /// <summary>Warnings about the protection rule itself (entry 15: <c>settingsInvalid</c>, <c>exportRootHoldsNotebooks</c>), listed first.</summary>
+    public IReadOnlyList<ToolWarning> Extra { get; init; } = [];
+
+    /// <summary>The rule's own warnings, then one <c>readNotGranted</c> warning per withheld section, naming its ID only (AD-9).</summary>
     public IReadOnlyList<ToolWarning> Warnings =>
     [
+        .. Extra,
         .. Withheld.Select(id => new ToolWarning(
             ToolWarnings.ReadNotGranted,
             $"Section {id} is password-protected, so its pages were left out: reading them needs the user's permission.",

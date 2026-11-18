@@ -217,7 +217,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
         }
 
         var written = await Services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(CorrelationId, Operation, OperationClass.HierarchyWrite, TargetId, targetXml ?? string.Empty),
+            new HierarchySnapshotRequest(CorrelationId, Operation, OperationClass.HierarchyWrite, TargetId, targetXml ?? string.Empty, Services.ReadAccess.Protection()),
             ct).ConfigureAwait(false);
         JournalEntryId = written.EntryId;
     }

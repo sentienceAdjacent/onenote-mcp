@@ -450,8 +450,12 @@ public sealed class GrantCommand
         return 0;
     }
 
+    /// <summary>
+    /// The protected sections of every open notebook, marked or under a protected root (entry 15): the roots come from
+    /// <c>settings.json</c> as it reads now (the defaults when it is invalid).
+    /// </summary>
     private async Task<IReadOnlyList<ProtectedSection>> ProtectedSectionsAsync(CancellationToken ct) =>
-        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false));
+        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false), Protection.From(writer.Store.Read()));
 
     /// <summary>The only match, or the one the user picks from a numbered list; default when they pick none.</summary>
     private T? Pick<T>(IReadOnlyList<T> matches, Func<T, string> describe, string what = "sections")

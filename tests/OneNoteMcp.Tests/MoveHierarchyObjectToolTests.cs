@@ -392,6 +392,20 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ASourceUnderAnExportRoot_IsNotSupported_AsAProtectedOne_NothingSent()
+    {
+        // Entry 15: Ideas carries no marker, but the notebook's folder is an export root.
+        Grant();
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\A");
+
+        var error = Error(await Tool().MoveHierarchyObject(P2, PlansId, null, null, Ct), "NotSupported");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task ALockedTarget_IsSectionLocked_NothingSent()
     {
         Grant();

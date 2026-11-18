@@ -246,10 +246,10 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         // AD-8: a hierarchy entry per section, source then target. No page snapshot: no page move lost a page (AD-7).
         var now = Planned;
         SourceEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Source.Id, sourceXml),
+            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Source.Id, sourceXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
         TargetEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Target.Id, targetXml),
+            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Target.Id, targetXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
     }
 
@@ -341,11 +341,11 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         var target = XmlReads.Readable(() => HierarchyTarget.Read(targetChildrenXml), "GetHierarchy");
 
         // AD-7, AD-21 (epic 3 Q9): a protected source first, locked or not: the move could carry the page out of its encryption.
-        if (source.Kind == HierarchyKind.Section && source.Encrypted)
+        if (services.ReadAccess.Protection().IsProtected(source))
         {
             throw new OneNoteException(
                 ErrorCode.NotSupported,
-                $"Page {PageId} is in password-protected section {source.Id}, and a move out of a protected section isn't supported, so nothing was moved.",
+                $"Page {PageId} is in section {source.Id}, which {Protection.Phrase(source.EncryptedMarker)}, and a move out of a protected section isn't supported, so nothing was moved.",
                 userAction: ProtectedUserAction,
                 retryable: false);
         }
@@ -429,11 +429,11 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     /// </summary>
     private void CheckPositionReadGrant(HierarchyTarget target)
     {
-        if (position is not null && target.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(target.Path), callStart))
+        if (position is not null && services.ReadAccess.Protection().IsProtected(target) && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(target.Path), callStart))
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {TargetId} is password-protected, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was moved.",
+                $"Section {TargetId} {Protection.Phrase(target.EncryptedMarker)}, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was moved.",
                 userAction: ProtectedPositionUserAction);
         }
     }
@@ -501,7 +501,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
             // In a password-protected target, a count only: nothing inside it is named (AD-21 Messages).
             inTarget = copies.Count == 0
                 ? $"section {now.Target.Id} has no new page with its name"
-                : now.Target.Encrypted
+                : services.ReadAccess.Protection().IsProtected(now.Target)
                     ? string.Create(CultureInfo.InvariantCulture, $"section {now.Target.Id} has {copies.Count} new page(s) with its name")
                     : string.Create(CultureInfo.InvariantCulture, $"section {now.Target.Id} has {copies.Count} new page(s) with its name ({string.Join(", ", copies)})");
         }

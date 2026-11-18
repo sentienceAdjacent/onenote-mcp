@@ -3,12 +3,13 @@ title: 'Protected by path: export roots and the backups folder'
 type: 'feature'
 ticket: '15'
 created: '2026-11-17'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_revision: '4be192b2e404aec66c89a5da059bb075af6c7800'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -87,18 +88,18 @@ context:
 **Before the build:** sitting S0 runs probe P3 (Verification). If OneNote reports a URL, not a local path, for a notebook under the default root, this plan comes back for a change.
 
 **Execution:**
-- [ ] `tests/OneNoteMcp.Tests/PathUnderTests.cs` (new) -- first, red: segment boundary, case, separators, missing root, mapped-drive root falling back to `GetFullPath`, URL path; `ExportTarget`'s existing tests still pass on it.
-- [ ] `tests/OneNoteMcp.Tests/ProtectedByPathTests.cs` (new) -- first, red: each matrix row, the `one:OpenSections` row with a fixture shaped as P3 saw it, through the real use cases on `FakeGateway`: `get_hierarchy`, `get_page_content`, `find_pages`, `find_meta`, `get_binary_page_content`, the grant listing, `update_page_content`, `delete_page_content`, `create_page`, `set_page_level`, a move, soft delete, permanent delete, `restore_from_journal`, `publish`, and a journal snapshot; plus the wording rule.
-- [ ] `src/OneNoteMcp.Core/Writes/PathUnder.cs` (new), `ExportTarget.cs` -- the one helper.
-- [ ] `src/OneNoteMcp.Xml/EncryptedSections.cs`, `HierarchyNode.cs`, `HierarchyTarget.cs`, `NotebookSections.cs`, `DeleteTargets.cs` -- the required predicate and the rename.
-- [ ] `src/OneNoteMcp.Core/Access/Protection.cs` (new), `HierarchyWalk.cs`, `ReadAccess.cs`, `ProtectedSections.cs` -- build `Protection` per call and use it; `HierarchyWalk` callers pass it.
-- [ ] Every Core site in the Code Map -- replace the marker read with `Protection`; adjust message texts per the wording rule.
-- [ ] `src/OneNoteMcp.Server/Cli/GrantCommand.cs`, `Grants/ElicitationGrantPrompt.cs`, the tool descriptions -- pass roots to the grant listing; wording.
-- [ ] `src/OneNoteMcp.Core/Settings/SettingsStore.cs` (or a holder beside it) -- keep this run's last valid `ExportRoots` and journal path; use them, or the defaults at startup, while the file is invalid (Q2), red-first.
-- [ ] `src/OneNoteMcp.Core/Access/Protection.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` -- the export-root guard and its warning; writes refused `SettingsInvalid` (Q1), red-first.
-- [ ] `src/OneNoteMcp.Core/UseCases/PublishUseCase.cs` -- a notebook package checks every section for path protection and needs each one's read grant; warning `exportNotEncrypted` (Q3), red-first.
-- [ ] `README.md` (Limits) -- one line: sections under an export root or the backups folder are treated as password-protected.
-- [ ] Spine (AD-10 for Q2, AD-11 and AD-21 Exports for Q3, AD-10/AD-21 for Q1) -- the decisions.
+- [x] `tests/OneNoteMcp.Tests/PathUnderTests.cs` (new) -- first, red: segment boundary, case, separators, missing root, mapped-drive root falling back to `GetFullPath`, URL path; `ExportTarget`'s existing tests still pass on it.
+- [x] `tests/OneNoteMcp.Tests/ProtectedByPathTests.cs` (new) -- first, red: each matrix row, the `one:OpenSections` row with a fixture shaped as P3 saw it, through the real use cases on `FakeGateway`: `get_hierarchy`, `get_page_content`, `find_pages`, `find_meta`, `get_binary_page_content`, the grant listing, `update_page_content`, `delete_page_content`, `create_page`, `set_page_level`, a move, soft delete, permanent delete, `restore_from_journal`, `publish`, and a journal snapshot; plus the wording rule.
+- [x] `src/OneNoteMcp.Core/Writes/PathUnder.cs` (new), `ExportTarget.cs` -- the one helper.
+- [x] `src/OneNoteMcp.Xml/EncryptedSections.cs`, `HierarchyNode.cs`, `HierarchyTarget.cs`, `NotebookSections.cs`, `DeleteTargets.cs` -- the required predicate and the rename.
+- [x] `src/OneNoteMcp.Core/Access/Protection.cs` (new), `HierarchyWalk.cs`, `ReadAccess.cs`, `ProtectedSections.cs` -- build `Protection` per call and use it; `HierarchyWalk` callers pass it.
+- [x] Every Core site in the Code Map -- replace the marker read with `Protection`; adjust message texts per the wording rule.
+- [x] `src/OneNoteMcp.Server/Cli/GrantCommand.cs`, `Grants/ElicitationGrantPrompt.cs`, the tool descriptions -- pass roots to the grant listing; wording.
+- [x] `src/OneNoteMcp.Core/Settings/SettingsStore.cs` (or a holder beside it) -- keep this run's last valid `ExportRoots` and journal path; use them, or the defaults at startup, while the file is invalid (Q2), red-first.
+- [x] `src/OneNoteMcp.Core/Access/Protection.cs`, `src/OneNoteMcp.Core/Results/ToolWarnings.cs` -- the export-root guard and its warning; writes refused `SettingsInvalid` (Q1), red-first.
+- [x] `src/OneNoteMcp.Core/UseCases/PublishUseCase.cs` -- a notebook package checks every section for path protection and needs each one's read grant; warning `exportNotEncrypted` (Q3), red-first.
+- [x] `README.md` (Limits) -- one line: sections under an export root or the backups folder are treated as password-protected.
+- [x] Spine (AD-10 for Q2, AD-11 and AD-21 Exports for Q3, AD-10/AD-21 for Q1) -- the decisions.
 
 **Acceptance Criteria:**
 - Given an unmarked section under an export root, under the backups folder, or in a notebook under a root, when any read tool or gated write reaches it with no grant, then it is refused or withheld as a marked protected section is, with the wording rule's messages.
@@ -115,6 +116,16 @@ context:
 - `HierarchyWalk` is built without settings in four places; they get `Protection` from their use case, which already reads settings.
 
 ## Implementation Notes
+
+- Implemented directly in this lane (no implementation subagents, as the coordinating session asked).
+- **Test-first, honestly:** `PathUnderTests` and the whole story-1.20 vault matrix run in path mode (`ProtectedByPathToolTests`, the matrix made an abstract base with a marker and a path subclass) were run red first (60 failed against a stub). The write-side, grant-listing, guard and invalid-settings tests (in `SoftDeleteToolTests`, `PermanentDeleteToolTests`, `PublishToolTests`, `MoveHierarchyObjectToolTests`, `ProtectedSectionsTests`, `ExportRootGuardTests`) were written before the code but couldn't compile until its API existed, so they weren't seen red then; afterwards, a mutation (`Protection.UnderRoot` forced false) made them fail, then was reverted.
+- **Fails closed by construction:** `HierarchyNode`, `HierarchyTarget` and `NotebookSection` renamed `Encrypted` to `EncryptedMarker`; `EncryptedSections.Find` and `DeleteTargets.WithoutProtectedPages` take a required `underRoot` test; `HierarchySnapshotRequest` and `PageSnapshotRequest` take a required `Protection`. The compiler listed every site (Core, Server and tests); none was left on the marker alone.
+- **The rule:** `Core/Access/Protection.cs` (roots = `exportRoots` + the journal's `backups` folder; `IsProtected`, `ByPathOnly`, `Phrase`) over `Core/Writes/PathUnder.cs`, which `ExportTarget` now uses too. A section's notebook path counts where the XML shows it (`EncryptedSections`); `one:OpenSections` sections go by their own path (P3).
+- **Q2:** `ReadAccess.Protection()` remembers this run's last valid roots; with none and an invalid or newer file, defaults plus a `settingsInvalid` warning. Other one-off readers (`RestoreFromJournalUseCase`, the grant CLI) use `Protection.From(settings)` on the file as it reads now.
+- **Q1:** `Core/Access/ExportRootGuard.cs` (one `GetHierarchy` of the notebooks, kept 30 s; a failed read gives no verdict); `ReadAccess` attaches `exportRootHoldsNotebooks` to target and broad reads (`TargetAccess.Warnings`, new `BroadAccess.Extra`); `WritePipeline` step 1 throws `SettingsInvalid`. Wired in `ServerSetup` as one singleton; constructors take it as an optional argument, so unit tests that don't exercise it see no extra gateway call. `McpSdkBindingTests` now expects the guard's notebooks read on `get_hierarchy`.
+- **Q3:** `PublishUseCase` checks each `ByPathOnly` section of a notebook for its read grant at the call's start and warns `exportNotEncrypted`.
+- **Wording:** refusals use `Protection.Phrase` ("is password-protected" / "is under an export root or the backups folder, so it is treated as password-protected"); restore's "no longer protected" message and `userAction` cover both causes.
+- Not done: the integration tests have no live check of the rule; sittings S1 and S2 cover it. The plan's Code Map listed 22 tool descriptions with "password-protected"; they are left as they are (still true for marked sections, and the README explains the path rule) rather than lengthened in every tool.
 
 ## Plan Change Log
 

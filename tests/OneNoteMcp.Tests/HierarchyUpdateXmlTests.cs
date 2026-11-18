@@ -66,7 +66,7 @@ public sealed class HierarchyUpdateXmlTests
         Assert.All(target.Children, c => Assert.Equal(0, c.PageLevel));
 
         var locked = HierarchyTarget.Read($"<one:Section {Ns} name=\"V\" ID=\"{SectionId}\" encrypted=\"true\" locked=\"true\" />");
-        Assert.True(locked.Encrypted);
+        Assert.True(locked.EncryptedMarker);
         Assert.True(locked.Locked);
         Assert.Null(locked.Nickname);
         Assert.Null(locked.LastModifiedTime);

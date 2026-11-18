@@ -200,7 +200,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
 
     public override async Task SnapshotAsync(CancellationToken ct)
     {
-        var written = await Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, Class, PageId, BasicXml), ct).ConfigureAwait(false);
+        var written = await Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, Class, PageId, BasicXml, Services.ReadAccess.Protection()), ct).ConfigureAwait(false);
         JournalEntryId = written.EntryId;
         JournalFile = written;
     }

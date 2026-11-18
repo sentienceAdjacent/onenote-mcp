@@ -430,13 +430,13 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         {
             case HierarchyKind.Page:
                 var page = await services.PageSnapshot.TakeAsync(
-                    new PageSnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, objectId, basicXml ?? string.Empty), ct).ConfigureAwait(false);
+                    new PageSnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, objectId, basicXml ?? string.Empty, services.ReadAccess.Protection()), ct).ConfigureAwait(false);
                 JournalEntryId = page.EntryId;
                 break;
 
             case HierarchyKind.SectionGroup:
                 var group = await services.HierarchySnapshot.TakeAsync(
-                    new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, objectId, containerXml ?? string.Empty), ct).ConfigureAwait(false);
+                    new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, objectId, containerXml ?? string.Empty, services.ReadAccess.Protection()), ct).ConfigureAwait(false);
                 JournalEntryId = group.EntryId;
                 break;
 
@@ -447,13 +447,13 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 {
                     var basic = await services.Gateway.GetPageContentAsync(pageId, PageInfo.Basic, ct).ConfigureAwait(false);
                     var written = await services.PageSnapshot.TakeAsync(
-                        new PageSnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, pageId, basic), ct).ConfigureAwait(false);
+                        new PageSnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, pageId, basic, services.ReadAccess.Protection()), ct).ConfigureAwait(false);
                     entries.Add(written.EntryId);
                 }
 
                 PageEntryIds = entries;
                 var entry = await services.HierarchySnapshot.EntryAsync(
-                    new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, objectId, containerXml ?? string.Empty),
+                    new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.PermanentDelete, objectId, containerXml ?? string.Empty, services.ReadAccess.Protection()),
                     JournalEntry.OnenoteBackupKind,
                     ct).ConfigureAwait(false);
                 var backup = await services.SectionBackup.TakeAsync(objectId, entry, ct).ConfigureAwait(false);
@@ -561,11 +561,11 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
                 userAction: NotebookUserAction);
         }
 
-        if (found.Kind == HierarchyKind.Section && found.Encrypted)
+        if (services.ReadAccess.Protection().IsProtected(found))
         {
             throw new OneNoteException(
                 ErrorCode.NotSupported,
-                $"Section {objectId} is password-protected, so it can't be deleted permanently here; nothing was deleted.",
+                $"Section {objectId} {Access.Protection.Phrase(found.EncryptedMarker)}, so it can't be deleted permanently here; nothing was deleted.",
                 userAction: ProtectedSectionUserAction);
         }
 

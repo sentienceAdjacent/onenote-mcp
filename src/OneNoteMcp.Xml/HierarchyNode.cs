@@ -17,10 +17,12 @@ public enum HierarchyKind
 /// One element of hierarchy XML from <c>GetHierarchy</c>: its kind and the attributes access checks need (AD-6,
 /// AD-21), unchanged. <see cref="DisplayName"/> is a notebook's <c>nickname</c>, else its <c>name</c>.
 /// <see cref="InRecycleBin"/> is true when the element carries <c>isInRecycleBin</c> or <c>isDeletedPages</c>.
+/// <see cref="EncryptedMarker"/> is a section's <c>encrypted</c> attribute only: whether the section counts as protected
+/// is decided in Core, which also applies AD-21's path rule (entry 15), so nothing here should be read as "protected".
 /// <see cref="AllPagesAvailable"/> is false only when the element carries <c>areAllPagesAvailable</c> false (a section not
 /// fully downloaded to this PC; story 3.7).
 /// </summary>
-public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, string DisplayName, string Path, bool Encrypted, bool Locked, bool InRecycleBin = false, bool AllPagesAvailable = true)
+public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, string DisplayName, string Path, bool EncryptedMarker, bool Locked, bool InRecycleBin = false, bool AllPagesAvailable = true)
 {
     /// <summary>The root of <paramref name="hierarchyXml"/>. Throws <see cref="OneNoteXmlException"/> when it isn't well-formed or has no root.</summary>
     public static HierarchyNode Root(string hierarchyXml) =>

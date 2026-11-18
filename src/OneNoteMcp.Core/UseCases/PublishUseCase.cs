@@ -378,7 +378,9 @@ public sealed class PublishUseCase : IUseCase
         /// sections" dialog, which blocks <c>Publish</c>, for any section that isn't fully downloaded (the 3.7 sitting), so:
         /// the first locked section is <see cref="ErrorCode.SectionLocked"/> (S1); else the first with
         /// <c>areAllPagesAvailable</c> false is <see cref="ErrorCode.NotSupported"/> (S3: a Yes to the dialog writes the
-        /// package without those pages). Each names the section's ID only. No read grant is checked (H1).
+        /// package without those pages). Each names the section's ID only. A marked section needs no read grant (H1: the
+        /// package keeps it encrypted); a section protected by its path alone is plaintext in the package, so it needs its
+        /// read grant held at the call's start, and the result warns <c>exportNotEncrypted</c> (Phill, 2026-11-17, 3.15 Q3).
         /// </summary>
         private async Task RefuseASectionThatWouldBlockThePackageAsync(CancellationToken ct)
         {
@@ -400,6 +402,12 @@ public sealed class PublishUseCase : IUseCase
                     userAction: NotebookNotDownloadedUserAction,
                     retryable: false);
             }
+
+            var protection = owner.readAccess.Protection();
+            foreach (var byPath in sections.Where(protection.ByPathOnly))
+            {
+                CheckReadGrant(byPath);
+            }
         }
 
         private async Task<HierarchyNode> SelfAsync(CancellationToken ct)
@@ -414,7 +422,7 @@ public sealed class PublishUseCase : IUseCase
         /// </summary>
         private void CheckReadGrant(HierarchyNode node)
         {
-            if (!node.Encrypted)
+            if (!owner.readAccess.Protection().IsProtected(node))
             {
                 return;
             }
@@ -423,7 +431,7 @@ public sealed class PublishUseCase : IUseCase
             {
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
-                    $"Section {node.Id} is password-protected, and exporting from it needs a read grant for it held when the call starts, so nothing was exported.",
+                    $"Section {node.Id} {Protection.Phrase(node.EncryptedMarker)}, and exporting from it needs a read grant for it held when the call starts, so nothing was exported.",
                     userAction: ReadFirstUserAction);
             }
 
@@ -432,9 +440,12 @@ public sealed class PublishUseCase : IUseCase
                 warnedNotEncrypted = true;
                 warnings.Add(new ToolWarning(
                     ToolWarnings.ExportNotEncrypted,
-                    kind == TargetKind.Section
-                        ? $"Section {objectId} is password-protected; the exported {FormatName(format)} isn't encrypted."
-                        : $"Page {objectId} is in password-protected section {node.Id}; the exported {FormatName(format)} isn't encrypted.",
+                    kind switch
+                    {
+                        TargetKind.Section => $"Section {objectId} {Protection.Phrase(node.EncryptedMarker)}; the exported {FormatName(format)} isn't encrypted.",
+                        TargetKind.Notebook => $"Notebook {objectId} holds section {node.Id}, which {Protection.Phrase(node.EncryptedMarker)}; the exported {FormatName(format)} keeps it unencrypted.",
+                        _ => $"Page {objectId} is in section {node.Id}, which {Protection.Phrase(node.EncryptedMarker)}; the exported {FormatName(format)} isn't encrypted.",
+                    },
                     NotEncryptedUserAction));
             }
         }

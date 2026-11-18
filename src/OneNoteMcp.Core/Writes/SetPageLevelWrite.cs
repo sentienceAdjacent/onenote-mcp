@@ -182,7 +182,7 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
         }
 
         JournalEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, SectionId, sectionXml),
+            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, SectionId, sectionXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
     }
 
@@ -341,11 +341,11 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
             throw new OneNoteException(ErrorCode.SectionLocked, $"Section {section.Id} is locked, so the level of page {PageId} wasn't changed.");
         }
 
-        if (section.Encrypted && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
+        if (services.ReadAccess.Protection().IsProtected(section) && !services.ReadAccess.HoldsReadGrantAt(GrantKeys.SectionKey(section.Path), callStart))
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {section.Id} is password-protected, and changing a page's level in it needs a read grant for it held when the call starts, so no level was changed.",
+                $"Section {section.Id} {Protection.Phrase(section.EncryptedMarker)}, and changing a page's level in it needs a read grant for it held when the call starts, so no level was changed.",
                 userAction: ProtectedUserAction);
         }
     }

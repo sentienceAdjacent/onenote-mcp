@@ -605,6 +605,60 @@ public sealed class PublishToolTests : IDisposable
         await AssertRefusedAsync();
     }
 
+    // --- Entry 15: protected by path (AD-21) -------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task APageInASectionUnderAnExportRoot_WithoutAReadGrant_IsReadNotGranted_BeforeCom()
+    {
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks\W");
+
+        var error = Error(await Tool().Publish(PageId, "x.pdf", PublishFormatArgument.Pdf, Ct), "ReadNotGranted");
+
+        Assert.Contains(SectionId, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task APageInASectionUnderAnExportRoot_WithAReadGrant_IsPublished_WithExportNotEncrypted()
+    {
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks\W");
+        GrantRead(SectionId, "Open");
+
+        var root = Ok(await Tool().Publish(PageId, "x.pdf", PublishFormatArgument.Pdf, Ct));
+
+        Assert.Equal("exportNotEncrypted", Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task ANotebookPackage_HoldingAPathProtectedSection_NeedsItsReadGrant_MarkedOnesStayExempt()
+    {
+        // 3.15 Q3 (Phill, 2026-11-17): Open is plaintext in a package, so it needs its grant; the marked vaults keep H1.
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks\W");
+
+        var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "ReadNotGranted");
+        Assert.Contains(SectionId, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.PublishCalls);
+
+        GrantRead(SectionId, "Open");
+        var root = Ok(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct));
+        Assert.Equal("exportNotEncrypted", Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        Assert.Single(gateway.PublishCalls);
+    }
+
+    [Fact]
+    public async Task AWrite_WhileAnExportRootHoldsAUserNotebook_IsSettingsInvalid_SayingWhichRootAndWhy()
+    {
+        // 3.15 Q1 (Phill, 2026-11-17): notebook W sits under C:\notebooks and wasn't made by open_package.
+        TestSettings.SetExportRoots(Store.Path, Root, @"C:\notebooks");
+        gateway.Hierarchies[(string.Empty, HierarchyScope.Notebooks)] =
+            $"<?xml version=\"1.0\"?>\n<one:Notebooks {Ns}><one:Notebook name=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" /></one:Notebooks>";
+
+        var error = Error(await new PublishTool(Runner(), UseCase(guard: true)).Publish(SectionId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SettingsInvalid");
+
+        Assert.Contains(@"C:\notebooks", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
     [Fact]
     public async Task AProtectedUnlockedSection_WithAReadGrant_IsPublished_WithExportNotEncrypted_NamingTheFormat()
     {
@@ -1022,14 +1076,15 @@ public sealed class PublishToolTests : IDisposable
             clock.GetUtcNow(),
             GrantedVia.Cli));
 
-    private PublishUseCase UseCase(IOneNoteGateway? over = null)
+    private PublishUseCase UseCase(IOneNoteGateway? over = null, bool guard = false)
     {
         var used = over ?? gateway;
+        var rootGuard = guard ? new ExportRootGuard(used, clock) : null;
         return new PublishUseCase(
             used,
-            new ReadAccess(used, Store.Read, new SettingsWriter(Store, clock), clock),
+            new ReadAccess(used, Store.Read, new SettingsWriter(Store, clock), clock, rootGuard),
             Store.Read,
-            new WritePipeline(writeLock, used, null, Store.Read, TimeProvider.System),
+            new WritePipeline(writeLock, used, null, Store.Read, TimeProvider.System, guard: rootGuard),
             TimeProvider.System,
             TimeSpan.FromMilliseconds(10));
     }
