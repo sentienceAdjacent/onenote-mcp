@@ -3,7 +3,7 @@ title: 'publish: notebooks and section groups'
 type: 'feature'
 ticket: '7'
 created: '2026-11-17'
-status: 'built'
+status: done
 baseline_revision: '935ed20515257f633dd97caee2945f59f6dfec41'
 route: 'full'
 route_source: 'auto'

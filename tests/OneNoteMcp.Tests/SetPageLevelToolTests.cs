@@ -329,6 +329,43 @@ public sealed class SetPageLevelToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AProtectedSection_AOnceWindowOpenedDuringTheCall_IsReadNotGranted_NothingSent_ARetryChangesTheLevel()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var error = Error(await Tool().SetPageLevel(V2, 2, null, Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Equal(SetPageLevelWrite.ProtectedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+
+        gateway.OnGetHierarchy = null;
+        Ok(await Tool().SetPageLevel(V2, 2, null, Ct));
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task AProtectedSection_AOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck_NothingSent()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so the recheck under the lock (SetPageLevelWrite l.344 from step 4) refuses.
+        Grant();
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(VaultId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, vault, "Vault", writeLock);
+
+        var error = Error(await Tool().SetPageLevel(V2, 2, null, Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(SetPageLevelWrite.ProtectedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
     public async Task AProtectedSection_WithAReadGrant_ChangesTheLevel_AndItsEntryIsEncrypted()
     {
         Grant();
