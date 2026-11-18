@@ -28,7 +28,7 @@ context:
 
 **Always:**
 - AD-7 step 1 (before the lock): the package is a local, fully qualified path to an existing `.onepkg` file, in any folder; network and device paths are `InvalidArgument`, as for `publish`'s target (Phill, Q3). The destination is optional: a folder the caller names, resolved under an export root like `publish`'s target, or by default `<package name> <yyyyMMdd-HHmmss>` (local time) under the first export root, created if missing (Phill, Q2); either must not exist (`FileExists`). Steps 3–4 (under the lock): resolved again, still absent; the pipeline creates it (AD-7). Step 7: `OpenPackage(package, destination)`, then `OpenHierarchy(pathOut)` on the existing path (no create, no grant), then the page-listing wait (Design Notes). Never retried.
-- A failed or timed-out step 7 names the folder (AD-11). `OpenPackage` failing with nothing written: the folder the pipeline created is removed if still empty, and the error says so; anything left behind stays and is named, as for `publish` (a retry needs a new name). `OpenHierarchy` failing after the unpack: the folder stays, `meta.completedSteps` says the unpack was done.
+- A failed or timed-out step 7 names the folder (AD-11). `OpenPackage` failing with nothing written: the folder the pipeline created is removed if still empty, and the error says so; anything left behind stays and is named, as for `publish` (a retry needs a new name). `OpenHierarchy` failing after the unpack: the folder stays, and the error's message says the unpack was done and names the folder (Phill, 2026-11-18: in the message, not a `meta.completedSteps` field).
 - A default destination name carries a timestamp, so a folder name is never reused and no read grant carries over to another copy (Phill, Q6).
 - The result: `meta.outputPath` (the folder) and `meta.objectId` (the opened notebook's ID). No write grant (Q6 of epic 3); every section is protected by path (entry 15). The user closes the copy in OneNote (Q13); the description says so.
 - Messages name IDs and the caller's own paths, never notebook or section names from a package.
@@ -50,7 +50,7 @@ context:
 | Network or device package path | `\\server\x.onepkg` | nothing done | `InvalidArgument` |
 | `OpenPackage` fails, nothing written | bad package | empty folder removed | mapped code, names the folder |
 | `OpenPackage` times out | — | folder kept, named | `Timeout`, `outcomeUnknown` |
-| `OpenHierarchy` fails after the unpack | — | folder kept | mapped code + `meta.completedSteps` |
+| `OpenHierarchy` fails after the unpack | — | folder kept | mapped code; the message says the unpack was done and names the folder |
 | Read a page of the opened copy | no read grant | refused | `ReadNotGranted` (entry 15) |
 | A call after the open | the copy open under the export root, marker present | no `exportRootHoldsNotebooks` warning; writes not refused by the guard | none |
 
@@ -61,6 +61,7 @@ context:
 - Default destination names carry a timestamp (Q6 a).
 - Probe sitting S0 (P1–P3) before this story is built.
 - Destination (Q2, settled 2026-11-17 after it was read back to him: `open_package` imports a package rather than exporting one): optional; by default a timestamped folder under the first export root, unless the caller names one.
+- Completed steps (Phill, 2026-11-18, option a): a failure after the unpack says so in the error's message, not in a `meta.completedSteps` field, because the error envelope's `meta` holds only `correlationId` for every tool, and a field there would change the public error contract (AD-9, AD-14). The plan and spine AD-5 amended to match.
 - Marker file (Phill's final yes on entry 15 Q1, 2026-11-17): `open_package` writes `.onenote-mcp-opened` (`ExportRootGuard.MarkerFileName`) into every folder it creates, the default timestamped one and a named one alike, so the export-root guard doesn't count the opened copy as the user's own notebook.
 
 </frozen-after-approval>
@@ -117,7 +118,7 @@ context:
 - `IOneNoteGateway.OpenPackageAsync` and `OpenHierarchyAsync` have default bodies that refuse with `NotSupported`, so the 21 test gateways needn't change; `ComGateway` and `FakeGateway` implement them. `OpenPackage` runs under `timeouts.publishSeconds`; neither is retried after a disconnect.
 - `ExportTarget.ResolveFolder` shares one private core (`UnderARoot`) with `Resolve`, so the folder variant uses the same root test (`PathUnder`) as exports and AD-21's path rule; its messages say "nothing was opened".
 - `OpenPackageUseCase`: step 1 checks the package (fully qualified, local, existing, `.onepkg`) and resolves the destination (default `<package name> <yyyyMMdd-HHmmss>`, local time); under the lock it re-resolves, creates the folder and writes the marker (a failure removes the folder); step 7 unpacks, checks the reported path is the destination, opens it, and waits for a page (500 ms polls, 5 s). New warning `pagesNotListed`.
-- **Deviation from the plan (for Phill):** "`meta.completedSteps`" after an `OpenHierarchy` failure is carried in the error's message ("The package was unpacked into <folder>; opening it there failed."), not as a meta field: the error envelope's `meta` holds only `correlationId`, and a new field there would change the public error contract (AD-9, AD-14) for every tool.
+- **Deviation from the plan, since decided (Phill, 2026-11-18, option a: keep it in the message; plan and spine amended):** "`meta.completedSteps`" after an `OpenHierarchy` failure is carried in the error's message ("The package was unpacked into <folder>; opening it there failed."), not as a meta field: the error envelope's `meta` holds only `correlationId`, and a new field there would change the public error contract (AD-9, AD-14) for every tool.
 - Contract: `open_package` added to `tool-contract.json` (570 lines added, nothing else changed; `<Version>` stays `0.9.0-rc.1`, unreleased since `v0.8.0-rc.2`); tool counts 28→29, property counts 71→73; `open_package` joins the tools whose skill and README text waits for entry 10.
 
 ## Plan Change Log
@@ -131,7 +132,7 @@ context:
 
 - 2026-11-18, quick lens, iteration 0 (findings written to the build's scratchpad): 9 findings, each checked against the code: 0 high, 2 medium, 5 low, 1 rejected, 1 for Phill. Patched test-first where a test fit (7 new tests in `OpenPackageToolTests`; 4 ran red first, the other 3 passed before the patch and stay as guards); no loopback.
   - **medium, patch.** A cancel or the pipeline's deadline during the page wait turned a successful open into a failure saying "opening it there failed", losing the copy's ID. Fix: the wait ends on a cancel with `pagesNotListed` and the result keeps `meta.objectId`; once `OpenHierarchy` has succeeded the failure note names the opened notebook. Test: `ACancelDuringThePageWait_…`.
-  - **for Phill.** `meta.completedSteps` (frozen block, spine AD-5) is carried in the error message, not a meta field: the error envelope's `meta` holds only `correlationId` for every tool, and adding a field changes the public error contract (AD-9, AD-14). Phill decides: keep the message (and amend the plan and spine) or add the field.
+  - **decided by Phill (2026-11-18, option a).** `meta.completedSteps` (frozen block, spine AD-5) is carried in the error message, not a meta field: the error envelope's `meta` holds only `correlationId` for every tool, and adding a field changes the public error contract (AD-9, AD-14). Phill decides: keep the message (and amend the plan and spine) or add the field.
   - **low, patch.** The "nothing was unpacked, folder removed" branch disagreed with the pipeline's own test of "may have written" (`ComUnavailable`, `Cancelled`, `0x800706BE`). Fix: it now uses `WritePipeline.IsAmbiguous`. Test: `AComUnavailableFromOpenPackage_KeepsTheFolder_…`.
   - **low, patch.** An `OpenHierarchy` failure replaced the gateway's `userAction` and dropped the inner exception. Fix: both kept (a fallback action when there is none). Test: `AnOpenHierarchyFailure_KeepsItsOwnUserAction`.
   - **low, patch.** Missing tests: a file at the destination, `OpenPackage` reporting another path, and a guarded `ReadAccess` and `WritePipeline` after an open (no warning, the next write not refused). Added; all passed on the existing code. Rejected: a unit test for reading the copy's page (entry 15's tests cover the rule; the integration test covers the copy) and for a marker-write failure (no seam short of a file-system fake).
