@@ -128,6 +128,13 @@ public sealed class ReadAccess
             exportRoots = lastValidExportRoots ?? NoSettings().ExportRoots.Paths;
         }
 
+        // Backlog 13 Q3: a root too close to a OneDrive folder is reported as settings.json's problem; the root still protects.
+        if (ExportRootGuard.ShallowProblem(exportRoots, protection.OneDrive) is { } shallow)
+        {
+            return protection.WithWarnings(
+                [.. protection.Warnings, new ToolWarning(ToolWarnings.SettingsInvalid, shallow, "Tell the user, and ask them to change exportRoots in settings.json.")]);
+        }
+
         if (guard is null || await guard.ProblemAsync(exportRoots, ct).ConfigureAwait(false) is not { } problem)
         {
             return protection;

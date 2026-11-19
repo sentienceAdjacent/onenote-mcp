@@ -5,7 +5,9 @@ namespace OneNoteMcp.Core.Writes;
 /// restart: <c>https://d.docs.live.net/&lt;cid&gt;/Documents/…</c>). Only <c>http</c> and <c>https</c> count. The query and
 /// fragment are dropped, the rest is percent-decoded (an invalid escape is left as it is), and then split into segments
 /// at <c>/</c>, empty ones dropped, so a trailing <c>/</c> doesn't matter. A <c>%2F</c> that decodes into a new segment
-/// boundary may make a URL look deeper than it is; for the protection rule that only ever over-protects.
+/// boundary may make a URL look deeper than it is; for the protection rule that only ever over-protects. OneNote reports
+/// these paths unencoded (a literal space was seen), so a <c>#</c> or <c>%</c> may be part of a folder's name: the rule
+/// tests every reading (<see cref="Readings"/>), so a name holding one can't make it fail open.
 /// </summary>
 public static class UrlPath
 {
@@ -51,6 +53,37 @@ public static class UrlPath
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Every way to read <paramref name="path"/>'s segments, if it is an <c>http</c> or <c>https</c> address: with the
+    /// query and fragment dropped or kept, and decoded or not; the <see cref="TryParse"/> reading first. Empty otherwise.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<string>> Readings(string? path)
+    {
+        if (!TryParse(path, out _, out var first))
+        {
+            return [];
+        }
+
+        var rest = path![(path!.IndexOf("://", StringComparison.Ordinal) + 3)..];
+        var cut = rest.IndexOfAny(['?', '#']) is var at and >= 0 ? rest[..at] : rest;
+        var readings = new List<IReadOnlyList<string>> { first };
+        foreach (var form in new[] { rest, cut })
+        {
+            var slash = form.IndexOf('/', StringComparison.Ordinal);
+            var tail = slash < 0 ? string.Empty : form[(slash + 1)..];
+            foreach (var text in new[] { Decode(tail), tail })
+            {
+                IReadOnlyList<string> segments = text.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                if (!readings.Any(r => r.SequenceEqual(segments, StringComparer.Ordinal)))
+                {
+                    readings.Add(segments);
+                }
+            }
+        }
+
+        return readings;
     }
 
     /// <summary>

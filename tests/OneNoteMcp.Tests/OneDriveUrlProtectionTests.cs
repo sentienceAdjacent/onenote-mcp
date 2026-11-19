@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
+using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
 using OneNoteMcp.Server;
@@ -242,18 +243,46 @@ public sealed class OneDriveUrlProtectionTests : IDisposable
     }
 
     [Fact]
-    public void ASettingsFileWithAShallowExportRoot_IsInvalid_NamingTheEntryAndWhy()
+    public async Task AShallowExportRoot_KeepsProtecting_ReadsWarnSettingsInvalid_AndTheGuardRefusesWrites()
     {
-        var path = temp.Combine("settings.json");
-        TestSettings.SetExportRoots(path, ExportRoot, Path.Combine(OneDriveFolder, "Exports"));
-        var store = new SettingsStore(path, temp.Combine("journal")) { OneDrive = () => Folders };
+        // Q3 (ii), as the review found (F1): refusing the whole file would drop the root and fail open, so the root keeps
+        // protecting, reads carry settingsInvalid naming it, and the guard (which disables writes) reports it, with no COM read.
+        var shallow = Path.Combine(OneDriveFolder, "Exports");
+        Directory.CreateDirectory(shallow);
+        TestSettings.SetExportRoots(temp.Combine("settings.json"), shallow);
+        var store = new SettingsStore(temp.Combine("settings.json"), temp.Combine("journal"));
+        var access = new ReadAccess(gateway, store.Read, writer: null, new FakeClock(), oneDrive: () => Folders);
 
-        var snapshot = store.Read();
+        Assert.Equal(SettingsStatus.Ok, store.Read().Status);
+        var protection = await access.ProtectionAsync(Ct);
+        Assert.True(protection.UnderRoot(Path.Combine(shallow, "Copy", "S.one")));
+        Assert.True(protection.UnderRoot($"https://d.docs.live.net/{Cid}/Exports/Copy/S.one"));
+        var warning = Assert.Single(protection.Warnings);
+        Assert.Equal(ToolWarnings.SettingsInvalid, warning.Code);
+        Assert.Contains(shallow, warning.Message, StringComparison.Ordinal);
 
-        Assert.Equal(SettingsStatus.Invalid, snapshot.Status);
-        Assert.Contains("exportRoots[1]", snapshot.Reason, StringComparison.Ordinal);
-        Assert.Contains("OneDrive", snapshot.Reason, StringComparison.Ordinal);
-        Assert.Equal(SettingsStatus.Ok, new SettingsStore(path, temp.Combine("journal")).Read().Status);
+        var guard = new ExportRootGuard(gateway, new FakeClock(), oneDrive: () => Folders);
+        Assert.Contains(OneDriveFolders.ShallowRootReason, await guard.ProblemAsync([shallow], Ct), StringComparison.Ordinal);
+        Assert.Contains(OneDriveFolders.ShallowRootReason, ExportRootGuard.Problem([shallow], NotebooksXml(), _ => false, Folders), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("#Work/S.one")]
+    [InlineData("X/#Group/S.one")]
+    [InlineData("100%25 done/S.one")]
+    public void AFolderNameHoldingAHashOrAnEscape_StillCounts_EveryReadingIsTested(string tail)
+    {
+        // Review F2: OneNote reports these paths unencoded, so '#' may be part of a folder's name, not a fragment.
+        Assert.True(Rule().UnderRoot(Url(tail)));
+    }
+
+    [Fact]
+    public void ARootWhoseOwnNameHoldsAHash_StillMatches()
+    {
+        var root = Path.Combine(OneDriveFolder, "Documents", "C# Exports");
+        var rule = new Protection([root], oneDrive: Folders);
+
+        Assert.True(rule.UnderRoot($"https://d.docs.live.net/{Cid}/Documents/C# Exports/X/S.one"));
     }
 
     // --- The export-root guard (Q4 (i)) ---------------------------------------------------------------------------------

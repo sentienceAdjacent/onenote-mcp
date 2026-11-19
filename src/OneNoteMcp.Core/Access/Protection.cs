@@ -41,8 +41,9 @@ public sealed class Protection
         OneDrive = oneDrive ?? OneDriveFolders.None;
 
         // Made canonical once here, not once per section (a broad read tests every section of every notebook).
-        prefixes = [.. Roots.SelectMany(PathUnder.Prefixes).Distinct(StringComparer.OrdinalIgnoreCase)];
-        tails = Tails(Roots, OneDrive);
+        var forms = Roots.Select(r => (Root: r, Prefixes: PathUnder.Prefixes(r))).ToList();
+        prefixes = [.. forms.SelectMany(f => f.Prefixes).Distinct(StringComparer.OrdinalIgnoreCase)];
+        tails = Tails(forms, OneDrive);
     }
 
     private readonly IReadOnlyList<string> prefixes;
@@ -64,16 +65,14 @@ public sealed class Protection
     /// </summary>
     public string? LocalPathOfUrl(string? url)
     {
-        if (!UrlPath.TryParse(url, out _, out var segments))
+        foreach (var segments in UrlPath.Readings(url))
         {
-            return null;
-        }
-
-        foreach (var (root, tail) in tails)
-        {
-            if (UrlPath.IndexOfTail(segments, tail) is var at and >= 0)
+            foreach (var (root, tail) in tails)
             {
-                return UrlPath.Below(root, segments.Skip(at + tail.Count));
+                if (UrlPath.IndexOfTail(segments, tail) is var at and >= 0)
+                {
+                    return UrlPath.Below(root, segments.Skip(at + tail.Count));
+                }
             }
         }
 
@@ -96,20 +95,20 @@ public sealed class Protection
     /// <summary>True when <paramref name="path"/> lies under a protected root: a local path by <see cref="PathUnder"/>, a web address by a root's tail (backlog 13).</summary>
     public bool UnderRoot(string? path) =>
         PathUnder.IsUnderPrefixes(path, prefixes)
-        || (tails.Count > 0 && UrlPath.TryParse(path, out _, out var segments) && tails.Any(t => UrlPath.IndexOfTail(segments, t.Tail) >= 0));
+        || (tails.Count > 0 && UrlPath.Readings(path).Any(segments => tails.Any(t => UrlPath.IndexOfTail(segments, t.Tail) >= 0)));
 
     /// <summary>Each root's tails (see the class remarks), with the root's plain full path to map a URL back to.</summary>
-    private static List<(string Root, IReadOnlyList<string> Tail)> Tails(IReadOnlyList<string> roots, OneDriveFolders oneDrive)
+    private static List<(string Root, IReadOnlyList<string> Tail)> Tails(IReadOnlyList<(string Root, IReadOnlyList<string> Prefixes)> roots, OneDriveFolders oneDrive)
     {
         var found = new List<(string Root, IReadOnlyList<string> Tail)>();
-        foreach (var root in roots)
+        foreach (var (root, forms) in roots)
         {
             if (PathUnder.Full(root) is not { } full)
             {
                 continue;
             }
 
-            foreach (var form in PathUnder.Prefixes(full))
+            foreach (var form in forms)
             {
                 if (oneDrive.Accounts.Count == 0)
                 {

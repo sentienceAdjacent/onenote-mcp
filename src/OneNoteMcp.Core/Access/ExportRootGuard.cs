@@ -52,6 +52,11 @@ public sealed class ExportRootGuard
         ArgumentNullException.ThrowIfNull(exportRoots);
         ArgumentNullException.ThrowIfNull(fileExists);
         oneDrive ??= OneDriveFolders.None;
+        if (ShallowProblem(exportRoots, oneDrive) is { } shallow)
+        {
+            return shallow;
+        }
+
         var notebooks = HierarchyNode.Notebooks(notebooksXml).Select(n => n.Path).ToList();
         foreach (var root in exportRoots)
         {
@@ -106,10 +111,30 @@ public sealed class ExportRootGuard
             + "Change exportRoots in settings.json to a folder that holds no notebooks.";
     }
 
+    /// <summary>
+    /// Backlog 13, Phill's Q3 (ii) (2026-11-18): the first export root that is a OneDrive folder in
+    /// <paramref name="oneDrive"/>, or one folder below one, as a sentence naming it and why, or null. Such a root keeps
+    /// protecting (its tail is empty or one segment, so it protects broadly: fails closed); reads warn
+    /// <c>settingsInvalid</c> and writes fail with <c>SettingsInvalid</c> until the user changes it. Reads no OneNote.
+    /// </summary>
+    public static string? ShallowProblem(IReadOnlyList<string> exportRoots, OneDriveFolders oneDrive)
+    {
+        ArgumentNullException.ThrowIfNull(exportRoots);
+        ArgumentNullException.ThrowIfNull(oneDrive);
+        return exportRoots.FirstOrDefault(r => oneDrive.ShallowRoot(r) is not null) is { } root
+            ? $"The export root {root} {OneDriveFolders.ShallowRootReason}"
+            : null;
+    }
+
     /// <summary>The problem with <paramref name="exportRoots"/> now, or null; one <c>GetHierarchy</c> per <see cref="CacheFor"/>.</summary>
     public async Task<string?> ProblemAsync(IReadOnlyList<string> exportRoots, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(exportRoots);
+        if (ShallowProblem(exportRoots, oneDrive()) is { } shallow)
+        {
+            return shallow;
+        }
+
         var key = string.Join('|', exportRoots);
         var now = clock.GetUtcNow();
         lock (gate)

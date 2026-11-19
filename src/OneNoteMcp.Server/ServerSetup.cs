@@ -57,9 +57,9 @@ public static class ServerSetup
     {
         // Read side of settings.json (AD-10): every Read() re-reads the file, so one instance serves the process.
         // Backlog 13: the OneDrive folders, read from the registry and environment at most every 30 s, for the protected-by-path
-        // rule (reads, writes, snapshots), the export-root guard and settings.json's check of shallow export roots.
+        // rule (reads, writes, snapshots) and the export-root guard (which also refuses a root too close to a OneDrive folder).
         services.AddSingleton(_ => OneDriveAccounts.ForThisUser());
-        services.AddSingleton(sp => new SettingsStore { OneDrive = sp.GetRequiredService<OneDriveAccounts>().Current });
+        services.AddSingleton(_ => new SettingsStore());
         services.AddSingleton<IProcessProbe, ProcessProbe>();
         // The gateway re-reads timeouts and allowSilentActivation from settings.json at every activation (AD-3).
         services.AddSingleton<IOneNoteGateway>(sp => new ComGateway(sp.GetRequiredService<IProcessProbe>(), sp.GetRequiredService<SettingsStore>()));

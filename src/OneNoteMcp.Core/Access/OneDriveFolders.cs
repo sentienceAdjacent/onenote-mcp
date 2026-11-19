@@ -18,10 +18,10 @@ public sealed record OneDriveAccount(string Folder, string? UrlPrefix = null);
 /// </summary>
 public sealed class OneDriveFolders
 {
-    /// <summary>Why an export root too close to a OneDrive folder is refused (Q3 (ii)); it never quotes the root.</summary>
+    /// <summary>Why an export root too close to a OneDrive folder is refused (Q3 (ii)), after the root's own path.</summary>
     public const string ShallowRootReason =
         "is a OneDrive folder, or one folder below one, so the web addresses OneNote reports under it can't be told apart from the user's own cloud notebooks. "
-        + "Choose a folder at least two levels inside OneDrive, or outside it";
+        + "It still counts as protected, but writes are disabled until exportRoots in settings.json names a folder at least two levels inside OneDrive, or outside it.";
 
     private readonly Lazy<IReadOnlyList<(OneDriveAccount Account, IReadOnlyList<string> Prefixes)>> prefixes;
 
