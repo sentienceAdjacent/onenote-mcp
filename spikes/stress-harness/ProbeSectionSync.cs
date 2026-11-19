@@ -71,9 +71,9 @@ internal static class ProbeSectionSync
                 return Exit.Precondition;
             }
 
-            if (root.Locked || root.Encrypted || root.InRecycleBin)
+            if (root.Locked || root.EncryptedMarker || root.InRecycleBin)
             {
-                Console.WriteLine($"refused: the section is locked {Flag(root.Locked)}, password-protected {Flag(root.Encrypted)}, in the recycle bin {Flag(root.InRecycleBin)}");
+                Console.WriteLine($"refused: the section is locked {Flag(root.Locked)}, password-protected {Flag(root.EncryptedMarker)}, in the recycle bin {Flag(root.InRecycleBin)}");
                 return Exit.Precondition;
             }
 

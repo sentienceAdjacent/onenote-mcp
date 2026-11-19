@@ -121,7 +121,7 @@ Changing the second of two paragraphs in one Outline:
 - The notebook must be open in OneNote, at the path it had (`ObjectNotFound` otherwise: relay `userAction`), and needs the user's write grant.
 - If the restore fails after it created the page, the error names that new, possibly empty page: ask the user to delete it before you try again.
 - Entries are kept for 30 days by default, and may go sooner if the journal passes its size cap. No tool lists them: an entry ID lost with the session (a new session, a restarted client) can't be looked up. So when a change matters, give the user its `meta.journalEntryId`.
-- `create_page` and `restore_from_journal` save no entry. To undo a new or restored page, delete it to the recycle bin with `delete_hierarchy_object` if the user asks (`references/hierarchy-writes.md`, recipe 4), or the user deletes it in OneNote.
+- `create_page` (without `parentPageId`) and `restore_from_journal` save no entry; `create_page` with `parentPageId` saves the section's layout only, which this tool can't restore. To undo a new or restored page, delete it to the recycle bin with `delete_hierarchy_object` if the user asks (`references/hierarchy-writes.md`, recipe 4), or the user deletes it in OneNote.
 
 ## 7. A new page, then its content
 
@@ -129,7 +129,7 @@ Changing the second of two paragraphs in one Outline:
 2. `mcp__plugin_onenote_desktop__update_page_content` with that `pageId` and an XML holding new Outlines only (no `objectID`s), and no `basis`. The warning `noBasis` is expected: nothing can have changed a page you just created.
 3. To set the title, read the new page with `mcp__plugin_onenote_desktop__get_page_content` and change its `one:Title` OE as in recipe 1. In a password-protected section you can't read, leave the title as it is.
 
-Each `create_page` call adds another page. If one fails with `outcomeUnknown: true`, list the section's pages before trying again.
+Each `create_page` call adds another page. If one fails with `outcomeUnknown: true`, list the section's pages before trying again. For a new **subpage**, pass `parentPageId` (`references/hierarchy-writes.md`, recipe 9).
 
 ## When a write fails
 
@@ -139,4 +139,4 @@ Each `create_page` call adds another page. If one fails with `outcomeUnknown: tr
 
 ## What this release can't do
 
-Moving a page, section or section group to another place, deleting a notebook, and deleting images or ink. Tell the user this release can't do it, and that they can do it in OneNote. Never work around it (`SKILL.md`, Writing). Renaming a page is a title edit (recipe 1); renaming sections, section groups and notebooks, reordering, and deleting pages, sections and section groups are in `references/hierarchy-writes.md`.
+Deleting or moving a notebook, and deleting images or ink. Tell the user this release can't do it, and that they can do it in OneNote. Never work around it (`SKILL.md`, Writing). Renaming a page is a title edit (recipe 1); renaming sections, section groups and notebooks, reordering, deleting, moving, merging, restoring from the recycle bin and page levels are in `references/hierarchy-writes.md`; exports and opening packages in `references/exports-and-packages.md`.
