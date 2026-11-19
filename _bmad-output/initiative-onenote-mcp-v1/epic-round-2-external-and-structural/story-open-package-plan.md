@@ -210,9 +210,10 @@ Main now has `OneDriveFolders` (Core/Access; accounts with their folder's plain 
 - S1: `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter FullyQualifiedName~OpenPackageIntegrationTests` with the throwaway open. Expected: all pass, the copy closed, only temp folders.
 - S2: with `onenote-dev`, open a package from Claude Code and read one of its pages: the grant dialog appears; Phill denies once (refused) and allows once (read). Phill closes the copy in OneNote.
 
-**Q3 rework sitting (2026-11-18/19, Phill present, the build at 704a9fd through onenote-dev): S1 and S2 passed; S3 (cleanup) not run, optional.**
+**Q3 rework sitting (2026-11-18/19, Phill present, the build at 704a9fd through onenote-dev): S1, S2 and S3 passed.**
 - S1.1: `open_package` with no destination gave `meta.outputPath` `%LOCALAPPDATA%\OneNoteMcp\opened\<package> 20261118-230451`; the `.onenote-mcp-opened` marker was there and the copy was open in OneNote.
 - S1.2: `get_hierarchy` of the copy at pages scope withheld both sections, each `readNotGranted` naming the opened-copies folder.
 - S1.3: `get_hierarchy` of one section at pages scope raised the grant dialog; Phill chose Deny, and the call returned `ReadNotGranted` ("The user declined the grant dialog").
 - S1.4: the copy stayed open more than 5 minutes (opened 04:04:51Z, checked 04:10Z) and OneNote didn't close, against about 2 minutes when copies were opened inside OneDrive. After Phill restarted OneNote, the copy was still reported by its local AppData path, not a URL, and both sections were still withheld.
 - S2: each was `ExportPathNotAllowed`, with no folder created: a full path in the export root ("isn't inside the opened-copies folder"), `a\b` ("isn't directly inside"), and a path inside the OneDrive folder ("isn't inside"). The OneDrive-specific refusal (a redirected AppData) is unit-tested only.
+- S3 (cleanup): Phill closed the S1 copy in OneNote, with OneNote still running. Its folder, and an unmarked folder beside it, were both backdated 8 days (CreationTime). After an onenote-dev reconnect restarted the server, the copy's folder was gone and the unmarked folder was kept. The unmarked folder was then removed by hand.
