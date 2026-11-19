@@ -19,15 +19,17 @@ namespace OneNoteMcp.Core.UseCases;
 /// too but only as a package (any other format is <see cref="ErrorCode.NotSupported"/>, spike 3.1 X1), a section group is
 /// <see cref="ErrorCode.NotSupported"/> (epic 3 decision Q7), anything else <see cref="ErrorCode.ObjectNotFound"/>. <c>settings.json</c> must be writable
 /// (<see cref="SettingsSnapshot.EnsureWritable"/>). The path is resolved and checked by <see cref="ExportTarget.Resolve"/>.
-/// In a password-protected section a read grant held at the call's start is required, never prompted for (AD-21 Exports), else
-/// <see cref="ErrorCode.ReadNotGranted"/>. A notebook package needs no read grant (AD-21 Exports, 3.2 plan H1): it keeps
+/// A locked section, or a page in one, is <see cref="ErrorCode.SectionLocked"/> first, from the section's own attributes
+/// (backlog 14, Phill 2026-11-19: publish is an exception to AD-21's grant-before-lock order). Then, in a
+/// password-protected section, a read grant held at the call's start is required, never prompted for (AD-21 Exports), else
+/// <see cref="ErrorCode.ReadNotGranted"/>, its advice worded for a section or a page. A notebook package needs no read grant (AD-21 Exports, 3.2 plan H1): it keeps
 /// every protected section encrypted, locked or not (spike 3.1 XP1, XP2). But a notebook holding a locked section anywhere
 /// is <see cref="ErrorCode.SectionLocked"/>, and one holding a section with <c>areAllPagesAvailable</c> false is
 /// <see cref="ErrorCode.NotSupported"/>: packing either raises a modal dialog in OneNote that blocks the call, and a Yes to
 /// it drops those pages (the 3.7 sitting, S1 and S3; Phill, 2026-11-17). The flag marks a page stub added from another
 /// computer that never synced, which nothing on this PC can download (the backlog 10 sitting).</item>
 /// <item value="3">Steps 3 and 4, under the lock: a page is walked to its section again, a section re-read (locked is
-/// <see cref="ErrorCode.SectionLocked"/>; protected since step 1 needs the read grant too), a notebook re-read (it must
+/// <see cref="ErrorCode.SectionLocked"/>, checked first; protected since step 1 needs the read grant too), a notebook re-read (it must
 /// still be one, else <see cref="ErrorCode.ObjectNotFound"/>, and hold no locked section and no unsynced page, as in
 /// step 1), the path is resolved again and
 /// must come out the same, with nothing at it (<see cref="ErrorCode.FileExists"/>), and the target's folder is created,
@@ -75,10 +77,38 @@ public sealed class PublishUseCase : IUseCase
     public const string SectionEmfUserAction =
         "A section's EMF holds only its first page, so publish refuses it. Export each page as EMF (get_hierarchy with scope pages lists them), or the section as PDF.";
 
-    /// <summary>What to do without the read grant a protected page's export needs (AD-21 Exports).</summary>
+    /// <summary>
+    /// What to do without the read grant a protected page's export needs (AD-21 Exports). "This section", not
+    /// "password-protected": a section may be protected by its location alone (backlog 14, Fable F7).
+    /// </summary>
     public const string ReadFirstUserAction =
-        "Exporting a page from a password-protected section needs a read grant for the section, held when the call starts. Read the page "
+        "Exporting a page from this section needs a read grant for the section, held when the call starts. Read the page "
         + "with get_page_content first (it asks the user for the grant), then call publish again. Never run the grant command yourself.";
+
+    /// <summary>
+    /// What to do without the read grant a protected section's export needs (AD-21 Exports; backlog 14). A read of the
+    /// section itself works even when it has no pages (Fable F6).
+    /// </summary>
+    public const string ReadFirstSectionUserAction =
+        "Exporting this section needs a read grant for it, held when the call starts. Read the section with get_hierarchy "
+        + "(startNodeId = the section, scope pages), or one of its pages with get_page_content (either asks the user for the grant), "
+        + "then call publish again. Never run the grant command yourself.";
+
+    /// <summary>What to do when a notebook package holds a section protected by its location alone, with no read grant (3.15 Q3; backlog 14).</summary>
+    public const string ReadFirstNotebookUserAction =
+        "Packing this notebook needs a read grant for each of its sections protected by their location (under an export root, the "
+        + "opened-copies folder or the backups folder), held when the call starts: its package would hold them unencrypted. Read each "
+        + "such section with get_hierarchy (startNodeId = the section, scope pages), which asks the user for the grant, then call "
+        + "publish again. Never run the grant command yourself.";
+
+    /// <summary>
+    /// A locked protected target with no read grant (backlog 14, Fable F9): both steps, so the user isn't asked twice
+    /// without knowing why.
+    /// </summary>
+    public const string UnlockThenGrantUserAction =
+        "Ask the user to unlock the section in OneNote. Exporting from it also needs a read grant: after unlocking, read the section "
+        + "with get_hierarchy (scope pages) or one of its pages with get_page_content (the grant dialog asks the user), then call "
+        + "publish again. Never run the grant command yourself.";
 
     /// <summary>The <c>exportNotEncrypted</c> warning's <c>userAction</c>.</summary>
     public const string NotEncryptedUserAction =
@@ -246,9 +276,12 @@ public sealed class PublishUseCase : IUseCase
             snapshot.EnsureWritable();
             target = ExportTarget.Resolve(path, snapshot.ExportRoots, format);
 
-            // AD-21 Exports: the section's read grant, held now, never prompted. A notebook package needs none (H1).
+            // AD-21 Exports: a locked section first, from its own attributes (backlog 14, Phill 2026-11-19: publish is an
+            // exception to AD-21's grant-before-lock order), then the section's read grant, held now, never prompted.
+            // A notebook package needs none (H1), and its locked sections were refused above.
             if (kind != TargetKind.Notebook)
             {
+                RefuseLocked(section);
                 CheckReadGrant(section);
             }
         }
@@ -292,18 +325,13 @@ public sealed class PublishUseCase : IUseCase
         {
             var now = current ?? throw new InvalidOperationException("Validate runs after ReadAsync.");
 
-            // A section protected since step 1 needs the grant too; the protected check comes before the locked one (AD-21).
-            // A notebook has neither check on its own node: its package keeps protected sections encrypted (H1), and its
-            // sections' locked state was checked in ReadAsync (the 3.7 sitting).
+            // As in step 1: a section locked since then is refused first (backlog 14), and one protected since then needs
+            // the grant too. A notebook has neither check on its own node: its package keeps protected sections encrypted
+            // (H1), and its sections' locked state was checked in ReadAsync (the 3.7 sitting).
             if (kind != TargetKind.Notebook)
             {
+                RefuseLocked(now);
                 CheckReadGrant(now);
-                if (now.Locked)
-                {
-                    throw new OneNoteException(
-                        ErrorCode.SectionLocked,
-                        kind == TargetKind.Section ? $"Section {now.Id} is locked, so it wasn't exported." : $"Section {now.Id} is locked, so page {objectId} wasn't exported.");
-                }
             }
 
             // The path again, under the lock: still inside a root, still the same file, still nothing there.
@@ -422,6 +450,22 @@ public sealed class PublishUseCase : IUseCase
         }
 
         /// <summary>
+        /// A locked section, or a page in one, is <see cref="ErrorCode.SectionLocked"/> (unlock it in OneNote). In a
+        /// protected section with no read grant at the call's start, its advice names the grant too (Fable F9).
+        /// </summary>
+        private void RefuseLocked(HierarchyNode node)
+        {
+            if (node.Locked)
+            {
+                var grantMissing = owner.readAccess.Protection().IsProtected(node) && !owner.readAccess.HoldsReadGrant(node, callStart);
+                throw new OneNoteException(
+                    ErrorCode.SectionLocked,
+                    kind == TargetKind.Section ? $"Section {node.Id} is locked, so it wasn't exported." : $"Section {node.Id} is locked, so page {objectId} wasn't exported.",
+                    userAction: grantMissing ? UnlockThenGrantUserAction : null);
+            }
+        }
+
+        /// <summary>
         /// In a protected section, the read grant held at the call's start (AD-21 Exports), never prompted for: without it
         /// <see cref="ErrorCode.ReadNotGranted"/>; with it, the <c>exportNotEncrypted</c> warning, once.
         /// </summary>
@@ -437,7 +481,12 @@ public sealed class PublishUseCase : IUseCase
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
                     $"Section {node.Id} {Protection.Phrase(node.EncryptedMarker)}, and exporting from it needs a read grant for it held when the call starts, so nothing was exported.",
-                    userAction: ReadFirstUserAction);
+                    userAction: kind switch
+                    {
+                        TargetKind.Section => ReadFirstSectionUserAction,
+                        TargetKind.Notebook => ReadFirstNotebookUserAction,
+                        _ => ReadFirstUserAction,
+                    });
             }
 
             if (!warnedNotEncrypted)
