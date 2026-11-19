@@ -865,6 +865,30 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ATargetMovedToAnotherGrantedNotebookAfterStep1_IsWriteNotGranted_Retryable_NothingWritten()
+    {
+        // Backlog 18 (AD-7, story 3.12): step 1 granted A for the page and for its original section Plans; before the lock
+        // Plans moves to notebook Other, granted too. Step 1's last read is A's fourth self read, the end of the target's grant walk (after the state read's, the parent walk's and the item's).
+        Grant();
+        Grant(OtherPath, OtherId);
+        var before = EntryCount();
+        var moved = NotebookMoveKit.MoveOnRead(gateway, AId, HierarchyScope.Self, () => gateway.Parents[PlansId] = OtherId, nth: 4);
+
+        var error = Error(await Tool().RestoreFromRecycleBin(LostId, null, null, null, Ct), "WriteNotGranted");
+
+        Assert.True(moved.Moved(), "the section never moved: the test's trigger read didn't happen");
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        // The read order is pinned: step 1 reads A's self four times (the move ran on the last), and the re-resolve under the
+        // lock once more (the item's walk) before the target's walk finds Other. If step 1 ever read A one time fewer, the
+        // move would land inside the re-resolve and this count would change.
+        Assert.Equal(5, moved.Reads());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Equal(before, EntryCount());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
     public async Task Step4_RepeatsTheChecks_UnderTheLock()
     {
         // The target is locked between step 1's read and step 3's (the second children read of Plans).

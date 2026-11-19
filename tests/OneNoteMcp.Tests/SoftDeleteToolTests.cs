@@ -702,6 +702,22 @@ public sealed class SoftDeleteToolTests : IDisposable
         await AssertLockFreeAsync();
     }
 
+    [Fact]
+    public async Task APageWhoseSectionMovedToAnotherGrantedNotebookAfterStep1_IsWriteNotGranted_Retryable_NothingWritten()
+    {
+        // Backlog 18 (AD-7, story 3.12): step 1 granted W; before the lock the page's section moves to X, granted too.
+        Grant();
+        NotebookMoveKit.AddGrantedX(gateway, Store, clock);
+        var moved = NotebookMoveKit.MoveOnRead(gateway, NotebookId, HierarchyScope.Self, () => gateway.Parents[SectionId] = NotebookMoveKit.XId);
+
+        var error = Error(await Tool().DeleteHierarchyObject(PageId, ReadBasisArgument(), Ct), "WriteNotGranted");
+
+        Assert.True(moved.Moved(), "the section never moved: the test's trigger read didn't happen");
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        await AssertRefusedAsync();
+    }
+
     // --- Helpers -------------------------------------------------------------------------------------------------------
 
     private void Self(string id, string xml) => gateway.Hierarchies[(id, HierarchyScope.Self)] = "<?xml version=\"1.0\"?>\n" + xml;
