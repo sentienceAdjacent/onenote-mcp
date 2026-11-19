@@ -521,6 +521,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -1100,6 +1114,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -1667,6 +1695,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -2233,6 +2275,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -2820,6 +2876,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -3425,6 +3495,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -3995,6 +4079,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -4567,6 +4665,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -5133,6 +5245,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -5706,6 +5832,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -6268,6 +6408,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -6836,6 +6990,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -7402,6 +7570,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -7971,6 +8153,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -8538,6 +8734,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -9093,6 +9303,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -9697,6 +9921,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -10309,6 +10547,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -10875,6 +11127,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -11445,6 +11711,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -12046,6 +12326,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -12626,6 +12920,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -13232,6 +13540,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -13835,6 +14157,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -14443,6 +14779,20 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
               }
             },
             "required": [
@@ -15005,6 +15355,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -15589,6 +15953,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -16193,6 +16571,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },
@@ -16810,6 +17202,20 @@
                 "items": {
                   "type": "string"
                 },
+                "default": null
+              },
+              "filteredCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "filteredResultId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "default": null
               }
             },

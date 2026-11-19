@@ -3,12 +3,13 @@ title: 'find_pages and find_meta first text block over the inline cap'
 type: 'bugfix'
 ticket: '15'
 created: '2026-11-19'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '27dcff387355e461de0c6277dd455ae7d898ede0'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -74,14 +75,14 @@ The spine's Deferred row already names the direction: "if it happens … amend A
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/Results/ToolMeta.cs` -- `FilteredCount` and `FilteredResultId`, both optional (Q1).
-- [ ] `src/OneNoteMcp.Core/LargeResults/ResultDelivery.cs` -- after building the stored result and its first index: if the first index is over the cap and `meta.filtered` isn't empty, store the list as a second text result. Then rebuild the entry with the meta replaced, so `read_result`'s root index pages match the first index (Q1, Q3).
-- [ ] `src/OneNoteMcp.Core/Access/AccessDecisions.cs` -- `BroadAccess.Warnings`: one `readNotGranted` warning for all withheld sections (Q2).
-- [ ] `tests/OneNoteMcp.Tests/FindResultCapTests.cs` -- un-skip it as the red test. Add reassembly (the second result reads back as the full list), the `read_result` root index matching the first index, and the single warning.
-- [ ] Existing tests that assert one warning per withheld section -- updated to the single warning.
-- [ ] `tests/OneNoteMcp.Tests/Contract/tool-contract.json` -- the two new optional meta fields.
-- [ ] The descriptions of `find_pages`, `find_meta` and `read_result`, and the plugin skill's search reference -- the new fields and the single warning.
-- [ ] The spine: AD-20 amended and its Deferred row resolved; the AD-12 and AD-21 lines on per-section warnings; a memlog entry.
+- [x] `src/OneNoteMcp.Core/Results/ToolMeta.cs` -- `FilteredCount` and `FilteredResultId`, both optional (Q1).
+- [x] `src/OneNoteMcp.Core/LargeResults/ResultDelivery.cs` -- after building the stored result and its first index: if the first index is over the cap and `meta.filtered` isn't empty, store the list as a second text result. Then rebuild the entry with the meta replaced, so `read_result`'s root index pages match the first index (Q1, Q3).
+- [x] `src/OneNoteMcp.Core/Access/AccessDecisions.cs` -- `BroadAccess.Warnings`: one `readNotGranted` warning for all withheld sections (Q2).
+- [x] `tests/OneNoteMcp.Tests/FindResultCapTests.cs` -- un-skip it as the red test. Add reassembly (the second result reads back as the full list), the `read_result` root index matching the first index, and the single warning.
+- [x] Existing tests that assert one warning per withheld section -- updated to the single warning.
+- [x] `tests/OneNoteMcp.Tests/Contract/tool-contract.json` -- the two new optional meta fields.
+- [x] The descriptions of `find_pages`, `find_meta` and `read_result`, and the plugin skill's search reference -- the new fields and the single warning.
+- [x] The spine: AD-20 amended and its Deferred row resolved; the AD-12 and AD-21 lines on per-section warnings; a memlog entry.
 
 **Acceptance Criteria:**
 - Given a stored search result whose header is over the cap, when it returns, then its first text block is at most `results.inlineMaxChars`, and every filtered entry, withheld ID and warning is readable through the tools.
@@ -90,10 +91,48 @@ The spine's Deferred row already names the direction: "if it happens … amend A
 ## Implementation Notes
 
 - 2026-11-19, the measurement only (no fix). `FindResultCapTests` was written first, against the real `ResultDelivery` and `EnvelopeMeasure`. It failed for 1,000 and 2,000 filtered entries and passed for 0 and 200 (figures in the Intent). It is committed skipped so CI stays green until the fix.
+- **Build (2026-11-19).**
+  - `ResultDelivery.Deliver` builds the stored entry, then measures its first index. If that is over the cap and `meta.filtered` isn't empty, it stores the list as JSON text: a `ResultKind.Text` entry under the parent's grants, in the envelope's camelCase. It then rebuilds the entry with `Filtered` null and `FilteredCount` and `FilteredResultId` set, and only after that adds it to the store and returns `FirstIndex`.
+  - `BroadAccess.Warnings` now gives one `readNotGranted` warning: the count, split by marker and by path, with no IDs.
+  - `ToolMeta` gains `FilteredCount` and `FilteredResultId`.
+  - The descriptions of `find_pages`, `find_meta` and `get_hierarchy`, the plugin skill and the README are updated.
+  - The contract snapshot was regenerated from the test's printed JSON: the two new optional fields, and nothing else.
+- **TDD.** `FindResultCapTests` was un-skipped, with new cases added first: 300 withheld sections; reassembly through `read_result`; the root expand paged like the first index; the single warning; a header that fits staying unchanged. 8 of 11 failed, as expected. After the fix all 11 pass.
+  - The reassembly test's first run failed on my own call shape: `read_result` needs a ref, here `/`, with `offset`. I fixed the test, not the code.
+  - The root-index test first asserted fields that `expand` responses never carry. It was corrected to compare paging, which is what the shared header affects.
+- **Existing tests updated to the single warning:** `ProtectedByPathTests.ANotebookFolderUnderARoot_…`, and in `ProtectedSectionToolTests` (and its `ProtectedByPathToolTests` subclass) the broad-hierarchy, locked-vault and find-pages warning lists. One test was renamed `…WithOneWarningForAll`.
+- **Version.** No bump (Decisions).
+- **Verification (2026-11-19).** Build: 0 warnings. Unit tests: 3,794 passed, 3 skipped.
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-19, quick lens: 8 findings. Six were patched and two deferred.
+  - **medium, patch.** The live tests broke on the new shapes:
+    - `ProtectedSectionIntegrationTests` looked for the vault ID in the warning;
+    - `SearchToolsIntegrationTests` read `meta.filtered` unconditionally;
+    - the stress harness counted filtered entries from `meta.filtered` only.
+
+    Fixes: the integration tests now accept the single warning and the moved list. The harness reads a moved list back through `read_result`, the way it reassembles bodies.
+  - **low, patch.** The `read_result` description didn't mention `filteredResultId` or `meta.binary`. Both are now there, and the find tools' success shapes name `filteredCount` and `filteredResultId`.
+  - **low, patch.** The "small body, long header" row had no test. Added `ASmallBody_WithAFilteredListOverTheCap_IsStored_AndTheListMoves`.
+  - **low, patch.** The spine's claim that "nothing else grows" was wrong, because `meta.withheld` does. The spine was reworded and a deferred entry added.
+  - **medium, defer.** The moved list can be evicted by the main result's own store. Rare; recorded in deferred-work.
+  - **low, defer.** The list's store event isn't logged. Recorded in deferred-work.
+- 2026-11-19, Fable check of the spine edit, at low effort: 4 must-fix and 8 optional findings, each checked against the source. All held.
+  - **Must 1 and 2, version: open for Phill.** `v0.9.0-rc.1` was tagged and released on 2026-11-19 at 4abcaa1, after the plan recorded "no bump" on the premise that it was unreleased. AD-14 (before 1.0.0, any contract change bumps the minor version) points to 0.10.0. The memlog now records the question instead of the unsupported reading. The frozen Version decision is left as written, for Phill to revisit.
+  - **Must 3, fixed.** As in the quick lens: `meta.withheld` is named as the remaining growing list, and a Deferred row was added.
+  - **Must 4, fixed in code.** Q1 says every index carries the moved list's fields. They were on the first index only, so `ExpandResponse` and `RunIndexResponse` now add them through `WithMovedList`. Red test first: `ReadResultsIndexes_CarryTheListsCountAndId_AndArePagedLikeTheFirstIndex`.
+  - **Optional 5–12, applied:**
+    - where the list's text arrives (`meta.binary`; the AD-9 sentence widened);
+    - the expiry, eviction and grant conditions of the second result;
+    - the Deferred row now says the fix is built and the live check is pending, and that the cause was measured in a unit test;
+    - the lost per-section reason is noted;
+    - AD-21 prose and the `get_hierarchy` sibling bullet;
+    - the AD-4 and AD-12 lines and AD-20's Contract line;
+    - the memlog `updated` date.
+- Verification after both: build 0 warnings; unit tests 3,795 passed, 3 skipped; the stress harness builds.
 
 ## Verification
 
