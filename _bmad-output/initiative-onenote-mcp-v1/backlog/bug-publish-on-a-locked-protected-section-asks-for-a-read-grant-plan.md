@@ -3,7 +3,7 @@ title: 'publish on a locked protected section asks for a read grant instead of s
 type: 'bugfix'
 ticket: '14'
 created: '2026-11-19'
-status: 'built'
+status: 'done'
 route: 'oneshot'
 route_source: 'auto'
 review: 'quick'
