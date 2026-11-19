@@ -310,17 +310,52 @@ public sealed class PublishToolTests : IDisposable
 
     // --- Protected sections ---------------------------------------------------------------------------------------------
 
-    [Theory]
-    [InlineData(VaultPageId, VaultId)]
-    [InlineData(LockedPageId, LockedId)]
-    public async Task AProtectedPage_WithoutAReadGrant_IsReadNotGranted_EvenWhenLocked(string pageId, string sectionId)
+    [Fact]
+    public async Task AProtectedPage_WithoutAReadGrant_IsReadNotGranted_AndItsAdviceSpeaksOfAPage()
     {
-        var result = await Tool().Publish(pageId, "x.pdf", PublishFormatArgument.Pdf, Ct);
+        var result = await Tool().Publish(VaultPageId, "x.pdf", PublishFormatArgument.Pdf, Ct);
 
         var error = Error(result, "ReadNotGranted");
-        Assert.Contains(sectionId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains(VaultId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal(PublishUseCase.ReadFirstUserAction, error.GetProperty("userAction").GetString());
+        Assert.StartsWith("Exporting a page", PublishUseCase.ReadFirstUserAction, StringComparison.Ordinal);
         Assert.DoesNotContain("Vault", result.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("Secret", result.StructuredContent.Value.GetRawText(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task APageInALockedProtectedSection_WithoutAReadGrant_IsSectionLocked_NotReadNotGranted()
+    {
+        // Backlog 14 (Phill, 2026-11-19, (a)): publish checks locked first, from the section's own attributes (an exception to
+        // AD-21's order), so the agent doesn't ask for a read grant that can't help until the user unlocks it.
+        var result = await Tool().Publish(LockedPageId, "x.pdf", PublishFormatArgument.Pdf, Ct);
+
+        var error = Error(result, "SectionLocked");
+        Assert.Contains(LockedId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Secret", result.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task APageMovedIntoALockedProtectedSectionBeforeTheLock_IsSectionLocked_NotReadNotGranted()
+    {
+        // Backlog 14, step 4: step 1 walks the page to its plain section; right after that read, the page moves into the
+        // locked Vault, with no read grant. Under the lock, locked comes first, as in step 1.
+        var hooked = new HookedGateway(gateway)
+        {
+            BeforeHierarchy = (id, scope) =>
+            {
+                if (id == SectionId && scope == HierarchyScope.Self)
+                {
+                    gateway.Parents[PageId] = LockedId;
+                }
+            },
+        };
+
+        var error = Error(await Tool(hooked).Publish(PageId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SectionLocked");
+
+        Assert.Contains(LockedId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
     }
 
@@ -620,14 +655,24 @@ public sealed class PublishToolTests : IDisposable
         Assert.Equal(4, new FileInfo(Path.Combine(CanonicalRoot, "x.onepkg")).Length);
     }
 
-    [Theory]
-    [InlineData(VaultId)]
-    [InlineData(LockedId)]
-    public async Task AProtectedSection_WithoutAReadGrant_IsReadNotGranted_EvenWhenLocked(string sectionId)
+    [Fact]
+    public async Task AProtectedSection_WithoutAReadGrant_IsReadNotGranted_AndItsAdviceSpeaksOfASection()
     {
-        var error = Error(await Tool().Publish(sectionId, "x.onepkg", PublishFormatArgument.Onepkg, Ct), "ReadNotGranted");
+        var error = Error(await Tool().Publish(VaultId, "x.onepkg", PublishFormatArgument.Onepkg, Ct), "ReadNotGranted");
 
-        Assert.Contains(sectionId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains(VaultId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal(PublishUseCase.ReadFirstSectionUserAction, error.GetProperty("userAction").GetString());
+        Assert.StartsWith("Exporting a password-protected section", PublishUseCase.ReadFirstSectionUserAction, StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task ALockedProtectedSection_WithoutAReadGrant_IsSectionLocked_NotReadNotGranted()
+    {
+        // Backlog 14 (Phill, 2026-11-19, (a)): the 3.10 sitting's reproduction, a locked protected section exported as PDF.
+        var error = Error(await Tool().Publish(LockedId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SectionLocked");
+
+        Assert.Contains(LockedId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
     }
 
