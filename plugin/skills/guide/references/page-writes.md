@@ -11,12 +11,12 @@ Read this before any page write; for creating, renaming, reordering or deleting 
 
 ## The basis
 
-- `mcp__plugin_onenote_desktop__get_page_content` returns `meta.basis`: the page's date and a hash of each Outline and OE. Pass it unchanged as `basis`. The server compares it with the page as it is now: the date, and the hash of each Outline you send with an `objectID` (and of any OE you send outside an Outline, such as the title's). A change since your read fails with `StaleWrite`, and nothing is written.
+- `mcp__plugin_onenote_desktop__get_page_content` returns `meta.basis`: the page's date and a hash of each Outline and OE, and of each image, ink drawing or inserted file placed directly on the page. Pass it unchanged as `basis`. The server compares it with the page as it is now: the date, and the hash of each Outline you send with an `objectID` (and of any OE you send outside an Outline, such as the title's, and of any image, ink or file you send that sits directly on the page). A change since your read fails with `StaleWrite`, and nothing is written.
 - Every successful write returns the page's new `meta.basis`. Use it for the next write to that page instead of re-reading.
 - **Always use the newest basis you have.** After a write, OneNote can change Outlines you didn't send: adding an Outline can change the others' hashes. The write's own `meta.basis` already has the new hashes; an older basis then fails with `StaleWrite` although nobody else changed the page. (The server doesn't send `one:Position`'s `z`, so resending an Outline as read no longer re-stacks the page, and the stacking order can't be changed.)
 - Never edit a basis, reuse one from another page, or build one, except to merge the parts of an oversized page (below). Without `basis`, the write is checked against the page's current version (read internally; nothing of it is returned), not against what you last read, with the warning `noBasis`. Leave it out only for a page you've just created (recipe 7), or in a password-protected section you can't read (recipe 5).
 - A basis that lacks a hash the write needs makes the server skip that check, with the warning `partialBasis`.
-- **An oversized page** (read part by part with `mcp__plugin_onenote_desktop__read_result`): each part's `meta.basis` has the page's date and the hashes of the Outlines and OEs wholly inside that part. For a write, merge the `elementHashes` from the parts of the same `resultId` into one basis that covers every Outline you send.
+- **An oversized page** (read part by part with `mcp__plugin_onenote_desktop__read_result`): each part's `meta.basis` has the page's date and the hashes of the Outlines, OEs and page-level images, ink and files wholly inside that part. For a write, merge the `elementHashes` from the parts of the same `resultId` into one basis that covers every Outline and page-level image, ink or file you send.
 
 ## Page XML for a write
 

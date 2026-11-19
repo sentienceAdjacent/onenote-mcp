@@ -92,7 +92,7 @@ A result too large to return whole (over the server's `results.inlineMaxChars`, 
 - `offset` takes a single element's `ref` only. When a `run` comes back as an index, that index has `run` set, `ref` set to the run's parent, and `chars` set to the run's length: don't offset-read that `ref` up to those `chars`. Read the run's members by their own refs instead.
 - A part is a fragment, not a document: its `one:` prefix is declared in `meta.result.namespaces`. Parts can overlap (a parent's ref and its child's); don't double-count text.
 - Read only what the user needs: use the labels to pick the parts, rather than reading everything.
-- A page part's `meta.basis` has the page's date and the hashes of the Outlines and OEs wholly inside it. To write such a page, merge the `elementHashes` of the parts you read from one `resultId` into one basis that covers every Outline you send (see `references/page-writes.md`).
+- A page part's `meta.basis` has the page's date and the hashes of the Outlines, OEs and page-level images, ink and files wholly inside it. To write such a page, merge the `elementHashes` of the parts you read from one `resultId` into one basis that covers every Outline and page-level image, ink or file you send (see `references/page-writes.md`).
 - A result expires 30 minutes after its last read (by default) and is gone when the server restarts. `ResultExpired` means: repeat the original call to get a new `resultId`.
 
 ## Password-protected sections

@@ -40,7 +40,8 @@ public sealed record PageWriteProblem(PageWriteProblemKind Kind, IReadOnlyList<s
 /// <summary>
 /// Step 4's outcome: the first problem found, or none; and the elements step 5 compares (AD-17 as amended for 2.9 Q5):
 /// every sent <c>one:Outline</c> with an <c>objectID</c>, then every sent <c>one:OE</c> with an <c>objectID</c> outside
-/// any sent Outline (in practice the title's OE), in document order.
+/// any sent Outline (in practice the title's OE), then every sent page-level image, ink drawing or inserted file with an
+/// <c>objectID</c> (backlog 5, <see cref="PageBasis.IsHashed"/>), in document order.
 /// </summary>
 public sealed record PageWriteValidation(PageWriteProblem? Problem, IReadOnlyList<string> HashTargets);
 
@@ -204,6 +205,7 @@ public static class PageWriteCheck
 
         var targets = sent.Descendants(Outline).Select(ObjectId).OfType<string>()
             .Concat(sent.Descendants(OE).Where(oe => !oe.Ancestors(Outline).Any()).Select(ObjectId).OfType<string>())
+            .Concat(sent.Descendants().Where(e => e.Name != Outline && e.Name != OE && PageBasis.IsHashed(e)).Select(ObjectId).OfType<string>())
             .Distinct(StringComparer.Ordinal)
             .ToList();
         return new PageWriteValidation(null, targets);
