@@ -3,7 +3,7 @@ title: 'restore_from_recycle_bin offers a journal entry that an earlier restore 
 type: 'bugfix'
 ticket: '16'
 created: '2026-11-19'
-status: 'built'
+status: 'done'
 baseline_revision: '4abcaa12a8c5344fa4a5fce3fad84e067b7e8804'
 route: 'oneshot'
 route_source: 'auto'
