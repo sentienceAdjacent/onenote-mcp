@@ -80,13 +80,14 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
     /// <summary>
     /// Stories 3.3, 3.13 and 3.7 in one test, so the order is fixed and no check skips for a Vault another test locked:
     /// the Vault's page IDs are read while it is unlocked, then the pause asks Phill to lock it. Locked and with no read
-    /// grant, a page of the Vault and the Vault itself are ReadNotGranted (3.3, 3.13), and MCP Test, which holds the locked
+    /// grant, a page of the Vault and the Vault itself are SectionLocked (backlog 14: locked comes first for publish;
+    /// stories 3.3 and 3.13 had ReadNotGranted), and MCP Test, which holds the locked
     /// Vault, is SectionLocked as a package, naming the Vault's ID, with no Publish call and no file: packing a notebook with
     /// a locked section raises a modal dialog in OneNote (the 3.7 sitting; Phill, 2026-11-17). MCP Test as PDF is
     /// NotSupported. With a read grant, the page and the Vault are SectionLocked. Nothing is published.
     /// </summary>
     [Fact]
-    public async Task TheBallastVault_Locked_IsReadNotGrantedWithoutAGrant_MCPTestAsAPackageIsSectionLocked_AndSectionLockedWithAGrant()
+    public async Task TheBallastVault_Locked_IsSectionLockedWithOrWithoutAGrant_MCPTestAsAPackageIsSectionLocked()
     {
         await using var run = await StartAsync();
         var children = XDocument.Parse(await run.Gateway.GetHierarchyAsync(run.NotebookId, CoreScope.Children, Ct));
@@ -108,13 +109,13 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         var now = XDocument.Parse(await run.Gateway.GetHierarchyAsync(vaultId, CoreScope.Self, Ct)).Root!;
         Assert.True((string?)now.Attribute("locked") is "true" or "1", "The Ballast Vault still reads as unlocked.");
 
-        // No read grant: ReadNotGranted, before the locked check (AD-21), naming the section's ID only; for a page of the
-        // Vault and for the Vault itself (story 3.13).
+        // No read grant: SectionLocked, before the read-grant check (backlog 14, Phill 2026-11-19), naming the section's
+        // ID only; for a page of the Vault and for the Vault itself.
         var refused = await Tool(run).Publish(pageId!, $"vault-{Stamp}.pdf", PublishFormatArgument.Pdf, Ct);
-        Assert.Equal("ReadNotGranted", Code(refused));
+        Assert.Equal("SectionLocked", Code(refused));
         Assert.DoesNotContain(BallastContent.VaultSectionName, refused.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
         var refusedSection = await Tool(run).Publish(vaultId, $"vault-section-{Stamp}.onepkg", PublishFormatArgument.Onepkg, Ct);
-        Assert.Equal("ReadNotGranted", Code(refusedSection));
+        Assert.Equal("SectionLocked", Code(refusedSection));
         Assert.DoesNotContain(BallastContent.VaultSectionName, refusedSection.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
         Assert.Equal(0, run.Gateway.PublishCalls);
 
@@ -145,7 +146,7 @@ public sealed class PublishIntegrationTests(ITestOutputHelper output) : IDisposa
         // Nothing was published in any case.
         Assert.Equal(0, run.Gateway.PublishCalls);
         Assert.False(Directory.Exists(Root) && Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories).Any());
-        output.WriteLine("RESULT vault: page and section ReadNotGranted without a grant, SectionLocked with one; MCP Test's package SectionLocked; nothing published");
+        output.WriteLine("RESULT vault: page and section SectionLocked without a grant and with one; MCP Test's package SectionLocked; nothing published");
     }
 
     /// <summary>Story 3.13: each format, with the extension the plan's Q1 gives it.</summary>
