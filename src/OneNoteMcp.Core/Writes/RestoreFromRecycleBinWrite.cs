@@ -186,6 +186,8 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     /// <summary>The target's journal entry (<c>meta.journalEntryId</c>); null until step 6 stores it.</summary>
     public Guid? JournalEntryId { get; private set; }
 
+    private JournalWritten? journalFile;
+
     /// <summary>
     /// Q7: the notebook or section group in another notebook that the caller named for a plain section, which the use case
     /// then moves the restored section to with <see cref="MoveContainerWrite"/>; null when no move follows.
@@ -251,9 +253,10 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     {
         // AD-8: one hierarchy entry of the target parent; the item stays in the bin if the call fails.
         var now = Planned.State;
-        JournalEntryId = (await services.Snapshot.TakeAsync(
+        journalFile = await services.Snapshot.TakeAsync(
             new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Target.Id, now.TargetXml, services.ReadAccess.Protection()),
-            ct).ConfigureAwait(false)).EntryId;
+            ct).ConfigureAwait(false);
+        JournalEntryId = journalFile.EntryId;
     }
 
     public override async Task<MoveResult> CallAsync(CancellationToken ct)
@@ -275,6 +278,14 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             // The pipeline still decides outcomeUnknown (AD-9); the message names the journal entry (2.11 Q1).
             await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote(ex.Message), ex.ComHResult, ex, ex.OutcomeUnknown, ex.UserAction, ex.Retryable);
+        }
+
+        // Backlog 16 (Phill, 2026-11-19): the restore happened, so its entry now names the soft-delete entry it used, and a
+        // later choice between same-named entries marks that one "already restored". A failed call records nothing; a
+        // rewrite that fails leaves the entry as written, and only the mark is lost.
+        if (now.State.Entry is { } used && journalFile is { } file)
+        {
+            JournalStore.TryAddRestoredFrom(file.Path, file.EntryId, used.EntryId);
         }
 
         var warnings = new List<ToolWarning>();
@@ -494,7 +505,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         if (match.Candidates.Count > 0)
         {
             throw HierarchyWriteSteps.Invalid(
-                string.Create(CultureInfo.InvariantCulture, $"{match.Candidates.Count} journal entries match {Noun(item.Kind)} {ObjectId}, so nothing was restored. Candidates: {SoftDeleteEntries.Describe(match.Candidates)}."),
+                string.Create(CultureInfo.InvariantCulture, $"{match.Candidates.Count} journal entries match {Noun(item.Kind)} {ObjectId}, so nothing was restored. Candidates: {SoftDeleteEntries.Describe(match.Candidates, SoftDeleteEntries.Used(loaded ?? []).ToHashSet())}."),
                 CandidatesUserAction);
         }
 
