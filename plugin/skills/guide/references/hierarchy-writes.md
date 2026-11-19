@@ -141,13 +141,13 @@ When the user asks to delete a page, section or section group and doesn't say "p
 
 `mcp__plugin_onenote_desktop__restore_from_recycle_bin` brings a soft-deleted page or section back out of its notebook's recycle bin.
 
-1. Find it: `mcp__plugin_onenote_desktop__get_hierarchy` on the notebook with `scope: pages` shows its recycle bin, with deleted pages under Deleted Pages and deleted sections directly in the bin.
+1. Find it: `mcp__plugin_onenote_desktop__get_hierarchy` on the notebook with `scope: pages` shows its recycle bin, with deleted pages under Deleted Pages and deleted sections directly in the bin. If more than one item there matches what the user asked for (same names), list them, with the section each was in and when it was deleted, and ask which before restoring.
 2. Call it with `objectId` = the item's ID there. Leave `parentId` out to put it back where it was deleted from; pass `parentId` (and `position`) only when the user names another place.
 3. Tell the user where it is. **A page comes back with a new ID** (`meta.objectId`), as a top-level page; a section keeps its ID.
 
 - **A section group** isn't restored whole: OneNote bins its sections one by one. Restore each section, into a group re-created with `mcp__plugin_onenote_desktop__create_section_group` if the user wants it.
 - **It doesn't know where it came from** (deleted in OneNote, deleted with its group, or older than the journal keeps entries, 30 days by default) or that place is gone: it is refused. Ask the user where it should go and pass `parentId`.
-- **Several candidates** (same-named items): nothing is restored, and the error lists each one's entry ID, deletion time and original parent. Ask the user which, then retry with `entryId`. `restoredByName` means it was matched to its journal entry by name: check with the user that it's the item they meant.
+- **Several candidates:** an item whose recycle-bin ID still matches its delete's journal entry is restored directly. Only when that ID has gone stale (the notebook was reopened, or the section protected) is it matched by name; if several deletes match, nothing is restored, and the error lists each one's entry ID, deletion time and original parent. Ask the user which, then retry with `entryId`. `restoredByName` means it was matched by name: check with the user that it's the item they meant.
 - **A password-protected section** goes back only to where it was deleted from, still protected and locked; another `parentId` is `InvalidArgument`, and if that place is gone the user restores it in OneNote (`ObjectNotFound`).
 - **A section to another notebook** is restored in its own notebook first, then moved (recipe 6). With `restoredNotMoved`, the move was refused or failed: it is restored in its own notebook. Tell the user, and move it if they still want. If the move's outcome is unknown, `meta.parentId` is absent: read both notebooks first.
 - **Grants:** the notebooks' write grants; a page at a `position` in a protected section also needs its read grant.

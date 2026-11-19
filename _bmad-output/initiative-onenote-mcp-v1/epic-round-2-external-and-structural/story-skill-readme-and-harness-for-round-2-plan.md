@@ -101,6 +101,8 @@ What an agent does when it follows the skill: the live step's script (MCP Test; 
   - README: status line, six rows and `create_page`'s, the "(planned)" line removed, Limits, the journal list, a new "Exports and opened packages" section ("Export folders", "Opened packages"), the Files rows. "edit `settings.json` yourself", not "by hand", which `Readme_DocumentsPurge_AsBuilt` forbids.
 - Matrix test audit: the matrix is what an agent does following the skill, the live step's script (as in 5.7); no unit test covers its rows. What the build could check ran: the doc guards, the harness's fake contract run, and `claude plugin validate --strict dist/stage/onenote` (passed; the stage holds all three references).
 
+- 2026-11-19, sitting part A, three doc fixes (docs only): the README now says Claude asks for another name on `FileExists`, as the skill does; recipe 8 and the README say the server lists candidates only for a restore matched by name (a stale recycle-bin ID), and that the agent asks first when several items in the bin match; recipe 1 exports a nested section group with `scope: sections` (as `publish`'s refusal suggests), mirroring the tree in subfolders.
+
 ## Plan Change Log
 
 ## Review Triage Log

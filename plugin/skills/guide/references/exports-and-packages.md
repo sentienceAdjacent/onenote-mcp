@@ -18,7 +18,7 @@ Read this before an export (`mcp__plugin_onenote_desktop__publish`) or before op
 - **A page:** any format: `pdf` (the default), `xps`, `docx`, `mhtml`, `html` (its images may go into a `<name>_files` folder beside it), `emf`, `one`, `onepkg`.
 - **A section:** any format but `emf` (`NotSupported`: a section's EMF holds only its first page). `one` writes a plain OneNote section file.
 - **A notebook:** only `onepkg`, a OneNote package; any other format, the default `pdf` included, is `NotSupported`, so pass `format: onepkg`.
-- **A section group:** `NotSupported`. Export it section by section: read the group with `scope: children`, then export each section into one subfolder named after the group ("Group A\Section 1.pdf", "Group A\Section 2.pdf"), and give the user the list of files. A locked section in it is `SectionLocked`: say so, and go on with the others.
+- **A section group:** `NotSupported`. Export it section by section: read the group with `mcp__plugin_onenote_desktop__get_hierarchy`, `startNodeId` = the group, `scope: sections`, which lists every section in it, nested groups included. Export each section into a folder named after the group, with a subfolder for each nested group, mirroring the tree ("Group A\Section 1.pdf", "Group A\Inner group\Section 2.pdf"), unless the user wants them all in one folder; then give the user the list of files. A locked section in it is `SectionLocked`: say so, and go on with the others.
 
 **Tell the user** where the file is: `meta.outputPath`.
 
