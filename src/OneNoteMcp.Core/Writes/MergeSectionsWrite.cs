@@ -149,19 +149,19 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
         // Step 1, before the lock and before any read: the arguments (AD-7, AD-17).
         if (SourceId.Length == 0)
         {
-            throw Invalid("No sourceId was given, so nothing was merged.", SourceUserAction);
+            throw HierarchyWriteSteps.Invalid("No sourceId was given, so nothing was merged.", SourceUserAction);
         }
 
         if (DestinationId.Length == 0)
         {
-            throw Invalid("No destinationId was given, so nothing was merged.", DestinationUserAction);
+            throw HierarchyWriteSteps.Invalid("No destinationId was given, so nothing was merged.", DestinationUserAction);
         }
 
         HierarchyBasis.CheckArgument(basis, NoBasisUserAction);
 
         if (string.Equals(SourceId, DestinationId, StringComparison.Ordinal))
         {
-            throw Invalid($"sourceId and destinationId are both {SourceId}, so nothing was merged.", SameSectionUserAction);
+            throw HierarchyWriteSteps.Invalid($"sourceId and destinationId are both {SourceId}, so nothing was merged.", SameSectionUserAction);
         }
 
         // Every refusal against a read made now, before any grant dialog (AD-7 step 1).
@@ -252,8 +252,8 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
             await settle(CloudSettle.Time, ct).ConfigureAwait(false);
         }
 
-        var sourceAfter = await ReadChildrenAsync(SourceId, ct).ConfigureAwait(false);
-        var destinationAfter = await ReadChildrenAsync(DestinationId, ct).ConfigureAwait(false);
+        var sourceAfter = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, SourceId, ct).ConfigureAwait(false);
+        var destinationAfter = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, DestinationId, ct).ConfigureAwait(false);
         var copies = NewPages(now.Destination, destinationAfter);
         var expected = now.Source.Children.Count;
         if (copies.Count != expected)
@@ -380,12 +380,12 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
 
         if (now.Source.Kind != HierarchyKind.Section)
         {
-            throw Invalid($"Object {SourceId} is a {HierarchyRules.Noun(now.Source.Kind)}, not a section, so nothing was merged.", SourceUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {SourceId} is a {HierarchyRules.Noun(now.Source.Kind)}, not a section, so nothing was merged.", SourceUserAction);
         }
 
         if (now.Destination.Kind != HierarchyKind.Section)
         {
-            throw Invalid($"Object {DestinationId} is a {HierarchyRules.Noun(now.Destination.Kind)}, not a section, so nothing was merged.", DestinationUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {DestinationId} is a {HierarchyRules.Noun(now.Destination.Kind)}, not a section, so nothing was merged.", DestinationUserAction);
         }
 
         var source = now.Source.Live!;
@@ -412,7 +412,7 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
         if (sourceChildren.Children.Count == 0)
         {
             // Q7 a: an unprobed call is never sent.
-            throw Invalid($"Section {SourceId} has no pages, so there is nothing to merge, and nothing was merged.", EmptySourceUserAction);
+            throw HierarchyWriteSteps.Invalid($"Section {SourceId} has no pages, so there is nothing to merge, and nothing was merged.", EmptySourceUserAction);
         }
 
         var destinationXml = now.DestinationXml ?? throw new InvalidOperationException("The destination wasn't read.");
@@ -430,7 +430,7 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
         string found;
         try
         {
-            var after = await ReadChildrenAsync(DestinationId, ct).ConfigureAwait(false);
+            var after = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, DestinationId, ct).ConfigureAwait(false);
             var copies = NewPages(now.Destination, after);
             found = copies.Count == 0
                 ? $"section {DestinationId} has no new pages"
@@ -470,12 +470,6 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
         return [.. after.Children.Where(c => c.Kind == HierarchyKind.Page && !known.Contains(c.Id)).Select(c => c.Id)];
     }
 
-    private async Task<HierarchyTarget> ReadChildrenAsync(string sectionId, CancellationToken ct)
-    {
-        var xml = await services.Gateway.GetHierarchyAsync(sectionId, HierarchyScope.Children, ct).ConfigureAwait(false);
-        return XmlReads.Readable(() => HierarchyTarget.Read(xml), "GetHierarchy");
-    }
-
     private ToolWarning SettledWarning() => new(
         ToolWarnings.Settled,
         string.Create(CultureInfo.InvariantCulture, $"The merge of section {SourceId} into section {DestinationId} touched a cloud notebook, so the server waited {CloudSettle.Time.TotalSeconds:0} s before re-reading them, as OneNote can fail or block on a write straight after one."),
@@ -489,9 +483,6 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
 
     private OneNoteException DestinationNotFound(string why) =>
         new(ErrorCode.ObjectNotFound, $"Object {DestinationId} {why}, so nothing was merged.", userAction: DestinationUserAction);
-
-    private static OneNoteException Invalid(string message, string userAction) =>
-        new(ErrorCode.InvalidArgument, message, userAction: userAction, retryable: false);
 
     /// <summary>A guard against a parent chain that never ends, as the access walk's.</summary>
     private const int MaxChainDepth = 64;

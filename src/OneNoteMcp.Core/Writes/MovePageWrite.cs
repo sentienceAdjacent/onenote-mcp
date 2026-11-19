@@ -160,17 +160,17 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         // Step 1, before the lock and before any grant: the arguments (AD-7, AD-17).
         if (PageId.Length == 0)
         {
-            throw Invalid("No objectId was given, so nothing was moved.", PageUserAction);
+            throw HierarchyWriteSteps.Invalid("No objectId was given, so nothing was moved.", PageUserAction);
         }
 
         if (TargetId.Length == 0)
         {
-            throw Invalid("No parentId was given, so nothing was moved.", TargetUserAction);
+            throw HierarchyWriteSteps.Invalid("No parentId was given, so nothing was moved.", TargetUserAction);
         }
 
         if (position is < 1)
         {
-            throw Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was moved."), AnyPositionUserAction);
+            throw HierarchyWriteSteps.Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was moved."), AnyPositionUserAction);
         }
 
         // Before the walk tells a page from a section or group, so these two say what fits either (3.12 review).
@@ -222,8 +222,8 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
             targetPath = self.Kind == HierarchyKind.Notebook ? self.Path : null;
         }
 
-        CheckNotebook("Page", PageId, location.Notebook?.Path, pageNotebook);
-        CheckNotebook("Target", TargetId, targetPath, targetNotebook);
+        HierarchyWriteSteps.CheckMoveNotebook("Page", PageId, location.Notebook?.Path, pageNotebook, NotebookChangedUserAction);
+        HierarchyWriteSteps.CheckMoveNotebook("Target", TargetId, targetPath, targetNotebook, NotebookChangedUserAction);
 
         sourceXml = await services.Gateway.GetHierarchyAsync(section.Id, HierarchyScope.Children, ct).ConfigureAwait(false);
     }
@@ -290,8 +290,8 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     {
         ArgumentNullException.ThrowIfNull(result);
         var now = Planned;
-        var sourceAfter = await ReadChildrenAsync(now.Source.Id, ct).ConfigureAwait(false);
-        var targetAfter = await ReadChildrenAsync(now.Target.Id, ct).ConfigureAwait(false);
+        var sourceAfter = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.Source.Id, ct).ConfigureAwait(false);
+        var targetAfter = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.Target.Id, ct).ConfigureAwait(false);
         var newId = MovedPage(now, targetAfter);
         var stillInSource = sourceAfter.Children.Any(c => string.Equals(c.Id, PageId, StringComparison.Ordinal));
 
@@ -324,7 +324,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         {
             Warnings = [.. result.Warnings, new ToolWarning(
                 ToolWarnings.ReadBackFailed,
-                $"The move of page {PageId} to section {TargetId} succeeded, but the sections couldn't be re-read afterwards ({Why(exception)}), so the page's new ID wasn't found.",
+                $"The move of page {PageId} to section {TargetId} succeeded, but the sections couldn't be re-read afterwards ({MoveReadBack.Why(exception)}), so the page's new ID wasn't found.",
                 ReadBackUserAction(TargetId))],
         };
     }
@@ -371,7 +371,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
 
         if (target.Kind != HierarchyKind.Section)
         {
-            throw Invalid(
+            throw HierarchyWriteSteps.Invalid(
                 $"Object {TargetId} is a {HierarchyRules.Noun(target.Kind)}, not a section, and a page moves into a section, so nothing was moved.",
                 TargetUserAction);
         }
@@ -383,7 +383,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
 
         if (string.Equals(target.Id, source.Id, StringComparison.Ordinal))
         {
-            throw Invalid($"Page {PageId} is already in section {TargetId}, so nothing was moved.", SameSectionUserAction);
+            throw HierarchyWriteSteps.Invalid($"Page {PageId} is already in section {TargetId}, so nothing was moved.", SameSectionUserAction);
         }
 
         // 3.4 security review (Phill, 2026-11-17): a position's refusals would show a protected section's page count and where
@@ -397,14 +397,14 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         var at = position ?? count + 1;
         if (at > count + 1)
         {
-            throw Invalid(
+            throw HierarchyWriteSteps.Invalid(
                 string.Create(CultureInfo.InvariantCulture, $"position {at} is past the end of section {TargetId}, so nothing was moved."),
                 PositionUserAction);
         }
 
         if (at <= count && target.Children[at - 1].PageLevel > 1)
         {
-            throw Invalid(
+            throw HierarchyWriteSteps.Invalid(
                 string.Create(CultureInfo.InvariantCulture, $"position {at} in section {TargetId} is inside a subpage block (the page there is a subpage), so nothing was moved."),
                 PositionUserAction);
         }
@@ -412,13 +412,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         var xml = HierarchyUpdate.MovePage(target.Id, target.Children, PageId, at - 1);
 
         // AD-16: the hard gate for UpdateHierarchy. The XML is ours, so a failure is our bug, never sent.
-        var problems = SchemaValidation.Problems(xml);
-        if (problems.Count > 0)
-        {
-            throw new OneNoteException(
-                ErrorCode.Internal,
-                string.Create(CultureInfo.InvariantCulture, $"The server built UpdateHierarchy XML that the 2013 schema refuses ({problems.Count} problem(s), the first at {problems[0].DisplayName ?? "the document"}), so nothing was sent."));
-        }
+        HierarchyWriteSteps.EnsureSchemaValid(xml);
 
         return new Plan(source, target, page, at - 1, xml);
     }
@@ -438,20 +432,6 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         }
     }
 
-    /// <summary>Step 3's compare (AD-7): <paramref name="path"/>'s key must be the one step 1 granted.</summary>
-    private static void CheckNotebook(string what, string id, string? path, WriteTarget? granted)
-    {
-        var key = string.IsNullOrEmpty(path) ? null : GrantKeys.NotebookKey(path);
-        if (granted is null || key is null || !string.Equals(key, granted.NotebookKey, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new OneNoteException(
-                ErrorCode.WriteNotGranted,
-                $"{what} {id} is no longer in notebook {granted?.NotebookId ?? "(unknown)"}, whose write grant this call checked, so nothing was moved.",
-                userAction: NotebookChangedUserAction,
-                retryable: true);
-        }
-    }
-
     /// <summary>
     /// The moved page in <paramref name="after"/>: the one page whose ID the target didn't hold before, preferring the
     /// sent name, then the sent position; null when there is none.
@@ -465,7 +445,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         string inSource;
         try
         {
-            var source = await ReadChildrenAsync(now.Source.Id, ct).ConfigureAwait(false);
+            var source = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.Source.Id, ct).ConfigureAwait(false);
             inSource = source.Children.Any(c => string.Equals(c.Id, PageId, StringComparison.Ordinal))
                 ? $"page {PageId} is still in section {now.Source.Id}"
                 : $"page {PageId} is no longer in section {now.Source.Id}";
@@ -474,13 +454,13 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            inSource = $"section {now.Source.Id} couldn't be re-read ({Why(ex)})";
+            inSource = $"section {now.Source.Id} couldn't be re-read ({MoveReadBack.Why(ex)})";
         }
 
         string inTarget;
         try
         {
-            var target = await ReadChildrenAsync(now.Target.Id, ct).ConfigureAwait(false);
+            var target = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.Target.Id, ct).ConfigureAwait(false);
             var before = now.Target.Children.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
             var copies = target.Children
                 .Where(c => !before.Contains(c.Id) && string.Equals(c.Name, now.Page.Name, StringComparison.Ordinal))
@@ -497,16 +477,10 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            inTarget = $"section {now.Target.Id} couldn't be re-read ({Why(ex)})";
+            inTarget = $"section {now.Target.Id} couldn't be re-read ({MoveReadBack.Why(ex)})";
         }
 
         return $"The move may have left a partial copy. Re-read straight after the failure: {inSource}, and {inTarget}; a copy in a cloud notebook can land later.";
-    }
-
-    private async Task<HierarchyTarget> ReadChildrenAsync(string sectionId, CancellationToken ct)
-    {
-        var xml = await services.Gateway.GetHierarchyAsync(sectionId, HierarchyScope.Children, ct).ConfigureAwait(false);
-        return XmlReads.Readable(() => HierarchyTarget.Read(xml), "GetHierarchy");
     }
 
     /// <summary>
@@ -519,10 +493,8 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         var self = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
         return self.Kind is HierarchyKind.Section or HierarchyKind.SectionGroup
             ? new ObjectIsContainer(PageId, self.Kind)
-            : Invalid($"Object {PageId} is a {HierarchyRules.Noun(self.Kind)}, not a page, section or section group, so nothing was moved.", PageUserAction);
+            : HierarchyWriteSteps.Invalid($"Object {PageId} is a {HierarchyRules.Noun(self.Kind)}, not a page, section or section group, so nothing was moved.", PageUserAction);
     }
-
-    private string WithNote(string message) => FailureNote is { } note ? $"{message} {note}" : message;
 
     private OneNoteException PageNotFound(string why) =>
         new(ErrorCode.ObjectNotFound, $"Page {PageId} {why}, so nothing was moved.", userAction: PageUserAction);
@@ -531,15 +503,10 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         new(ErrorCode.ObjectNotFound, $"Object {TargetId} {why}, so nothing was moved.", userAction: TargetUserAction);
 
     private OneNoteException BadTarget(string why) =>
-        Invalid($"Object {TargetId} {why}, so nothing was moved.", TargetUserAction);
-
-    private static OneNoteException Invalid(string message, string userAction) =>
-        new(ErrorCode.InvalidArgument, message, userAction: userAction, retryable: false);
+        HierarchyWriteSteps.Invalid($"Object {TargetId} {why}, so nothing was moved.", TargetUserAction);
 
     private static string ReadBackUserAction(string targetId) =>
         $"Read section {targetId} with get_hierarchy (scope children) to find the moved page and its current ID.";
-
-    private static string Why(Exception exception) => MoveReadBack.Why(exception);
 
     /// <summary>What step 4 decided: both sections as read, the page, the 0-based index it goes in at, and the XML to send.</summary>
     private sealed record Plan(HierarchyTarget Source, HierarchyTarget Target, SectionPage Page, int Index, string Xml);

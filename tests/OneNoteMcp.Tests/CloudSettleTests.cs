@@ -15,7 +15,6 @@ public sealed class CloudSettleTests
     public void TheSettleTime_IsTenSeconds_AsTheMoves()
     {
         Assert.Equal(TimeSpan.FromSeconds(10), CloudSettle.Time);
-        Assert.Equal(CloudSettle.Time, MoveContainerWrite.SettleTime);
     }
 
     [Fact]

@@ -110,19 +110,19 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
         // Step 1, before the lock and before any grant: the arguments (AD-7, AD-17).
         if (PageId.Length == 0)
         {
-            throw Invalid("No pageId was given, so no level was changed.", PageUserAction);
+            throw HierarchyWriteSteps.Invalid("No pageId was given, so no level was changed.", PageUserAction);
         }
 
         if (level is < 1 or > PageLevels.Deepest)
         {
-            throw Invalid(string.Create(CultureInfo.InvariantCulture, $"level {level} is outside 1 to {PageLevels.Deepest}, so no level was changed."), LevelUserAction);
+            throw HierarchyWriteSteps.Invalid(string.Create(CultureInfo.InvariantCulture, $"level {level} is outside 1 to {PageLevels.Deepest}, so no level was changed."), LevelUserAction);
         }
 
         HierarchyBasis.CheckArgument(basis, NoBasisUserAction);
 
         // The walk first, never a self read: OneNote hides a locked section's pages, while the parent chain answers (3.3 S1).
         var section = await walk.OwningSectionAsync(PageId, ct).ConfigureAwait(false)
-            ?? throw Invalid($"Object {PageId} isn't a page in a section, so no level was changed.", PageUserAction);
+            ?? throw HierarchyWriteSteps.Invalid($"Object {PageId} isn't a page in a section, so no level was changed.", PageUserAction);
         SectionId = section.Id;
 
         // Phill, 2026-11-17 (3.14 Fable review): locked, then the read grant, before the write grant, so the user is never
@@ -235,7 +235,7 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
         ArgumentNullException.ThrowIfNull(exception);
         return new HierarchyWriteResult([.. result.Warnings, new ToolWarning(
             ToolWarnings.ReadBackFailed,
-            $"The level change of page {PageId} succeeded, but section {SectionId} couldn't be re-read afterwards ({Why(exception)}), so what OneNote kept wasn't checked.",
+            $"The level change of page {PageId} succeeded, but section {SectionId} couldn't be re-read afterwards ({MoveReadBack.Why(exception)}), so what OneNote kept wasn't checked.",
             ReadBackUserAction)]);
     }
 
@@ -306,7 +306,7 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
         var levels = PageLevels.Change(section.Children, PageId, level);
         if (levels.Problem != PageLevelProblem.None)
         {
-            throw Invalid(Refusal(levels, section.Children), LevelUserAction);
+            throw HierarchyWriteSteps.Invalid(Refusal(levels, section.Children), LevelUserAction);
         }
 
         if (levels.Unchanged)
@@ -317,13 +317,7 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
         var xml = HierarchyUpdate.Reorder(HierarchyKind.Section, section.Id, levels.Pages);
 
         // AD-16: the hard gate for UpdateHierarchy. The XML is ours, so a failure is our bug, never sent.
-        var problems = SchemaValidation.Problems(xml);
-        if (problems.Count > 0)
-        {
-            throw new OneNoteException(
-                ErrorCode.Internal,
-                string.Create(CultureInfo.InvariantCulture, $"The server built UpdateHierarchy XML that the 2013 schema refuses ({problems.Count} problem(s), the first at {problems[0].DisplayName ?? "the document"}), so nothing was sent."));
-        }
+        HierarchyWriteSteps.EnsureSchemaValid(xml);
 
         return new Plan(page, levels, xml);
     }
@@ -379,16 +373,6 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
 
     private OneNoteException PageNotFound(string why) =>
         new(ErrorCode.ObjectNotFound, $"Page {PageId} {why}, so no level was changed.", userAction: PageUserAction);
-
-    private static OneNoteException Invalid(string message, string userAction) =>
-        new(ErrorCode.InvalidArgument, message, userAction: userAction, retryable: false);
-
-    private static string Why(Exception exception) => exception switch
-    {
-        OneNoteException one => one.Code.ToString(),
-        OperationCanceledException => "the write's deadline or a cancel",
-        _ => exception.GetType().Name,
-    };
 
     /// <summary>What step 4 decided: the page as read, the levels to send, and the XML (null when nothing changes).</summary>
     private sealed record Plan(SectionPage Page, PageLevelResult Levels, string? Xml);

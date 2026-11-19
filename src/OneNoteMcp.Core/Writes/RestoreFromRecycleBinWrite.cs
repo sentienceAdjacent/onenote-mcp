@@ -149,7 +149,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     private bool settled;
 
     /// <param name="loadEntries">Reads every journal entry, from metadata only (<see cref="SoftDeleteEntries.Load"/> of the folder <c>journal.path</c> names now).</param>
-    /// <param name="settle">Waits the cloud settle out (<see cref="MoveContainerWrite.SettleTime"/>); a test passes its own.</param>
+    /// <param name="settle">Waits the cloud settle out (<see cref="CloudSettle.Time"/>); a test passes its own.</param>
     public RestoreFromRecycleBinWrite(
         HierarchyWriteServices services,
         Func<IReadOnlyList<JournalEntry>> loadEntries,
@@ -205,19 +205,19 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         // Step 1, before the lock and before any grant: the arguments (AD-7).
         if (ObjectId.Length == 0)
         {
-            throw Invalid("No objectId was given, so nothing was restored.", ObjectUserAction);
+            throw HierarchyWriteSteps.Invalid("No objectId was given, so nothing was restored.", ObjectUserAction);
         }
 
         if (entryArgument.Length > 0)
         {
             chosenEntry = Guid.TryParse(entryArgument, out var id)
                 ? id
-                : throw Invalid("The argument entryId isn't a GUID, so nothing was restored.", EntryIdUserAction);
+                : throw HierarchyWriteSteps.Invalid("The argument entryId isn't a GUID, so nothing was restored.", EntryIdUserAction);
         }
 
         if (position is < 1)
         {
-            throw Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was restored."), AnyPositionUserAction);
+            throw HierarchyWriteSteps.Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was restored."), AnyPositionUserAction);
         }
 
         // What the item is, its entry, where it goes, and every refusal, before any grant dialog (AD-7 step 1.2).
@@ -227,7 +227,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
 
         // AD-6: the item's notebook, then the target's; the pipeline asks once per notebook and re-resolves both (3.12).
         await services.WriteAccess.CheckAsync(ObjectId, () => ObjectNotFound("isn't inside a notebook"), ct).ConfigureAwait(false);
-        await services.WriteAccess.CheckContainerAsync(now.Target.Id, () => Invalid($"Object {now.Target.Id} isn't inside a notebook, so nothing was restored.", TargetUserAction(now.Item.Kind)), ct).ConfigureAwait(false);
+        await services.WriteAccess.CheckContainerAsync(now.Target.Id, () => HierarchyWriteSteps.Invalid($"Object {now.Target.Id} isn't inside a notebook, so nothing was restored.", TargetUserAction(now.Item.Kind)), ct).ConfigureAwait(false);
     }
 
     public override async Task ReadAsync(CancellationToken ct)
@@ -266,14 +266,14 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         catch (OneNoteException ex) when (ex.ComHResult == MovePageWrite.PartialCopyHResult)
         {
             // As a move (AD-7 Moves): a partial copy is possible, so the outcome is unknown; the code stays (AD-9).
-            await SettleQuietlyAsync(now, ct).ConfigureAwait(false);
+            await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
             var found = await PartialCopyFindingsAsync(now, ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote($"{ex.Message} {found}"), ex.ComHResult, ex, outcomeUnknown: true, ex.UserAction, retryable: false);
         }
         catch (OneNoteException ex) when (FailureNote is not null)
         {
             // The pipeline still decides outcomeUnknown (AD-9); the message names the journal entry (2.11 Q1).
-            await SettleQuietlyAsync(now, ct).ConfigureAwait(false);
+            await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote(ex.Message), ex.ComHResult, ex, ex.OutcomeUnknown, ex.UserAction, ex.Retryable);
         }
 
@@ -300,11 +300,11 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             // Set first: a cancel or the deadline cutting the settle short still reports it (3.12 review).
             settled = true;
             done.Add(SettledWarning());
-            await settle(MoveContainerWrite.SettleTime, ct).ConfigureAwait(false);
+            await settle(CloudSettle.Time, ct).ConfigureAwait(false);
         }
 
         var target = now.State.Target;
-        var after = await ReadChildrenAsync(target.Id, ct).ConfigureAwait(false);
+        var after = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, target.Id, ct).ConfigureAwait(false);
         if (now.State.Item.Kind == SoftDeleteKind.Page)
         {
             var newId = MoveReadBack.NewPageId(target.Children, after, now.State.Item.Name, now.Index);
@@ -394,7 +394,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             var original = entry is null ? null : SectionParent(entry, notebook, liveGroups);
             if (original is null)
             {
-                throw Invalid(
+                throw HierarchyWriteSteps.Invalid(
                     $"Section {ObjectId} has no original parent in its own notebook (no journal entry matches it, or that parent is gone), so it can't be restored there and then moved to {moveTarget}, and nothing was restored.",
                     OwnNotebookParentUserAction);
             }
@@ -422,8 +422,8 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             if (!home.IsDeletedPages)
             {
                 throw home.InRecycleBin
-                    ? Invalid($"Page {ObjectId} is inside section {home.Id}, which is itself in the recycle bin, so nothing was restored.", RecycledSectionPageUserAction)
-                    : Invalid($"Page {ObjectId} isn't in the recycle bin, so nothing was restored.", LiveUserAction);
+                    ? HierarchyWriteSteps.Invalid($"Page {ObjectId} is inside section {home.Id}, which is itself in the recycle bin, so nothing was restored.", RecycledSectionPageUserAction)
+                    : HierarchyWriteSteps.Invalid($"Page {ObjectId} isn't in the recycle bin, so nothing was restored.", LiveUserAction);
             }
 
             var binId = await services.Gateway.GetHierarchyParentAsync(home.Id, ct).ConfigureAwait(false);
@@ -438,34 +438,34 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         var self = XmlReads.Readable(() => HierarchyTarget.Read(selfXml), "GetHierarchy");
         if (self.IsRecycleBin)
         {
-            throw Invalid($"Object {ObjectId} is a notebook's recycle bin itself, so nothing was restored.", BinItselfUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {ObjectId} is a notebook's recycle bin itself, so nothing was restored.", BinItselfUserAction);
         }
 
         if (self.IsDeletedPages)
         {
-            throw Invalid($"Object {ObjectId} is a notebook's Deleted Pages section itself, so nothing was restored.", BinItselfUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {ObjectId} is a notebook's Deleted Pages section itself, so nothing was restored.", BinItselfUserAction);
         }
 
         if (!self.InRecycleBin)
         {
-            throw Invalid($"{Capitalized(self.Kind)} {ObjectId} isn't in the recycle bin, so nothing was restored.", LiveUserAction);
+            throw HierarchyWriteSteps.Invalid($"{Capitalized(self.Kind)} {ObjectId} isn't in the recycle bin, so nothing was restored.", LiveUserAction);
         }
 
         if (self.Kind == HierarchyKind.SectionGroup)
         {
-            throw Invalid($"Object {ObjectId} is a section group, and a section group isn't restored whole, so nothing was restored.", GroupUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {ObjectId} is a section group, and a section group isn't restored whole, so nothing was restored.", GroupUserAction);
         }
 
         if (self.Kind != HierarchyKind.Section)
         {
-            throw Invalid($"Object {ObjectId} is a {HierarchyRules.Noun(self.Kind)}, not a page or section, so nothing was restored.", ObjectUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {ObjectId} is a {HierarchyRules.Noun(self.Kind)}, not a page or section, so nothing was restored.", ObjectUserAction);
         }
 
         var parentId = await services.Gateway.GetHierarchyParentAsync(ObjectId, ct).ConfigureAwait(false);
         var parentXml = string.IsNullOrEmpty(parentId) ? null : await services.Gateway.GetHierarchyAsync(parentId, HierarchyScope.Children, ct).ConfigureAwait(false);
         if (parentXml is null || !XmlReads.Readable(() => HierarchyTarget.Read(parentXml), "GetHierarchy").IsRecycleBin)
         {
-            throw Invalid($"Section {ObjectId} isn't directly in its notebook's recycle bin, so nothing was restored.", ObjectUserAction);
+            throw HierarchyWriteSteps.Invalid($"Section {ObjectId} isn't directly in its notebook's recycle bin, so nothing was restored.", ObjectUserAction);
         }
 
         var binned = XmlReads.Readable(() => HierarchyNode.Sections(parentXml), "GetHierarchy").Select(s => s.Id).ToList();
@@ -482,7 +482,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
                 ? SoftDeleteEntries.PageMatches(mine, ObjectId, item.Name, item.Binned)
                 : SoftDeleteEntries.SectionMatches(mine, ObjectId, item.Name, item.Path, item.Encrypted, item.Binned);
             var chosen = allowed.FirstOrDefault(e => e.EntryId == id)
-                ?? throw Invalid(
+                ?? throw HierarchyWriteSteps.Invalid(
                     string.Create(CultureInfo.InvariantCulture, $"Journal entry {id:D} isn't a soft-delete entry that matches {Noun(item.Kind)} {ObjectId} in its notebook, so nothing was restored."),
                     EntryIdUserAction);
             return (chosen, false);
@@ -493,7 +493,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             : SoftDeleteEntries.MatchSection(mine, ObjectId, item.Name, item.Path, item.Encrypted, item.Binned);
         if (match.Candidates.Count > 0)
         {
-            throw Invalid(
+            throw HierarchyWriteSteps.Invalid(
                 string.Create(CultureInfo.InvariantCulture, $"{match.Candidates.Count} journal entries match {Noun(item.Kind)} {ObjectId}, so nothing was restored. Candidates: {SoftDeleteEntries.Describe(match.Candidates)}."),
                 CandidatesUserAction);
         }
@@ -530,7 +530,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
 
             if (parentArgument.Length > 0 && !string.Equals(parentArgument, own, StringComparison.Ordinal))
             {
-                throw Invalid($"Section {ObjectId} is password-protected and goes back only to {own}, the place it was deleted from, not {parentArgument}, so nothing was restored.", ProtectedElsewhereUserAction);
+                throw HierarchyWriteSteps.Invalid($"Section {ObjectId} is password-protected and goes back only to {own}, the place it was deleted from, not {parentArgument}, so nothing was restored.", ProtectedElsewhereUserAction);
             }
 
             return own;
@@ -545,7 +545,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             ? PageParent(entry, liveSections)
             : SectionParent(entry, notebook, liveGroups);
         return original is null
-            ? throw Invalid(
+            ? throw HierarchyWriteSteps.Invalid(
                 entry is null
                     ? $"No journal entry matches {Noun(item.Kind)} {ObjectId}, and no parentId was given, so nothing was restored."
                     : string.Create(CultureInfo.InvariantCulture, $"The original parent of {Noun(item.Kind)} {ObjectId} (journal entry {entry.EntryId:D}) is gone, and no parentId was given, so nothing was restored."),
@@ -593,7 +593,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         var kind = now.Item.Kind;
         if (HierarchyRules.RecycleBinProblem(target.IsRecycleBin, target.InRecycleBin) is { } binned)
         {
-            throw Invalid($"Object {target.Id} {binned}, so nothing was restored.", TargetUserAction(kind));
+            throw HierarchyWriteSteps.Invalid($"Object {target.Id} {binned}, so nothing was restored.", TargetUserAction(kind));
         }
 
         int at;
@@ -602,7 +602,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         {
             if (target.Kind != HierarchyKind.Section)
             {
-                throw Invalid($"Object {target.Id} is a {HierarchyRules.Noun(target.Kind)}, not a section, and a page is restored into a section, so nothing was restored.", PageTargetUserAction);
+                throw HierarchyWriteSteps.Invalid($"Object {target.Id} is a {HierarchyRules.Noun(target.Kind)}, not a section, and a page is restored into a section, so nothing was restored.", PageTargetUserAction);
             }
 
             if (target.Locked)
@@ -624,12 +624,12 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             at = position ?? count + 1;
             if (at > count + 1)
             {
-                throw Invalid(string.Create(CultureInfo.InvariantCulture, $"position {at} is past the end of section {target.Id}, so nothing was restored."), PagePositionUserAction);
+                throw HierarchyWriteSteps.Invalid(string.Create(CultureInfo.InvariantCulture, $"position {at} is past the end of section {target.Id}, so nothing was restored."), PagePositionUserAction);
             }
 
             if (at <= count && target.Children[at - 1].PageLevel > 1)
             {
-                throw Invalid(string.Create(CultureInfo.InvariantCulture, $"position {at} in section {target.Id} is inside a subpage block (the page there is a subpage), so nothing was restored."), PagePositionUserAction);
+                throw HierarchyWriteSteps.Invalid(string.Create(CultureInfo.InvariantCulture, $"position {at} in section {target.Id} is inside a subpage block (the page there is a subpage), so nothing was restored."), PagePositionUserAction);
             }
 
             xml = HierarchyUpdate.MovePage(target.Id, target.Children, ObjectId, at - 1);
@@ -646,14 +646,14 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             var siblings = target.Children.Where(c => c.Kind == HierarchyKind.Section).ToList();
             if (siblings.Any(c => string.Equals(c.Name, now.Item.Name, StringComparison.OrdinalIgnoreCase)))
             {
-                throw Invalid($"{Capitalized(target.Kind)} {target.Id} already holds a section with the name of {ObjectId}, so nothing was restored.", NameClashUserAction);
+                throw HierarchyWriteSteps.Invalid($"{Capitalized(target.Kind)} {target.Id} already holds a section with the name of {ObjectId}, so nothing was restored.", NameClashUserAction);
             }
 
             // Q7: a caller's position belongs to the move; the restore in place puts the section last.
             at = (now.MoveTargetId is null ? position : null) ?? siblings.Count + 1;
             if (at > siblings.Count + 1)
             {
-                throw Invalid(
+                throw HierarchyWriteSteps.Invalid(
                     string.Create(CultureInfo.InvariantCulture, $"position {at} is past the end of the {siblings.Count} section(s) in {HierarchyRules.Noun(target.Kind)} {target.Id}, so nothing was restored."),
                     SectionPositionUserAction);
             }
@@ -667,13 +667,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         }
 
         // AD-16: the hard gate for UpdateHierarchy. The XML is ours, so a failure is our bug, never sent.
-        var problems = SchemaValidation.Problems(xml);
-        if (problems.Count > 0)
-        {
-            throw new OneNoteException(
-                ErrorCode.Internal,
-                string.Create(CultureInfo.InvariantCulture, $"The server built UpdateHierarchy XML that the 2013 schema refuses ({problems.Count} problem(s), the first at {problems[0].DisplayName ?? "the document"}), so nothing was sent."));
-        }
+        HierarchyWriteSteps.EnsureSchemaValid(xml);
 
         var cloud = kind == SoftDeleteKind.Section && CloudNotebookCreate.IsUrl(now.NotebookPath);
         return new Plan(now, xml, at - 1, cloud);
@@ -684,12 +678,12 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     {
         if (HierarchyRules.RecycleBinProblem(target.IsRecycleBin, target.InRecycleBin) is { } binned)
         {
-            throw Invalid($"Object {target.Id} {binned}, so nothing was restored.", SectionTargetUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {target.Id} {binned}, so nothing was restored.", SectionTargetUserAction);
         }
 
         if (target.Kind is not (HierarchyKind.Notebook or HierarchyKind.SectionGroup))
         {
-            throw Invalid($"Object {target.Id} is a {HierarchyRules.Noun(target.Kind)}, not a notebook or section group, and a section is restored into a notebook or section group, so nothing was restored.", SectionTargetUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {target.Id} is a {HierarchyRules.Noun(target.Kind)}, not a notebook or section group, and a section is restored into a notebook or section group, so nothing was restored.", SectionTargetUserAction);
         }
     }
 
@@ -723,12 +717,9 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         }
 
         return services.ReadAccess.HoldsReadGrantAtLocation(landing, services.ReadAccess.Now())
-            ? Invalid($"Restoring section {ObjectId} would put it at a location that holds another section's read grant, so nothing was restored.", GrantLocationUserAction)
+            ? HierarchyWriteSteps.Invalid($"Restoring section {ObjectId} would put it at a location that holds another section's read grant, so nothing was restored.", GrantLocationUserAction)
             : null;
     }
-
-    /// <summary>The settle before a failed cloud restore's re-read (as a move, 3.12 Q4); a cancel or the deadline cuts it short silently.</summary>
-    private Task SettleQuietlyAsync(Plan now, CancellationToken ct) => CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct);
 
     /// <summary>After <c>0x80042004</c>: what a best-effort re-read of the target finds (as a move, AD-7 Moves).</summary>
     private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)
@@ -737,7 +728,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         string found;
         try
         {
-            var after = await ReadChildrenAsync(target.Id, ct).ConfigureAwait(false);
+            var after = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, target.Id, ct).ConfigureAwait(false);
             if (now.State.Item.Kind == SoftDeleteKind.Section)
             {
                 found = after.Children.Any(c => string.Equals(c.Id, ObjectId, StringComparison.Ordinal))
@@ -768,15 +759,9 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         return $"The restore may have left a partial copy. Re-read straight after the failure: {found}; a copy in a cloud notebook can land later.";
     }
 
-    private async Task<HierarchyTarget> ReadChildrenAsync(string id, CancellationToken ct)
-    {
-        var xml = await services.Gateway.GetHierarchyAsync(id, HierarchyScope.Children, ct).ConfigureAwait(false);
-        return XmlReads.Readable(() => HierarchyTarget.Read(xml), "GetHierarchy");
-    }
-
     private ToolWarning SettledWarning() => new(
         ToolWarnings.Settled,
-        string.Create(CultureInfo.InvariantCulture, $"The restore of {ObjectId} touched a cloud notebook, so the server waited {MoveContainerWrite.SettleTime.TotalSeconds:0} s before re-reading it, as OneNote can fail or block on a write straight after such a move."),
+        string.Create(CultureInfo.InvariantCulture, $"The restore of {ObjectId} touched a cloud notebook, so the server waited {CloudSettle.Time.TotalSeconds:0} s before re-reading it, as OneNote can fail or block on a write straight after such a move."),
         SettledUserAction);
 
     private ToolWarning Differs(string message) => new(ToolWarnings.ReadBackDiffers, message, ReadBackUserAction());
@@ -784,13 +769,8 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     private string ReadBackUserAction() =>
         $"Read {TargetId} with get_hierarchy (scope children) to find where {ObjectId} is now, and its current ID.";
 
-    private string WithNote(string message) => FailureNote is { } note ? $"{message} {note}" : message;
-
     private OneNoteException ObjectNotFound(string why) =>
         new(ErrorCode.ObjectNotFound, $"Object {ObjectId} {why}, so nothing was restored.", userAction: ObjectUserAction);
-
-    private static OneNoteException Invalid(string message, string userAction) =>
-        new(ErrorCode.InvalidArgument, message, userAction: userAction, retryable: false);
 
     private static string TargetUserAction(SoftDeleteKind kind) =>
         kind == SoftDeleteKind.Page ? PageTargetUserAction : SectionTargetUserAction;

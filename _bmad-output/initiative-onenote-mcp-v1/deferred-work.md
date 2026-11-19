@@ -588,7 +588,7 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
   evidence: deferred-work entry "Resending an Outline's own `one:Position z`" (sitting C3) and the 2.12 README-only session; 2.13 plan Answers Q1.
 
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-hierarchy-writes-and-deletes/story-refactor-sweep-plan.md`
-  summary: Next cleanup that touches epic 2's tests (Phill, 2026-11-15, 5.8 Q3): `CreatePageIntegrationTests` builds `SettingsStore(path)` with no journal folder (l.199, l.242), so its store falls back to the default journal folder (the user's, unless the journal override variable is set). Harmless today only because `create_page` writes no journal entry. Give it a journal in its temporary folder, as 5.8 did for `CreateHierarchyIntegrationTests` (`Store(settingsPath)`). Compiled only; integration tests need OneNote.
+  summary: Resolved (story 3.11 refactor sweep, 2026-11-19): `CreatePageIntegrationTests` now gives its store a journal folder in its temporary folder. Original entry: Next cleanup that touches epic 2's tests (Phill, 2026-11-15, 5.8 Q3): `CreatePageIntegrationTests` builds `SettingsStore(path)` with no journal folder (l.199, l.242), so its store falls back to the default journal folder (the user's, unless the journal override variable is set). Harmless today only because `create_page` writes no journal entry. Give it a journal in its temporary folder, as 5.8 did for `CreateHierarchyIntegrationTests` (`Store(settingsPath)`). Compiled only; integration tests need OneNote.
   evidence: 5.8 quick review (deferred finding); `tests/OneNoteMcp.Integration/CreatePageIntegrationTests.cs`; 5.4 plan Implementation Notes (Incident).
 
 ## 5.7 sitting findings (2026-11-15)
