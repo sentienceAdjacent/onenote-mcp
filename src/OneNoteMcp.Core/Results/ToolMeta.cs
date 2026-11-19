@@ -30,6 +30,9 @@ namespace OneNoteMcp.Core.Results;
 /// (the destination), <see cref="JournalEntryId"/> (the destination's <c>hierarchy</c> entry) and <see cref="PageIds"/> (the
 /// copies' new IDs in destination order; Phill, 2026-11-18, 3.6 plan Q1), left out for a password-protected destination
 /// (Q6) and when the read-back failed.
+/// A stored result whose first index wouldn't fit with its <see cref="Filtered"/> list (backlog 15; Phill, 2026-11-19, Q1 a)
+/// carries <see cref="FilteredCount"/> and <see cref="FilteredResultId"/> instead: the list is a second stored result,
+/// JSON text read with <c>read_result</c> (AD-20).
 /// They are null, and so omitted on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
@@ -53,7 +56,9 @@ public sealed record ToolMeta(
     IReadOnlyList<string>? PageEntryIds = null,
     string? OutputPath = null,
     IReadOnlyList<string>? JournalEntryIds = null,
-    IReadOnlyList<string>? PageIds = null);
+    IReadOnlyList<string>? PageIds = null,
+    int? FilteredCount = null,
+    string? FilteredResultId = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read

@@ -49,3 +49,10 @@ context: []
   The ticket's stale Description, reproduction step 5 and Verify lines (written before Phill chose to keep used entries) now describe the marking.
 - Verification after these: build 0 warnings; unit 3800 passed, 3 skipped (after merging main); integration 220 passed, 126 skipped.
 
+## Verification
+
+- Live check, 2026-11-19 (the coordinator's sitting with Phill, on a combined backlog 14+15+16 build):
+  - Two pages named "B16 Dup" were soft-deleted, and one was restored by its recycle-bin ID.
+  - Phill closed and reopened notebook a, so every ID changed.
+  - A by-name restore then listed both candidates: entry `e7a231b3` marked ", already restored", and `2dbb38f1` unmarked.
+  - A retry with `entryId` `2dbb38f1` restored the page.
