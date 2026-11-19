@@ -106,6 +106,7 @@ Sources are relative to the repo root; `E/` is `_bmad-output/initiative-onenote-
   - The sitting did run, since bugs 14–16 were filed from it (13bfe79).
   - Done when 4's unlocked paths therefore rest on unit tests plus an unrecorded sitting.
   - Disposition: **fix now** (record the results).
+  - **Resolved (2026-11-19, 18c9a98):** the plan's Verification now has "Sitting results (2026-11-19)": parts A–D passed, E8's paths were run live with the Vault unlocked (C1–C6), and the harness had 0 mismatches. `deferred-work.md` marks the entry resolved.
 - **R4. 3.7's sitting S1 wasn't re-run after the locked-section refusal (1ac37c3).** Source: `E/story-publish-notebooks-and-section-groups-plan.md:142`. Disposition: **fix now**: re-run it, or record an acceptance.
 - **R5. Open backlog bugs touch the epic's requirements.**
   - Backlog 14: publish on a locked protected section answers `ReadNotGranted` (E2, E8).
@@ -218,7 +219,7 @@ Nothing to follow through on: no retrospective file exists for the previous epic
 All are proposed; nothing was applied.
 
 1. **Cut the release for Done when 5:** tag `v0.9.0-rc.1` through the epic 1 pipeline (R2). Owner: Phill.
-2. **Record 3.10's sitting parts B and C** in its plan, and close `deferred-work.md:634` (R3). Owner: main session, from Phill's sitting notes.
+2. **Record 3.10's sitting parts B and C** in its plan, and close `deferred-work.md:634` (R3). Owner: main session, from Phill's sitting notes. **Resolved (2026-11-19, 18c9a98).**
 3. **Re-run 3.7's sitting S1 on the locked-section build, or record its acceptance** (R4). Owner: Phill, with the main session.
 4. **Reconcile E3 and Done when 1 in the epic file** to the as-built `open_package` destination, an opened-copies folder (R1). This is a spec reconciliation. Owner: the main session, applied with Phill's approval.
 5. **Reword E5's cache sentence** to pages only (R7). This is a spec reconciliation. Owner: the main session, with Phill's approval.
