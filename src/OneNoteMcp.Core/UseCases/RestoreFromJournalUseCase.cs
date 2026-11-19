@@ -247,7 +247,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                 // export root or the backups folder again).
                 throw new OneNoteException(
                     ErrorCode.ObjectNotFound,
-                    $"The section journal entry {entryId:D} came from is no longer protected (password-protected, or under an export root or the backups folder), so nothing was restored.",
+                    $"The section journal entry {entryId:D} came from is no longer protected (password-protected, or under the opened-copies folder, an export root or the backups folder), so nothing was restored.",
                     userAction: $"A protected page goes back only into its own section while it is protected. Ask the user to password-protect that section again in OneNote (same path), or to restore the export root it was under in settings.json, then retry. The entry file {entryFile} stays in the journal folder (journal.path in settings.json) for its 30 days.",
                     retryable: true);
             }

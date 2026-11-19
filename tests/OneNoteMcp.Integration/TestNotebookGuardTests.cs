@@ -507,6 +507,28 @@ public sealed class TestNotebookGuardTests
         Assert.DoesNotContain(@"\OneNoteMcp\", folder, StringComparison.OrdinalIgnoreCase);
     }
 
+    // --- Story 3.8 P2: which notebook the probe may close ------------------------------------------------------------
+
+    private const string Publish = @"C:\Users\me\AppData\Local\OneNoteMcp-Test\probes\publish";
+
+    private static string CopyNotebooks() =>
+        $"<one:Notebooks xmlns:one=\"{Ns}\">"
+        + $"<one:Notebook name=\"MCP Test Throwaway 1112-034716 a\" ID=\"{{T}}\" path=\"C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP Test Throwaway 1112-034716 a\" />"
+        + $"<one:Notebook name=\"p1-copy-1118-180000\" ID=\"{{C}}\" path=\"{Publish}\\p1-copy-1118-180000\" />"
+        + "</one:Notebooks>";
+
+    [Fact]
+    public void EnsureCopyToClose_AcceptsAnOpenCopyUnderThePublishFolder() =>
+        TestNotebookGuard.EnsureCopyToClose("CloseNotebook(copy)", CopyNotebooks(), "{C}", Publish);
+
+    [Fact]
+    public void EnsureCopyToClose_RefusesTheThrowaway_OutsideThePublishFolder() =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureCopyToClose("CloseNotebook(copy)", CopyNotebooks(), "{T}", Publish));
+
+    [Fact]
+    public void EnsureCopyToClose_RefusesANotebookThatIsntOpen() =>
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.EnsureCopyToClose("CloseNotebook(copy)", CopyNotebooks(), "{X}", Publish));
+
     [Fact]
     public void ResolveFolder_HonoursTheOverride() =>
         Assert.Equal(@"D:\Scratch\MCP Test", TestNotebook.ResolveFolder(v => v == TestNotebook.FolderOverrideVariable ? @"D:\Scratch\MCP Test\" : null));

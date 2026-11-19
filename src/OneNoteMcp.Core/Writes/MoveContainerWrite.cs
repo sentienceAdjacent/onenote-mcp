@@ -422,7 +422,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         {
             throw new OneNoteException(
                 ErrorCode.NotSupported,
-                string.Create(CultureInfo.InvariantCulture, $"Section group {ObjectId} holds {below.Count} protected section(s) (password-protected, or under an export root or the backups folder), and moving a protected section isn't supported, so nothing was moved."),
+                string.Create(CultureInfo.InvariantCulture, $"Section group {ObjectId} holds {below.Count} protected section(s) (password-protected, or under the opened-copies folder, an export root or the backups folder), and moving a protected section isn't supported, so nothing was moved."),
                 userAction: ProtectedUserAction,
                 retryable: false);
         }

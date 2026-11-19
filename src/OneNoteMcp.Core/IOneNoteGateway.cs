@@ -87,6 +87,26 @@ public interface IOneNoteGateway
     Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct);
 
     /// <summary>
+    /// An <c>ExternalWrite</c> (AD-7; story 3.8): <c>OpenPackage</c> unpacks the <c>.onepkg</c> at
+    /// <paramref name="packagePath"/> into the existing folder <paramref name="destinationFolder"/> and returns the path
+    /// OneNote reports (spike 3.1 O1: the folder itself). It opens no notebook. Both must be fully qualified local paths;
+    /// anything else is <see cref="ErrorCode.InvalidArgument"/> before COM. It runs under <c>timeouts.publishSeconds</c>
+    /// and is never retried after a disconnect (AD-3). Only the write pipeline calls it, under the write lock (AD-18). A
+    /// gateway that doesn't implement it refuses with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task<string> OpenPackageAsync(string packagePath, string destinationFolder, CancellationToken ct) =>
+        Task.FromException<string>(new OneNoteException(ErrorCode.NotSupported, "OpenPackage isn't available on this gateway.", retryable: false));
+
+    /// <summary>
+    /// <c>AppState</c> (AD-7; story 3.8): <c>OpenHierarchy</c> with <c>cftNone</c> of the existing local folder or file at
+    /// <paramref name="path"/> (never a create), and returns the ID of what it opened. A fully qualified local path only;
+    /// anything else is <see cref="ErrorCode.InvalidArgument"/> before COM. Never retried after a disconnect. A gateway that
+    /// doesn't implement it refuses with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task<string> OpenHierarchyAsync(string path, CancellationToken ct) =>
+        Task.FromException<string>(new OneNoteException(ErrorCode.NotSupported, "OpenHierarchy isn't available on this gateway.", retryable: false));
+
+    /// <summary>
     /// A write (<c>PageWrite</c>, AD-7): applies <paramref name="pageXml"/>, a 2013-schema page document, with
     /// <c>force: false</c>. <paramref name="expectedLastModified"/> is the page's <c>lastModifiedTime</c> exactly as
     /// OneNote wrote it; one that is empty, unparsable or the minimum date is refused with

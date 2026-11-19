@@ -1092,6 +1092,74 @@ public sealed class ComGatewayLifecycleTests
         Assert.Empty(app.Calls);
     }
 
+    // --- Story 3.8: OpenPackage and OpenHierarchy of an existing path ---------------------------------------------------
+
+    [Fact]
+    public async Task OpenPackage_PassesBothPaths_AndReturnsThePathOut()
+    {
+        var app = new FakeApplication { OnCall = _ => @"C:\Exports\Copy" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal(@"C:\Exports\Copy", await gateway.OpenPackageAsync(@"C:\Downloads\Trip.onepkg", @"C:\Exports\Copy", Ct));
+
+        Assert.Equal([[@"C:\Downloads\Trip.onepkg", @"C:\Exports\Copy"]], app.Calls.Where(c => c.Method == "OpenPackage").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("", @"C:\Exports\Copy")]
+    [InlineData(@"Trip.onepkg", @"C:\Exports\Copy")]
+    [InlineData(@"\\server\share\Trip.onepkg", @"C:\Exports\Copy")]
+    [InlineData(@"C:\Downloads\Trip.onepkg", @"Copy")]
+    [InlineData(@"C:\Downloads\Trip.onepkg", @"\\server\share\Copy")]
+    public async Task OpenPackage_ANonLocalPath_IsInvalidArgument_BeforeCom(string package, string destination)
+    {
+        var app = new FakeApplication { OnCall = _ => "x" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.OpenPackageAsync(package, destination, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task OpenPackage_IsNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.OpenPackageAsync(@"C:\Downloads\Trip.onepkg", @"C:\Exports\Copy", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+    }
+
+    [Fact]
+    public async Task OpenHierarchy_OfAnExistingPath_NeverCreates_AndReturnsTheId()
+    {
+        var app = new FakeApplication { OnCall = _ => "{copy}" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal("{copy}", await gateway.OpenHierarchyAsync(@"C:\Exports\Copy", Ct));
+
+        Assert.Equal([[@"C:\Exports\Copy", string.Empty, Com.Interop.CreateFileType.cftNone]], app.Calls.Where(c => c.Method == "OpenHierarchy").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Copy")]
+    [InlineData(@"\\server\share\Copy")]
+    public async Task OpenHierarchy_ANonLocalPath_IsInvalidArgument_BeforeCom(string path)
+    {
+        var app = new FakeApplication { OnCall = _ => "{copy}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.OpenHierarchyAsync(path, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
     [Fact]
     public async Task CreateNotebook_IsNotRetriedAfterADisconnect()
     {

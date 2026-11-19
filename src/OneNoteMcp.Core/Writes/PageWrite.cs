@@ -595,7 +595,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {sectionId} is protected (password-protected, or under an export root or the backups folder) and has no read grant, so a write to it may carry only a basis lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds. Nothing was written.",
+                $"Section {sectionId} is protected (password-protected, or under the opened-copies folder, an export root or the backups folder) and has no read grant, so a write to it may carry only a basis lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds. Nothing was written.",
                 userAction: ReadFirstUserAction);
         }
     }
@@ -907,7 +907,7 @@ public sealed class DeletePageContentWrite : PageWrite
     protected override void CheckWithoutReadGrant(string sectionId) =>
         throw new OneNoteException(
             ErrorCode.ReadNotGranted,
-            $"Section {sectionId} is protected (password-protected, or under an export root or the backups folder), and {Operation} there needs a read grant for it held when the call starts, so nothing was read or written.",
+            $"Section {sectionId} is protected (password-protected, or under the opened-copies folder, an export root or the backups folder), and {Operation} there needs a read grant for it held when the call starts, so nothing was read or written.",
             userAction: ReadFirstUserAction);
 
     public override void Validate()

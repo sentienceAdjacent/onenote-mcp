@@ -33,7 +33,7 @@ namespace OneNoteMcp.Core.Access;
 public sealed class ReadAccess
 {
     public static string WithheldUserAction { get; } =
-        "Reading a protected section (password-protected, or under an export root or the backups folder) needs the user's permission, which you can't give. Tell the user, and if they want it read, "
+        "Reading a protected section (password-protected, or under the opened-copies folder, an export root or the backups folder) needs the user's permission, which you can't give. Tell the user, and if they want it read, "
         + "they can run " + GrantCli.Run("--read-section \"<section name>\"") + ", or accept the dialog that appears when you read one of its pages "
         + "(get_page_content) in a client that supports it, such as Claude Code. Then repeat this call.";
 
@@ -108,7 +108,7 @@ public sealed class ReadAccess
             Access.Protection.RootsOf(NoSettings()),
             [new ToolWarning(
                 ToolWarnings.SettingsInvalid,
-                $"settings.json is unreadable ({snapshot.Reason}), so only the default export folder and the journal's backups folder count as protected locations.",
+                $"settings.json is unreadable ({snapshot.Reason}), so only the default export folder, the opened-copies folder and the journal's backups folder count as protected locations.",
                 "Fix settings.json, then retry.")],
             oneDrive());
     }

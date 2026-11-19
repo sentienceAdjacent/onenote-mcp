@@ -253,7 +253,7 @@ public sealed class PluginPackagingTests
     /// plan keeps that text out of the tracer ("No skill or README text"), as story 3.4's does for the move, story 3.14's for set_page_level, story 3.5's for restore_from_recycle_bin and story 3.6's for merge_sections. Entry 10 writes
     /// it and empties this set.
     /// </summary>
-    private static readonly HashSet<string> DocumentedByRound2Entry10 = new(StringComparer.Ordinal) { "publish", "move_hierarchy_object", "set_page_level", "restore_from_recycle_bin", "merge_sections" };
+    private static readonly HashSet<string> DocumentedByRound2Entry10 = new(StringComparer.Ordinal) { "publish", "move_hierarchy_object", "set_page_level", "restore_from_recycle_bin", "merge_sections", "open_package" };
 
     /// <summary>The contract's tools that the skill and the README must already name.</summary>
     private static IReadOnlyList<string> DocumentedContractToolNames() =>

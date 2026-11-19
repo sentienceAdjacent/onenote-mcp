@@ -225,6 +225,15 @@ public static class ServerSetup
             sp.GetRequiredService<WritePipeline>(),
             TimeProvider.System));
 
+        // Story 3.8: open_package (AD-7 ExternalWrite): unpack a package into the opened-copies folder, outside OneDrive
+        // (Phill's Q3 (a)), open it, wait for its pages.
+        services.AddSingleton(sp => new OpenPackageUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            sp.GetRequiredService<WritePipeline>(),
+            TimeProvider.System,
+            oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
+
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
             .WithTools<GetHierarchyTool>(EnvelopeJson.Options)
@@ -254,7 +263,8 @@ public static class ServerSetup
             .WithTools<MergeSectionsTool>(EnvelopeJson.Options)
             .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options)
-            .WithTools<PublishTool>(EnvelopeJson.Options);
+            .WithTools<PublishTool>(EnvelopeJson.Options)
+            .WithTools<OpenPackageTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.
@@ -288,6 +298,20 @@ public static class ServerSetup
             sp.GetRequiredService<JournalPruner>(),
             TimeProvider.System,
             sp.GetRequiredService<ILogger<JournalPruneService>>()));
+    }
+
+    /// <summary>
+    /// Story 3.8 (Phill's cleanup answer (b)): one sweep of the opened-copies folder when the server starts. <c>Program</c>
+    /// adds it to the server's host; test hosts leave it out, so they never delete a real copy.
+    /// </summary>
+    public static IServiceCollection AddOpenedCopiesSweep(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddHostedService(sp => new OpenedCopiesSweepService(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<SettingsStore>(),
+            TimeProvider.System,
+            sp.GetRequiredService<ILogger<OpenedCopiesSweepService>>()));
     }
 
     /// <summary>

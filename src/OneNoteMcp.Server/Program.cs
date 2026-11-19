@@ -46,7 +46,8 @@ if (args.Length > 0 && args[0] == "grant")
     return await command.RunAsync(args[1..], CancellationToken.None);
 }
 
-// uninstall --purge (AD-19) runs before any host is built and starts no COM: it only removes the server's own files. It
+// uninstall --purge (AD-19) runs before any host is built and starts no OneNote: it only removes the server's own files
+// (and, story 3.8, the opened copies; when OneNote is already running it reads the open notebooks to skip those). It
 // warns about other running OneNoteMcp processes, and removes settings.json under the settings mutex (retro R4).
 if (args.Length > 0 && args[0] == "uninstall")
 {
@@ -57,7 +58,8 @@ if (args.Length > 0 && args[0] == "uninstall")
         interactive: !Console.IsInputRedirected && !Console.IsOutputRedirected,
         uninstallPaths,
         UninstallCommand.OtherServerProcesses,
-        UninstallCommand.SettingsLock(Path.GetFullPath(uninstallPaths.SettingsPath))).Run(args[1..]);
+        UninstallCommand.SettingsLock(Path.GetFullPath(uninstallPaths.SettingsPath)),
+        UninstallCommand.OpenNotebooksIfOneNoteRuns).Run(args[1..]);
 }
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -72,6 +74,7 @@ builder.Services
 
 // The journal prune at startup, in the background, then daily (AD-8).
 builder.Services.AddJournalPruning();
+builder.Services.AddOpenedCopiesSweep();
 
 var host = builder.Build();
 

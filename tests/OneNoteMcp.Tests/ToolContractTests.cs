@@ -83,7 +83,7 @@ public sealed class ToolContractTests
         using var services = BuildServer();
 
         Assert.Equal(
-            ["create_notebook", "create_page", "create_section", "create_section_group", "delete_hierarchy_object", "delete_page_content", "find_meta", "find_pages", "get_binary_page_content", "get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_page_content", "get_special_location", "get_web_hyperlink_to_object", "list_grants", "merge_sections", "move_hierarchy_object", "navigate_to", "permanently_delete_hierarchy_object", "publish", "read_result", "rename_hierarchy_object", "reorder_hierarchy_children", "restore_from_journal", "restore_from_recycle_bin", "set_page_level", "update_page_content"],
+            ["create_notebook", "create_page", "create_section", "create_section_group", "delete_hierarchy_object", "delete_page_content", "find_meta", "find_pages", "get_binary_page_content", "get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_page_content", "get_special_location", "get_web_hyperlink_to_object", "list_grants", "merge_sections", "move_hierarchy_object", "navigate_to", "open_package", "permanently_delete_hierarchy_object", "publish", "read_result", "rename_hierarchy_object", "reorder_hierarchy_children", "restore_from_journal", "restore_from_recycle_bin", "set_page_level", "update_page_content"],
             services.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order(StringComparer.Ordinal));
     }
 

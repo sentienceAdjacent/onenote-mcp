@@ -120,7 +120,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
     public void Publish(string bstrHierarchyID, string bstrTargetFilePath, PublishFormat pfPublishFormat, string bstrCLSIDofExporter) =>
         Answer(nameof(Publish), [bstrHierarchyID, bstrTargetFilePath, pfPublishFormat, bstrCLSIDofExporter]);
 
-    public void OpenPackage(string bstrPathPackage, string bstrPathDest, out string pbstrPathOut) => throw new NotSupportedException();
+    // Recorded and scripted like OpenHierarchy (story 3.8).
+    public void OpenPackage(string bstrPathPackage, string bstrPathDest, out string pbstrPathOut) =>
+        pbstrPathOut = Answer(nameof(OpenPackage), [bstrPathPackage, bstrPathDest]);
 
     public void MergeFiles(string bstrBaseFile, string bstrClientFile, string bstrServerFile, string bstrTargetFile) => throw new NotSupportedException();
 

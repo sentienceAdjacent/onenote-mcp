@@ -110,7 +110,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
 
     /// <summary>AD-21's protected-section <c>userAction</c> (5.2 plan Q1).</summary>
     public const string ProtectedSectionUserAction =
-        "A protected section (password-protected, or under an export root or the backups folder) can't be deleted permanently here: its backup would be written unencrypted. Ask the user to soft-delete it (delete it in OneNote), then empty the recycle bin in OneNote.";
+        "A protected section (password-protected, or under the opened-copies folder, an export root or the backups folder) can't be deleted permanently here: its backup would be written unencrypted. Ask the user to soft-delete it (delete it in OneNote), then empty the recycle bin in OneNote.";
 
     public const string RecycledPageUserAction =
         "This page is already in the recycle bin, where COM can't delete it. Ask the user to empty the recycle bin in OneNote (or delete the page from Deleted Pages there).";
@@ -271,7 +271,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         {
             throw new OneNoteException(
                 ErrorCode.PermanentDeleteNotGranted,
-                $"Section {owner!.Id} is protected (password-protected, or under an export root or the backups folder) and has no read grant, so this delete can't be confirmed in a dialog, and notebook {access.Target.NotebookId} has no permanent-delete grant; {objectId} wasn't deleted.",
+                $"Section {owner!.Id} is protected (password-protected, or under the opened-copies folder, an export root or the backups folder) and has no read grant, so this delete can't be confirmed in a dialog, and notebook {access.Target.NotebookId} has no permanent-delete grant; {objectId} wasn't deleted.",
                 userAction: ProtectedNoConfirmationUserAction);
         }
 
@@ -673,7 +673,7 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {sectionId} is protected (password-protected, or under an export root or the backups folder) and has no read grant, so a permanent delete there may carry only basis.lastModifiedTime. Nothing was deleted.",
+                $"Section {sectionId} is protected (password-protected, or under the opened-copies folder, an export root or the backups folder) and has no read grant, so a permanent delete there may carry only basis.lastModifiedTime. Nothing was deleted.",
                 userAction: ReadFirstUserAction);
         }
     }

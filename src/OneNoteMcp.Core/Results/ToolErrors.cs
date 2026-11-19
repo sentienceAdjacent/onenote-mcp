@@ -22,7 +22,7 @@ public static class ToolErrors
 
     /// <summary>How the user grants a read of a password-protected section (AD-21). The model can't grant it.</summary>
     public static string ReadNotGrantedUserAction { get; } =
-        "This section is protected (password-protected, or under an export root or the backups folder), and reading its content needs the user's permission. Ask the user whether to grant it: "
+        "This section is protected (password-protected, or under the opened-copies folder, an export root or the backups folder), and reading its content needs the user's permission. Ask the user whether to grant it: "
         + "they can run " + Access.GrantCli.Run("--read-section \"<section name>\"") + ", or accept the dialog that appears when you read a page "
         + "of the section in a client that supports it (Claude Code does). Then retry. Don't try to get the content another way, and never run the grant command yourself.";
 
