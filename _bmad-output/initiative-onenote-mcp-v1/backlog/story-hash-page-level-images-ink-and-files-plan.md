@@ -26,6 +26,7 @@ context: []
 
 ## Decisions
 
+- MediaFile (the coordinator, 2026-11-19, pending Phill's confirmation in the Inbox): `one:MediaFile` is not hashed. This departs from the Intent above, which listed it; the drop stands until Phill answers. Its reason (an unexcluded `pathCache`) is inferred, not measured, and is a spine Deferred row with `one:OCRData` (both to probe at a sitting).
 - AD-14 (Phill, 2026-11-19, via the coordinator): no minor version bump. Adding hashes for elements that had none is additive behaviour; the schema and the contract snapshot are unchanged.
 
 ## Implementation Notes
