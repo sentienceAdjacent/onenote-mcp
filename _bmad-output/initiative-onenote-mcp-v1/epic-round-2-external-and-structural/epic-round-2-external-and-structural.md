@@ -6,6 +6,7 @@ covers: [R5, R8]
 after: [epic-safe-writes, epic-hierarchy-writes-and-deletes]
 assignee: ""
 risk: high
+status: done
 ---
 
 # Round 2: exports, move and merge
@@ -138,3 +139,4 @@ Out of scope: app-state and UI tools (epic 4), including `CloseNotebook` for a n
 - Assumption (unconfirmed): COM can't unlock a protected section, so no test unlocks MCP Test's protected section without Phill. Integration tests run the refusals and `SectionLocked` against that section locked. Unit tests on `FakeGateway` cover the unlocked paths. Entry 10 runs them once live, with Phill unlocking the section. Entry 5 is hitl because a recycled protected section needs Phill to unlock a section before its soft delete.
 - Assumption (unconfirmed): test fixtures. Entry 4 owns the second notebook for cross-notebook moves and merges: it reuses a throwaway notebook 5.1 left open (`MCP Test Throwaway 1112-034716 a`, which the integration guard already allows) and grants it in the tests' temporary settings; entries 12 and 6 reuse it. Entry 7 also exports that notebook, which holds no protected section, so entry 8 has a package to open whatever Q1 decides.
 - Decision (Phill 2026-11-12, accepting the plan by answering its questions; drafted in an autonomous inception and revised after its Fable review the same day): the breakdown is entries 1–13 in `tickets.toml`, in one lane, because every story after the spine amendment touches the tool registration and contract snapshot, the error list or the pipeline runner. The tracer bullet is entry 3, `publish` of a page to PDF through the new `ExternalWrite` pipeline. The moves (entries 4 and 12) follow it as the slices least known. If entry 5 (restore) is dropped, entry 6 goes after entry 12. If entry 9 (`merge_files`) is dropped, entry 10 goes after entry 8.
+- Decision (2026-11-19, Phill, Inbox): epic accepted with open items after its retrospective (`epic-round-2-external-and-structural-retrospective.md`). The `v0.9.0-rc.1` tag (Done when 5) stays the tracked open item; status set to done.

@@ -1,14 +1,14 @@
 ---
 epic: epic-round-2-external-and-structural
 date: 2026-11-19
-verdict: rejected
+verdict: accepted-with-open-items
 criteria: declared
 headless: true
 ---
 
 # Retrospective: Round 2 — exports, move and merge
 
-The machine verdict is **rejected**, because Done when 5 isn't met yet: no release tag has shipped. That is a verdict without a human decision, so the epic is recorded as *not accepted* until Phill decides (see the Acceptance verdict section). Every code criterion is met in the evidence.
+**Accepted with open items** by Phill on 2026-11-19 (Inbox). The tag, action item 1, is tracked as the open item for Done when 5. The headless run's machine verdict was **rejected**, because Done when 5 wasn't met; Phill's decision overrides it (see the Acceptance verdict section). Every code criterion is met in the evidence.
 
 ## Epic summary
 
@@ -239,11 +239,11 @@ All are proposed; nothing was applied.
     - 4, through unit tests, the 3.5, 3.6 and 3.7 integration sittings, and the 3.10 sitting, whose parts B and C aren't recorded (R3).
   - Done when 5 is not met: the round-2 methods all have a tool or a dated Decision (E4), and the skill and README were updated (3.10), but no release has shipped (R2).
   - No blocking code finding is open: V1–V7 are deferrable or small.
-- **No human decision was made.** This was a headless run, so the epic is recorded as *not accepted* until Phill decides.
+- **Human decision (Phill, 2026-11-19, Inbox): accepted-with-open-items.** It overrides the machine verdict. The open item is action item 1, the `v0.9.0-rc.1` tag for Done when 5, which stays tracked. The other open findings are ticketed or deferred, as the Action items show.
 
 ## Open questions
 
-1. **Acceptance:** accept the epic with open items now, or wait until the release is tagged? (Done when 5)
+1. **Acceptance:** answered. Phill accepted the epic with open items on 2026-11-19, with the tag tracked.
 2. **V2:** should the opened-copies sweep age a copy by creation time or by last change?
 3. **R4:** does 3.7's S1 need a re-run after the locked-section refusal, or is its unit coverage enough?
 
