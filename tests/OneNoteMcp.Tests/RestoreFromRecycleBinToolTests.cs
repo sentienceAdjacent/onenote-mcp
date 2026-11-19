@@ -700,7 +700,7 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
 
         var root = Ok(await Tool().RestoreFromRecycleBin(DriftId, null, null, null, Ct));
 
-        Assert.Equal([MoveContainerWrite.SettleTime], settles);
+        Assert.Equal([CloudSettle.Time], settles);
         Assert.Equal(CloudId, root.GetProperty("meta").GetProperty("parentId").GetString());
         var codes = root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToList();
         Assert.Equal([ToolWarnings.Settled], codes);

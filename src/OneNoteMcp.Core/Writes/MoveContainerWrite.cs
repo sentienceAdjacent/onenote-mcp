@@ -42,9 +42,6 @@ namespace OneNoteMcp.Core.Writes;
 [SupportedOSPlatform("windows")]
 public sealed class MoveContainerWrite : WriteOperation<MoveResult>
 {
-    /// <summary>The settle after a section or group move that touches a cloud notebook (AD-7 Moves, J5).</summary>
-    public static readonly TimeSpan SettleTime = CloudSettle.Time;
-
     /// <summary>hrFolderDoesNotExist: a group moved to a cloud notebook's root (spike 3.1 Implication 5; J3).</summary>
     public const int FolderMissingHResult = unchecked((int)0x80042018);
 
@@ -122,7 +119,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
     private Plan? plan;
     private bool settled;
 
-    /// <param name="settle">Waits the settle out (<see cref="SettleTime"/>); a test passes its own.</param>
+    /// <param name="settle">Waits the settle out (<see cref="CloudSettle.Time"/>); a test passes its own.</param>
     public MoveContainerWrite(
         HierarchyWriteServices services,
         string correlationId,
@@ -176,17 +173,17 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         // Step 1, before the lock and before any grant: the arguments (AD-7, AD-17).
         if (ObjectId.Length == 0)
         {
-            throw Invalid("No objectId was given, so nothing was moved.", ObjectUserAction);
+            throw HierarchyWriteSteps.Invalid("No objectId was given, so nothing was moved.", ObjectUserAction);
         }
 
         if (TargetId.Length == 0)
         {
-            throw Invalid("No parentId was given, so nothing was moved.", TargetUserAction);
+            throw HierarchyWriteSteps.Invalid("No parentId was given, so nothing was moved.", TargetUserAction);
         }
 
         if (position is < 1)
         {
-            throw Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was moved."), PositionUserAction);
+            throw HierarchyWriteSteps.Invalid(string.Create(CultureInfo.InvariantCulture, $"position {position} is below 1, so nothing was moved."), PositionUserAction);
         }
 
         HierarchyBasis.CheckArgument(basis, NoBasisUserAction);
@@ -203,8 +200,8 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
     {
         // AD-7: both notebooks re-resolved under the lock, before COM.
         var now = await ReadStateAsync(ct).ConfigureAwait(false);
-        CheckNotebook("Object", ObjectId, now.ObjectNotebookPath, objectNotebook);
-        CheckNotebook("Target", TargetId, now.TargetNotebookPath, targetNotebook);
+        HierarchyWriteSteps.CheckMoveNotebook("Object", ObjectId, now.ObjectNotebookPath, objectNotebook, NotebookChangedUserAction);
+        HierarchyWriteSteps.CheckMoveNotebook("Target", TargetId, now.TargetNotebookPath, targetNotebook, NotebookChangedUserAction);
         state = now;
     }
 
@@ -244,14 +241,14 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         {
             // AD-7 Moves: a partial copy is possible, so the outcome is unknown; the code stays (AD-9). On a cloud move the
             // settle runs first (3.12 Q4), so the re-read can see a late copy and the next write waits.
-            await SettleQuietlyAsync(now, ct).ConfigureAwait(false);
+            await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
             var found = await PartialCopyFindingsAsync(now, ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote($"{ex.Message} {found}"), ex.ComHResult, ex, outcomeUnknown: true, ex.UserAction, retryable: false);
         }
         catch (OneNoteException ex) when (ex.ComHResult == FolderMissingHResult && now.State.Self.Kind == HierarchyKind.SectionGroup)
         {
             // J3: OneNote moved nothing; not outcomeUnknown.
-            await SettleQuietlyAsync(now, ct).ConfigureAwait(false);
+            await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
             throw new OneNoteException(
                 ErrorCode.NotSupported,
                 WithNote($"OneNote couldn't move section group {ObjectId} into {HierarchyRules.Noun(now.State.Target.Kind)} {TargetId} (hrFolderDoesNotExist), so nothing was moved."),
@@ -265,7 +262,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         {
             // The pipeline still decides outcomeUnknown (AD-9); the message names the journal entries (2.11 Q1). A cloud move
             // settles first, so the next write waits (3.12 Q4).
-            await SettleQuietlyAsync(now, ct).ConfigureAwait(false);
+            await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote(ex.Message), ex.ComHResult, ex, ex.OutcomeUnknown, ex.UserAction, ex.Retryable);
         }
 
@@ -283,11 +280,11 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
             // Set first: a cancel or the deadline cutting the settle short still reports it (3.12 review).
             settled = true;
             done.Add(SettledWarning());
-            await settle(SettleTime, ct).ConfigureAwait(false);
+            await settle(CloudSettle.Time, ct).ConfigureAwait(false);
         }
 
-        var sourceAfter = await ReadChildrenAsync(now.State.Source.Id, ct).ConfigureAwait(false);
-        var targetAfter = await ReadChildrenAsync(now.State.Target.Id, ct).ConfigureAwait(false);
+        var sourceAfter = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.State.Source.Id, ct).ConfigureAwait(false);
+        var targetAfter = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.State.Target.Id, ct).ConfigureAwait(false);
         var inTarget = targetAfter.Children.Any(c => string.Equals(c.Id, ObjectId, StringComparison.Ordinal));
         var stillInSource = sourceAfter.Children.Any(c => string.Equals(c.Id, ObjectId, StringComparison.Ordinal));
         var noun = HierarchyRules.Noun(now.State.Self.Kind);
@@ -363,7 +360,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
 
         added.Add(new ToolWarning(
             ToolWarnings.ReadBackFailed,
-            $"The move of {ObjectId} to {TargetId} succeeded, but it couldn't be re-read afterwards ({Why(exception)}), so where it is now wasn't confirmed.",
+            $"The move of {ObjectId} to {TargetId} succeeded, but it couldn't be re-read afterwards ({MoveReadBack.Why(exception)}), so where it is now wasn't confirmed.",
             ReadBackUserAction()));
         return result with { Warnings = [.. result.Warnings, .. added] };
     }
@@ -403,7 +400,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         var noun = HierarchyRules.Noun(self.Kind);
         if (self.Kind is not (HierarchyKind.Section or HierarchyKind.SectionGroup))
         {
-            throw Invalid($"Object {ObjectId} is a {noun}, not a section or section group, so nothing was moved.", ObjectUserAction);
+            throw HierarchyWriteSteps.Invalid($"Object {ObjectId} is a {noun}, not a section or section group, so nothing was moved.", ObjectUserAction);
         }
 
         // AD-7, AD-21 (epic 3 Q9, Q14, 3.2 H2): a protected section, or a group holding one, first, locked or not.
@@ -451,7 +448,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
 
         if (string.Equals(now.Source.Id, target.Id, StringComparison.Ordinal))
         {
-            throw Invalid($"{HierarchyBasis.Capitalized(noun)} {ObjectId} is already in {HierarchyRules.Noun(target.Kind)} {TargetId}, so nothing was moved.", SameParentUserAction);
+            throw HierarchyWriteSteps.Invalid($"{HierarchyBasis.Capitalized(noun)} {ObjectId} is already in {HierarchyRules.Noun(target.Kind)} {TargetId}, so nothing was moved.", SameParentUserAction);
         }
 
         // J1 (spike 3.1 Implications 5, 15): out of a cloud notebook straight into another notebook's group fails 0x80042004.
@@ -469,14 +466,14 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         var siblings = target.Children.Where(c => c.Kind == self.Kind).ToList();
         if (siblings.Any(c => string.Equals(c.Name, self.Name, StringComparison.OrdinalIgnoreCase)))
         {
-            throw Invalid($"{HierarchyBasis.Capitalized(HierarchyRules.Noun(target.Kind))} {TargetId} already holds a {noun} with the name of {ObjectId}, so nothing was moved.", NameClashUserAction);
+            throw HierarchyWriteSteps.Invalid($"{HierarchyBasis.Capitalized(HierarchyRules.Noun(target.Kind))} {TargetId} already holds a {noun} with the name of {ObjectId}, so nothing was moved.", NameClashUserAction);
         }
 
         // 3.12 Q1: 1-based among the new parent's children of the same kind; omitted, last.
         var at = position ?? siblings.Count + 1;
         if (at > siblings.Count + 1)
         {
-            throw Invalid(
+            throw HierarchyWriteSteps.Invalid(
                 string.Create(CultureInfo.InvariantCulture, $"position {at} is past the end of the {siblings.Count} {noun}(s) in {HierarchyRules.Noun(target.Kind)} {TargetId}, so nothing was moved."),
                 PositionUserAction);
         }
@@ -489,13 +486,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         var update = HierarchyUpdate.MoveContainer(target.Kind, target.Id, siblings, self.Kind, ObjectId, at - 1);
 
         // AD-16: the hard gate for UpdateHierarchy. The XML is ours, so a failure is our bug, never sent.
-        var problems = SchemaValidation.Problems(update);
-        if (problems.Count > 0)
-        {
-            throw new OneNoteException(
-                ErrorCode.Internal,
-                string.Create(CultureInfo.InvariantCulture, $"The server built UpdateHierarchy XML that the 2013 schema refuses ({problems.Count} problem(s), the first at {problems[0].DisplayName ?? "the document"}), so nothing was sent."));
-        }
+        HierarchyWriteSteps.EnsureSchemaValid(update);
 
         var cloud = CloudNotebookCreate.IsUrl(now.ObjectNotebookPath) || CloudNotebookCreate.IsUrl(now.TargetNotebookPath);
         return new Plan(now, update, cloud);
@@ -533,28 +524,11 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         var message = self.Kind == HierarchyKind.Section
             ? $"Moving section {ObjectId} would put it at a location that holds a read grant, so nothing was moved."
             : string.Create(CultureInfo.InvariantCulture, $"Moving section group {ObjectId} would put {taken} section(s) inside it at locations that hold a read grant, so nothing was moved.");
-        return Invalid(message, GrantLocationUserAction);
-    }
-
-    /// <summary>Step 3's compare (AD-7): <paramref name="path"/>'s key must be the one step 1 granted.</summary>
-    private static void CheckNotebook(string what, string id, string? path, WriteTarget? granted)
-    {
-        var key = string.IsNullOrEmpty(path) ? null : GrantKeys.NotebookKey(path);
-        if (granted is null || key is null || !GrantKeys.Comparer.Equals(key, granted.NotebookKey))
-        {
-            throw new OneNoteException(
-                ErrorCode.WriteNotGranted,
-                $"{what} {id} is no longer in notebook {granted?.NotebookId ?? "(unknown)"}, whose write grant this call checked, so nothing was moved.",
-                userAction: NotebookChangedUserAction,
-                retryable: true);
-        }
+        return HierarchyWriteSteps.Invalid(message, GrantLocationUserAction);
     }
 
     private static bool SameKey(string? a, string? b) =>
         !string.IsNullOrEmpty(a) && !string.IsNullOrEmpty(b) && GrantKeys.Comparer.Equals(GrantKeys.NotebookKey(a), GrantKeys.NotebookKey(b));
-
-    /// <summary>The settle before a failed cloud move's re-read (3.12 Q4); a cancel or the deadline cuts it short silently.</summary>
-    private Task SettleQuietlyAsync(Plan now, CancellationToken ct) => CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct);
 
     /// <summary>After <c>0x80042004</c>: where the node is, as far as a best-effort re-read of both parents can tell (AD-7 Moves).</summary>
     private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)
@@ -563,7 +537,7 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         string inSource;
         try
         {
-            var source = await ReadChildrenAsync(now.State.Source.Id, ct).ConfigureAwait(false);
+            var source = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.State.Source.Id, ct).ConfigureAwait(false);
             inSource = source.Children.Any(c => string.Equals(c.Id, ObjectId, StringComparison.Ordinal))
                 ? $"{ObjectId} is still under {now.State.Source.Id}"
                 : $"{ObjectId} is no longer under {now.State.Source.Id}";
@@ -572,13 +546,13 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            inSource = $"{now.State.Source.Id} couldn't be re-read ({Why(ex)})";
+            inSource = $"{now.State.Source.Id} couldn't be re-read ({MoveReadBack.Why(ex)})";
         }
 
         string inTarget;
         try
         {
-            var target = await ReadChildrenAsync(now.State.Target.Id, ct).ConfigureAwait(false);
+            var target = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.State.Target.Id, ct).ConfigureAwait(false);
             var before = now.State.Target.Children.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
             var there = target.Children.Any(c => string.Equals(c.Id, ObjectId, StringComparison.Ordinal));
             var copies = target.Children
@@ -597,38 +571,25 @@ public sealed class MoveContainerWrite : WriteOperation<MoveResult>
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            inTarget = $"{TargetId} couldn't be re-read ({Why(ex)})";
+            inTarget = $"{TargetId} couldn't be re-read ({MoveReadBack.Why(ex)})";
         }
 
         return $"The move may have left a partial copy. Re-read straight after the failure: {inSource}, and {inTarget}; a copy in a cloud notebook can land later.";
     }
 
-    private async Task<HierarchyTarget> ReadChildrenAsync(string id, CancellationToken ct)
-    {
-        var xml = await services.Gateway.GetHierarchyAsync(id, HierarchyScope.Children, ct).ConfigureAwait(false);
-        return XmlReads.Readable(() => HierarchyTarget.Read(xml), "GetHierarchy");
-    }
-
     private ToolWarning SettledWarning() => new(
         ToolWarnings.Settled,
-        string.Create(CultureInfo.InvariantCulture, $"The move of {ObjectId} touched a cloud notebook, so the server waited {SettleTime.TotalSeconds:0} s before re-reading it, as OneNote can fail or block on a write straight after such a move."),
+        string.Create(CultureInfo.InvariantCulture, $"The move of {ObjectId} touched a cloud notebook, so the server waited {CloudSettle.Time.TotalSeconds:0} s before re-reading it, as OneNote can fail or block on a write straight after such a move."),
         SettledUserAction);
-
-    private string WithNote(string message) => FailureNote is { } note ? $"{message} {note}" : message;
 
     private OneNoteException ObjectNotFound(string why) =>
         new(ErrorCode.ObjectNotFound, $"Object {ObjectId} {why}, so nothing was moved.", userAction: ObjectUserAction);
 
     private OneNoteException BadTarget(string why) =>
-        Invalid($"Object {TargetId} {why}, so nothing was moved.", TargetUserAction);
-
-    private static OneNoteException Invalid(string message, string userAction) =>
-        new(ErrorCode.InvalidArgument, message, userAction: userAction, retryable: false);
+        HierarchyWriteSteps.Invalid($"Object {TargetId} {why}, so nothing was moved.", TargetUserAction);
 
     private string ReadBackUserAction() =>
         $"Read {TargetId} with get_hierarchy (scope children) to find where {ObjectId} is now.";
-
-    private static string Why(Exception exception) => MoveReadBack.Why(exception);
 
     /// <summary>What step 3 read: the node, its parent and the new parent (each with its XML), a group's sections, both notebooks' paths.</summary>
     private sealed record State(

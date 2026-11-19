@@ -196,7 +196,7 @@ public sealed partial class CreatePageIntegrationTests(ITestOutputHelper output)
         Directory.CreateDirectory(tempDir);
         var settingsPath = Path.Combine(tempDir, "settings.json");
         File.WriteAllText(settingsPath, """{ "schemaVersion": 1 }""");
-        var store = new SettingsStore(settingsPath);
+        var store = Store(settingsPath);
         var gateway = new ComGateway(new ProcessProbe(), store);
         try
         {
@@ -239,7 +239,7 @@ public sealed partial class CreatePageIntegrationTests(ITestOutputHelper output)
 
     private static CreatePageTool Tool(Run run)
     {
-        var store = new SettingsStore(run.SettingsPath);
+        var store = Store(run.SettingsPath);
         var useCase = new CreatePageUseCase(
             run.Gateway,
             new WriteAccess(run.Gateway, store.Read),
@@ -409,4 +409,12 @@ public sealed partial class CreatePageIntegrationTests(ITestOutputHelper output)
 
     private static string Hex(int? hresult) =>
         hresult is { } h ? "0x" + h.ToString("X8", CultureInfo.InvariantCulture) : "-";
+
+    /// <summary>
+    /// The store over the run's temporary <c>settings.json</c>, with its journal in the same temporary folder, never the
+    /// user's: <c>create_page</c> with <c>parentPageId</c> journals since story 3.14 (story 3.11 sweep; as
+    /// <c>CreateHierarchyIntegrationTests</c> does).
+    /// </summary>
+    private static SettingsStore Store(string settingsPath) =>
+        new(settingsPath, Path.Combine(Path.GetDirectoryName(settingsPath)!, "journal"));
 }

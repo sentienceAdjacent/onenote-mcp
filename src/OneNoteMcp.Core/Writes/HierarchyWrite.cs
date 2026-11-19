@@ -174,13 +174,7 @@ public abstract class HierarchyWrite : WriteOperation<HierarchyWriteResult>
         }
 
         // AD-16: the hard gate for UpdateHierarchy (story 5.4). The XML is ours, so a failure is our bug, never sent.
-        var problems = SchemaValidation.Problems(changesXml);
-        if (problems.Count > 0)
-        {
-            throw new OneNoteException(
-                ErrorCode.Internal,
-                string.Create(CultureInfo.InvariantCulture, $"The server built UpdateHierarchy XML that the 2013 schema refuses ({problems.Count} problem(s), the first at {problems[0].DisplayName ?? "the document"}), so nothing was sent."));
-        }
+        HierarchyWriteSteps.EnsureSchemaValid(changesXml);
     }
 
     /// <summary>

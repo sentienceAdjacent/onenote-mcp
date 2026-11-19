@@ -197,8 +197,8 @@ public sealed class MoveContainerToolTests : IDisposable
 
         var root = Ok(await Tool().MoveHierarchyObject(objectId, parentId, null, Basis(Lmt), Ct));
 
-        Assert.Equal([MoveContainerWrite.SettleTime], settles);
-        Assert.Equal(TimeSpan.FromSeconds(10), MoveContainerWrite.SettleTime);
+        Assert.Equal([CloudSettle.Time], settles);
+        Assert.Equal(TimeSpan.FromSeconds(10), CloudSettle.Time);
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.Settled, warning.GetProperty("code").GetString());
         Assert.Equal(MoveContainerWrite.SettledUserAction, warning.GetProperty("userAction").GetString());
@@ -357,7 +357,7 @@ public sealed class MoveContainerToolTests : IDisposable
 
         Error(await Tool().MoveHierarchyObject(IdeasId, CloudId, null, null, Ct), "ModalDialogOpen");
 
-        Assert.Equal([MoveContainerWrite.SettleTime], settles);
+        Assert.Equal([CloudSettle.Time], settles);
     }
 
     [Fact]
@@ -563,7 +563,7 @@ public sealed class MoveContainerToolTests : IDisposable
 
         Error(await Tool().MoveHierarchyObject(IdeasId, CloudId, null, null, Ct), "ObjectNotFound");
 
-        Assert.Equal([MoveContainerWrite.SettleTime], settles);
+        Assert.Equal([CloudSettle.Time], settles);
         Assert.Equal([(AId, HierarchyScope.Children), (CloudId, HierarchyScope.Children)], gateway.Calls.Skip(readsBeforeSettle));
     }
 

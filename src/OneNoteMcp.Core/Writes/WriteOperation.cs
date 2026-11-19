@@ -56,6 +56,9 @@ public abstract class WriteOperation<TResult>
     /// </summary>
     public virtual string? FailureNote => null;
 
+    /// <summary><paramref name="message"/> followed by <see cref="FailureNote"/> when there is one (story 3.11: shared by the moves and the restore).</summary>
+    protected string WithNote(string message) => FailureNote is { } note ? $"{message} {note}" : message;
+
     /// <summary>
     /// Runs step 7's COM <paramref name="call"/>; a <see cref="OneNoteException"/> it throws comes back with the same code,
     /// HRESULT, flags and userAction, and its message followed by <see cref="FailureNote"/> when there is one (a page
