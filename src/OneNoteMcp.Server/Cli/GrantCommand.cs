@@ -455,7 +455,7 @@ public sealed class GrantCommand
     /// <c>settings.json</c> as it reads now (the defaults when it is invalid).
     /// </summary>
     private async Task<IReadOnlyList<ProtectedSection>> ProtectedSectionsAsync(CancellationToken ct) =>
-        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false), Protection.From(writer.Store.Read()));
+        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false), Protection.From(writer.Store.Read(), writer.Store.OneDrive?.Invoke()));
 
     /// <summary>The only match, or the one the user picks from a numbered list; default when they pick none.</summary>
     private T? Pick<T>(IReadOnlyList<T> matches, Func<T, string> describe, string what = "sections")

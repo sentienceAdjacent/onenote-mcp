@@ -15,11 +15,12 @@ namespace OneNoteMcp.Tests;
 /// (<c>https://d.docs.live.net/&lt;cid&gt;/Documents/OneNote Exports/…/</c>), with the cid's hex case varying between
 /// elements and a trailing slash on notebooks and section groups. AD-21's path rule compares local paths only, so every
 /// page was listed with no grant. These reproduce that shape. The cid here is a placeholder, never a real one.
-/// They were run red (2026-11-18: the section listed its page, the notebook withheld nothing) and are skipped until the fix Phill picks lands (an AD-21 change); the fix gives Protection a seam for the OneDrive folder-to-URL mapping, which these then set to <see cref="OneDriveFolder"/> and the placeholder cid.
+/// They were run red (2026-11-18: the section listed its page, the notebook withheld nothing). Backlog 13's fix (Phill,
+/// 2026-11-18, D1 (c), Q1–Q4 (ii)(ii)(ii)(i)) gives <see cref="Protection"/> a seam, <see cref="OneDriveFolders"/>, set
+/// here to <see cref="OneDriveFolder"/> and the placeholder cid.
 /// </summary>
 public sealed class OneDriveUrlProtectionTests : IDisposable
 {
-    private const string Skip = "Red until the OneDrive URL fix (AD-21 change, Phill's pick, 2026-11-18): reproduces the S2 leak.";
     private const string Ns = "xmlns:one=\"" + OneNoteXml.Namespace2013 + "\"";
     private const string NotebookId = "{URL00000-0000-4000-8000-000000000001}{1}{B0}";
     private const string SectionId = "{URL00000-0000-4000-8000-000000000002}{1}{B0}";
@@ -36,12 +37,15 @@ public sealed class OneDriveUrlProtectionTests : IDisposable
 
     private string ExportRoot => Path.Combine(OneDriveFolder, "Documents", "OneNote Exports");
 
+    /// <summary>The seam as the server would fill it from a personal account: the folder and its address.</summary>
+    private OneDriveFolders Folders => new([new OneDriveAccount(OneDriveFolder, $"https://d.docs.live.net/{Cid}/")]);
+
     private static string Url(string tail, bool upperCid = false) =>
         $"https://d.docs.live.net/{(upperCid ? Cid.ToUpperInvariant() : Cid)}/Documents/OneNote Exports/{tail}";
 
     public void Dispose() => temp.Dispose();
 
-    [Fact(Skip = Skip)]
+    [Fact]
     public async Task ACopyNotebookReportedByUrl_UnderTheExportRootsOneDriveLocation_WithholdsEverySection()
     {
         var store = Settings();
@@ -60,7 +64,7 @@ public sealed class OneDriveUrlProtectionTests : IDisposable
         Assert.DoesNotContain("Secret", root.GetProperty("xml").GetString()!, StringComparison.Ordinal);
     }
 
-    [Fact(Skip = Skip)]
+    [Fact]
     public async Task ASectionReportedByUrl_AtPagesScope_IsTargetScoped_NotListedWithoutAGrant()
     {
         var store = Settings();
@@ -87,6 +91,210 @@ public sealed class OneDriveUrlProtectionTests : IDisposable
         Assert.False(result.IsError, result.StructuredContent?.GetRawText());
     }
 
+    // --- The rule (Protection.UnderRoot on URLs) ------------------------------------------------------------------------
+
+    /// <summary>A business address: host and path kept apart so the privacy grep's pattern never appears.</summary>
+    private const string BusinessHost = "https://contoso-my.sharepoint" + ".com";
+
+    [Theory]
+    [InlineData("X/S.one")]
+    [InlineData("X/")]
+    [InlineData("X/Group/Inner.one")]
+    [InlineData("X/S.one?web=1")]
+    [InlineData("X/S.one#section-id={1}")]
+    [InlineData("X/100%/S.one")]
+    public void AUrlUnderTheRootsAddress_IsUnderTheRoot(string tail)
+    {
+        Assert.True(Rule().UnderRoot(Url(tail)));
+        Assert.True(Rule().UnderRoot(Url(tail, upperCid: true)));
+    }
+
+    [Theory]
+    [InlineData("https://d.docs.live.net/0123456789ABCDEF/Documents/OneNote%20Exports/X/S.one")]
+    [InlineData("http://d.docs.live.net/0123456789abcdef/Documents/OneNote Exports/X/S.one")]
+    [InlineData("HTTPS://D.DOCS.LIVE.NET/0123456789ABCDEF/DOCUMENTS/ONENOTE EXPORTS/X/S.ONE")]
+    [InlineData("https://d.docs.live.net/fedcba9876543210/Documents/OneNote Exports/X/S.one")]
+    public void PercentEncoding_HttpCaseAndAnotherCid_StillMatch_TheTailAlwaysApplies(string url)
+    {
+        Assert.True(Rule().UnderRoot(url));
+    }
+
+    [Fact]
+    public void ABusinessAddress_HoldingTheRootsTail_IsUnderTheRoot()
+    {
+        Assert.True(Rule().UnderRoot(BusinessHost + "/personal/user_contoso_com/Documents/OneNote Exports/X/S.one"));
+    }
+
+    [Theory]
+    [InlineData("https://d.docs.live.net/0123456789abcdef/Documents/OneNote Exports/")]
+    [InlineData("https://d.docs.live.net/0123456789abcdef/Documents/OneNote Exports")]
+    [InlineData("https://d.docs.live.net/0123456789abcdef/Documents/OneNote Exports2/X/S.one")]
+    [InlineData("https://d.docs.live.net/0123456789abcdef/Documents/Work notes/Plans.one")]
+    [InlineData("https://d.docs.live.net/0123456789abcdef/OneNote Exports/X/S.one")]
+    [InlineData("ftp://d.docs.live.net/0123456789abcdef/Documents/OneNote Exports/X/S.one")]
+    [InlineData("Documents/OneNote Exports/X/S.one")]
+    [InlineData("https://d.docs.live.net/0123456789abcdef/Documents/OneNote%ZZExports/X/S.one")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void OtherUrls_TheRootItself_AndNonUrls_AreNotUnderTheRoot(string? path)
+    {
+        Assert.False(Rule().UnderRoot(path));
+    }
+
+    [Fact]
+    public void ALocalPathUnderTheRoot_IsStillUnderIt()
+    {
+        Assert.True(Rule().UnderRoot(Path.Combine(ExportRoot, "X", "S.one")));
+    }
+
+    [Fact]
+    public void AFolderKnownOnlyFromTheEnvironment_NoAddress_StillGivesTheTail()
+    {
+        var rule = new Protection([ExportRoot], oneDrive: new OneDriveFolders([new OneDriveAccount(OneDriveFolder)]));
+
+        Assert.True(rule.UnderRoot(Url("X/S.one")));
+    }
+
+    [Fact]
+    public void NoOneDriveKnown_TheRootsLastTwoSegments_AreItsTail_ForAnyHost()
+    {
+        var rule = new Protection([ExportRoot], oneDrive: OneDriveFolders.None);
+
+        Assert.True(rule.UnderRoot("https://example.org/a/Documents/OneNote Exports/X/S.one"));
+        Assert.False(rule.UnderRoot("https://example.org/a/Other/OneNote Exports/X/S.one"));
+        Assert.False(rule.UnderRoot("https://example.org/a/Documents/OneNote Exports/"));
+    }
+
+    [Fact]
+    public void ARootOutsideEveryKnownOneDriveFolder_KeepsTheLocalRuleOnly()
+    {
+        var elsewhere = Path.Combine(temp.Combine("Elsewhere"), "Documents", "OneNote Exports");
+        var rule = new Protection([elsewhere], oneDrive: Folders);
+
+        Assert.False(rule.UnderRoot(Url("X/S.one")));
+        Assert.True(rule.UnderRoot(Path.Combine(elsewhere, "X", "S.one")));
+    }
+
+    [Fact]
+    public void AFolderThatOnlyStartsLikeTheOneDriveFolder_IsNotInsideIt()
+    {
+        var lookAlike = Path.Combine(temp.Combine("OneDrive - Contoso"), "Documents", "OneNote Exports");
+        var rule = new Protection([lookAlike], oneDrive: Folders);
+
+        Assert.False(rule.UnderRoot(Url("X/S.one")));
+    }
+
+    [Fact]
+    public void TheBackupsFolder_InsideOneDrive_IsCoveredToo()
+    {
+        var backups = Path.Combine(OneDriveFolder, "Journal", "backups");
+        var rule = new Protection([backups], oneDrive: Folders);
+
+        Assert.True(rule.UnderRoot($"https://d.docs.live.net/{Cid}/Journal/backups/B/S.one"));
+    }
+
+    [Fact]
+    public void AUrlUnderTheRoot_MapsBackToTheLocalFolderBelowTheRoot()
+    {
+        Assert.Equal(Path.Combine(ExportRoot, "X", "Group"), Rule().LocalPathOfUrl(Url("X/Group/", upperCid: true)));
+        Assert.Null(Rule().LocalPathOfUrl("https://d.docs.live.net/0123456789abcdef/Documents/Work notes/"));
+    }
+
+    [Fact]
+    public void ReadAccess_AndFrom_CarryTheSeam_SoWritesSnapshotsAndTheGrantListingSeeIt()
+    {
+        // Every write, journal snapshot and publish asks ReadAccess.Protection(); restore_from_journal and the grant CLI use From.
+        var store = Settings();
+        var access = new ReadAccess(gateway, store.Read, writer: null, new FakeClock(), oneDrive: () => Folders);
+
+        Assert.True(access.Protection().UnderRoot(Url("X/S.one")));
+        Assert.True(Protection.From(store.Read(), Folders).UnderRoot(Url("X/S.one")));
+    }
+
+    // --- The seam (OneDriveFolders) -------------------------------------------------------------------------------------
+
+    [Fact]
+    public void TheSameFolderFromTwoSources_IsOneAccount_KeepingItsAddress()
+    {
+        var folders = new OneDriveFolders([new OneDriveAccount(OneDriveFolder + Path.DirectorySeparatorChar), new OneDriveAccount(OneDriveFolder.ToUpperInvariant(), $"https://d.docs.live.net/{Cid}/")]);
+
+        var account = Assert.Single(folders.Accounts);
+        Assert.Equal($"https://d.docs.live.net/{Cid}/", account.UrlPrefix);
+    }
+
+    [Fact]
+    public void AnAddressInsideAnAccount_MapsBackToItsLocalFolder()
+    {
+        Assert.Equal(Path.Combine(OneDriveFolder, "Documents", "X"), Folders.LocalPathOf($"https://d.docs.live.net/{Cid.ToUpperInvariant()}/Documents/X/"));
+        Assert.Equal(Path.Combine(OneDriveFolder, "Documents", "OneNote Exports"), Folders.LocalPathOf($"https://d.docs.live.net/{Cid}/Documents/OneNote%20Exports?web=1"));
+        Assert.Null(Folders.LocalPathOf("https://d.docs.live.net/fedcba9876543210/Documents/X/"));
+        Assert.Null(Folders.LocalPathOf(@"C:\local\X"));
+    }
+
+    [Fact]
+    public void ARootThatIsAOneDriveFolder_OrOneSegmentBelow_IsShallow_DeeperOrOutsideIsNot()
+    {
+        Assert.Contains("OneDrive folder", Folders.ShallowRoot(OneDriveFolder), StringComparison.Ordinal);
+        Assert.Contains("OneDrive folder", Folders.ShallowRoot(Path.Combine(OneDriveFolder, "Exports")), StringComparison.Ordinal);
+        Assert.Null(Folders.ShallowRoot(ExportRoot));
+        Assert.Null(Folders.ShallowRoot(temp.Combine("Exports")));
+        Assert.Null(OneDriveFolders.None.ShallowRoot(OneDriveFolder));
+    }
+
+    [Fact]
+    public void ASettingsFileWithAShallowExportRoot_IsInvalid_NamingTheEntryAndWhy()
+    {
+        var path = temp.Combine("settings.json");
+        TestSettings.SetExportRoots(path, ExportRoot, Path.Combine(OneDriveFolder, "Exports"));
+        var store = new SettingsStore(path, temp.Combine("journal")) { OneDrive = () => Folders };
+
+        var snapshot = store.Read();
+
+        Assert.Equal(SettingsStatus.Invalid, snapshot.Status);
+        Assert.Contains("exportRoots[1]", snapshot.Reason, StringComparison.Ordinal);
+        Assert.Contains("OneDrive", snapshot.Reason, StringComparison.Ordinal);
+        Assert.Equal(SettingsStatus.Ok, new SettingsStore(path, temp.Combine("journal")).Read().Status);
+    }
+
+    // --- The export-root guard (Q4 (i)) ---------------------------------------------------------------------------------
+
+    private static string NotebooksXml(params string[] paths) =>
+        $"<one:Notebooks {Ns}>" + string.Concat(paths.Select((p, i) => $"<one:Notebook name=\"N{i}\" ID=\"{{N{i}}}\" path=\"{p}\" />")) + "</one:Notebooks>";
+
+    [Fact]
+    public void Guard_AUrlNotebookUnderTheRoot_WithoutTheMarker_IsAProblem()
+    {
+        var problem = ExportRootGuard.Problem([ExportRoot], NotebooksXml(Url("Mine/")), _ => false, Folders);
+
+        Assert.NotNull(problem);
+        Assert.Contains("holds a notebook", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Guard_AUrlNotebookUnderTheRoot_WhoseLocalFolderHoldsTheMarker_IsFine()
+    {
+        var marker = Path.Combine(ExportRoot, "Copy", ExportRootGuard.MarkerFileName);
+
+        Assert.Null(ExportRootGuard.Problem([ExportRoot], NotebooksXml(Url("Copy/", upperCid: true)), p => string.Equals(p, marker, StringComparison.OrdinalIgnoreCase), Folders));
+    }
+
+    [Fact]
+    public void Guard_ARootInsideAUrlNotebooksFolder_IsAProblem()
+    {
+        var problem = ExportRootGuard.Problem([ExportRoot], NotebooksXml($"https://d.docs.live.net/{Cid}/Documents/"), _ => false, Folders);
+
+        Assert.NotNull(problem);
+        Assert.Contains("inside", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Guard_AUrlNotebookElsewhereInTheSameOneDrive_IsFine()
+    {
+        Assert.Null(ExportRootGuard.Problem([ExportRoot], NotebooksXml($"https://d.docs.live.net/{Cid}/Documents/Work notes/"), _ => false, Folders));
+    }
+
+    private Protection Rule() => new([ExportRoot], oneDrive: Folders);
+
     private SettingsStore Settings()
     {
         Directory.CreateDirectory(ExportRoot);
@@ -96,7 +304,7 @@ public sealed class OneDriveUrlProtectionTests : IDisposable
 
     private async Task<ModelContextProtocol.Protocol.CallToolResult> Hierarchy(SettingsStore store, string start, HierarchyScope scope)
     {
-        var access = new ReadAccess(gateway, store.Read, new SettingsWriter(store, new FakeClock()), new FakeClock());
+        var access = new ReadAccess(gateway, store.Read, new SettingsWriter(store, new FakeClock()), new FakeClock(), oneDrive: () => Folders);
         var useCase = new GetHierarchyUseCase(gateway, access);
         return await new ToolRunner(NullLogger<ToolRunner>.Instance).RunAsync("get_hierarchy", useCase, (c, ct) => useCase.ExecuteAsync(c, start, scope, ct), Ct);
     }

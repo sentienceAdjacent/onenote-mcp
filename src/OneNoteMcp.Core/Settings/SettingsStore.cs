@@ -41,6 +41,12 @@ public sealed class SettingsStore
 
     public string Path { get; }
 
+    /// <summary>
+    /// The OneDrive folders on this machine (backlog 13, Phill's Q3 (ii), 2026-11-18): an <c>exportRoots</c> entry that is
+    /// one of them, or one folder below one, makes the file invalid. The server sets it; null checks nothing.
+    /// </summary>
+    public Func<Access.OneDriveFolders>? OneDrive { get; init; }
+
     /// <summary><c>journal{}</c> when the file doesn't set it, or can't be read.</summary>
     public JournalSettings DefaultJournal { get; }
 
@@ -77,10 +83,10 @@ public sealed class SettingsStore
             return SettingsSnapshot.Defaults(Path, SettingsStatus.Invalid, $"settings.json: could not be read ({ex.GetType().Name})", DefaultJournal);
         }
 
-        return Parse(Path, bytes, DefaultJournal);
+        return Parse(Path, bytes, DefaultJournal, OneDrive);
     }
 
-    private static SettingsSnapshot Parse(string path, byte[] bytes, JournalSettings defaultJournal)
+    private static SettingsSnapshot Parse(string path, byte[] bytes, JournalSettings defaultJournal, Func<Access.OneDriveFolders>? oneDrive)
     {
         JsonDocument document;
         try
@@ -98,7 +104,7 @@ public sealed class SettingsStore
         {
             try
             {
-                return Validate(path, document.RootElement, defaultJournal);
+                return Validate(path, document.RootElement, defaultJournal, oneDrive);
             }
             catch (InvalidSettingException ex)
             {
@@ -112,7 +118,7 @@ public sealed class SettingsStore
     /// <c>schemaVersion</c> stops the read. <c>notebooks</c> and then <c>protectedSections</c> are read last, so a key
     /// that differs only in case is the file's only problem when it is reported.
     /// </summary>
-    private static SettingsSnapshot Validate(string path, JsonElement root, JournalSettings defaultJournal)
+    private static SettingsSnapshot Validate(string path, JsonElement root, JournalSettings defaultJournal, Func<Access.OneDriveFolders>? oneDrive)
     {
         if (ReadSchemaVersion(root) > SettingsSnapshot.KnownSchemaVersion)
         {
@@ -126,7 +132,7 @@ public sealed class SettingsStore
         var results = ReadResults(root);
         var search = ReadSearch(root);
         var readGrants = ReadReadGrants(root);
-        var exportRoots = ReadExportRoots(root);
+        var exportRoots = ReadExportRoots(root, oneDrive);
 
         // Read last, so a duplicate key is the file's only problem when it is reported (AD-6: the CLI's revoke still runs).
         var notebooks = ReadNotebooks(root, out var duplicateNotebook);
@@ -327,7 +333,7 @@ public sealed class SettingsStore
             RangedInt(rg, "onceMinutes", "readGrants.onceMinutes", ReadGrantSettings.OnceMinutesMin, ReadGrantSettings.OnceMinutesMax) ?? readGrants.OnceMinutes);
     }
 
-    private static ExportRoots ReadExportRoots(JsonElement root)
+    private static ExportRoots ReadExportRoots(JsonElement root, Func<Access.OneDriveFolders>? oneDrive)
     {
         if (!root.TryGetProperty("exportRoots", out var roots))
         {
@@ -341,9 +347,17 @@ public sealed class SettingsStore
 
         var paths = new List<string>();
         var index = 0;
+        var folders = oneDrive?.Invoke();
         foreach (var entry in roots.EnumerateArray())
         {
-            paths.Add(RequireAbsolutePath(entry, $"exportRoots[{index.ToString(CultureInfo.InvariantCulture)}]"));
+            var field = $"exportRoots[{index.ToString(CultureInfo.InvariantCulture)}]";
+            var path = RequireAbsolutePath(entry, field);
+            if (folders?.ShallowRoot(path) is { } why)
+            {
+                throw new InvalidSettingException($"{field}: {why}");
+            }
+
+            paths.Add(path);
             index++;
         }
 

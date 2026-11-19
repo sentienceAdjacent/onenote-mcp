@@ -3,7 +3,7 @@ title: 'Protection by path misses OneDrive cloud addresses'
 type: 'bugfix'
 ticket: '13'
 created: '2026-11-18'
-status: 'draft'
+status: 'in-review'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -63,6 +63,11 @@ context:
   - *Exact:* for a root inside an account's folder, its URL form is that account's prefix plus the root's path below the folder, with `/`.
   - *Tail:* for a root inside any known OneDrive folder, its tail is its path below that folder (`Documents/OneNote Exports`); a URL holding that tail as whole segments, followed by `/`, counts as under the root, whatever the host or cid. It may over-protect a same-named folder in another OneDrive (the safe direction).
   - When each applies: Open Question 1.
+- **Answers to Open Questions 1–4 (Phill, 2026-11-18, each as recommended):**
+  - *Q1 (ii):* the tail always applies, alongside the exact address; the exact mapping protects nothing the tail doesn't, and is kept to map a URL notebook back to its local folder (Q4).
+  - *Q2 (ii):* with no OneDrive folder known (or none passed in), a root's own last two segments (below the drive) are its tail, for any `http`/`https` URL.
+  - *Q3 (ii):* an export root that is a OneDrive folder, or one segment below one, makes `settings.json` invalid, with a reason naming the entry and why (as any invalid setting: reads keep the last valid roots with `settingsInvalid`, writes are refused).
+  - *Q4 (i):* the export-root guard covers URL notebooks: one under a root by this rule is reported unless its local folder, mapped back through the account's address (or, without one, the root's tail), holds the `.onenote-mcp-opened` marker; one whose mapped local folder holds a root is reported too.
 
 </frozen-after-approval>
 
@@ -74,6 +79,7 @@ context:
 - `src/OneNoteMcp.Core/Access/GrantKeys.cs:42` -- `SameLocation`'s decoding is the style to follow; it "never decides a read" (l.39–40), so the URL test is new code, not a call to it.
 - `src/OneNoteMcp.Core/Access/ExportRootGuard.cs` -- skips URL notebooks today (l.41–42, 48–51; pinned by `tests/OneNoteMcp.Tests/ExportRootGuardTests.cs:59`); per Open Question 4.
 - New: `src/OneNoteMcp.Core/Access/OneDriveFolders.cs` -- the seam (accounts: local folder, optional URL prefix); `OneDriveFolders.None` for code that knows none. New: `src/OneNoteMcp.Server/OneDriveAccounts.cs` -- reads the registry (names `UserFolder`, `cid` under `HKCU\Software\Microsoft\OneDrive\Accounts\*`, via `Microsoft.Win32.Registry`, as `src/OneNoteMcp.Com/IProcessProbe.cs` already uses it) and the three environment variables through an `IOneDriveSource` interface the tests fake; read once per `Protection` build and cached for 30 s (as the export-root guard caches), so an account signed in later is known within 30 s.
+- Q3: `src/OneNoteMcp.Core/Settings/SettingsStore.cs` -- `ReadExportRoots` checks each root against the seam (an optional `OneDrive` provider on the store; the server sets it, the uninstall command and tests don't).
 - Wiring: `ReadAccess` takes the seam as an optional constructor argument, `Protection.From(settings, folders)` likewise; an omitted seam reads this process's environment (`OneDriveAccounts.FromEnvironment()` passed in by Server; Core's default is `OneDriveFolders.None` only where Server can't reach, so `ServerSetup.cs`, `src/OneNoteMcp.Server/Program.cs` l.38–44 (the grant CLI, built outside DI) and `GrantCommand`'s constructor pass the server's reader). Existing tests keep compiling and see no OneDrive folders.
 - Tests: `tests/OneNoteMcp.Tests/OneDriveUrlProtectionTests.cs` (in this branch since b5e2d5b, moved from 3.8's 1e7f368): two leak tests run red then skipped, one guard test running.
 - Docs to amend: spine AD-21 "What's protected" (l.≈696), AD-11's "One 'under a root' test …" (l.507) and "an open local notebook" (l.508); doc comments `PathUnder.cs` l.4–10 and `Protection.cs` l.54; entry 15's plan (its "Cloud section | URL path | marker only" row and l.88's "comes back for a change") gets a note pointing here.
@@ -103,6 +109,8 @@ context:
 
 ## Open Questions
 
+All four answered (Decisions, 2026-11-18); kept as asked.
+
 1. **When does the tail apply?** D1 says "exact when the account can be read, the tail as the fallback". (i) *Either/or:* the tail only when no exact prefix is known. Precise, but if the registry's `cid` and the URL's ever differ (another account, a stale key), a URL under the root fails open. (ii) *Always both:* the tail always applies, so the exact mapping protects nothing the tail doesn't; it stays as a record of the account and for the sitting's checks. Fails closed in every case. Recommended: (ii).
 2. **No OneDrive folder known** (neither registry nor `%OneDrive*%`, while OneNote reports URLs). (i) No URL rule (as drafted): the S2 leak stays possible on such a machine. (ii) Fail closed on the root's own last two segments (`Documents/OneNote Exports`) for any `https` URL. Over-protects a same-named folder in any cloud notebook. (iii) Any `https` URL counts as protected when a root's local path holds a segment starting `OneDrive`. Recommended: (ii).
 3. **A root equal to a OneDrive folder, or one segment below it.** An empty tail would make every `https` URL protected; a one-segment tail (`Exports`) matches that folder name anywhere. (i) Allow it: an empty tail protects every URL of that account's host (exact prefix) or, with no prefix, every `https` URL; a one-segment tail as written. (ii) Refuse such an export root as `settings.json` invalid, saying why, like entry 15's guard. Recommended: (ii).
@@ -110,7 +118,18 @@ context:
 
 ## Implementation Notes
 
+- 2026-11-18, built test-first: the two S2 leak tests unskipped with the seam, plus 26 rule, seam, settings and guard tests (`OneDriveUrlProtectionTests`) and 7 reader tests (`OneDriveAccountsTests`), run red (33 failing, only the new ones), then green.
+- `Core/Writes/UrlPath.cs` (new): parses `http`/`https` paths into host and decoded segments; `IndexOfTail` (whole segments, case-insensitive, strictly inside); `Below` (maps back, refusing a decoded `..` that leaves the folder).
+- `Core/Access/OneDriveFolders.cs` (new): the seam; de-duplicates by folder, keeps the first address; `LocalPathOf` (exact mapping back); `ShallowRoot` (Q3).
+- `Protection`: each root's tails built once per value (from every root form against every OneDrive folder form; with none known, the last two segments); `UnderRoot` = local rule OR tail; `LocalPathOfUrl`; `WithWarnings` keeps the seam.
+- `ExportRootGuard.Problem`: URL notebooks under a root are a problem unless the folder they map back to (account address first, else the root's tail) is under the root and holds the marker; a URL notebook mapped back through its account that holds a root is a problem.
+- `SettingsStore.OneDrive` (init): `ReadExportRoots` refuses a shallow root as `exportRoots[i]: …` (the reason never quotes the path).
+- `Server/OneDriveAccounts.cs` (new): reads `HKCU\Software\Microsoft\OneDrive\Accounts\*` (`UserFolder`, `cid`, read only) and the three variables; a registry failure leaves the environment; 30 s cache. Wired in `ServerSetup` (settings store, `ReadAccess`, the guard, `restore_from_journal`) and `Program.cs` (the grant CLI's store; `GrantCommand` passes `Store.OneDrive` to `Protection.From`).
+- Docs: spine AD-11 (l.507–508) and AD-21 "What's protected" (new "Web addresses" bullet), memlog, entry 15's plan row, README, `PathUnder` and `Protection` doc comments. The spine amendment still needs its Fable final review.
+
 ## Plan Change Log
+
+- 2026-11-18, Phill answered Open Questions 1–4 (all as recommended); recorded under Decisions; status ready-for-dev, then in-progress.
 
 - 2026-11-18, Phill's Q1 answer (c) recorded as D1, D2 named; then the Fable final review at low effort (24 findings, each checked against the sources; all held): the frozen block now states the URL normalisation (query, fragment, invalid escapes, `http`, strictly inside, `%2F`), how "inside a OneDrive folder" is tested, that sources are combined, the raw-key grant note, and which warnings the copy row means; the matrix gains the query, snapshot/publish/listing and edge rows; the Code Map names the reader file, the cache, the optional seam and its default, `Program.cs`, the guard, every doc line to amend, and corrected citations and provenance; tasks are ordered so the tests compile red and name their files; ACs cover the matrix and the ticket; the sitting has a fallback and an over-reach check; four questions for Phill (when the tail applies, no OneDrive known, a shallow root, the guard).
 

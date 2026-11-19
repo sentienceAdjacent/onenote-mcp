@@ -51,13 +51,15 @@ public sealed class ReadAccess
     private readonly Lock rootsGate = new();
     private IReadOnlyList<string>? lastValidRoots;
     private IReadOnlyList<string>? lastValidExportRoots;
+    private readonly Func<OneDriveFolders> oneDrive;
 
     /// <param name="gateway">The gateway the owning section is resolved through.</param>
     /// <param name="settings">Reads <c>settings.json</c>; called once per check.</param>
     /// <param name="writer">Stores <c>hours</c> and <c>untilRevoked</c> grants; null, every such grant becomes a <c>once</c> window (<c>grantNotSaved</c>).</param>
     /// <param name="clock">The clock grant expiry runs on.</param>
     /// <param name="guard">The export-root guard (entry 15 Q1); null leaves reads without its warning (tests that don't exercise it).</param>
-    public ReadAccess(IOneNoteGateway gateway, Func<SettingsSnapshot> settings, SettingsWriter? writer, TimeProvider clock, ExportRootGuard? guard = null)
+    /// <param name="oneDrive">The OneDrive folders on this machine (backlog 13), asked once per check; null for none known.</param>
+    public ReadAccess(IOneNoteGateway gateway, Func<SettingsSnapshot> settings, SettingsWriter? writer, TimeProvider clock, ExportRootGuard? guard = null, Func<OneDriveFolders>? oneDrive = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(settings);
@@ -68,6 +70,7 @@ public sealed class ReadAccess
         walk = new HierarchyWalk(gateway);
         dialog = new GrantDialog(walk, windows, writer, clock);
         this.guard = guard;
+        this.oneDrive = oneDrive ?? (() => OneDriveFolders.None);
     }
 
     /// <summary>
@@ -87,7 +90,7 @@ public sealed class ReadAccess
                 lastValidExportRoots = snapshot.ExportRoots.Paths;
             }
 
-            return new Protection(roots);
+            return new Protection(roots, oneDrive: oneDrive());
         }
 
         IReadOnlyList<string>? remembered;
@@ -98,7 +101,7 @@ public sealed class ReadAccess
 
         if (remembered is not null)
         {
-            return new Protection(remembered);
+            return new Protection(remembered, oneDrive: oneDrive());
         }
 
         return new Protection(
@@ -106,7 +109,8 @@ public sealed class ReadAccess
             [new ToolWarning(
                 ToolWarnings.SettingsInvalid,
                 $"settings.json is unreadable ({snapshot.Reason}), so only the default export folder and the journal's backups folder count as protected locations.",
-                "Fix settings.json, then retry.")]);
+                "Fix settings.json, then retry.")],
+            oneDrive());
     }
 
     /// <summary>
@@ -129,8 +133,7 @@ public sealed class ReadAccess
             return protection;
         }
 
-        return new Protection(
-            protection.Roots,
+        return protection.WithWarnings(
             [.. protection.Warnings, new ToolWarning(ToolWarnings.ExportRootHoldsNotebooks, problem, "Tell the user, and ask them to change exportRoots in settings.json.")]);
     }
 

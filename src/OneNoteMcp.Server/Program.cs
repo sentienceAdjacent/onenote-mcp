@@ -33,7 +33,7 @@ if (args.Length > 0 && args[0] == "hook")
 // The grant CLI (AD-6, AD-21) runs before any host is built: no MCP transport, nothing on stdout but its own dialogue.
 if (args.Length > 0 && args[0] == "grant")
 {
-    var store = new SettingsStore();
+    var store = new SettingsStore { OneDrive = OneDriveAccounts.ForThisUser().Current };
     using var gateway = new ComGateway(new ProcessProbe(), store);
     var command = new GrantCommand(
         Console.In,
