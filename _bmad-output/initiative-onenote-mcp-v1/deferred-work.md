@@ -633,3 +633,4 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-round-2-external-and-structural/story-skill-readme-and-harness-for-round-2-plan.md`
   summary: Pending 3.10's live step (Phill): the matrix rows through the plugin, the README-only export and restore, the harness on MCP Test, and E8's five unlocked protected-section paths (export with a read grant, merge into it, a page moved into it with and without position, set_page_level and a subpage create_page in it, a restore by the name fallback).
   evidence: the build can't touch OneNote; these are unit-tested only (round-2 sittings ran them with the section locked).
+  resolved: 2026-11-19, the 3.10 sitting ran parts A to D and passed: E8's paths live with the Vault unlocked (C1–C6), the harness 0 mismatches (its inline-max overruns are backlog 15). See the plan's Verification, "Sitting results (2026-11-19)".
