@@ -253,13 +253,32 @@ public static class SoftDeleteEntries
         return cut <= 0 ? null : GrantKeys.SectionKey(trimmed[..cut]);
     }
 
-    /// <summary>One line per candidate for a refusal (Q1 a): its entry ID, deletion time (UTC) and original parent ID. Never a name (AD-9).</summary>
-    public static string Describe(IEnumerable<JournalEntry> candidates)
+    /// <summary>
+    /// The soft-delete entries an earlier <c>restore_from_recycle_bin</c> used: each restore entry's
+    /// <see cref="JournalEntry.RestoredFrom"/> (backlog 16). Only restore entries count.
+    /// </summary>
+    public static IReadOnlyList<Guid> Used(IEnumerable<JournalEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        return [.. entries
+            .Where(e => string.Equals(e.Operation, RestoreOperation, StringComparison.Ordinal) && e.RestoredFrom is not null)
+            .Select(e => e.RestoredFrom!.Value)
+            .Distinct()];
+    }
+
+    /// <summary>The <c>operation</c> of a <c>restore_from_recycle_bin</c> journal entry.</summary>
+    private const string RestoreOperation = Writes.RestoreFromRecycleBinWrite.OperationName;
+
+    /// <summary>
+    /// One line per candidate for a refusal (Q1 a): its entry ID, deletion time (UTC) and original parent ID, and
+    /// ", already restored" for one in <paramref name="used"/> (backlog 16: a used entry stays listed, marked). Never a name (AD-9).
+    /// </summary>
+    public static string Describe(IEnumerable<JournalEntry> candidates, IReadOnlySet<Guid>? used = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         return string.Join("; ", candidates.Select(c => string.Create(
             CultureInfo.InvariantCulture,
-            $"entry {c.EntryId:D}, deleted {c.TakenAtUtc.ToUniversalTime():yyyy-MM-dd'T'HH:mm:ss'Z'}, from parent {(c.ParentId.Length > 0 ? c.ParentId : "(none recorded)")}")));
+            $"entry {c.EntryId:D}, deleted {c.TakenAtUtc.ToUniversalTime():yyyy-MM-dd'T'HH:mm:ss'Z'}, from parent {(c.ParentId.Length > 0 ? c.ParentId : "(none recorded)")}{(used is not null && used.Contains(c.EntryId) ? ", already restored" : string.Empty)}")));
     }
 
     private static SoftDeleteMatch Result(List<JournalEntry> matched, bool byName) => matched.Count switch

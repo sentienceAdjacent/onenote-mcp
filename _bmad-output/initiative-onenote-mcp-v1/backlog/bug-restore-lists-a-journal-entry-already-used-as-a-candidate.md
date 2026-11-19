@@ -17,7 +17,7 @@ estimate: ""
 
 ## Description
 
-When `restore_from_recycle_bin` matches a recycled page by name and lists candidates, it can include a soft-delete journal entry whose page has already been restored. The model then asks the user to choose between entries when one of them has already been used. Whether a used entry should be left out is still open.
+When `restore_from_recycle_bin` matches a recycled page by name and lists candidates, it can include a soft-delete journal entry whose page has already been restored. The model then asks the user to choose between entries with nothing to tell them which one has already been used. Phill decided (Notes) to keep listing a used entry, marked "already restored".
 
 ## Reproduction
 
@@ -25,7 +25,7 @@ When `restore_from_recycle_bin` matches a recycled page by name and lists candid
 2. In part A, one of them was restored from one of those entries.
 3. The notebook was closed and reopened, which changes the recycle-bin IDs, and the other page was then restored by name.
 4. Actual: both entries are listed as candidates.
-5. Expected, if used entries are excluded: only the unused entry matches, so the page is restored without a choice, and the result carries `restoredByName`.
+5. Expected: both entries are still listed, and the one the earlier restore used is marked "already restored" in the candidate text.
 
 ## Cause Hypothesis
 
@@ -34,8 +34,8 @@ Nothing records that a restore has used a soft-delete entry, so the name match c
 ## Acceptance Criteria
 
 Verify:
-- Unit tests show that, after a page has been restored from a soft-delete entry, a later by-name restore of a page with the same name doesn't list that entry as a candidate. If Phill decides used entries stay listed, the candidate text marks that entry as already used instead.
-- Optionally, live: the reproduction above gives one candidate or none.
+- Unit tests show that, after a page has been restored from a soft-delete entry, a later by-name restore of a page with the same name still lists that entry as a candidate, marked "already restored", and doesn't mark the unused one.
+- Optionally, live: the reproduction above lists both candidates, the used one marked.
 
 1. **The expected behavior holds**
    **Given** a soft-delete entry whose page an earlier restore brought back

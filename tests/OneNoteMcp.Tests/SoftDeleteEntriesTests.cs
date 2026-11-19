@@ -1,6 +1,7 @@
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.Settings;
+using OneNoteMcp.Core.Writes;
 using OneNoteMcp.Xml;
 using Xunit;
 
@@ -204,6 +205,36 @@ public sealed class SoftDeleteEntriesTests : IDisposable
 
         Assert.Equal($"entry {entry.EntryId:D}, deleted 2026-11-17T08:30:05Z, from parent {{PARENT}}", text);
         Assert.DoesNotContain("Zq9", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_MarksAnEntryAnEarlierRestoreUsed_AsAlreadyRestored_AndOnlyThatOne()
+    {
+        // Backlog 16 (Phill, 2026-11-19): a used entry stays a candidate, marked.
+        var used = Page("{OLD}", "Dup") with { ParentId = "{P1}", TakenAtUtc = new DateTime(2026, 11, 17, 8, 30, 5, DateTimeKind.Utc) };
+        var fresh = Page("{OLD}", "Dup") with { ParentId = "{P2}", TakenAtUtc = new DateTime(2026, 11, 17, 9, 0, 0, DateTimeKind.Utc) };
+
+        var text = SoftDeleteEntries.Describe([used, fresh], new HashSet<Guid> { used.EntryId });
+
+        Assert.Equal(
+            $"entry {used.EntryId:D}, deleted 2026-11-17T08:30:05Z, from parent {{P1}}, already restored; entry {fresh.EntryId:D}, deleted 2026-11-17T09:00:00Z, from parent {{P2}}",
+            text);
+    }
+
+    [Fact]
+    public void Used_IsTheSoftDeleteEntriesThatRestoreEntriesName_OnlyFromRestores()
+    {
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        JournalEntry[] all =
+        [
+            new() { Operation = RestoreFromRecycleBinWrite.OperationName, SnapshotKind = JournalEntry.HierarchyKind, RestoredFrom = a },
+            new() { Operation = RestoreFromRecycleBinWrite.OperationName, SnapshotKind = JournalEntry.HierarchyKind },
+            new() { Operation = "rename_hierarchy_object", SnapshotKind = JournalEntry.HierarchyKind, RestoredFrom = b },
+            Page("{OLD}", "Dup"),
+        ];
+
+        Assert.Equal([a], SoftDeleteEntries.Used(all));
     }
 
     // --- Load ------------------------------------------------------------------------------------------------------
