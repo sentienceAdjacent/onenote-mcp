@@ -24,6 +24,10 @@ context: []
 
 </frozen-after-approval>
 
+## Decisions
+
+- AD-14 (Phill, 2026-11-19, via the coordinator): no minor version bump. Adding hashes for elements that had none is additive behaviour; the schema and the contract snapshot are unchanged.
+
 ## Implementation Notes
 
 - Oneshot: about 30 lines of code across three Xml/Core files plus tests and a fixture.
@@ -41,3 +45,4 @@ context: []
   - low, patched: the spine's deferred row on page-level deletes still said the hashes were missing. Whether adding keys to `elementHashes` is an AD-14 contract change (pre-1.0 minor bump) is left to the coordinator.
   - low, patched: no test of the part path; added `ExpandOfAPageLevelImage_CarriesItsOwnHash`.
   - false: a change to an image's pixels, ink or a file's bytes alone isn't caught. That is AD-17's existing binary exclusion (`ElementHash.BinaryElements`), not this change.
+- Fable final review of the spine edit (low effort, read-only, `bmad-review`), 12 findings, each checked against the spine and code. Applied: F1 (l.626 and l.644, the comparison rule, still named only Outlines and OEs), F2 (l.704), F3 (the two conditions: a direct child of `one:Page`, with an `objectID`), F6 (a Deferred row for the dropped-file `objectID` question), F7 (the no-bump decision at the rule), F8 (date, attribution, a memlog entry), F10 (what the hash catches), F11 and F12 (wording). For the owner: F4 (MediaFile dropped from the frozen Intent), F5 (MediaFile `pathCache` is inferred, and would already affect OE hashes), F9 (`one:OCRData` in an image's hash, a recalled premise).
