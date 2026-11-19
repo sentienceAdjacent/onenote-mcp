@@ -394,6 +394,42 @@ internal sealed class TestNotebook
     }
 
     /// <summary>
+    /// Story 3.8's OneDrive crash probe: <c>OpenPackage</c> of <paramref name="package"/> (under <paramref name="packageRoot"/>)
+    /// into <paramref name="destination"/>, a folder strictly under <paramref name="destinationRoot"/> whose name starts with
+    /// <see cref="CrashProbeFolderPrefix"/> unless the root is <paramref name="packageRoot"/> itself. Returns the path OneNote
+    /// reports, which must be under the destination root too. Refuses (throws, nothing sent) otherwise.
+    /// </summary>
+    public static async Task<string> OpenPackageIntoAsync(ComGateway gateway, string package, string packageRoot, string destination, string destinationRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "OpenPackage(probe)";
+        TestNotebookGuard.EnsureUnder(Method, package, packageRoot);
+        TestNotebookGuard.EnsureUnder(Method, destination, destinationRoot);
+        if (!string.Equals(TrimPath(Path.GetFullPath(destinationRoot)), TrimPath(Path.GetFullPath(packageRoot)), StringComparison.OrdinalIgnoreCase)
+            && !Path.GetFileName(TrimPath(destination)).StartsWith(CrashProbeFolderPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Refusing {Method}: {destination} isn't a {CrashProbeFolderPrefix}… folder.");
+        }
+
+        var opened = await gateway.InvokeAsync(
+            app =>
+            {
+                app.OpenPackage(package, destination, out var path);
+                return path;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+        TestNotebookGuard.EnsureUnder(Method, opened, destinationRoot);
+        return opened;
+    }
+
+    /// <summary>The only folder name the OneDrive crash probe may unpack into outside the probes' publish folder.</summary>
+    public const string CrashProbeFolderPrefix = "probe-crash-";
+
+    private static string TrimPath(string path) => path.TrimEnd('\\', '/');
+
+    /// <summary>
     /// Story 3.8's probe P2: <c>CloseNotebook</c> (not forced) of a notebook this run opened from <paramref name="publishRoot"/>.
     /// Refuses (throws, nothing sent) unless <paramref name="notebookId"/> is in <paramref name="openedThisRun"/>, is open now,
     /// and its live <c>path</c> lies under <paramref name="publishRoot"/>, so neither a test notebook nor a throwaway (which
