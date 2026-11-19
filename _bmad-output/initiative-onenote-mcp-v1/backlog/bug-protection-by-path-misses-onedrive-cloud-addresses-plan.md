@@ -155,3 +155,11 @@ All four answered (Decisions, 2026-11-18); kept as asked.
 **Sitting (main session with Phill):**
 - S1: with the dev build, read a notebook OneNote reports by a `d.docs.live.net` URL under the default export root: one of 3.8's copies after a restart if still open; otherwise make one (`open_package` with no destination, then restart OneNote, which re-homes it). Its pages are withheld, and a section read asks for the grant. Then read a cloud notebook elsewhere in the same OneDrive (MCP Test Cloud): still readable. Phill closes the copies.
 - When this is approved: set the plan's `status` and the ticket's `refined`.
+
+**S1 result (2026-11-18/19, Phill present, the build at 81e7863 through onenote-dev): passed.** Phill created a throwaway cloud notebook, `MCP URL Throwaway`, under `Documents\OneNote Exports` in his OneDrive (the default export root, OneDrive-redirected).
+- Notebooks scope: OneNote reported it as `https://d.docs.live.net/<cid>/Documents/OneNote Exports/MCP URL Throwaway/`, and the read carried `exportRootHoldsNotebooks` naming the default root (the guard's web-address branch, Q4).
+- The notebook at pages scope: its one section was in `meta.withheld`, with no pages in the XML, plus one `readNotGranted` ("under an export root or the backups folder") and `exportRootHoldsNotebooks`.
+- `get_hierarchy` of the section at pages scope: the grant dialog appeared, Phill declined it, and the result was `ReadNotGranted` ("The user declined the grant dialog").
+- `create_page` in that section: `SettingsInvalid` from the guard ("export root … holds a notebook … Writes are disabled until then"), before any grant dialog; nothing was written.
+- Over-reach check: MCP Test Cloud, elsewhere in the same OneDrive, at pages scope listed every non-encrypted section with its pages; only its password-protected sections were withheld (`readNotGranted` "is password-protected", with `sectionLocked`), and no warning named it as under a root.
+- Not run: the optional shallow-root check. Phill then closed the throwaway notebook and deleted it from OneDrive.

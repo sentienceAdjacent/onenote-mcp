@@ -6,7 +6,7 @@ parent: none
 covers: [R8]
 after: []
 assignee: ""
-refined: false
+refined: true
 hitl: true
 risk: high
 estimate: ""
