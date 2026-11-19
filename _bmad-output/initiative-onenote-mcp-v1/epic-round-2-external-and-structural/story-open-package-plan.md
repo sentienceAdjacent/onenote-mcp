@@ -3,7 +3,7 @@ title: 'open_package'
 type: 'feature'
 ticket: '8'
 created: '2026-11-17'
-status: 'built'
+status: 'draft'
 baseline_revision: '2982032d3e2a65718031195099ab5f3670605ea6'
 route: 'full'
 route_source: 'auto'
@@ -42,7 +42,8 @@ context:
 | Scenario | Input / State | Expected | Error |
 |---|---|---|---|
 | Open a package | throwaway's `.onepkg`, new destination | folder made with the marker file, notebook opened; `meta.outputPath`, `meta.objectId` | none |
-| No destination given | throwaway's `.onepkg` | `<first root>\<package name> <yyyyMMdd-HHmmss>` made and opened | none |
+| No destination given | throwaway's `.onepkg` | `%LOCALAPPDATA%\OneNoteMcp\opened\<package name> <yyyyMMdd-HHmmss>` made and opened (Q3) | none |
+| Destination inside a OneDrive-synced folder | e.g. under a redirected `Documents` | nothing done (Q3) | `ExportPathNotAllowed`, saying OneDrive would convert the copy |
 | No page listed in the wait | all sections empty, locked or protected | ok + `pagesNotListed` | none |
 | Destination outside every root | `..\x` or another drive | nothing done | `ExportPathNotAllowed` |
 | Destination exists | file or folder there | untouched | `FileExists` |
@@ -60,11 +61,17 @@ context:
 - Package paths: local, existing `.onepkg` only, as for `publish` (Q3 a).
 - Default destination names carry a timestamp (Q6 a).
 - Probe sitting S0 (P1–P3) before this story is built.
-- Destination (Q2, settled 2026-11-17 after it was read back to him: `open_package` imports a package rather than exporting one): optional; by default a timestamped folder under the first export root, unless the caller names one.
+- Destination (Q2, settled 2026-11-17 after it was read back to him: `open_package` imports a package rather than exporting one): optional; by default a timestamped folder under the first export root, unless the caller names one. **Superseded by Q3 (2026-11-18), below.**
+- **Q3 (Phill, 2026-11-18, option a): copies go to a non-synced folder in AppData, and OneDrive is refused.** With no destination, `open_package` unpacks into `%LOCALAPPDATA%\OneNoteMcp\opened\<package name> <yyyyMMdd-HHmmss>`, outside OneDrive; that opened-copies folder is a protected root like the journal's backups folder (AD-21), so every copy in it is protected by path whatever export roots say. Any destination inside a OneDrive-synced folder is refused before anything is written. Evidence: the 3.8 OneDrive crash probe (run 1119-023029, 2026-11-18) and two copies opened the day before: OneNote closed about 2 min after a copy was opened inside the OneDrive-synced export folder, with nothing in the Application log; on disk, the OneDrive sync client had converted each notebook folder inside OneDrive into an online notebook, deleting the folder and leaving `<name>.url` (an Internet shortcut to OneDrive's redirect page, called by the OneNote and Windows-sync scenarios) and `<name>_1\` holding only the `.onenote-mcp-opened` marker; the copy opened outside OneDrive was untouched. That conversion is also why such copies came back with `https://d.docs.live.net/…` paths (backlog 13). Where a named destination may go: Open Question 1; cleanup of closed copies: Open Question 2.
 - Completed steps (Phill, 2026-11-18, option a): a failure after the unpack says so in the error's message, not in a `meta.completedSteps` field, because the error envelope's `meta` holds only `correlationId` for every tool, and a field there would change the public error contract (AD-9, AD-14). The plan and spine AD-5 amended to match.
 - Marker file (Phill's final yes on entry 15 Q1, 2026-11-17): `open_package` writes `.onenote-mcp-opened` (`ExportRootGuard.MarkerFileName`) into every folder it creates, the default timestamped one and a named one alike, so the export-root guard doesn't count the opened copy as the user's own notebook.
 
 </frozen-after-approval>
+
+## Open Questions
+
+1. **Where a named destination may go (Q3 follow-up).** (i) Only inside the opened-copies folder: `destination` becomes a folder name under it (or a full path inside it); export roots stop being used by `open_package` at all. (ii) Inside an export root or the opened-copies folder, either, as long as it isn't OneDrive-synced. (iii) Only inside an export root, refusing OneDrive. Recommended: (i): every copy in one known, non-synced, always-protected place; the export folders stay for files the user exports.
+2. **Cleaning up closed copies (asked of Phill by the coordinating session).** Recommended there: a sweep when the server starts that deletes folders in the opened-copies folder that hold the marker, whose notebook isn't open, and that are older than 7 days. Its answer may add tasks below.
 
 ## Code Map
 
@@ -122,6 +129,8 @@ context:
 - Contract: `open_package` added to `tool-contract.json` (570 lines added, nothing else changed; `<Version>` stays `0.9.0-rc.1`, unreleased since `v0.8.0-rc.2`); tool counts 28→29, property counts 71→73; `open_package` joins the tools whose skill and README text waits for entry 10.
 
 ## Plan Change Log
+
+- 2026-11-18, Phill's Q3 (option a) after the OneDrive crash probe: the default destination moves to `%LOCALAPPDATA%\OneNoteMcp\opened\…`, a protected root, and OneDrive-synced destinations are refused; status back to `draft` until Open Questions 1 and 2 are answered. **Rework, after backlog 13 (#97) merges and this branch is rebased** (it brings the OneDrive folder seam `OneDriveFolders` to reuse for "is this OneDrive-synced"): `Protection.RootsOf` adds the opened-copies folder; `OpenPackageUseCase` takes it as the default and refuses OneDrive destinations; `ExportTarget.ResolveFolder` gains the opened-copies root per Open Question 1; tests first (default location, OneDrive refusal, the copy protected with no export root covering it); the integration test and S1/S2 rerun. The built code on this branch (default under the export root) is not to merge as it stands.
 
 - 2026-11-17, after the Fable final review (findings checked against the sources; all held): the frozen block stopped assuming the split; the Xml-layer marker reads and `CheckBroad`'s input added; step 7 failure outcomes; the ticket's Verify as Given/When/Then; tasks with file paths; probes before the build; the page wait; three more questions; citations corrected.
 - 2026-11-17, Phill's answers: the path rule moved to entry 15 (this plan keeps `open_package` only); Q3, Q4, Q5 and Q6 applied as Decisions; Q2 reopened as Open Question 1.
