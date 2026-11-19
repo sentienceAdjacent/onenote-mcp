@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.Settings;
+using OneNoteMcp.Core.Writes;
 using OneNoteMcp.Server.Logging;
 
 namespace OneNoteMcp.Server.Cli;
@@ -18,13 +19,14 @@ namespace OneNoteMcp.Server.Cli;
 /// (story 2.8 decision Q1), so the journal and settings test overrides apply here as in the server.
 /// </param>
 /// <param name="SystemFolders">Folders a journal path must never be: the profile, AppData, Desktop, Documents, Windows, Program Files.</param>
-public sealed record UninstallPaths(string SettingsPath, string LogDirectory, string DefaultJournalPath, IReadOnlyList<string> SystemFolders)
+public sealed record UninstallPaths(string SettingsPath, string LogDirectory, string DefaultJournalPath, IReadOnlyList<string> SystemFolders, string? OpenedCopiesPath = null)
 {
     public static UninstallPaths Resolve(Func<string, string?> getEnvironmentVariable) => new(
         SettingsStore.ResolvePath(getEnvironmentVariable),
         FileLog.ResolveDirectory(getEnvironmentVariable),
         JournalFiles.DefaultFolder(getEnvironmentVariable),
-        DefaultSystemFolders());
+        DefaultSystemFolders(),
+        OpenedCopies.DefaultFolder(getEnvironmentVariable));
 
     public static IReadOnlyList<string> DefaultSystemFolders() =>
         new[]
@@ -51,7 +53,12 @@ public sealed record UninstallPaths(string SettingsPath, string LogDirectory, st
 /// the backup-named <c>.one</c> files at the top of the journal's <c>backups</c> folder (story 5.6), then that folder when
 /// empty. It never recurses further, removes a folder only when nothing is left in
 /// it, and refuses a journal folder that looks like a root or system folder. It never removes the exe, the plugin, or
-/// Claude Code's own <c>tool-results</c> files. It starts no COM.
+/// Claude Code's own <c>tool-results</c> files. It starts no OneNote.
+/// <para>Story 3.8 (Phill's purge answer (b), 2026-11-18): it also deletes the copies <c>open_package</c> made, the
+/// folders in the opened-copies folder that hold the marker, whole, but skips and lists any copy OneNote still has open.
+/// It learns that from OneNote only when OneNote is already running, and checks again after the question; when it can't
+/// tell (OneNote not running included, since a closed OneNote reopens its notebooks), it skips every copy and lists them.
+/// A folder there without the marker is never touched.</para>
 /// <para>Interactive, it asks the user to type <c>purge</c>; otherwise it needs <c>--yes</c>.</para>
 /// <para>Before that question it warns with the process ID of every other running <c>OneNoteMcp.exe</c>, since a running
 /// server may write a grant or a log meanwhile. It removes <c>settings.json</c> and its temporary files only while holding
@@ -63,7 +70,7 @@ public sealed partial class UninstallCommand
 {
     public const string Usage =
         "Usage:\n"
-        + "  OneNoteMcp uninstall --purge [--yes]   remove OneNoteMcp's settings (read grants included), logs and journal\n"
+        + "  OneNoteMcp uninstall --purge [--yes]   remove OneNoteMcp's settings (read grants included), logs, journal and opened copies\n"
         + "It asks you to type 'purge' first; --yes skips that, and is required when it can't ask.\n"
         + "It doesn't remove OneNoteMcp.exe or the plugin: do that with /plugin uninstall, or delete the exe.";
 
@@ -76,13 +83,14 @@ public sealed partial class UninstallCommand
     private readonly UninstallPaths paths;
     private readonly Func<IReadOnlyList<int>> otherServers;
     private readonly Action<Action> settingsLock;
+    private readonly Func<IReadOnlyList<string>?> openNotebooks;
 
     /// <param name="otherServers">The process IDs of the other running OneNoteMcp processes (<see cref="OtherServerProcesses"/>).</param>
     /// <param name="settingsLock">
     /// Runs its action while holding the settings mutex, or throws <see cref="ErrorCode.ComBusy"/> without running it
     /// (<see cref="SettingsLock"/>).
     /// </param>
-    public UninstallCommand(TextReader input, TextWriter output, bool interactive, UninstallPaths paths, Func<IReadOnlyList<int>> otherServers, Action<Action> settingsLock)
+    public UninstallCommand(TextReader input, TextWriter output, bool interactive, UninstallPaths paths, Func<IReadOnlyList<int>> otherServers, Action<Action> settingsLock, Func<IReadOnlyList<string>?>? openNotebooks = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(output);
@@ -95,6 +103,7 @@ public sealed partial class UninstallCommand
         this.paths = paths;
         this.otherServers = otherServers;
         this.settingsLock = settingsLock;
+        this.openNotebooks = openNotebooks ?? (() => null);
     }
 
     /// <summary>The process IDs of every other process running <c>OneNoteMcp.exe</c>, this one left out.</summary>
@@ -164,7 +173,7 @@ public sealed partial class UninstallCommand
             output.WriteLine($"Refused: {refusal}");
         }
 
-        if (plan.Files.Count == 0 && plan.Folders.Count == 0)
+        if (plan.Files.Count == 0 && plan.Folders.Count == 0 && plan.Copies.Count == 0)
         {
             output.WriteLine("Nothing to remove.");
             return plan.Refusals.Count == 0 ? 0 : 1;
@@ -176,6 +185,15 @@ public sealed partial class UninstallCommand
             foreach (var file in plan.Files)
             {
                 output.WriteLine($"  {file}");
+            }
+        }
+
+        if (plan.Copies.Count > 0)
+        {
+            output.WriteLine("These copies open_package made are removed, each folder with everything in it:");
+            foreach (var copy in plan.Copies)
+            {
+                output.WriteLine($"  {copy}");
             }
         }
 
@@ -216,7 +234,7 @@ public sealed partial class UninstallCommand
             {
                 settingsLock(() =>
                 {
-                    var listed = new PurgePlan([], [], [], [], []);
+                    var listed = new PurgePlan([], [], [], [], [], []);
                     AddSettingsFiles(listed, settingsPath);
                     foreach (var refusal in listed.Refusals)
                     {
@@ -242,6 +260,26 @@ public sealed partial class UninstallCommand
             failed |= !Delete(file);
         }
 
+        // Checked again now: the user may have opened a copy in OneNote while the question waited (the review of 6fe92b3).
+        var openNow = plan.Copies.Count > 0 ? openNotebooks() : [];
+        foreach (var copy in plan.Copies)
+        {
+            if (openNow is null)
+            {
+                output.WriteLine($"Kept {copy}: couldn't tell whether OneNote has it open now.");
+                failed = true;
+            }
+            else if (OpenedCopies.IsOpen(copy, openNow))
+            {
+                output.WriteLine($"Kept {copy}: it is still open in OneNote. Close it in OneNote, then run this again.");
+                failed = true;
+            }
+            else
+            {
+                failed |= !DeleteCopy(copy);
+            }
+        }
+
         foreach (var folder in plan.Folders)
         {
             failed |= !RemoveIfEmpty(folder);
@@ -258,7 +296,8 @@ public sealed partial class UninstallCommand
     /// The members of <paramref name="Files"/> that are settings files: shown before the question, but removed as listed
     /// again under the settings mutex.
     /// </param>
-    private sealed record PurgePlan(List<string> Files, List<string> Folders, List<string> Refusals, List<string> Notes, List<string> SettingsFiles);
+    /// <param name="Copies">Opened copies (story 3.8) removed whole: marked folders in the opened-copies folder that OneNote doesn't have open.</param>
+    private sealed record PurgePlan(List<string> Files, List<string> Folders, List<string> Refusals, List<string> Notes, List<string> SettingsFiles, List<string> Copies);
 
     /// <summary>The settings file, when it exists, and the writer's temp-file leftovers beside it.</summary>
     private void AddSettingsFiles(PurgePlan plan, string settingsPath)
@@ -276,7 +315,7 @@ public sealed partial class UninstallCommand
 
     private PurgePlan Plan()
     {
-        var plan = new PurgePlan([], [], [], [], []);
+        var plan = new PurgePlan([], [], [], [], [], []);
 
         // Settings: the file itself and the writer's temp-file leftovers beside it.
         var settingsPath = Path.GetFullPath(paths.SettingsPath);
@@ -304,8 +343,36 @@ public sealed partial class UninstallCommand
             AddMatching(plan, Path.Combine(journalFolder, JournalFiles.BackupsFolderName), JournalFiles.IsBackup);
         }
 
+        // Opened copies (3.8): marked folders only, skipping and listing any still open in OneNote.
+        var openedFolder = paths.OpenedCopiesPath is { } opened ? Path.GetFullPath(opened) : null;
+        if (openedFolder is not null && RootLikeReason(openedFolder, paths.SystemFolders) is null)
+        {
+            var copies = OpenedCopies.MarkedCopies(openedFolder);
+            var open = copies.Count > 0 ? openNotebooks() : [];
+            foreach (var copy in copies)
+            {
+                if (open is null)
+                {
+                    plan.Notes.Add($"Skipped {copy}: couldn't tell whether OneNote still has it open (OneNote must be running for that). Start OneNote, close the copy there if it is open, then run this again; or delete the folder yourself.");
+                }
+                else if (OpenedCopies.IsOpen(copy, open))
+                {
+                    plan.Notes.Add($"Skipped {copy}: it is still open in OneNote. Close it in OneNote, then run this again.");
+                }
+                else
+                {
+                    plan.Copies.Add(copy);
+                }
+            }
+        }
+
         // OneNoteMcp's own folders, in removal order: children before the OneNoteMcp folders that hold them.
         var candidates = new List<string>();
+        if (openedFolder is not null)
+        {
+            candidates.Add(openedFolder);
+        }
+
         if (settingsFolder is not null)
         {
             candidates.Add(settingsFolder);
@@ -393,6 +460,62 @@ public sealed partial class UninstallCommand
         {
             output.WriteLine($"Couldn't remove {file}: {Describe(ex)}");
             return false;
+        }
+    }
+
+    /// <summary>Removes an opened copy's folder with everything in it; a link or junction inside is removed, not followed.</summary>
+    private bool DeleteCopy(string copy)
+    {
+        try
+        {
+            Directory.Delete(copy, recursive: true);
+            output.WriteLine($"Removed {copy}");
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            output.WriteLine($"Couldn't remove {copy}: {Describe(ex)}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The open notebooks' paths, for the purge's opened-copies check, or null when it can't tell, so every copy is skipped
+    /// and listed. It asks only a OneNote that is already running: a closed OneNote still lists its notebooks and reopens
+    /// them, so "not running" is "can't tell" too (the review of 6fe92b3). The gateway gets default settings, so the user's
+    /// <c>allowSilentActivation</c> can never start a hidden OneNote here.
+    /// </summary>
+    public static IReadOnlyList<string>? OpenNotebooksIfOneNoteRuns()
+    {
+        var running = System.Diagnostics.Process.GetProcessesByName("ONENOTE");
+        try
+        {
+            if (running.Length == 0)
+            {
+                return null;
+            }
+        }
+        finally
+        {
+            foreach (var process in running)
+            {
+                process.Dispose();
+            }
+        }
+
+        try
+        {
+            // A settings path that doesn't exist reads as every default: silent activation off.
+            var defaults = new SettingsStore(Path.Combine(Path.GetTempPath(), $"onenote-mcp-purge-{Guid.NewGuid():N}", "settings.json"));
+            using var gateway = new Com.ComGateway(new Com.ProcessProbe(), defaults);
+            var xml = gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, CancellationToken.None).GetAwaiter().GetResult();
+            return [.. Xml.HierarchyNode.Notebooks(xml).Select(n => n.Path)];
+        }
+#pragma warning disable CA1031 // Any failure means "couldn't tell": every copy is skipped and listed.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return null;
         }
     }
 

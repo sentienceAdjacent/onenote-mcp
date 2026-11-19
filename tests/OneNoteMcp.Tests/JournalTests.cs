@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Server.Journal;
@@ -155,7 +156,7 @@ public sealed class JournalTests : IDisposable
         var xml = $"<one:Section {HierarchyNs} name=\"Ideas\" ID=\"{{S}}\" path=\"C:\\n\\N\\Group\\Ideas.one\" />";
 
         var written = await new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock())
-            .TakeAsync(new HierarchySnapshotRequest("c", "rename_hierarchy_object", OperationClass.HierarchyWrite, "{S}", xml), TestContext.Current.CancellationToken);
+            .TakeAsync(new HierarchySnapshotRequest("c", "rename_hierarchy_object", OperationClass.HierarchyWrite, "{S}", xml, new Protection([])), TestContext.Current.CancellationToken);
 
         var entry = JournalStore.Read(written.Path);
         Assert.False(written.Protected);
@@ -182,7 +183,7 @@ public sealed class JournalTests : IDisposable
         var xml = $"<one:Section {HierarchyNs} name=\"Vault\" ID=\"{{S}}\" path=\"C:\\n\\N\\Vault.one\" encrypted=\"true\"><one:Page ID=\"{{P}}\" name=\"Secret title\" /></one:Section>";
 
         var written = await new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock())
-            .TakeAsync(new HierarchySnapshotRequest("c", "reorder_hierarchy_children", OperationClass.HierarchyWrite, "{S}", xml), TestContext.Current.CancellationToken);
+            .TakeAsync(new HierarchySnapshotRequest("c", "reorder_hierarchy_children", OperationClass.HierarchyWrite, "{S}", xml, new Protection([])), TestContext.Current.CancellationToken);
 
         Assert.True(written.Protected);
         Assert.DoesNotContain("Secret title", Raw(written.Path).ToJsonString(), StringComparison.Ordinal);
@@ -199,9 +200,9 @@ public sealed class JournalTests : IDisposable
         var snapshot = new HierarchySnapshot(gateway, new JournalStore(Store.Read), new FakeClock());
 
         var unreadable = await Assert.ThrowsAsync<OneNoteException>(() => snapshot.TakeAsync(
-            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", "<one:Section"), TestContext.Current.CancellationToken));
+            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", "<one:Section", new Protection([])), TestContext.Current.CancellationToken));
         var unplaced = await Assert.ThrowsAsync<OneNoteException>(() => snapshot.TakeAsync(
-            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", $"<one:Section {HierarchyNs} name=\"S\" ID=\"{{S}}\" />"), TestContext.Current.CancellationToken));
+            new HierarchySnapshotRequest("c", "x", OperationClass.HierarchyWrite, "{S}", $"<one:Section {HierarchyNs} name=\"S\" ID=\"{{S}}\" />", new Protection([])), TestContext.Current.CancellationToken));
 
         Assert.Equal(ErrorCode.JournalFailed, unreadable.Code);
         Assert.Equal(ErrorCode.JournalFailed, unplaced.Code);

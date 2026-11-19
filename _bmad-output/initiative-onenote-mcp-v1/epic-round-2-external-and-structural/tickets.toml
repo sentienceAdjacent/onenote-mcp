@@ -50,6 +50,19 @@ after = [3]
 hitl = false
 risk = "high"
 unknown = "Whether sending the source section without the page moves it or deletes it, and whether the page keeps its ID; entry 1 settles both."
+notes = ["3.2 (Phill 2026-11-16): the move tool re-resolves both notebooks under the write lock (AD-7 Moves, \"A write's notebook is re-resolved under the lock\"), so a page move builds that re-resolve first; 3.12 extends it to other writes. A page moves under a new ID and leaves its subpages behind (warning subpagesLeftBehind); the read-back finds it by name and the position sent. A target in a protected section needs only the write grant; a move out of a protected (so also a locked) section is NotSupported, checked first; into a locked section is SectionLocked. 0x80042004 is outcomeUnknown."]
+
+[[entry]]
+id = 14
+type = "story"
+title = "Make a page a subpage"
+description = "Two ways to make subpages, as E10 sets: a new set_page_level tool that indents or outdents an existing page (its pageLevel, 1 to 3) through the HierarchyWrite pipeline, refusing a level that wouldn't sit under a parent page; and an optional parent page on create_page that places the new page after that page's last subpage, one level below it."
+verify = "Unit tests cover every level rule and refusal and the XML sent, with each page's level kept; then, with Phill, on MCP Test a page is indented to level 2 and 3 and outdented back, a new page is created as a subpage of a page that already has subpages and lands after them, the levels hold after Sync Now on MCP Test Cloud, and a level change in the locked protected section is refused as E10 says."
+covers = ["E10"]
+after = [4]
+hitl = true
+risk = "medium"
+unknown = "Whether a level change keeps the page's ID, whether OneNote also needs the level on the page's own XML (OneMore sets both), and what it does with a subpage block when its parent's level changes; the build's live sitting settles each before the rules are final."
 
 [[entry]]
 id = 12
@@ -62,6 +75,8 @@ after = [4]
 hitl = true
 risk = "high"
 unknown = "Whether a section or section group moves across notebooks through UpdateHierarchy, and whether a group move syncs on OneDrive; entry 1 settles both."
+notes = ["3.2 (Phill 2026-11-16): H2 keeps Q9 and Q14, so a protected section, or a group holding one, never moves and no read grant or protected journal entry is re-keyed; a move that would put a section on a SectionKey holding a read grant is refused InvalidArgument, as a rename is. J1: a section or group leaving a cloud notebook for another notebook's section group is refused before COM with a userAction to move it to that notebook's root first. J3: 0x80042018 on a group move is NotSupported. J4: moves into, out of or of a locked section are SectionLocked. J5, widened by the Fable review (M2): a 10 s settle under the write lock after any section or group move that touches a cloud notebook, within one included. Fable M1: the protected check comes first, so moves out of or of a locked section are NotSupported; SectionLocked is only for a locked new parent. Moves into a protected section need only the write grant. This entry also extends the re-resolve of a write's notebook under the write lock (AD-7) to every other write, create_page included, after 3.4 builds it for the move tool."]
+
 
 [[entry]]
 id = 5
@@ -94,7 +109,7 @@ title = "publish: other formats and sections"
 description = "Extends entry 3's publish tool to sections and to every other format entry 1 proves for a page or a section, with the edge cases entry 2 maps (multi-file formats, a partial file after a timeout), E2's refusals, and E8's rule for a protected section."
 verify = "On MCP Test a page and a section export in each listed format under the export root with meta.outputPath, an unlisted format is refused before COM, and an integration test shows the locked protected section refused with ReadNotGranted without the section's read grant and SectionLocked with it (Q1); unit tests cover the unlocked path."
 covers = ["E1", "E2", "E8"]
-after = [6]
+after = [3]
 hitl = false
 risk = "medium"
 
@@ -103,10 +118,23 @@ id = 7
 type = "story"
 title = "publish: notebooks and section groups"
 description = "Extends publish to a notebook, as a .onepkg that counts as done only once the file is on disk, refusing a section group before COM (Q7), with E8's rule for protected sections inside the notebook; it also exports entry 4's second test notebook, which holds no protected section, and entry 8 opens that package."
-verify = "On MCP Test a notebook exports to a .onepkg under the export root with meta.outputPath, a section group is refused before COM, the second test notebook exports with no refusal, and an integration test shows MCP Test, which holds the locked protected section, refused with ReadNotGranted without that section's read grant (Q1); unit tests cover the unlocked path."
+verify = "On MCP Test a notebook exports to a .onepkg under the export root with meta.outputPath, a section group is refused before COM, a notebook in any other format is refused before COM, the second test notebook exports with no refusal, and an integration test shows MCP Test, which holds the locked protected section, exporting as a package with no read grant (3.2 H1); unit tests cover the refusals."
 covers = ["E1", "E2", "E8"]
 after = [13]
 hitl = false
+risk = "medium"
+notes = ["3.2 H1 (Phill 2026-11-16): a notebook package needs no read grant, since spike 3.1 found protected sections encrypted inside packages; this relaxes Q1 for packages only, and section and page exports keep it. Notebook export is package-only (approved rule); any other notebook format is refused before COM (spine AD-11)."]
+
+
+[[entry]]
+id = 15
+type = "story"
+title = "Protected by path: export roots and the backups folder"
+description = "AD-21 What's protected, by path: a section under an exportRoots entry or the journal's backups folder, or in a notebook whose path is, counts as protected whatever its encrypted marker, for every read check and every protection-gated write and journal snapshot (Phill 2026-11-17, 3.8 Q4), in Core and in the Xml layer; and an export root that would make the user's own notebooks protected is refused with a reason (3.8 Q5). Split out of entry 8 (Phill 2026-11-17, 3.8 Q1)."
+verify = "Unit tests show an unmarked section under an export root, under the backups folder, and in a notebook under a root treated as protected by get_hierarchy, get_page_content, find_pages, the grant listing, a journal snapshot and a gated write, a look-alike root (exports2) not matching, and the refused export root; existing tests pass, changed only where a fixture sits under a root."
+covers = ["E8"]
+after = [3]
+hitl = true
 risk = "medium"
 
 [[entry]]
@@ -116,7 +144,7 @@ title = "open_package"
 description = "OpenPackage through ExternalWrite with entry 3's export-root code: a package from any path and no automatic write grant (Q6), a new destination folder under an export root, the folder and the opened notebook in the result, and every section in the opened notebook counting as protected under AD-21 (Q11); the user closes the notebook (Q13), and this entry extends the integration guard, which never closes a notebook today, to close the -unpacked notebooks its tests open."
 verify = "The package entry 7 made of the second test notebook opens into a new folder under the export root and the result names the opened notebook, a destination outside every root returns ExportPathNotAllowed, an integration test shows a page of the opened notebook refused with ReadNotGranted until it has a read grant (Q11), and the test closes what it opened as Q13 says; unit tests cover the unlocked path."
 covers = ["E3", "E8"]
-after = [7]
+after = [7, 15]
 hitl = false
 risk = "medium"
 

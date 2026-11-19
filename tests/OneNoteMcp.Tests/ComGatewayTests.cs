@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
 using Xunit;
+using PublishFormat = OneNoteMcp.Com.Interop.PublishFormat;
 
 namespace OneNoteMcp.Tests;
 
@@ -131,6 +132,50 @@ public sealed class ComGatewayTests
     [InlineData(HierarchyScope.Pages, 4)]
     public void MapScope_MatchesTypeLibraryValues(HierarchyScope scope, int expected) =>
         Assert.Equal(expected, (int)ComGateway.MapScope(scope));
+
+    [Theory]
+    [InlineData(ExportFormat.OneNote, (int)PublishFormat.pfOneNote)]
+    [InlineData(ExportFormat.Pdf, (int)PublishFormat.pfPDF)]
+    [InlineData(ExportFormat.Xps, (int)PublishFormat.pfXPS)]
+    [InlineData(ExportFormat.Word, (int)PublishFormat.pfWord)]
+    [InlineData(ExportFormat.Mhtml, (int)PublishFormat.pfMHTML)]
+    [InlineData(ExportFormat.Html, (int)PublishFormat.pfHTML)]
+    [InlineData(ExportFormat.Emf, (int)PublishFormat.pfEMF)]
+    [InlineData(ExportFormat.OneNotePackage, (int)PublishFormat.pfOneNotePackage)]
+    public async Task Publish_MapsEachCoreFormat_ToItsComFormat(ExportFormat format, int expectedValue)
+    {
+        var expected = (PublishFormat)expectedValue;
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = new ComGateway(new FixedProbe(true), () => app);
+
+        await gateway.PublishAsync("{p}", @"C:\exports\x.pdf", format, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["{p}", @"C:\exports\x.pdf", expected, string.Empty], app.Calls.Single(c => c.Method == "Publish").Args);
+    }
+
+    [Theory]
+    [InlineData(8)] // pfOneNote2007's value, which ends ONENOTE.EXE (AD-11)
+    [InlineData(99)]
+    [InlineData(-1)]
+    public async Task Publish_AValueThatIsntAnExportFormat_IsNotSupported_BeforeCom(int raw)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = new ComGateway(new FixedProbe(true), () => app);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(
+            () => gateway.PublishAsync("{p}", @"C:\exports\x.pdf", (ExportFormat)raw, TestContext.Current.CancellationToken));
+
+        Assert.Equal(ErrorCode.NotSupported, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public void ExportFormat_HasEightMembers_AndNoneIsOneNote2007()
+    {
+        var values = Enum.GetValues<ExportFormat>();
+        Assert.Equal(8, values.Length);
+        Assert.DoesNotContain(Enum.GetNames<ExportFormat>(), n => n.Contains("2007", StringComparison.Ordinal));
+    }
 
     private sealed class FixedProbe(bool running) : IProcessProbe
     {

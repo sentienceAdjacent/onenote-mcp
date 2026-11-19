@@ -56,6 +56,9 @@ public static class ServerSetup
     public static IMcpServerBuilder AddOneNoteMcp(this IServiceCollection services)
     {
         // Read side of settings.json (AD-10): every Read() re-reads the file, so one instance serves the process.
+        // Backlog 13: the OneDrive folders, read from the registry and environment at most every 30 s, for the protected-by-path
+        // rule (reads, writes, snapshots) and the export-root guard (which also refuses a root too close to a OneDrive folder).
+        services.AddSingleton(_ => OneDriveAccounts.ForThisUser());
         services.AddSingleton(_ => new SettingsStore());
         services.AddSingleton<IProcessProbe, ProcessProbe>();
         // The gateway re-reads timeouts and allowSilentActivation from settings.json at every activation (AD-3).
@@ -69,10 +72,12 @@ public static class ServerSetup
         services.AddSingleton<ITextBlockMeasure>(EnvelopeMeasure.Instance);
         // AD-21: one access check, re-reading settings.json at every check (AD-10); the writer stores the user's grants.
         services.AddSingleton(sp => new SettingsWriter(sp.GetRequiredService<SettingsStore>(), TimeProvider.System));
+        // Entry 15 (Phill, 2026-11-17, Q1): one export-root guard, its verdict cached, shared by reads (a warning) and writes (refused).
+        services.AddSingleton(sp => new ExportRootGuard(sp.GetRequiredService<IOneNoteGateway>(), TimeProvider.System, oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
         services.AddSingleton(sp =>
         {
             var settings = sp.GetRequiredService<SettingsStore>();
-            return new ReadAccess(sp.GetRequiredService<IOneNoteGateway>(), settings.Read, sp.GetRequiredService<SettingsWriter>(), TimeProvider.System);
+            return new ReadAccess(sp.GetRequiredService<IOneNoteGateway>(), settings.Read, sp.GetRequiredService<SettingsWriter>(), TimeProvider.System, sp.GetRequiredService<ExportRootGuard>(), sp.GetRequiredService<OneDriveAccounts>().Current);
         });
         services.AddSingleton(sp => sp.GetRequiredService<ReadAccess>().Results);
         services.AddSingleton<ResultDelivery>();
@@ -113,8 +118,15 @@ public static class ServerSetup
             sp.GetRequiredService<PageTextCache>(),
             sp.GetRequiredService<SettingsStore>().Read,
             TimeProvider.System,
-            dialog: sp.GetRequiredService<WriteGrantDialog>()));
-        services.AddSingleton<CreatePageUseCase>();
+            dialog: sp.GetRequiredService<WriteGrantDialog>(),
+            guard: sp.GetRequiredService<ExportRootGuard>()));
+        // Story 3.14: with parentPageId, create_page checks a protected section's read grant and takes a hierarchy entry.
+        services.AddSingleton(sp => new CreatePageUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<WriteAccess>(),
+            sp.GetRequiredService<WritePipeline>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<HierarchySnapshot>()));
 
         // The recovery journal (AD-8): the store re-reads journal{} from settings.json at every write and logs each entry
         // with IDs and sizes only (AD-13); step 6's page snapshot writes through it; the pruner re-reads journal{} at
@@ -144,7 +156,8 @@ public static class ServerSetup
             sp.GetRequiredService<IOneNoteGateway>(),
             sp.GetRequiredService<WriteAccess>(),
             sp.GetRequiredService<WritePipeline>(),
-            sp.GetRequiredService<SettingsStore>().Read));
+            sp.GetRequiredService<SettingsStore>().Read,
+            oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
 
         // Story 5.3: section, section-group and notebook creates (AD-7 Create). A notebook create writes its automatic
         // grant (AD-6 grantedVia: created) through the settings writer, inside the write lock.
@@ -164,6 +177,22 @@ public static class ServerSetup
             sp.GetRequiredService<ReadAccess>(),
             sp.GetRequiredService<HierarchySnapshot>()));
         services.AddSingleton<UpdateHierarchyUseCase>();
+
+        // Story 3.4: a page move (AD-7 HierarchyWrite), one UpdateHierarchy with a hierarchy entry per section (AD-8).
+        services.AddSingleton<MoveHierarchyObjectUseCase>();
+
+        // Story 3.5: a restore out of the recycle bin (AD-7 HierarchyWrite, AD-8), one UpdateHierarchy of the target with a
+        // hierarchy entry; it reads the soft-delete entries from the journal folder settings.json names, at every call.
+        services.AddSingleton(sp => new RestoreFromRecycleBinUseCase(
+            sp.GetRequiredService<HierarchyWriteServices>(),
+            sp.GetRequiredService<WritePipeline>(),
+            sp.GetRequiredService<SettingsStore>().Read));
+
+        // Story 3.14: a page's subpage level (AD-7 HierarchyWrite), one UpdateHierarchy of its section with a hierarchy entry.
+        services.AddSingleton<SetPageLevelUseCase>();
+
+        // Story 3.6: a merge (AD-7 HierarchyWrite), one MergeSections with a hierarchy entry of the destination (AD-8).
+        services.AddSingleton<MergeSectionsUseCase>();
 
         // Story 5.5: soft delete (AD-7 SoftDelete). A page takes a page snapshot as a page write does; a section or section
         // group takes a hierarchy snapshot (AD-8).
@@ -186,6 +215,24 @@ public static class ServerSetup
             sp.GetRequiredService<HierarchySnapshot>(),
             sp.GetRequiredService<SectionBackup>()));
         services.AddSingleton<PermanentDeleteUseCase>();
+
+        // Story 3.3: publish (AD-7 ExternalWrite, 600 s deadline): a page as PDF under an export root, re-reading
+        // exportRoots and timeouts.publishSeconds from settings.json at every call; the landing wait runs on the system clock.
+        services.AddSingleton(sp => new PublishUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<ReadAccess>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            sp.GetRequiredService<WritePipeline>(),
+            TimeProvider.System));
+
+        // Story 3.8: open_package (AD-7 ExternalWrite): unpack a package into the opened-copies folder, outside OneDrive
+        // (Phill's Q3 (a)), open it, wait for its pages.
+        services.AddSingleton(sp => new OpenPackageUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<SettingsStore>().Read,
+            sp.GetRequiredService<WritePipeline>(),
+            TimeProvider.System,
+            oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
 
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
@@ -210,8 +257,14 @@ public static class ServerSetup
             .WithTools<CreateNotebookTool>(EnvelopeJson.Options)
             .WithTools<RenameHierarchyObjectTool>(EnvelopeJson.Options)
             .WithTools<ReorderHierarchyChildrenTool>(EnvelopeJson.Options)
+            .WithTools<MoveHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<RestoreFromRecycleBinTool>(EnvelopeJson.Options)
+            .WithTools<SetPageLevelTool>(EnvelopeJson.Options)
+            .WithTools<MergeSectionsTool>(EnvelopeJson.Options)
             .WithTools<DeleteHierarchyObjectTool>(EnvelopeJson.Options)
-            .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options);
+            .WithTools<PermanentlyDeleteHierarchyObjectTool>(EnvelopeJson.Options)
+            .WithTools<PublishTool>(EnvelopeJson.Options)
+            .WithTools<OpenPackageTool>(EnvelopeJson.Options);
 
         // Story 2.14 (AD-9): every input schema says up front that undeclared names are refused, and every call's
         // arguments are checked against its tool's schema before the SDK binds them.
@@ -245,6 +298,20 @@ public static class ServerSetup
             sp.GetRequiredService<JournalPruner>(),
             TimeProvider.System,
             sp.GetRequiredService<ILogger<JournalPruneService>>()));
+    }
+
+    /// <summary>
+    /// Story 3.8 (Phill's cleanup answer (b)): one sweep of the opened-copies folder when the server starts. <c>Program</c>
+    /// adds it to the server's host; test hosts leave it out, so they never delete a real copy.
+    /// </summary>
+    public static IServiceCollection AddOpenedCopiesSweep(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddHostedService(sp => new OpenedCopiesSweepService(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<SettingsStore>(),
+            TimeProvider.System,
+            sp.GetRequiredService<ILogger<OpenedCopiesSweepService>>()));
     }
 
     /// <summary>

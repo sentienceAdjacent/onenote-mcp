@@ -14,18 +14,64 @@ namespace OneNoteMcp.Tests;
 /// <summary>
 /// Story 1.20's I/O matrix (AD-21): every read tool over a notebook with password-protected sections, through the real
 /// runner, use cases, access check, settings writer and result store. The protected text never leaves the server
-/// without a grant, and no tool can make one.
+/// without a grant, and no tool can make one. Entry 15 runs the same matrix with the vaults protected by their path
+/// under an export root instead of by the <c>encrypted</c> marker (<see cref="ProtectedByPathToolTests"/>).
 /// </summary>
-public sealed class ProtectedSectionToolTests
+public abstract class ProtectedSectionToolTestsBase
 {
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
+
+    /// <summary>True: the vaults are protected by path (entry 15); false: by the marker (story 1.20).</summary>
+    protected abstract bool ByPath { get; }
+
+    /// <summary>The harness in this class's mode. A locked vault exists only with a password, so path mode skips it.</summary>
+    private protected VaultHarness Harness(bool locked = false, int inlineMaxChars = 100_000)
+    {
+        Assert.SkipWhen(locked && ByPath, "A locked section is always password-protected; path mode has none.");
+        return new VaultHarness(locked, inlineMaxChars, ByPath);
+    }
+
+    /// <summary>Writes <paramref name="json"/> as settings.json; in path mode a valid object keeps the vaults' export root.</summary>
+    private protected void WriteSettings(VaultHarness h, string json)
+    {
+        File.WriteAllText(h.SettingsPath, json);
+        if (!ByPath)
+        {
+            return;
+        }
+
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(json) is System.Text.Json.Nodes.JsonObject)
+            {
+                TestSettings.SetExportRoots(h.SettingsPath, V.VaultsFolder);
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Not JSON: written as it is, as the test meant (an unreadable file).
+        }
+    }
+
+    /// <summary>No read grant was stored: no settings file at all in marker mode, none in the file in path mode.</summary>
+    private protected void AssertNothingSaved(VaultHarness h)
+    {
+        if (ByPath)
+        {
+            Assert.Empty(h.Settings.Read().ProtectedSections);
+        }
+        else
+        {
+            Assert.False(File.Exists(h.SettingsPath));
+        }
+    }
 
     // --- Target read, no grant ------------------------------------------------------------------------------------
 
     [Fact]
     public async Task PageContent_NoGrant_NoElicitation_IsReadNotGranted_AndThePageIsNeverRead()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var error = Grants.NotGranted(await h.PageContent(V.VaultPageId), V.VaultId);
 
@@ -36,7 +82,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task Binary_NoGrant_IsReadNotGranted_AndTheBinaryIsNeverRead()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         Grants.NotGranted(await h.Binary(V.VaultPageId), V.VaultId);
         Assert.Empty(h.Gateway.ContentCalls);
@@ -45,7 +91,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task LockedVault_NoGrant_IsReadNotGranted_NotSectionLocked_TheCheckRunsFirst()
     {
-        using var h = new VaultHarness(locked: true);
+        using var h = Harness(locked: true);
 
         Grants.NotGranted(await h.PageContent(V.VaultPageId), V.VaultId);
         Assert.Empty(h.Gateway.ContentCalls);
@@ -54,7 +100,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task OpenSectionPage_NeedsNoGrant_AndNeverAsks()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var prompt = new FakePrompt();
 
         var root = Grants.Ok(await h.PageContent(V.OpenPageId, prompt));
@@ -68,12 +114,12 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task Dialog_Once_ReturnsThePage_SavesNothing_CoversTheSectionForTheWindow_ThenAsksAgain()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var prompt = new FakePrompt(FakePrompt.Accept("  vault ", ReadGrantLifetime.Once), new GrantPromptResult(GrantPromptStatus.Declined));
 
         var root = Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
         Assert.Contains(V.Secret, Grants.Xml(root), StringComparison.Ordinal);
-        Assert.False(File.Exists(h.SettingsPath));
+        AssertNothingSaved(h);
 
         // The question names the section and its notebook, for the user, and the window (default 5 minutes).
         var question = Assert.Single(prompt.Questions);
@@ -95,7 +141,7 @@ public sealed class ProtectedSectionToolTests
     public async Task Dialog_ASectionNameChangedByCleaning_IsShownCleaned_AndGrantedByTypingWhatIsShown()
     {
         // Follow-up to 5.6: section names are model-writable, so the dialog shows them cleaned and compares with that.
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Gateway.NameVault("Vault＂ in the notebook “Work”‮");
         const string shown = "Vault' in the notebook 'Work'";
         var prompt = new FakePrompt(FakePrompt.Accept(" vault' IN the notebook 'work' ", ReadGrantLifetime.Once));
@@ -111,7 +157,7 @@ public sealed class ProtectedSectionToolTests
     public async Task Dialog_TypingTheRawNameOfACleanedSection_GrantsNothing()
     {
         // The comparison follows what the dialog shows: the raw name's look-alike quote is not what the user was asked for.
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Gateway.NameVault("Vault＂s");
 
         Grants.NotGranted(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept("Vault＂s", ReadGrantLifetime.Once))), V.VaultId);
@@ -121,7 +167,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task OnceWindow_CoversBroadReadsOfThatSectionOnly()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         Grants.Ok(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once))));
 
         var hierarchy = Grants.Ok(await h.Hierarchy(V.NotebookId, HierarchyScope.Pages));
@@ -139,8 +185,8 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task OnceWindow_FollowsReadGrantsOnceMinutes()
     {
-        using var h = new VaultHarness();
-        File.WriteAllText(h.SettingsPath, """{"schemaVersion": 1, "readGrants": {"onceMinutes": 1}}""");
+        using var h = Harness();
+        WriteSettings(h, """{"schemaVersion": 1, "readGrants": {"onceMinutes": 1}}""");
         var prompt = new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once));
 
         Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
@@ -155,7 +201,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task FindPages_NeverCachesProtectedPages_EvenUnderAGrant()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId);
         var cache = PageTextCache.WithDefaults();
 
@@ -172,7 +218,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task Dialog_InASectionGroup_NamesTheGroup()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var prompt = new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once));
 
         Grants.Ok(await h.PageContent(V.GroupVaultPageId, prompt));
@@ -195,19 +241,19 @@ public sealed class ProtectedSectionToolTests
     [MemberData(nameof(NoGrantAnswers))]
     public async Task Dialog_DeclineCancelMismatchOrBadHours_IsReadNotGranted_AndSavesNothing(GrantPromptResult answer, string why)
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var error = Grants.NotGranted(await h.PageContent(V.VaultPageId, new FakePrompt(answer)), V.VaultId);
 
         Assert.Contains(why, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
-        Assert.False(File.Exists(h.SettingsPath));
+        AssertNothingSaved(h);
         Assert.Empty(h.Gateway.ContentCalls);
     }
 
     [Fact]
     public async Task Dialog_Hours_IsSavedWithItsExpiry_LaterCallsPass_UntilItExpires()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var prompt = new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Hours, 2));
 
         Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
@@ -228,7 +274,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task Dialog_UntilRevoked_IsSaved_AndARevokeWithholdsAgain()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         Grants.Ok(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.UntilRevoked))));
         Assert.Null(Assert.Single(h.Settings.Read().ProtectedSections.Values).ExpiresAt);
@@ -244,15 +290,16 @@ public sealed class ProtectedSectionToolTests
     [InlineData("""{"schemaVersion": 2}""")]
     public async Task Dialog_SettingsInvalidOrNewer_GrantNotSaved_WorksLikeOnce(string settings)
     {
-        using var h = new VaultHarness();
-        File.WriteAllText(h.SettingsPath, settings);
+        using var h = Harness();
+        WriteSettings(h, settings);
+        var written = File.ReadAllText(h.SettingsPath);
         var prompt = new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.UntilRevoked), FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Hours, 8));
 
         var root = Grants.Ok(await h.PageContent(V.VaultPageId, prompt));
 
         Assert.Contains(V.Secret, Grants.Xml(root), StringComparison.Ordinal);
         Assert.Equal([ToolWarnings.GrantNotSaved], Grants.WarningCodes(root));
-        Assert.Equal(settings, File.ReadAllText(h.SettingsPath));
+        Assert.Equal(written, File.ReadAllText(h.SettingsPath));
 
         // Not saved, so a once window: covered without a dialog until it ends, then asked again.
         Grants.Ok(await h.PageContent(V.VaultPage2Id, prompt));
@@ -265,10 +312,10 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task StoredGrants_InAnInvalidFile_CountAsAbsent()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId);
         var json = File.ReadAllText(h.SettingsPath);
-        File.WriteAllText(h.SettingsPath, json.Replace("\"schemaVersion\": 1", "\"schemaVersion\": 1, \"allowSilentActivation\": 3", StringComparison.Ordinal));
+        WriteSettings(h, json.Replace("\"schemaVersion\": 1", "\"schemaVersion\": 1, \"allowSilentActivation\": 3", StringComparison.Ordinal));
 
         Grants.NotGranted(await h.PageContent(V.VaultPageId), V.VaultId);
     }
@@ -276,11 +323,11 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task RenamedOrMovedSection_TheOldGrantNoLongerMatches_AndItAsksAgain()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId);
         Grants.Ok(await h.PageContent(V.VaultPageId));
 
-        h.Gateway.MoveVault(@"C:\notebooks\A\Renamed.one");
+        h.Gateway.MoveVault(V.VaultsFolder + @"\Renamed.one");
         var prompt = new FakePrompt();
 
         Grants.NotGranted(await h.PageContent(V.VaultPageId, prompt), V.VaultId);
@@ -290,7 +337,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task GrantKey_IgnoresCaseAndATrailingSeparator()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath.ToUpperInvariant() + "\\", V.VaultId);
 
         Grants.Ok(await h.PageContent(V.VaultPageId));
@@ -299,7 +346,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task AGrantForOneVault_DoesNotCoverTheOtherVaultWithTheSameName()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId);
 
         Grants.Ok(await h.PageContent(V.VaultPageId));
@@ -311,7 +358,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task BroadHierarchy_KeepsTheSections_RemovesTheirPages_ListsThemWithheld_WithOneWarningEach()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var prompt = new FakePrompt();
 
         var root = Grants.Ok(await h.Hierarchy(V.NotebookId, HierarchyScope.Pages, prompt));
@@ -335,7 +382,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task BroadHierarchy_FromTheRoot_WithOneGrant_KeepsThatSectionsPages()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId);
 
         var root = Grants.Ok(await h.Hierarchy(string.Empty, HierarchyScope.Pages));
@@ -352,7 +399,7 @@ public sealed class ProtectedSectionToolTests
     [InlineData(HierarchyScope.Self)]
     public async Task BroadHierarchy_AboveThePages_WithholdsNothing(HierarchyScope scope)
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var root = Grants.Ok(await h.Hierarchy(V.NotebookId, scope));
 
@@ -366,11 +413,11 @@ public sealed class ProtectedSectionToolTests
     [InlineData(HierarchyScope.Sections)]
     public async Task VaultItself_AtAScopeWithNoPages_IsAllowed(HierarchyScope scope)
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var root = Grants.Ok(await h.Hierarchy(V.VaultId, scope, new FakePrompt()));
 
-        Assert.Equal("true", (string?)XDocument.Parse(Grants.Xml(root)).Root!.Attribute("encrypted"));
+        Assert.Equal(ByPath ? null : "true", (string?)XDocument.Parse(Grants.Xml(root)).Root!.Attribute("encrypted"));
         Assert.Empty(Grants.WarningCodes(root));
     }
 
@@ -379,7 +426,7 @@ public sealed class ProtectedSectionToolTests
     [InlineData(HierarchyScope.Pages)]
     public async Task VaultItself_AtChildrenOrPages_IsTargetScoped(HierarchyScope scope)
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         Grants.NotGranted(await h.Hierarchy(V.VaultId, scope), V.VaultId);
 
@@ -392,7 +439,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task HierarchyOfAVaultPage_IsTargetScoped()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         Grants.NotGranted(await h.Hierarchy(V.VaultPageId, HierarchyScope.Self), V.VaultId);
     }
@@ -400,7 +447,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task LockedVault_BroadHierarchy_WithholdsIt_AndStillWarnsLocked()
     {
-        using var h = new VaultHarness(locked: true);
+        using var h = Harness(locked: true);
 
         var root = Grants.Ok(await h.Hierarchy(V.NotebookId, HierarchyScope.Pages));
 
@@ -413,7 +460,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ParentAndLinks_OnTheVaultItself_AreAllowed()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         Assert.Equal(V.NotebookId, Grants.Ok(await h.Parent(V.VaultId)).GetProperty("meta").GetProperty("parentId").GetString());
         Grants.Ok(await h.Link(V.VaultId));
@@ -425,7 +472,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ParentAndLinks_OnAVaultPage_AreReadNotGranted_AndTheLinkIsNeverAskedFor()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         Grants.NotGranted(await h.Parent(V.VaultPageId), V.VaultId);
         Grants.NotGranted(await h.Link(V.VaultPageId), V.VaultId);
@@ -436,7 +483,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ParentAndLinks_OnAVaultPage_WithAGrant_Pass()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId);
 
         Assert.Equal(V.VaultId, Grants.Ok(await h.Parent(V.VaultPageId)).GetProperty("meta").GetProperty("parentId").GetString());
@@ -448,7 +495,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task FindPages_DropsVaultCandidates_BeforeReadingOrCaching_NeverInFiltered()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var cache = PageTextCache.WithDefaults();
 
         // "SECRET" is in every vault page's text: a leak would show as a match.
@@ -470,7 +517,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task FindPages_ListsEveryProtectedSectionInScope_WhetherOrNotItHadAHit()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var root = Grants.Ok(await h.FindPages("Open text", V.NotebookId));
 
@@ -481,7 +528,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task FindPages_WithAGrant_SearchesThatSection()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId);
 
         var root = Grants.Ok(await h.FindPages("SECRET", string.Empty));
@@ -493,7 +540,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task FindPages_FromTheVaultItself_WithholdsEverything()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var root = Grants.Ok(await h.FindPages("SECRET", V.VaultId));
 
@@ -505,7 +552,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task FindPages_FromTheVaultItself_SearchXmlWithoutTheSectionWrapper_StillWithholdsEverything()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Gateway.SearchXml =
             "<?xml version=\"1.0\"?>\n<one:Notebooks xmlns:one=\"" + OneNoteXml.Namespace2013 + "\">"
             + "<one:Page ID=\"" + V.VaultPageId + "\" name=\"Vault page one\" lastModifiedTime=\"2026-11-07T00:00:00.000Z\" />"
@@ -523,7 +570,7 @@ public sealed class ProtectedSectionToolTests
     public async Task FindPages_APageOutsideAnySectionWrapper_IsWithheld_WhenTheScopeWithholdsASection()
     {
         // Fail closed: the protected page's section can't be told from the XML, and the scope has a withheld Vault.
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Gateway.SearchXml =
             "<?xml version=\"1.0\"?>\n<one:Notebook xmlns:one=\"" + OneNoteXml.Namespace2013 + "\" ID=\"" + V.NotebookId + "\" name=\"Notebook A\">"
             + "<one:Section ID=\"" + V.OpenSectionId + "\" name=\"Open\"><one:Page ID=\"" + V.OpenPageId + "\" name=\"Open page\" lastModifiedTime=\"2026-11-07T00:00:00.000Z\" /></one:Section>"
@@ -540,7 +587,8 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task Dialog_SectionWithNoPath_IsReadNotGranted_WithoutAsking_AndSavesNothing()
     {
-        using var h = new VaultHarness();
+        Assert.SkipWhen(ByPath, "A section with no path can't be protected by its path.");
+        using var h = Harness();
         h.Gateway.MoveVault(string.Empty);
         var prompt = new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.UntilRevoked));
 
@@ -548,13 +596,13 @@ public sealed class ProtectedSectionToolTests
 
         Assert.Contains("no path", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
         Assert.Empty(prompt.Questions);
-        Assert.False(File.Exists(h.SettingsPath));
+        AssertNothingSaved(h);
     }
 
     [Fact]
     public async Task FindMeta_DropsVaultCandidates_NeverInFiltered()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var root = Grants.Ok(await h.FindMeta(V.NotebookId));
 
@@ -566,7 +614,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task OpenNotebookWithNoProtectedSection_HasNoWithheldField()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var root = Grants.Ok(await h.FindPages("Open", V.OpenSectionId));
 
@@ -578,7 +626,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ReadResult_UnderAOnceGrant_ServesParts_UntilTtlAfterTheOriginalCall_ReadsDontExtendIt()
     {
-        using var h = new VaultHarness(inlineMaxChars: 20_000);
+        using var h = Harness(inlineMaxChars: 20_000);
         h.Gateway.PageXml[V.VaultPageId] = BigXml.Page(outlines: 30, oes: 10);
 
         var index = Grants.Ok(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once))));
@@ -596,7 +644,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ReadResult_PartFromAResultMadeUnderALapsedGrant_IsReadNotGranted_WithNoDialog()
     {
-        using var h = new VaultHarness(inlineMaxChars: 20_000);
+        using var h = Harness(inlineMaxChars: 20_000);
         h.Gateway.PageXml[V.VaultPageId] = BigXml.Page(outlines: 30, oes: 10);
         h.Grant(V.VaultPath, V.VaultId, h.Clock.GetUtcNow().AddHours(1));
 
@@ -616,7 +664,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ReadResult_AfterARevoke_IsReadNotGranted_Retryable_AndServedAgainOnceTheUserGrantsAgain()
     {
-        using var h = new VaultHarness(inlineMaxChars: 20_000);
+        using var h = Harness(inlineMaxChars: 20_000);
         h.Gateway.PageXml[V.VaultPageId] = BigXml.Page(outlines: 30, oes: 10);
         h.Grant(V.VaultPath, V.VaultId);
 
@@ -695,7 +743,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ReadResult_SearchStartedAtTheVault_AfterARevoke_EveryPartIsLapsed()
     {
-        using var h = new VaultHarness(inlineMaxChars: 200);
+        using var h = Harness(inlineMaxChars: 200);
         h.Grant(V.VaultPath, V.VaultId);
         var id = await StoredVaultSearch(h, V.VaultId);
 
@@ -710,7 +758,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ReadResult_SearchStartedAtAVaultPage_AfterItsHoursGrantExpires_EveryPartIsLapsed()
     {
-        using var h = new VaultHarness(inlineMaxChars: 200);
+        using var h = Harness(inlineMaxChars: 200);
         h.Grant(V.VaultPath, V.VaultId, h.Clock.GetUtcNow().AddHours(1));
         var id = await StoredVaultSearch(h, V.VaultPageId);
 
@@ -730,7 +778,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ReadResult_SearchStartedAtTheVaultOrAVaultPage_WhileTheGrantHolds_EveryPartIsServed()
     {
-        using var h = new VaultHarness(inlineMaxChars: 200);
+        using var h = Harness(inlineMaxChars: 200);
         h.Grant(V.VaultPath, V.VaultId);
         var sectionSearch = await StoredVaultSearch(h, V.VaultId);
         var pageSearch = await StoredVaultSearch(h, V.VaultPageId);
@@ -744,7 +792,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ReadResult_SearchAtTheNotebook_AfterARevoke_RefusesOnlyPartsOverlappingTheVault()
     {
-        using var h = new VaultHarness(inlineMaxChars: 200);
+        using var h = Harness(inlineMaxChars: 200);
         h.Grant(V.VaultPath, V.VaultId);
         var id = Envelope.ResultId(Grants.Ok(await h.FindPages("page", V.NotebookId)));
 
@@ -837,7 +885,7 @@ public sealed class ProtectedSectionToolTests
     [MemberData(nameof(ProtectedCacheCases))]
     public async Task FindPages_EvictsCachedTextOfAPageNowInAProtectedSection_WithheldOrGranted(bool granted, string query)
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         if (granted)
         {
             h.Grant(V.VaultPath, V.VaultId);
@@ -857,7 +905,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ListGrants_ShowsStoredGrants_WithStatus()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         h.Grant(V.VaultPath, V.VaultId, h.Clock.GetUtcNow().AddHours(1));
         h.Grant(V.GroupVaultPath, V.GroupVaultId);
         h.Grant(@"C:\gone\Closed.one", "{X}{1}{B0}");
@@ -880,7 +928,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ListGrants_ShowsALiveOnceGrant_UntilItsWindowEnds()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var granted = h.Clock.GetUtcNow();
         Grants.Ok(await h.PageContent(V.VaultPageId, new FakePrompt(FakePrompt.Accept(V.VaultName, ReadGrantLifetime.Once))));
 
@@ -897,7 +945,7 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ListGrants_NoGrants_MakesNoComCall()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
 
         var root = Grants.Ok(await h.ListGrants());
 
@@ -908,8 +956,8 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ListGrants_InvalidSettings_StillLists_WithOneSettingsInvalidWarning()
     {
-        using var h = new VaultHarness();
-        File.WriteAllText(h.SettingsPath, "{ not json");
+        using var h = Harness();
+        WriteSettings(h, "{ not json");
 
         var root = Grants.Ok(await h.ListGrants());
 
@@ -920,9 +968,9 @@ public sealed class ProtectedSectionToolTests
     [Fact]
     public async Task ListGrants_KeysDifferingOnlyInCase_ListsBoth_SaysTheyCountAsAbsent_AndHowToRevoke()
     {
-        using var h = new VaultHarness();
+        using var h = Harness();
         var entry = """{"name": "Vault", "notebookKey": "", "idAtGrant": "i", "grantedAt": "2026-11-06T12:00:00Z", "grantedVia": "cli"}""";
-        File.WriteAllText(h.SettingsPath, """{"schemaVersion": 1, "protectedSections": {""" + System.Text.Json.JsonSerializer.Serialize(V.VaultPath) + ": " + entry + ", " + System.Text.Json.JsonSerializer.Serialize(V.VaultPath.ToUpperInvariant()) + ": " + entry + "}}");
+        WriteSettings(h, """{"schemaVersion": 1, "protectedSections": {""" + System.Text.Json.JsonSerializer.Serialize(V.VaultPath) + ": " + entry + ", " + System.Text.Json.JsonSerializer.Serialize(V.VaultPath.ToUpperInvariant()) + ": " + entry + "}}");
 
         var root = Grants.Ok(await h.ListGrants());
 
@@ -939,4 +987,16 @@ public sealed class ProtectedSectionToolTests
 
     private static XElement? SectionOf(XDocument xml, string id) =>
         xml.Descendants(One + "Section").FirstOrDefault(s => (string?)s.Attribute("ID") == id);
+}
+
+/// <summary>Story 1.20's matrix with the vaults protected by the <c>encrypted</c> marker.</summary>
+public sealed class ProtectedSectionToolTests : ProtectedSectionToolTestsBase
+{
+    protected override bool ByPath => false;
+}
+
+/// <summary>Entry 15: the same matrix with the vaults unmarked but under an export root (AD-21, protected by path).</summary>
+public sealed class ProtectedByPathToolTests : ProtectedSectionToolTestsBase
+{
+    protected override bool ByPath => true;
 }

@@ -82,6 +82,12 @@ internal sealed class FakeGateway : IOneNoteGateway
 
     public Task<string> GetHierarchyAsync(string startNodeId, HierarchyScope scope, CancellationToken ct)
     {
+        // A spent token fails the read, as the real gateway does, so a read that must outlive a cancel is proven (3.6).
+        if (ct.IsCancellationRequested)
+        {
+            return Task.FromCanceled<string>(ct);
+        }
+
         Calls.Add((startNodeId, scope));
         OnGetHierarchy?.Invoke(startNodeId, scope);
         return HierarchyXml is not null && Failure is null ? Task.FromResult(HierarchyXml)
@@ -249,6 +255,50 @@ internal sealed class FakeGateway : IOneNoteGateway
         return Task.FromResult(OnCreateNotebook?.Invoke(folderPath) ?? CreatedNotebookId(CreateNotebookCalls.Count));
     }
 
+    /// <summary>Every <c>OpenPackage</c> call (story 3.8), in order.</summary>
+    public List<(string Package, string Destination)> OpenPackageCalls { get; } = [];
+
+    /// <summary>Thrown by <c>OpenPackage</c> when set.</summary>
+    public Exception? OpenPackageFailure { get; set; }
+
+    /// <summary>
+    /// What <c>OpenPackage</c> does: by default it writes <c>Open Notebook.onetoc2</c> into the destination (as an unpack
+    /// would) and returns the destination, as spike 3.1 O1 saw.
+    /// </summary>
+    public Func<string, string, string>? OnOpenPackage { get; set; }
+
+    public Task<string> OpenPackageAsync(string packagePath, string destinationFolder, CancellationToken ct)
+    {
+        OpenPackageCalls.Add((packagePath, destinationFolder));
+        if ((Failure ?? OpenPackageFailure) is { } failure)
+        {
+            return Task.FromException<string>(failure);
+        }
+
+        if (OnOpenPackage is { } hook)
+        {
+            return Task.FromResult(hook(packagePath, destinationFolder));
+        }
+
+        File.WriteAllText(Path.Combine(destinationFolder, "Open Notebook.onetoc2"), "toc");
+        return Task.FromResult(destinationFolder);
+    }
+
+    /// <summary>Every <c>OpenHierarchy</c> (open an existing path) call (story 3.8), in order.</summary>
+    public List<string> OpenHierarchyCalls { get; } = [];
+
+    /// <summary>Thrown by <c>OpenHierarchy</c> when set.</summary>
+    public Exception? OpenHierarchyFailure { get; set; }
+
+    /// <summary>The ID <c>OpenHierarchy</c> returns.</summary>
+    public string OpenedId { get; set; } = "{CPY00000-0000-4000-8000-000000000001}{1}{B0}";
+
+    public Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
+    {
+        OpenHierarchyCalls.Add(path);
+        return (Failure ?? OpenHierarchyFailure) is { } failure ? Task.FromException<string>(failure) : Task.FromResult(OpenedId);
+    }
+
     /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
     public List<(string PageXml, string ExpectedLastModified)> UpdateCalls { get; } = [];
 
@@ -337,6 +387,37 @@ internal sealed class FakeGateway : IOneNoteGateway
         OnUpdateHierarchy?.Invoke(changesXml);
     }
 
+    /// <summary>Every <c>MergeSections</c> call, source then destination, in order (story 3.6). It has no fixture: it records and succeeds.</summary>
+    public List<(string SourceId, string DestinationId)> MergeSectionsCalls { get; } = [];
+
+    /// <summary>When set, <c>MergeSections</c> alone throws it, after <see cref="OnMergeSectionsCall"/> (a partial copy first, if the hook makes one).</summary>
+    public Exception? MergeSectionsFailure { get; set; }
+
+    /// <summary>
+    /// Runs with the source and destination after each <c>MergeSections</c> call that succeeds, so a test can copy the
+    /// source's pages into the destination under new IDs, as OneNote does (spike 3.1 Implication 4).
+    /// </summary>
+    public Action<string, string>? OnMergeSections { get; set; }
+
+    /// <summary>When set, runs inside <c>MergeSections</c> before it answers, with the call's token (a hook to make a partial copy, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnMergeSectionsCall { get; set; }
+
+    public async Task MergeSectionsAsync(string sourceId, string destinationId, CancellationToken ct)
+    {
+        MergeSectionsCalls.Add((sourceId, destinationId));
+        if (OnMergeSectionsCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? MergeSectionsFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        OnMergeSections?.Invoke(sourceId, destinationId);
+    }
+
     /// <summary>Every <c>DeleteHierarchy</c> call, in order (story 5.5). It has no fixture: it records and succeeds.</summary>
     public List<(string ObjectId, string ExpectedLastModified, bool Permanent)> DeleteHierarchyCalls { get; } = [];
 
@@ -358,8 +439,11 @@ internal sealed class FakeGateway : IOneNoteGateway
         return Task.CompletedTask;
     }
 
-    /// <summary>Every <c>Publish</c> call, in order (story 5.6). It has no fixture: by default it writes <see cref="PublishedBytes"/> to the target.</summary>
-    public List<(string ObjectId, string TargetPath)> PublishCalls { get; } = [];
+    /// <summary>
+    /// Every <c>Publish</c> call, in order, with its format (stories 5.6 and 3.3). It has no fixture: by default it writes
+    /// <see cref="PublishedBytes"/> to the target.
+    /// </summary>
+    public List<(string ObjectId, string TargetPath, ExportFormat Format)> PublishCalls { get; } = [];
 
     /// <summary>When set, <c>Publish</c> alone throws it, writing nothing.</summary>
     public Exception? PublishFailure { get; set; }
@@ -370,9 +454,9 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>When set, runs instead of the default file write, with the call's arguments and token.</summary>
     public Func<string, string, CancellationToken, Task>? OnPublish { get; set; }
 
-    public async Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    public async Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct)
     {
-        PublishCalls.Add((objectId, targetPath));
+        PublishCalls.Add((objectId, targetPath, format));
         if ((Failure ?? PublishFailure) is { } failure)
         {
             throw failure;

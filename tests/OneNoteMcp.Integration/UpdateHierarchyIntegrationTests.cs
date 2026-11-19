@@ -189,7 +189,7 @@ public sealed class UpdateHierarchyIntegrationTests(ITestOutputHelper output) : 
                 // The tool: renames the unlocked one, and verifies our pre-COM SectionLocked for the locked one.
                 var result = await RenameTool(run).RenameHierarchyObject(id, name + " renamed", await BasisAsync(run, id, CoreScope.Self), Ct);
                 var after = HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(id, CoreScope.Self, Ct));
-                output.WriteLine($"RESULT L5 {which} (tool): {Outcome(result)}; encrypted {after.Encrypted}; renamed {after.Name != name}");
+                output.WriteLine($"RESULT L5 {which} (tool): {Outcome(result)}; encrypted {after.EncryptedMarker}; renamed {after.Name != name}");
 
                 if (section == locked)
                 {
@@ -206,7 +206,7 @@ public sealed class UpdateHierarchyIntegrationTests(ITestOutputHelper output) : 
                     }
 
                     var rawAfter = HierarchyTarget.Read(await run.Gateway.GetHierarchyAsync(id, CoreScope.Self, Ct));
-                    output.WriteLine($"RESULT L5 locked (raw UpdateHierarchy): {raw}; encrypted {rawAfter.Encrypted}; locked {rawAfter.Locked}; renamed {rawAfter.Name != name}");
+                    output.WriteLine($"RESULT L5 locked (raw UpdateHierarchy): {raw}; encrypted {rawAfter.EncryptedMarker}; locked {rawAfter.Locked}; renamed {rawAfter.Name != name}");
                 }
             }
             finally

@@ -144,7 +144,7 @@ public sealed class RestoredPageTests : IDisposable
         var nested = sections[0];
         Assert.Equal(["A", "B"], nested.Groups);
         Assert.Equal("A/B/S", nested.NamePath);
-        Assert.True(nested.Encrypted);
+        Assert.True(nested.EncryptedMarker);
         Assert.True(nested.Locked);
         Assert.Equal("C:\\W\\A\\B\\S.one", nested.Path);
         Assert.True(sections[1].InRecycleBin);

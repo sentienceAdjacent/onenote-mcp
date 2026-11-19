@@ -259,7 +259,7 @@ public sealed class PageSnapshotTests : IDisposable
     private WritePipeline Pipeline() => new(writeLock, gateway, cache: null, Store.Read, TimeProvider.System);
 
     private PageSnapshotRequest Request(string pageId) =>
-        new("corr-1", "update_page_content", OperationClass.PageWrite, pageId, gateway.Pages[(pageId, PageInfo.Basic)]);
+        new("corr-1", "update_page_content", OperationClass.PageWrite, pageId, gateway.Pages[(pageId, PageInfo.Basic)], new Protection([]));
 
     private void Page(string pageId, string basicFixture, string binaryFixture)
     {
@@ -299,7 +299,7 @@ public sealed class PageSnapshotTests : IDisposable
         }
 
         public override Task SnapshotAsync(CancellationToken ct) =>
-            snapshot.TakeAsync(new PageSnapshotRequest("corr-1", "update_page_content", OperationClass.PageWrite, pageId, basic!), ct);
+            snapshot.TakeAsync(new PageSnapshotRequest("corr-1", "update_page_content", OperationClass.PageWrite, pageId, basic!, new Protection([])), ct);
 
         public override async Task<bool> CallAsync(CancellationToken ct)
         {
