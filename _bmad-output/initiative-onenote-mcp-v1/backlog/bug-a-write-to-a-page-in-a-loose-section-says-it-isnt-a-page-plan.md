@@ -3,7 +3,7 @@ title: "A write to a page in a loose section says it isn't a page"
 type: 'bugfix'
 ticket: '12'
 created: '2026-11-18'
-status: 'built'
+status: 'done'
 baseline_revision: 'e9674596fb5ce9c7516278a73a892850e0c0791b'
 route: 'full'
 route_source: 'auto'
