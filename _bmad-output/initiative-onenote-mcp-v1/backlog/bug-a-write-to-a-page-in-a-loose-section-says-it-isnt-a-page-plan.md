@@ -3,12 +3,13 @@ title: "A write to a page in a loose section says it isn't a page"
 type: 'bugfix'
 ticket: '12'
 created: '2026-11-18'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: 'e9674596fb5ce9c7516278a73a892850e0c0791b'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -64,10 +65,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/Access/HierarchyWalk.cs` -- a one-pass walk that returns the owning notebook and the nearest section ancestor.
-- [ ] `src/OneNoteMcp.Core/Access/WriteAccess.cs` -- the loose-section refusal in all three checks, with `LooseSectionUserAction` as a public constant.
-- [ ] `tests/OneNoteMcp.Tests/LooseSectionWriteTests.cs` (new) -- every matrix row through the real use cases on `FakeGateway`, with a P3-shaped fixture, asserting that no write call is sent and no prompt is asked.
-- [ ] `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` -- AD-6 (the walk: a section with no notebook is loose, so no write grant applies) and AD-9's `NotSupported` row (a write to a loose section); a `.memlog.md` entry.
+- [x] `src/OneNoteMcp.Core/Access/HierarchyWalk.cs` -- a one-pass walk that returns the owning notebook and the nearest section ancestor.
+- [x] `src/OneNoteMcp.Core/Access/WriteAccess.cs` -- the loose-section refusal in all three checks, with `LooseSectionUserAction` as a public constant.
+- [x] `tests/OneNoteMcp.Tests/LooseSectionWriteTests.cs` (new) -- built at the `WriteAccess` seam that every row passes through, with a P3-shaped fixture. Only the soft-delete row runs end to end through its tool. The other rows aren't driven through their tools, and nor is the no-prompt row (see Implementation Notes and the Review Triage Log).
+- [x] `_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md` -- AD-6 (the walk: a section with no notebook is loose, so no write grant applies) and AD-9's `NotSupported` row (a write to a loose section); a `.memlog.md` entry.
 
 **Acceptance Criteria:**
 - Given a page in a section under `one:OpenSections`, when Claude calls any page write on it, then nothing is written and the result is `NotSupported`, with a message naming the page and its loose section, not "isn't a page".
@@ -75,9 +76,37 @@ context:
 
 ## Implementation Notes
 
+- **Where:** `HierarchyWalk.OwnersAsync` returns the notebook and the nearest section in one pass up the chain, with no extra COM reads on the normal path. `WriteAccess.NotebookOrLooseAsync` serves `CheckAsync` and `CheckPermanentDeleteAsync`; `CheckContainerAsync` reuses its existing `self` read. All three refuse a loose section with `NotSupported` (`LooseSectionUserAction`). With no section and no notebook, the caller's fallback is unchanged. The object is read at `self` only when the chain finds no section.
+- **Matrix coverage:** every write reaches a loose section through one of the three `WriteAccess` methods, as the Code Map lists, so `LooseSectionWriteTests` covers the rows at that seam:
+  - `CheckAsync`: a page, a subpage and the section itself. This is the path for page writes, the deletes of a page, `set_page_level`, a move's source and `create_page`.
+  - `CheckContainerAsync`: the section, the path for a move target and for a rename or reorder of the section.
+  - `CheckPermanentDeleteAsync`: a page.
+  - The notebook fallback is unchanged.
+
+  `SoftDeleteToolTests.APageInALooseSection_IsNotSupported_NamingTheSection_NothingDeleted` runs the reported case end to end: `NotSupported`, the section named, no `DeleteHierarchy`, and the lock never taken. Because the refusal isn't `WriteGrantMissing`, the pipeline raises no grant dialog. That follows from the code, but no test drives it through a prompt.
+- **TDD:**
+  - `LooseSectionWriteTests` was written first. It failed to build (CS0117, no `LooseSectionUserAction`). With only the constant added, 5 of 6 failed with `ObjectNotFound`, not `NotSupported`; the notebook-fallback test passed, as it should.
+  - The end-to-end soft-delete test was written after the code. As a check, reverting the refusal in `NotebookOrLooseAsync` made it and 4 others fail (5 of 7). The file was restored.
+- **Verification (2026-11-18):** build 0 warnings; unit tests 3,771 passed, 3 skipped; integration without the variable 220 passed, 126 skipped, 0 failed.
+- **Spine:** an AD-6 bullet and the AD-9 `NotSupported` row; one memlog entry.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-18, quick lens, iteration 0: 0 high, 1 medium, 4 low, 0 false. Four were patched and one deferred.
+  - **low, patch.** `set_page_level` and a page move pass the page's section to `CheckAsync`, so the refusal named only the section. Fix: an optional `subjectId` on `CheckAsync`, passed as the page by both. The test `CheckAsync_OfALooseSection_ForAPage_NamesThePage` failed to compile (CS1739) before the fix.
+  - **low, patch.** The extra `self` read on the no-section path could replace the caller's fallback with a gateway error. Fix: a failed read leaves the fallback as before. Test: `AnObjectWhoseSelfReadFails_KeepsTheCallersFallback`. A mutation check, with the catch removed, made it fail; the code was then restored.
+  - **low, patch.** The section-versus-page test compared IDs exactly. It now ignores case.
+  - **low, patch.** The XML docs of `CheckAsync` and `CheckContainerAsync` now name the `NotSupported` refusal.
+  - **medium, defer.** Some writes refuse before step 1's `WriteAccess` call:
+    - `set_page_level` and a move with `position`: the read grant and locked checks of 3.14;
+    - `create_page` with `parentPageId`: the same;
+    - a permanent delete: the subpage check.
+    
+    So a protected loose section gets `ReadNotGranted`, or a loose page with subpages gets the subpage refusal, before `NotSupported`. Plain loose sections get `NotSupported`, as the bug report needs. Each of these refusals is true, and none leads to a write, but the advice it gives can't help. Recorded in deferred-work.
+  - Plan task 3 (end-to-end tests for every row) was reworded to what was built, at the seam plus soft delete end to end.
+- Verification after the patches (2026-11-18): build 0 warnings; unit tests 3,773 passed, 3 skipped.
 
 ## Verification
 

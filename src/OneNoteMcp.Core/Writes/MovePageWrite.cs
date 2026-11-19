@@ -198,7 +198,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         }
 
         // AD-6: both notebooks' write grants, the page's first; the pipeline asks once per notebook (3.4 Q3).
-        pageNotebook = await services.WriteAccess.CheckAsync(section.Id, () => PageNotFound("isn't inside a notebook"), ct).ConfigureAwait(false);
+        pageNotebook = await services.WriteAccess.CheckAsync(section.Id, () => PageNotFound("isn't inside a notebook"), ct, PageId).ConfigureAwait(false);
         targetNotebook = await services.WriteAccess.CheckContainerAsync(TargetId, () => BadTarget("isn't inside a notebook"), ct).ConfigureAwait(false);
 
         // Step 4's refusals against a read made now, so the lock is never taken for one; step 4 checks again under it.
