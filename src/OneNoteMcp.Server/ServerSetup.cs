@@ -56,6 +56,9 @@ public static class ServerSetup
     public static IMcpServerBuilder AddOneNoteMcp(this IServiceCollection services)
     {
         // Read side of settings.json (AD-10): every Read() re-reads the file, so one instance serves the process.
+        // Backlog 13: the OneDrive folders, read from the registry and environment at most every 30 s, for the protected-by-path
+        // rule (reads, writes, snapshots) and the export-root guard (which also refuses a root too close to a OneDrive folder).
+        services.AddSingleton(_ => OneDriveAccounts.ForThisUser());
         services.AddSingleton(_ => new SettingsStore());
         services.AddSingleton<IProcessProbe, ProcessProbe>();
         // The gateway re-reads timeouts and allowSilentActivation from settings.json at every activation (AD-3).
@@ -70,11 +73,11 @@ public static class ServerSetup
         // AD-21: one access check, re-reading settings.json at every check (AD-10); the writer stores the user's grants.
         services.AddSingleton(sp => new SettingsWriter(sp.GetRequiredService<SettingsStore>(), TimeProvider.System));
         // Entry 15 (Phill, 2026-11-17, Q1): one export-root guard, its verdict cached, shared by reads (a warning) and writes (refused).
-        services.AddSingleton(sp => new ExportRootGuard(sp.GetRequiredService<IOneNoteGateway>(), TimeProvider.System));
+        services.AddSingleton(sp => new ExportRootGuard(sp.GetRequiredService<IOneNoteGateway>(), TimeProvider.System, oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
         services.AddSingleton(sp =>
         {
             var settings = sp.GetRequiredService<SettingsStore>();
-            return new ReadAccess(sp.GetRequiredService<IOneNoteGateway>(), settings.Read, sp.GetRequiredService<SettingsWriter>(), TimeProvider.System, sp.GetRequiredService<ExportRootGuard>());
+            return new ReadAccess(sp.GetRequiredService<IOneNoteGateway>(), settings.Read, sp.GetRequiredService<SettingsWriter>(), TimeProvider.System, sp.GetRequiredService<ExportRootGuard>(), sp.GetRequiredService<OneDriveAccounts>().Current);
         });
         services.AddSingleton(sp => sp.GetRequiredService<ReadAccess>().Results);
         services.AddSingleton<ResultDelivery>();
@@ -153,7 +156,8 @@ public static class ServerSetup
             sp.GetRequiredService<IOneNoteGateway>(),
             sp.GetRequiredService<WriteAccess>(),
             sp.GetRequiredService<WritePipeline>(),
-            sp.GetRequiredService<SettingsStore>().Read));
+            sp.GetRequiredService<SettingsStore>().Read,
+            oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
 
         // Story 5.3: section, section-group and notebook creates (AD-7 Create). A notebook create writes its automatic
         // grant (AD-6 grantedVia: created) through the settings writer, inside the write lock.

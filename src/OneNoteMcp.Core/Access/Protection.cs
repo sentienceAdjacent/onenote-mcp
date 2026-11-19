@@ -14,6 +14,15 @@ namespace OneNoteMcp.Core.Access;
 /// (Phill, 2026-11-17, 3.8 Q4), goes through this one value; the Xml layer takes <see cref="UnderRoot"/> as a required test.
 /// <see cref="Warnings"/> carries what the rule ran on, when the reader should know (an invalid <c>settings.json</c>, an
 /// export root that holds the user's notebooks).
+/// <para>
+/// Backlog 13 (Phill, 2026-11-18): OneNote may report a notebook in OneDrive by web address, so a root also covers URLs.
+/// A root inside a known OneDrive folder (<see cref="OneDriveFolders"/>) has a <i>tail</i>, its path below that folder;
+/// with no OneDrive folder known, its own last two segments are its tail (Q2 (ii)). An <c>http</c>/<c>https</c> path
+/// (<see cref="UrlPath"/>) is under the root when it holds the tail as whole segments with at least one segment after it,
+/// whatever the host or account (Q1 (ii): the tail always applies; an account's exact address is always covered by it).
+/// It fails closed: a same-named folder in another OneDrive counts too. A root outside every known OneDrive folder keeps
+/// the local rule only.
+/// </para>
 /// </summary>
 public sealed class Protection
 {
@@ -23,23 +32,55 @@ public sealed class Protection
 
     /// <param name="roots">The protected roots; an empty list leaves the marker as the only rule.</param>
     /// <param name="warnings">Warnings about the roots themselves, attached to reads.</param>
-    public Protection(IEnumerable<string> roots, IReadOnlyList<ToolWarning>? warnings = null)
+    /// <param name="oneDrive">The OneDrive folders on this machine; null for <see cref="OneDriveFolders.None"/>.</param>
+    public Protection(IEnumerable<string> roots, IReadOnlyList<ToolWarning>? warnings = null, OneDriveFolders? oneDrive = null)
     {
         ArgumentNullException.ThrowIfNull(roots);
         Roots = [.. roots.Where(r => !string.IsNullOrWhiteSpace(r))];
         Warnings = warnings ?? [];
+        OneDrive = oneDrive ?? OneDriveFolders.None;
 
         // Made canonical once here, not once per section (a broad read tests every section of every notebook).
-        prefixes = [.. Roots.SelectMany(PathUnder.Prefixes).Distinct(StringComparer.OrdinalIgnoreCase)];
+        var forms = Roots.Select(r => (Root: r, Prefixes: PathUnder.Prefixes(r))).ToList();
+        prefixes = [.. forms.SelectMany(f => f.Prefixes).Distinct(StringComparer.OrdinalIgnoreCase)];
+        tails = Tails(forms, OneDrive);
     }
 
     private readonly IReadOnlyList<string> prefixes;
+    private readonly IReadOnlyList<(string Root, IReadOnlyList<string> Tail)> tails;
 
     /// <summary>The protected roots: the export roots, then the journal's <c>backups</c> folder.</summary>
     public IReadOnlyList<string> Roots { get; }
 
     /// <summary>Warnings about the roots this value was built from (<c>settingsInvalid</c>, <c>exportRootHoldsNotebooks</c>).</summary>
     public IReadOnlyList<ToolWarning> Warnings { get; }
+
+    /// <summary>The OneDrive folders this rule was built with, so a copy with more warnings keeps them.</summary>
+    public OneDriveFolders OneDrive { get; }
+
+    /// <summary>
+    /// The local path below a protected root that the web address <paramref name="url"/> stands for, by the first root
+    /// whose tail it holds (the root plus the segments after the tail), or null when it is under no root's tail or the
+    /// result would leave the root.
+    /// </summary>
+    public string? LocalPathOfUrl(string? url)
+    {
+        foreach (var segments in UrlPath.Readings(url))
+        {
+            foreach (var (root, tail) in tails)
+            {
+                if (UrlPath.IndexOfTail(segments, tail) is var at and >= 0)
+                {
+                    return UrlPath.Below(root, segments.Skip(at + tail.Count));
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Copies this rule with <paramref name="warnings"/> in place of its own.</summary>
+    public Protection WithWarnings(IReadOnlyList<ToolWarning> warnings) => new(Roots, warnings, OneDrive);
 
     /// <summary>The roots <paramref name="settings"/> names: its export roots and its journal's <c>backups</c> folder.</summary>
     public static IReadOnlyList<string> RootsOf(SettingsSnapshot settings)
@@ -48,11 +89,54 @@ public sealed class Protection
         return [.. settings.ExportRoots.Paths, Path.Combine(settings.Journal.Path, JournalFiles.BackupsFolderName)];
     }
 
-    /// <summary>The rule on <paramref name="settings"/>'s roots, as the grant CLI and other one-off readers build it.</summary>
-    public static Protection From(SettingsSnapshot settings) => new(RootsOf(settings));
+    /// <summary>The rule on <paramref name="settings"/>'s roots and the OneDrive folders <paramref name="oneDrive"/>, as the grant CLI and other one-off readers build it.</summary>
+    public static Protection From(SettingsSnapshot settings, OneDriveFolders? oneDrive = null) => new(RootsOf(settings), oneDrive: oneDrive);
 
-    /// <summary>True when <paramref name="path"/> lies under a protected root (<see cref="PathUnder"/>).</summary>
-    public bool UnderRoot(string? path) => PathUnder.IsUnderPrefixes(path, prefixes);
+    /// <summary>True when <paramref name="path"/> lies under a protected root: a local path by <see cref="PathUnder"/>, a web address by a root's tail (backlog 13).</summary>
+    public bool UnderRoot(string? path) =>
+        PathUnder.IsUnderPrefixes(path, prefixes)
+        || (tails.Count > 0 && UrlPath.Readings(path).Any(segments => tails.Any(t => UrlPath.IndexOfTail(segments, t.Tail) >= 0)));
+
+    /// <summary>Each root's tails (see the class remarks), with the root's plain full path to map a URL back to.</summary>
+    private static List<(string Root, IReadOnlyList<string> Tail)> Tails(IReadOnlyList<(string Root, IReadOnlyList<string> Prefixes)> roots, OneDriveFolders oneDrive)
+    {
+        var found = new List<(string Root, IReadOnlyList<string> Tail)>();
+        foreach (var (root, forms) in roots)
+        {
+            if (PathUnder.Full(root) is not { } full)
+            {
+                continue;
+            }
+
+            foreach (var form in forms)
+            {
+                if (oneDrive.Accounts.Count == 0)
+                {
+                    Add(full, [.. UrlPath.LocalSegments(form).TakeLast(2)]);
+                    continue;
+                }
+
+                foreach (var (_, folderForms) in oneDrive.FolderPrefixes)
+                {
+                    foreach (var folder in folderForms.Where(f => form.StartsWith(f, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Add(full, UrlPath.LocalSegments(form[folder.Length..]));
+                    }
+                }
+            }
+        }
+
+        return found;
+
+        void Add(string root, IReadOnlyList<string> tail)
+        {
+            // An empty tail (a root that is a OneDrive folder; settings.json refuses one, Q3) covers every address: fails closed.
+            if (!found.Any(f => string.Equals(f.Root, root, StringComparison.OrdinalIgnoreCase) && f.Tail.SequenceEqual(tail, StringComparer.OrdinalIgnoreCase)))
+            {
+                found.Add((root, tail));
+            }
+        }
+    }
 
     /// <summary>True for a section that is marked <c>encrypted</c> or under a protected root. Anything else isn't protected.</summary>
     public bool IsProtected(HierarchyNode node)

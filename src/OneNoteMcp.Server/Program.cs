@@ -41,7 +41,8 @@ if (args.Length > 0 && args[0] == "grant")
         interactive: !Console.IsInputRedirected && !Console.IsOutputRedirected,
         ct => gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Sections, ct),
         new SettingsWriter(store, TimeProvider.System),
-        TimeProvider.System);
+        TimeProvider.System,
+        OneDriveAccounts.ForThisUser().Current);
     return await command.RunAsync(args[1..], CancellationToken.None);
 }
 

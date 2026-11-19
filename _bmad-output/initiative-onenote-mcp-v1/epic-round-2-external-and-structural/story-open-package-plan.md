@@ -102,6 +102,27 @@ context:
 - Given a package whose sections are unprotected and unlocked, when the unit tests open it on `FakeGateway`, then the result is ok with no warning (the ticket's "unlocked path").
 - Given no integration variables, when `dotnet test tests/OneNoteMcp.Integration` runs, then it builds and every live test skips.
 
+### Rework for Q3 (planned 2026-11-18 on main's backlog 13 seam; not to be built until Open Questions 1 and 2 are answered)
+
+Main now has `OneDriveFolders` (Core/Access; accounts with their folder's plain and canonical forms), filled by `OneDriveAccounts.Current` (Server, registry plus `%OneDrive*%`, 30 s cache) and passed to `ReadAccess`, `ExportRootGuard`, `restore_from_journal` and the grant CLI. The rework reuses it, test-first:
+
+- [ ] `tests/OneNoteMcp.Tests/OpenPackageToolTests.cs` -- red first: no destination unpacks into `<opened-copies>\<stem> <yyyyMMdd-HHmmss>`, the marker written there; a destination inside a OneDrive folder (seam set by hand, the placeholder folder only) is `ExportPathNotAllowed` with nothing created, whichever way it is spelled (case, `..`, a junction into it); the opened-copies folder itself inside OneDrive (a redirected `%LOCALAPPDATA%`) is refused the same way; a named destination per Open Question 1; the copy is protected with `exportRoots` empty of it (the opened-copies folder is a root); the Q2 tests that expect the export root as default are rewritten, not deleted.
+- [ ] `src/OneNoteMcp.Core/Journal/JournalFiles.cs` (or a sibling `OpenedCopies.cs`) -- the opened-copies folder: `%LOCALAPPDATA%\OneNoteMcp\opened`, beside the journal's default, with the same test override rule (`ONENOTE_MCP_JOURNAL_DIR`'s sibling, or a folder beside the settings file the override names), so tests and probes never touch the user's AppData. `SettingsStore` carries it as it carries `DefaultJournal`.
+- [ ] `src/OneNoteMcp.Core/Access/Protection.cs` -- `RootsOf` adds the opened-copies folder after the backups folder; its `ByPathReason` and `Phrase` name it ("under an export root, the opened-copies folder or the backups folder"). `ReadAccess`'s invalid-settings fallback keeps it (it doesn't come from `settings.json`).
+- [ ] `src/OneNoteMcp.Core/Access/OneDriveFolders.cs` -- `Holds(path)`: true when a path's plain or canonical form is a known OneDrive folder or lies inside one (segment boundary, case-insensitive), reusing `FolderPrefixes`. With no OneDrive folder known it is false (nothing to refuse; the protection rule still fails closed by its two-segment tail).
+- [ ] `src/OneNoteMcp.Core/Writes/ExportTarget.cs` -- `ResolveFolder` takes the allowed roots per Open Question 1 (recommended (i): the opened-copies folder only, `destination` a folder name or a path inside it).
+- [ ] `src/OneNoteMcp.Core/UseCases/OpenPackageUseCase.cs` -- takes `Func<OneDriveFolders>` and the opened-copies folder; step 1 resolves the default there, refuses `oneDrive().Holds(folder)` with `ExportPathNotAllowed` ("inside OneDrive, whose sync converts an unpacked notebook into an online one and closes OneNote"); Validate re-checks it under the lock. The tool description says where copies go and that OneDrive is refused.
+- [ ] `src/OneNoteMcp.Server/ServerSetup.cs` -- passes `OneDriveAccounts.Current` and the folder.
+- [ ] Cleanup per Open Question 2 (recommended there: a startup sweep of marker folders in the opened-copies folder whose notebook isn't open and that are older than 7 days); its tasks are added once answered.
+- [ ] `tests/OneNoteMcp.Integration` -- the S1 test and the probes open into the run's own temp opened-copies folder (override), never OneDrive; `CloseOpenedCopyAsync` unchanged.
+- [ ] Docs: spine AD-5/AD-7 `open_package` bullets (the "under an export root" text that predates Q3), AD-21's root list (already names the folder), AD-11 for where a named destination may go; README's `open_package` row; `uninstall --purge` removes the opened-copies folder only if Phill says so (its copies may be open notebooks).
+- [ ] Sitting: S1 and S2 rerun on the rework (default location outside OneDrive; a OneDrive destination refused; the copy protected after a restart).
+
+**Acceptance Criteria (rework):**
+- Given no destination, when `open_package` runs, then the copy is unpacked into a new timestamped folder under `%LOCALAPPDATA%\OneNoteMcp\opened` and opened, and a page of it is `ReadNotGranted` without a grant.
+- Given a destination inside a OneDrive folder, when `open_package` runs, then it returns `ExportPathNotAllowed` naming OneDrive and nothing is created.
+- Given `exportRoots` that doesn't cover the opened-copies folder, when a page of an opened copy is read, then it is still protected.
+
 ## Design Notes
 
 - The page-listing wait: after `OpenHierarchy`, read the notebook at `Pages` scope every 500 ms for up to 5 s (O1: 0 pages at 0 s, 1 at 5 s), under the write lock, as part of step 7. "Listed" means at least one `one:Page`. A package whose sections are all empty, locked or protected never lists one, so it always waits the 5 s and warns `pagesNotListed`; the spine accepts that (AD-7, O5), and the warning's text says it is expected for such packages.
@@ -131,6 +152,7 @@ context:
 
 ## Plan Change Log
 
+- 2026-11-18, merged main after backlog 13 (#97, 30cb630) and planned the Q3 rework on its `OneDriveFolders` seam (Tasks, "Rework for Q3"); build waits for Open Questions 1 and 2.
 - 2026-11-18, Phill's Q3 (option a) after the OneDrive crash probe: the default destination moves to `%LOCALAPPDATA%\OneNoteMcp\opened\…`, a protected root, and OneDrive-synced destinations are refused; status back to `draft` until Open Questions 1 and 2 are answered. **Rework, after backlog 13 (#97) merges and this branch is rebased** (it brings the OneDrive folder seam `OneDriveFolders` to reuse for "is this OneDrive-synced"): `Protection.RootsOf` adds the opened-copies folder; `OpenPackageUseCase` takes it as the default and refuses OneDrive destinations; `ExportTarget.ResolveFolder` gains the opened-copies root per Open Question 1; tests first (default location, OneDrive refusal, the copy protected with no export root covering it); the integration test and S1/S2 rerun. The built code on this branch (default under the export root) is not to merge as it stands.
 
 - 2026-11-17, after the Fable final review (findings checked against the sources; all held): the frozen block stopped assuming the split; the Xml-layer marker reads and `CheckBroad`'s input added; step 7 failure outcomes; the ticket's Verify as Given/When/Then; tasks with file paths; probes before the build; the page wait; three more questions; citations corrected.
