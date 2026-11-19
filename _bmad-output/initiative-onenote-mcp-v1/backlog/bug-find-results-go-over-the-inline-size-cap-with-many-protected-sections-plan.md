@@ -3,7 +3,7 @@ title: 'find_pages and find_meta first text block over the inline cap'
 type: 'bugfix'
 ticket: '15'
 created: '2026-11-19'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -52,31 +52,14 @@ The spine's Deferred row already names the direction: "if it happens … amend A
 | Both | 29 withheld, 2,000 filtered | first block ≤ cap; everything readable |
 | Small body, long header | a body under the cap, a filtered list over it | first block ≤ cap (it is stored) |
 
+## Decisions (Phill, 2026-11-19, plan approved with every recommendation)
+
+- **Q1, a.** A `meta.filtered` list that doesn't fit becomes a second stored result: JSON text of the list, read with `read_result` like any stored text. The first index, and every index of that stored result, carries `meta.filteredCount` and `meta.filteredResultId` in place of `meta.filtered`.
+- **Q2, a.** One `readNotGranted` warning for all withheld sections, giving the count and the reasons by kind (password-protected, or protected by path). `meta.withheld` keeps every ID. This applies to every tool that withholds sections (`find_pages`, `find_meta`, and `get_hierarchy`'s broad reads).
+- **Q3, a.** A general rule in `ResultDelivery`: when a stored result's first index wouldn't fit, `meta.filtered` moves out as in Q1. Today only the search tools carry it.
+- **Version (AD-14).** No bump: `<Version>` is `0.9.0-rc.1`, not yet released (the latest tag is `v0.8.0-rc.2`), and before 1.0.0 one minor bump covers every contract change since the last release.
+
 </frozen-after-approval>
-
-## Open Questions
-
-- **Q1. How the model reads a `meta.filtered` list that doesn't fit.**
-  - (a) Keep it as a second stored text result. The first index carries `meta.filteredCount` and `meta.filteredResultId`, and `read_result(filteredResultId)` returns the list as JSON text in fitted parts, like any stored text. This reuses `read_result` unchanged; the contract adds two optional `meta` fields.
-  - (b) Keep it with the same stored result and add a pseudo-ref, `read_result(resultId, ref: "meta.filtered")`. This needs a new `read_result` path and a contract change to `read_result`.
-  - (c) Put the first N entries in `meta.filtered`, with `meta.filteredCount` for the total, and serve the rest as in (a).
-
-  (a) is the smallest change, and stays within the spine's Deferred wording. (c) gives the model the start of the list without a second call, but splits one list across two places.
-
-  Recommended: (a).
-- **Q2. The per-section `readNotGranted` warnings.** They repeat the same about 400-character advice for each section, and `meta.withheld` already lists every section ID.
-  - (a) One `readNotGranted` warning for all withheld sections: the count and the reasons by kind (marked, by path). `meta.withheld` keeps every ID, and the IDs protected by path are listed. This is a contract change to the warnings of the search tools only. No content is lost, because the IDs stay in `meta.withheld`.
-  - (b) Keep one warning per section. When they don't fit, move them as in Q1.
-  - (c) Keep one warning per section, but share the `userAction` text, by putting it once in the first warning.
-
-  (a) shrinks the header for good and reads better. (b) keeps today's shape but adds a second overflow path.
-
-  Recommended: (a).
-- **Q3. Which tools.** Only `find_pages` and `find_meta` carry these lists today. Should the overflow rule be written generally, for any stored result whose header doesn't fit, or only for the search tools?
-  - (a) Generally, in `ResultDelivery`, with the search lists as its only users today.
-  - (b) Search tools only.
-
-  Recommended: (a). It closes the Deferred row for every tool.
 
 ## Code Map
 
@@ -90,12 +73,15 @@ The spine's Deferred row already names the direction: "if it happens … amend A
 
 ## Tasks & Acceptance
 
-**Execution** (after Q1–Q3, rewritten to the answers):
-- [ ] `ResultDelivery.cs` / `ResultResponses.cs` -- size the header; move what doesn't fit, per Q1.
-- [ ] `AccessDecisions.cs` -- the warning shape, per Q2.
-- [ ] `ToolMeta.cs`, the contract snapshot, `read_result`'s description and the search tools' descriptions, if Q1 adds fields.
-- [ ] `FindResultCapTests.cs` -- un-skip it. Every row of the matrix, plus reassembly: the full filtered list read back equals what was moved.
-- [ ] The spine: AD-20 amended and its Deferred row resolved; a memlog entry.
+**Execution:**
+- [ ] `src/OneNoteMcp.Core/Results/ToolMeta.cs` -- `FilteredCount` and `FilteredResultId`, both optional (Q1).
+- [ ] `src/OneNoteMcp.Core/LargeResults/ResultDelivery.cs` -- after building the stored result and its first index: if the first index is over the cap and `meta.filtered` isn't empty, store the list as a second text result. Then rebuild the entry with the meta replaced, so `read_result`'s root index pages match the first index (Q1, Q3).
+- [ ] `src/OneNoteMcp.Core/Access/AccessDecisions.cs` -- `BroadAccess.Warnings`: one `readNotGranted` warning for all withheld sections (Q2).
+- [ ] `tests/OneNoteMcp.Tests/FindResultCapTests.cs` -- un-skip it as the red test. Add reassembly (the second result reads back as the full list), the `read_result` root index matching the first index, and the single warning.
+- [ ] Existing tests that assert one warning per withheld section -- updated to the single warning.
+- [ ] `tests/OneNoteMcp.Tests/Contract/tool-contract.json` -- the two new optional meta fields.
+- [ ] The descriptions of `find_pages`, `find_meta` and `read_result`, and the plugin skill's search reference -- the new fields and the single warning.
+- [ ] The spine: AD-20 amended and its Deferred row resolved; the AD-12 and AD-21 lines on per-section warnings; a memlog entry.
 
 **Acceptance Criteria:**
 - Given a stored search result whose header is over the cap, when it returns, then its first text block is at most `results.inlineMaxChars`, and every filtered entry, withheld ID and warning is readable through the tools.
