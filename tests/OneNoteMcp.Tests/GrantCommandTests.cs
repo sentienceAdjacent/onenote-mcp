@@ -676,7 +676,7 @@ public sealed class GrantCommandTests : IDisposable
         var section = DialogText.Shown("Vault＂ in the notebook “Work”​", out var typed);
         var request = ElicitationGrantPrompt.Request(new GrantQuestion("{S}", section, "Notebook A", ["Group"], typed), "sectionName_0a1b2c3d");
 
-        Assert.StartsWith("Claude wants to read a password-protected OneNote section. ", request.Message, StringComparison.Ordinal);
+        Assert.StartsWith("Claude wants to read a protected OneNote section (password-protected, or a copy under an export or backups folder). ", request.Message, StringComparison.Ordinal);
         Assert.Contains(
             "Its name is \"Vault' in the notebook 'Work'\", it is in the section group \"Group\", and the notebook's name is \"Notebook A\". "
                 + "To allow it, type \"Vault' in the notebook 'Work'\" and choose for how long.",

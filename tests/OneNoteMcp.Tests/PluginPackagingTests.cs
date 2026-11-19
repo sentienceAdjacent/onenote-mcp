@@ -248,6 +248,12 @@ public sealed class PluginPackagingTests
     private static IReadOnlyList<string> ContractToolNames() =>
         ReadJson(ToolContract).GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToList();
 
+    /// <summary>
+    /// The contract's tools that the skill and the README must name: all of them since story 3.10 documented round 2
+    /// (it emptied and removed the exemption stories 3.3–3.8 kept for their tools).
+    /// </summary>
+    private static IReadOnlyList<string> DocumentedContractToolNames() => ContractToolNames();
+
     [Fact]
     public void GuideSkill_HasFrontmatterNamedGuide()
     {
@@ -268,7 +274,7 @@ public sealed class PluginPackagingTests
         // AD-14: a tool added to the contract snapshot fails here until the skill covers it.
         // Whole names only, so get_hierarchy isn't satisfied by get_hierarchy_parent.
         var named = NamedTools();
-        var names = ContractToolNames();
+        var names = DocumentedContractToolNames();
         Assert.NotEmpty(names);
         Assert.All(names, name => Assert.True(named.Contains(name), $"{GuideSkill} or its references/*.md must name {ToolPrefix}{name}."));
     }
@@ -312,7 +318,7 @@ public sealed class PluginPackagingTests
     {
         // Whole names in backticks, so get_hierarchy isn't satisfied by get_hierarchy_parent.
         var readme = ReadText(Readme);
-        var names = ContractToolNames();
+        var names = DocumentedContractToolNames();
         Assert.NotEmpty(names);
         Assert.All(names, name => Assert.True(readme.Contains($"`{name}`", StringComparison.Ordinal), $"{Readme} must name `{name}`."));
     }

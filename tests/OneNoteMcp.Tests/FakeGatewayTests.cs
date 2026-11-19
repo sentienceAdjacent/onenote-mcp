@@ -53,13 +53,15 @@ public sealed class FakeGatewayTests
             nameof(IOneNoteGateway.CreateSectionAsync),
             nameof(IOneNoteGateway.CreateSectionGroupAsync),
             nameof(IOneNoteGateway.CreateNotebookAsync),
+            nameof(IOneNoteGateway.OpenPackageAsync),
+            nameof(IOneNoteGateway.OpenHierarchyAsync),
         ];
         var methods = typeof(IOneNoteGateway).GetMethods()
             .Where(m => m.ReturnType == typeof(Task<string>) && !writes.Contains(m.Name))
             .Select(m => m.Name[..^"Async".Length])
             .ToHashSet();
         Assert.Equal(9, methods.Count);
-        Assert.Equal(20, typeof(IOneNoteGateway).GetMethods().Length); // + UpdateHierarchy (story 5.4) and DeleteHierarchy (story 5.5), Tasks with no content
+        Assert.Equal(23, typeof(IOneNoteGateway).GetMethods().Length); // + UpdateHierarchy (story 5.4), DeleteHierarchy (story 5.5) and MergeSections (story 3.6), Tasks with no content; OpenPackage and OpenHierarchy (story 3.8)
 
         var served = FakeGateway.Manifest.Entries.Where(e => e.Error is null).Select(e => e.Method).ToHashSet();
 

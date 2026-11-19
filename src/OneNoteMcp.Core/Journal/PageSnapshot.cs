@@ -8,7 +8,7 @@ namespace OneNoteMcp.Core.Journal;
 /// What a write's step 6 passes to <see cref="PageSnapshot.TakeAsync"/>: the call's correlationId, the tool and its AD-7
 /// class, the page, and the piBasic XML step 3 already read (the snapshot never reads piBasic again).
 /// </summary>
-public sealed record PageSnapshotRequest(string CorrelationId, string Operation, OperationClass OperationClass, string PageId, string BasicXml);
+public sealed record PageSnapshotRequest(string CorrelationId, string Operation, OperationClass OperationClass, string PageId, string BasicXml, Protection Protection);
 
 /// <summary>
 /// AD-7 step 6 for a page (AD-8): the reusable snapshot that <c>PageWrite</c> and epic 5's page deletes call from
@@ -85,7 +85,7 @@ public sealed class PageSnapshot
             NotebookName = notebook.DisplayName,
             ParentId = section.Id,
             ParentNamePath = string.Join('/', [.. location.Groups, section.Name]),
-            SectionKey = section.Encrypted ? GrantKeys.SectionKey(section.Path) : null,
+            SectionKey = request.Protection.IsProtected(section) ? GrantKeys.SectionKey(section.Path) : null,
             Title = title,
             TakenAtUtc = clock.GetUtcNow().UtcDateTime,
             BinaryComplete = missing.Count == 0,

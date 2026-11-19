@@ -20,7 +20,8 @@ public sealed record SectionBackupResult(JournalWritten Entry, string BackupFile
 /// <item>The backup counts as done only once the file exists, isn't empty, its size is unchanged across two polls
 /// <see cref="PollInterval"/> apart, and it opens with <see cref="FileShare.None"/> (no other handle, OneNote's writer
 /// included, holds it; fresh review), waited for up to <c>timeouts.publishSeconds</c> from the <c>Publish</c> call's start,
-/// within the pipeline's deadline (the call's token).</item>
+/// within the pipeline's deadline (the call's token). The wait is <see cref="PublishedFile"/>, shared with
+/// <c>publish</c>.</item>
 /// <item>Then the entry, with <c>backupFile</c>, written last so an entry never names a file that isn't there; a crash in
 /// between leaves an orphan backup the pruner removes after retention.</item>
 /// </list>
@@ -32,8 +33,8 @@ public sealed record SectionBackupResult(JournalWritten Entry, string BackupFile
 [SupportedOSPlatform("windows")]
 public sealed class SectionBackup
 {
-    /// <summary>The default gap between the polls that check a published file's size.</summary>
-    public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromMilliseconds(250);
+    /// <summary>The default gap between the polls that check a published file's size (<see cref="PublishedFile.DefaultPollInterval"/>).</summary>
+    public static readonly TimeSpan DefaultPollInterval = PublishedFile.DefaultPollInterval;
 
     private readonly IOneNoteGateway gateway;
     private readonly JournalStore store;
@@ -90,7 +91,7 @@ public sealed class SectionBackup
         var limit = settings().Timeouts.Publish;
         try
         {
-            await gateway.PublishAsync(sectionId, target, ct).ConfigureAwait(false);
+            await gateway.PublishAsync(sectionId, target, ExportFormat.OneNote, ct).ConfigureAwait(false);
         }
         catch (OneNoteException ex) when (!ct.IsCancellationRequested)
         {
@@ -103,80 +104,14 @@ public sealed class SectionBackup
                 ex.ComHResult);
         }
 
-        await WaitForFileAsync(sectionId, target, started, limit, ct).ConfigureAwait(false);
+        // The shared landing wait (story 3.3); any way it fails is this step's BackupFailed.
+        if (await PublishedFile.WaitAsync(target, started, limit, PollInterval, clock, ct).ConfigureAwait(false) is { } failure)
+        {
+            throw Failed(sectionId, PublishedFile.Describe(failure));
+        }
 
         var written = store.WriteTo(folder, entry with { BackupFile = backupName });
         return new SectionBackupResult(written, backupName);
-    }
-
-    /// <summary>
-    /// Polls <paramref name="target"/> until it exists, isn't empty, kept its size across two polls and opens exclusively, or
-    /// <paramref name="limit"/> has passed since <paramref name="started"/> (<see cref="ErrorCode.BackupFailed"/>).
-    /// </summary>
-    private async Task WaitForFileAsync(string sectionId, string target, long started, TimeSpan limit, CancellationToken ct)
-    {
-        long? last = null;
-        var stillOpen = false;
-        while (true)
-        {
-            var size = Size(target);
-            if (size is > 0 && size == last)
-            {
-                // Fresh review: a stable size alone isn't proof that OneNote has finished writing; nothing else may hold it open.
-                if (OpensExclusively(target))
-                {
-                    return;
-                }
-
-                stillOpen = true;
-            }
-            else
-            {
-                stillOpen = false;
-            }
-
-            if (clock.GetElapsedTime(started) >= limit)
-            {
-                throw Failed(sectionId, size switch
-                {
-                    null => "its file never appeared",
-                    0 => "its file stayed empty",
-                    _ when stillOpen => "its file was still open for writing",
-                    _ => "its file was still growing",
-                });
-            }
-
-            last = size;
-            await Task.Delay(PollInterval, clock, ct).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>The file's size, or null when it isn't there or can't be read.</summary>
-    private static long? Size(string path)
-    {
-        try
-        {
-            var info = new FileInfo(path);
-            return info.Exists ? info.Length : null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Whether the file opens with no sharing at all (<see cref="FileShare.None"/>): no other handle holds it.</summary>
-    private static bool OpensExclusively(string path)
-    {
-        try
-        {
-            using var probe = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
     }
 
     private static OneNoteException Failed(string sectionId, string why, Exception? inner = null, int? hresult = null) =>

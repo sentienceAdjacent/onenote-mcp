@@ -395,6 +395,70 @@ internal sealed class TestNotebook
     }
 
     /// <summary>
+    /// Story 3.8's OneDrive crash probe: <c>OpenPackage</c> of <paramref name="package"/> (under <paramref name="packageRoot"/>)
+    /// into <paramref name="destination"/>, a folder strictly under <paramref name="destinationRoot"/> whose name starts with
+    /// <see cref="CrashProbeFolderPrefix"/> unless the root is <paramref name="packageRoot"/> itself. Returns the path OneNote
+    /// reports, which must be under the destination root too. Refuses (throws, nothing sent) otherwise.
+    /// </summary>
+    public static async Task<string> OpenPackageIntoAsync(ComGateway gateway, string package, string packageRoot, string destination, string destinationRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "OpenPackage(probe)";
+        TestNotebookGuard.EnsureUnder(Method, package, packageRoot);
+        TestNotebookGuard.EnsureUnder(Method, destination, destinationRoot);
+        if (!string.Equals(TrimPath(Path.GetFullPath(destinationRoot)), TrimPath(Path.GetFullPath(packageRoot)), StringComparison.OrdinalIgnoreCase)
+            && !Path.GetFileName(TrimPath(destination)).StartsWith(CrashProbeFolderPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Refusing {Method}: {destination} isn't a {CrashProbeFolderPrefix}… folder.");
+        }
+
+        var opened = await gateway.InvokeAsync(
+            app =>
+            {
+                app.OpenPackage(package, destination, out var path);
+                return path;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+        TestNotebookGuard.EnsureUnder(Method, opened, destinationRoot);
+        return opened;
+    }
+
+    /// <summary>The only folder name the OneDrive crash probe may unpack into outside the probes' publish folder.</summary>
+    public const string CrashProbeFolderPrefix = "probe-crash-";
+
+    private static string TrimPath(string path) => path.TrimEnd('\\', '/');
+
+    /// <summary>
+    /// Story 3.8's probe P2: <c>CloseNotebook</c> (not forced) of a notebook this run opened from <paramref name="publishRoot"/>.
+    /// Refuses (throws, nothing sent) unless <paramref name="notebookId"/> is in <paramref name="openedThisRun"/>, is open now,
+    /// and its live <c>path</c> lies under <paramref name="publishRoot"/>, so neither a test notebook nor a throwaway (which
+    /// live under <see cref="ThrowawayRoot"/>, outside the publish folder) can ever be closed.
+    /// </summary>
+    public static async Task CloseOpenedCopyAsync(ComGateway gateway, string notebookId, IReadOnlySet<string> openedThisRun, string publishRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(openedThisRun);
+        const string Method = "CloseNotebook(copy)";
+        if (!openedThisRun.Contains(notebookId))
+        {
+            throw new InvalidOperationException($"Refusing {Method}: {notebookId} wasn't opened by this run.");
+        }
+
+        TestNotebookGuard.EnsureCopyToClose(Method, await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct), notebookId, publishRoot);
+        await gateway.InvokeAsync(
+            app =>
+            {
+                app.CloseNotebook(notebookId, false);
+                return true;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+    }
+
+    /// <summary>
     /// Story 5.1 (Q1 a): the one folder local throwaway notebooks are created and accepted in,
     /// <c>%LOCALAPPDATA%\OneNoteMcp-Test</c>. Fixed: it never follows <see cref="FolderOverrideVariable"/> (review finding 8).
     /// </summary>
@@ -781,6 +845,18 @@ internal sealed class TestNotebook
     public static Task EnsureTestTargetAsync(ComGateway gateway, string targetId, string method, CancellationToken ct) =>
         EnsureTargetsAsync(gateway, [targetId], method, ct, throwawayNotebookIds: null, created: null);
 
+    /// <summary>
+    /// Story 3.7: as <see cref="EnsureTestTargetAsync(ComGateway, string, string, CancellationToken)"/>, and also accepts a
+    /// target inside (or being) one of <paramref name="throwawayNotebookIds"/>, each re-checked as a throwaway by name and folder.
+    /// </summary>
+    public static Task EnsureTestTargetAsync(
+        ComGateway gateway,
+        string targetId,
+        string method,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> throwawayNotebookIds,
+        CancellationToken ct) =>
+        EnsureTargetsAsync(gateway, [targetId], method, ct, throwawayNotebookIds, created: null);
+
     private static async Task EnsureTargetsAsync(
         ComGateway gateway,
         IReadOnlyList<string> targetIds,
@@ -1129,6 +1205,17 @@ internal static partial class TestNotebookGuard
         }
 
         return ids;
+    }
+
+    /// <summary>
+    /// Story 3.8 P2: refuses (throws) unless <paramref name="notebookId"/> is open in <paramref name="notebooksXml"/> and its
+    /// live <c>path</c> lies under <paramref name="publishRoot"/>. The XML part of <see cref="TestNotebook.CloseOpenedCopyAsync"/>.
+    /// </summary>
+    public static void EnsureCopyToClose(string method, string notebooksXml, string notebookId, string publishRoot)
+    {
+        var live = XDocument.Parse(notebooksXml).Root!.Elements(One + "Notebook").FirstOrDefault(n => (string?)n.Attribute("ID") == notebookId)
+            ?? throw new InvalidOperationException($"Refusing {method}: {notebookId} isn't open.");
+        EnsureUnder(method, (string?)live.Attribute("path") ?? string.Empty, publishRoot);
     }
 
     /// <summary>The <c>path</c> of the open notebook <paramref name="notebookId"/>, or null.</summary>

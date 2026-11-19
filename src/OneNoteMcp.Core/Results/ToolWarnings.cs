@@ -42,6 +42,19 @@ public static class ToolWarnings
     public const string SettingsInvalid = "settingsInvalid";
 
     /// <summary>
+    /// Entry 15 (Phill, 2026-11-17, Q1): an <c>exportRoots</c> entry holds a notebook of the user's, or sits inside one, so
+    /// that notebook's sections count as password-protected (AD-21, protected by path). The read went on; writes fail with
+    /// <c>SettingsInvalid</c> until the user changes the setting. The message names the root (the user's own setting).
+    /// </summary>
+    public const string ExportRootHoldsNotebooks = "exportRootHoldsNotebooks";
+
+    /// <summary>
+    /// Story 3.8: <c>open_package</c> opened the copy, but no page was listed within the wait (spike 3.1 O1: an opened copy
+    /// lists late). Expected for a package whose sections are all empty, locked or protected (O5).
+    /// </summary>
+    public const string PagesNotListed = "pagesNotListed";
+
+    /// <summary>
     /// A page write in a password-protected section with no read grant: the read-back ran, but what OneNote kept, and a
     /// basis for the next write, are withheld from the result (AD-7, AD-21). Count-free; the counts-only
     /// <c>readBackDiffers</c> and <c>imageLost</c> warnings may come with it.
@@ -108,4 +121,55 @@ public static class ToolWarnings
     /// failed. It needs no userAction.
     /// </summary>
     public const string RecycleBinIdMissing = "recycleBinIdMissing";
+
+    /// <summary>
+    /// An export of content from a password-protected section, made under the section's read grant: the file OneNote wrote
+    /// is plaintext, outside the section's encryption (AD-21 Copies outside OneNote; story 3.3). Names the page's and the
+    /// section's IDs only. Its userAction says to tell the user.
+    /// </summary>
+    public const string ExportNotEncrypted = "exportNotEncrypted";
+
+    /// <summary>
+    /// A page move left the page's subpages in the source section, where OneNote promotes them to level 1 (AD-7 Moves;
+    /// spike 3.1 M1d; story 3.4). Names the source section's ID and the count step 3 read, never a name.
+    /// </summary>
+    public const string SubpagesLeftBehind = "subpagesLeftBehind";
+
+    /// <summary>
+    /// A section or section-group move touching a cloud notebook held the write lock for a settle before its read-back
+    /// (AD-7 Moves; spike 3.1 Implication 16; story 3.12). Names the moved item's ID and the wait. Its userAction says to
+    /// check the move synced before relying on it.
+    /// </summary>
+    public const string Settled = "settled";
+
+    /// <summary>
+    /// After a section or section-group move, a moved section reads back at a location whose key (compared percent-decoded)
+    /// holds a stored read grant or a live <c>once</c> window, which now covers it (AD-21; 3.12 security review, Phill
+    /// 2026-11-17). The move stands. Names the moved item's ID and a count only. Its userAction says to tell the user.
+    /// </summary>
+    public const string ReadGrantAtLocation = "readGrantAtLocation";
+
+    /// <summary>
+    /// <c>create_page</c> with <c>parentPageId</c> made the page, but couldn't make it a subpage (an exception, the parent
+    /// gone, the deadline or a cancel): it is at the end of the section at level 1, or, when the placement was sent and failed
+    /// ambiguously, it may or may not have been placed (story 3.14 Q4 and review). Names the page's,
+    /// the parent's and the section's IDs only. Its userAction names <c>set_page_level</c> and
+    /// <c>reorder_hierarchy_children</c>.
+    /// </summary>
+    public const string SubpageNotPlaced = "subpageNotPlaced";
+
+    /// <summary>
+    /// <c>restore_from_recycle_bin</c> matched the recycled item to its soft-delete journal entry by name, not by its
+    /// recycle-bin ID or section ID (AD-8; story 3.5 Q6): a reopen or a missing <c>recycleBinId</c>. Names the entry's ID and
+    /// the parent the item was restored under, never a name. Its userAction says to check it is the item the user meant.
+    /// </summary>
+    public const string RestoredByName = "restoredByName";
+
+    /// <summary>
+    /// <c>restore_from_recycle_bin</c> restored a section in its own notebook, but the move to the other notebook the caller
+    /// named was refused or failed (AD-8; story 3.5 Q7). The section stays restored in its own notebook (<c>meta.parentId</c>);
+    /// after an outcome-unknown or cancelled move it may or may not have moved, and <c>meta.parentId</c> is absent (3.5 Fable finding 4).
+    /// Gives the move's error code and message (IDs only); its userAction says to move it with <c>move_hierarchy_object</c>.
+    /// </summary>
+    public const string RestoredNotMoved = "restoredNotMoved";
 }

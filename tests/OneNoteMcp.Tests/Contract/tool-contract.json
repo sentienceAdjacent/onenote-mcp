@@ -494,6 +494,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -560,6 +587,13 @@
               "blankPageNoTitle"
             ],
             "default": "blankPageWithTitle"
+          },
+          "parentPageId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
           }
         },
         "required": [
@@ -1031,6 +1065,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -1579,6 +1640,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -2111,6 +2199,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -2671,6 +2786,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -3256,6 +3398,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -3792,6 +3961,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -4344,6 +4540,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -4876,6 +5099,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -5429,6 +5679,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -5957,6 +6234,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -6505,6 +6809,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -7037,6 +7368,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -7586,6 +7944,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -8126,6 +8511,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -8655,6 +9067,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -8700,6 +9139,1221 @@
         "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": true
+      },
+      "_meta": {
+        "anthropic/maxResultSizeChars": 500000
+      }
+    },
+    {
+      "name": "merge_sections",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string"
+          },
+          "destinationId": {
+            "type": "string"
+          },
+          "basis": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lastModifiedTime": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageHash": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "elementHashes": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "default": null
+              }
+            },
+            "default": null,
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "sourceId",
+          "destinationId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "Cancelled",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidArgument",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
+                  "ResultExpired",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "run": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "element": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "chars": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "run": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null
+                    },
+                    "element": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "chars": {
+                      "type": "integer"
+                    },
+                    "children": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "contains": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "table": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "image": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "insertedFile": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        }
+                      },
+                      "default": null
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "firstLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "lastLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "chars"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "chars",
+              "page",
+              "entries"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "default": null
+                  }
+                },
+                "required": [
+                  "pageHash"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "result": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "resultId": {
+                    "type": "string"
+                  },
+                  "totalChars": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "namespaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "pages": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "resultId",
+                  "totalChars",
+                  "expiresAt",
+                  "namespaces"
+                ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
+                "default": null
+              },
+              "pageId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "objectId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "recycleBinId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "backupFile": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "_meta": {
+        "anthropic/maxResultSizeChars": 500000
+      }
+    },
+    {
+      "name": "move_hierarchy_object",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          },
+          "position": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
+          },
+          "basis": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lastModifiedTime": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageHash": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "elementHashes": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "default": null
+              }
+            },
+            "default": null,
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "objectId",
+          "parentId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "Cancelled",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidArgument",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
+                  "ResultExpired",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "run": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "element": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "chars": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "run": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null
+                    },
+                    "element": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "chars": {
+                      "type": "integer"
+                    },
+                    "children": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "contains": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "table": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "image": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "insertedFile": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        }
+                      },
+                      "default": null
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "firstLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "lastLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "chars"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "chars",
+              "page",
+              "entries"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "default": null
+                  }
+                },
+                "required": [
+                  "pageHash"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "result": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "resultId": {
+                    "type": "string"
+                  },
+                  "totalChars": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "namespaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "pages": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "resultId",
+                  "totalChars",
+                  "expiresAt",
+                  "namespaces"
+                ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
+                "default": null
+              },
+              "pageId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "objectId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "recycleBinId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "backupFile": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
       },
       "_meta": {
         "anthropic/maxResultSizeChars": 500000
@@ -9195,6 +10849,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -9238,6 +10919,576 @@
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "_meta": {
+        "anthropic/maxResultSizeChars": 500000
+      }
+    },
+    {
+      "name": "open_package",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package": {
+            "type": "string"
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "package"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "Cancelled",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidArgument",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
+                  "ResultExpired",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "run": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "element": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "chars": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "run": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null
+                    },
+                    "element": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "chars": {
+                      "type": "integer"
+                    },
+                    "children": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "contains": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "table": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "image": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "insertedFile": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        }
+                      },
+                      "default": null
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "firstLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "lastLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "chars"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "chars",
+              "page",
+              "entries"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "default": null
+                  }
+                },
+                "required": [
+                  "pageHash"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "result": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "resultId": {
+                    "type": "string"
+                  },
+                  "totalChars": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "namespaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "pages": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "resultId",
+                  "totalChars",
+                  "expiresAt",
+                  "namespaces"
+                ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
+                "default": null
+              },
+              "pageId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "objectId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "recycleBinId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "backupFile": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
       },
@@ -9768,6 +12019,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -9810,6 +12088,587 @@
       },
       "annotations": {
         "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "_meta": {
+        "anthropic/maxResultSizeChars": 500000
+      }
+    },
+    {
+      "name": "publish",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "xps",
+              "docx",
+              "mhtml",
+              "html",
+              "emf",
+              "one",
+              "onepkg"
+            ],
+            "default": "pdf"
+          }
+        },
+        "required": [
+          "objectId",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "Cancelled",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidArgument",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
+                  "ResultExpired",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "run": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "element": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "chars": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "run": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null
+                    },
+                    "element": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "chars": {
+                      "type": "integer"
+                    },
+                    "children": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "contains": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "table": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "image": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "insertedFile": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        }
+                      },
+                      "default": null
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "firstLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "lastLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "chars"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "chars",
+              "page",
+              "entries"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "default": null
+                  }
+                },
+                "required": [
+                  "pageHash"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "result": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "resultId": {
+                    "type": "string"
+                  },
+                  "totalChars": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "namespaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "pages": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "resultId",
+                  "totalChars",
+                  "expiresAt",
+                  "namespaces"
+                ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
+                "default": null
+              },
+              "pageId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "objectId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "recycleBinId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "backupFile": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false,
         "readOnlyHint": false
@@ -10338,6 +13197,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -10915,6 +13801,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"
@@ -11503,6 +14416,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -12039,6 +14979,33 @@
                   "type": "string"
                 },
                 "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
               }
             },
             "required": [
@@ -12082,6 +15049,1194 @@
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "_meta": {
+        "anthropic/maxResultSizeChars": 500000
+      }
+    },
+    {
+      "name": "restore_from_recycle_bin",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "entryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "position": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "objectId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "Cancelled",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidArgument",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
+                  "ResultExpired",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "run": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "element": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "chars": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "run": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null
+                    },
+                    "element": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "chars": {
+                      "type": "integer"
+                    },
+                    "children": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "contains": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "table": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "image": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "insertedFile": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        }
+                      },
+                      "default": null
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "firstLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "lastLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "chars"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "chars",
+              "page",
+              "entries"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "default": null
+                  }
+                },
+                "required": [
+                  "pageHash"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "result": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "resultId": {
+                    "type": "string"
+                  },
+                  "totalChars": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "namespaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "pages": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "resultId",
+                  "totalChars",
+                  "expiresAt",
+                  "namespaces"
+                ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
+                "default": null
+              },
+              "pageId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "objectId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "recycleBinId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "backupFile": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "_meta": {
+        "anthropic/maxResultSizeChars": 500000
+      }
+    },
+    {
+      "name": "set_page_level",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "basis": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lastModifiedTime": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageHash": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "elementHashes": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "default": null
+              }
+            },
+            "default": null,
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "pageId",
+          "level"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "OneNoteNotRunning",
+                  "IntegrityMismatch",
+                  "ComUnavailable",
+                  "ComBusy",
+                  "Timeout",
+                  "Cancelled",
+                  "ModalDialogOpen",
+                  "SectionLocked",
+                  "StaleWrite",
+                  "ObjectNotFound",
+                  "UnknownObjectId",
+                  "InvalidXml",
+                  "InvalidArgument",
+                  "InvalidQuery",
+                  "FileExists",
+                  "WriteNotGranted",
+                  "PermanentDeleteNotGranted",
+                  "ReadNotGranted",
+                  "ResultExpired",
+                  "ExportPathNotAllowed",
+                  "SettingsInvalid",
+                  "JournalFailed",
+                  "BackupFailed",
+                  "NotSupported",
+                  "Internal"
+                ]
+              },
+              "hresult": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "outcomeUnknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "userAction": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "retryable",
+              "userAction",
+              "message"
+            ]
+          },
+          "xml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "run": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "element": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "chars": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "run": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": null
+                    },
+                    "element": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "chars": {
+                      "type": "integer"
+                    },
+                    "children": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "contains": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "table": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "image": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        },
+                        "insertedFile": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "default": null
+                        }
+                      },
+                      "default": null
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "firstLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "lastLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "chars"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "ref",
+              "chars",
+              "page",
+              "entries"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "correlationId": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "link": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "basis": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "lastModifiedTime": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "pageHash": {
+                    "type": "string"
+                  },
+                  "elementHashes": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "default": null
+                  }
+                },
+                "required": [
+                  "pageHash"
+                ],
+                "default": null
+              },
+              "binaryUnavailable": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "default": null
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "filtered": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pageId",
+                    "reason"
+                  ]
+                },
+                "default": null
+              },
+              "possiblyIncomplete": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "default": null
+              },
+              "result": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "resultId": {
+                    "type": "string"
+                  },
+                  "totalChars": {
+                    "type": "integer"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "namespaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "pages": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "resultId",
+                  "totalChars",
+                  "expiresAt",
+                  "namespaces"
+                ],
+                "default": null
+              },
+              "withheld": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "grants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notebookKey": {
+                      "type": "string"
+                    },
+                    "idAtGrant": {
+                      "type": "string"
+                    },
+                    "grantedAt": {
+                      "type": "string"
+                    },
+                    "grantedVia": {
+                      "type": "string"
+                    },
+                    "lifetime": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "key",
+                    "name",
+                    "notebookKey",
+                    "idAtGrant",
+                    "grantedAt",
+                    "grantedVia",
+                    "lifetime",
+                    "status"
+                  ]
+                },
+                "default": null
+              },
+              "pageId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "objectId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "recycleBinId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "backupFile": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              }
+            },
+            "required": [
+              "correlationId"
+            ]
+          },
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userAction": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "meta"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false,
         "readOnlyHint": false
       },
@@ -12621,6 +16776,33 @@
                 "default": null
               },
               "pageEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "outputPath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              },
+              "journalEntryIds": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "default": null
+              },
+              "pageIds": {
                 "type": [
                   "array",
                   "null"

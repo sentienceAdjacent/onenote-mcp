@@ -16,7 +16,7 @@ public sealed class SettingsStore
 
     /// <summary>The store for this process: the settings path and the default journal folder from its environment.</summary>
     public SettingsStore()
-        : this(ResolvePath(Environment.GetEnvironmentVariable), Journal.JournalFiles.DefaultFolder(Environment.GetEnvironmentVariable))
+        : this(ResolvePath(Environment.GetEnvironmentVariable), Journal.JournalFiles.DefaultFolder(Environment.GetEnvironmentVariable), Writes.OpenedCopies.DefaultFolder(Environment.GetEnvironmentVariable))
     {
     }
 
@@ -25,10 +25,15 @@ public sealed class SettingsStore
     /// The journal folder when the file sets no <c>journal.path</c> (story 2.8 decision Q1); null resolves it from this
     /// process's environment (<see cref="Journal.JournalFiles.DefaultFolder"/>).
     /// </param>
-    public SettingsStore(string path, string? defaultJournalPath = null)
+    /// <param name="openedCopiesPath">
+    /// Where <c>open_package</c> unpacks copies (story 3.8 Q3); null resolves it from this process's environment
+    /// (<see cref="Writes.OpenedCopies.DefaultFolder"/>). Not a <c>settings.json</c> setting.
+    /// </param>
+    public SettingsStore(string path, string? defaultJournalPath = null, string? openedCopiesPath = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         Path = path;
+        OpenedCopiesFolder = openedCopiesPath ?? Writes.OpenedCopies.DefaultFolder(Environment.GetEnvironmentVariable);
         DefaultJournal = JournalSettings.Default(defaultJournalPath ?? Journal.JournalFiles.DefaultFolder(Environment.GetEnvironmentVariable));
     }
 
@@ -37,9 +42,12 @@ public sealed class SettingsStore
     /// constructor does with this process's environment, for tests of the overrides.
     /// </summary>
     public static SettingsStore FromEnvironment(Func<string, string?> getEnvironmentVariable) =>
-        new(ResolvePath(getEnvironmentVariable), Journal.JournalFiles.DefaultFolder(getEnvironmentVariable));
+        new(ResolvePath(getEnvironmentVariable), Journal.JournalFiles.DefaultFolder(getEnvironmentVariable), Writes.OpenedCopies.DefaultFolder(getEnvironmentVariable));
 
     public string Path { get; }
+
+    /// <summary>The opened-copies folder every snapshot carries (story 3.8 Q3).</summary>
+    public string OpenedCopiesFolder { get; }
 
     /// <summary><c>journal{}</c> when the file doesn't set it, or can't be read.</summary>
     public JournalSettings DefaultJournal { get; }
@@ -56,6 +64,13 @@ public sealed class SettingsStore
     }
 
     public SettingsSnapshot Read()
+    {
+        var snapshot = ReadFile();
+        snapshot.OpenedCopies = OpenedCopiesFolder;
+        return snapshot;
+    }
+
+    private SettingsSnapshot ReadFile()
     {
         byte[] bytes;
         try

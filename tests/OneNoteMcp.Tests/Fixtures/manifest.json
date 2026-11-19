@@ -255,6 +255,16 @@
     {
       "method": "GetPageContent",
       "args": [
+        "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000007}",
+        "Basic"
+      ],
+      "file": "synthetic/page-level-objects-Basic.xml",
+      "source": "synthetic",
+      "note": "an Outline beside a page-level image, ink drawing, inserted file and media file, and an image without an objectID, hand-written for backlog 5"
+    },
+    {
+      "method": "GetPageContent",
+      "args": [
         "{A20A4FC1-E5F2-4154-ADC8-8A513656DFEE}{1}{E19478355080928453447520102198986629748415351}",
         "Basic"
       ],

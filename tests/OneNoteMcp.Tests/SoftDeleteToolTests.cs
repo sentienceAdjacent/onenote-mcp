@@ -147,6 +147,29 @@ public sealed class SoftDeleteToolTests : IDisposable
     // --- Pages ---------------------------------------------------------------------------------------------------------
 
     [Fact]
+    public async Task APageInALooseSection_IsNotSupported_NamingTheSection_NothingDeleted()
+    {
+        // Backlog 12, entry 15's sitting S1: a page of a .one opened by hand (one:OpenSections, outside any notebook) once
+        // gave ObjectNotFound "isn't a page".
+        const string looseId = "{LS000000-0000-4000-8000-000000000001}{1}{B0}";
+        const string loosePageId = "{LS000000-0000-4000-8000-000000000001}{1}{E1}";
+        gateway.Parents[looseId] = string.Empty;
+        gateway.Parents[loosePageId] = looseId;
+        Self(looseId, $"<one:Section {Ns} name=\"Loose\" ID=\"{looseId}\" path=\"C:\\exports\\Loose.one\" />");
+        Self(loosePageId, $"<one:Page {Ns} name=\"P\" ID=\"{loosePageId}\" />");
+
+        var error = Error(await Tool().DeleteHierarchyObject(loosePageId, null, Ct), "NotSupported");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(looseId, message, StringComparison.Ordinal);
+        Assert.Contains("outside any notebook", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("isn't a page", message, StringComparison.Ordinal);
+        Assert.Equal(WriteAccess.LooseSectionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.DeleteHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task Page_IsSoftDeleted_WithTheHierarchyDate_AndItsRecycleBinId_InMetaAndInTheJournalEntry()
     {
         cache.Set(PageId, DateTimeOffset.UnixEpoch, "cached text", long.MaxValue);
@@ -339,6 +362,33 @@ public sealed class SoftDeleteToolTests : IDisposable
         Assert.False(error.GetProperty("retryable").GetBoolean());
         Assert.Empty(gateway.PageCalls);
         await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task Page_InASectionUnderAnExportRoot_IsNotSupported_AsIfPasswordProtected_SayingWhy()
+    {
+        // Entry 15 (AD-21 protected by path): Plans carries no marker, but its folder is an export root.
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W\Archive");
+
+        var error = Error(await Tool().DeleteHierarchyObject(PlansPageId, null, Ct), "NotSupported");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task Group_UnderAnExportRoot_ItsEntryHoldsNoPagesOfItsPathProtectedSections()
+    {
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W\Archive");
+
+        Ok(await Tool().DeleteHierarchyObject(GroupId, new DeleteBasisArgument(SectionDate), Ct));
+
+        var file = Assert.Single(Directory.GetFiles(Folder));
+        var layout = XDocument.Parse(JournalStore.Read(file).Xml!).Root!;
+        Assert.Equal([PlansId, InnerVaultId], layout.Descendants(OneNoteXml.One + "Section").Select(s => (string?)s.Attribute("ID")));
+        Assert.Empty(layout.Descendants(OneNoteXml.One + "Page"));
+        Assert.DoesNotContain(PlansPageId, RawEntry(file), StringComparison.Ordinal);
     }
 
     [Fact]

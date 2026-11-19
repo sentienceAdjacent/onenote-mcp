@@ -361,6 +361,52 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task<string> OpenPackageAsync(string packagePath, string destinationFolder, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenPackage);
+        if (LocalFileProblem(packagePath) is { } packageProblem)
+        {
+            return Task.FromException<string>(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: the package {packageProblem}.", retryable: false));
+        }
+
+        if (LocalFileProblem(destinationFolder?.TrimEnd('\\')) is { } folderProblem)
+        {
+            return Task.FromException<string>(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: the destination folder {folderProblem}.", retryable: false));
+        }
+
+        // Story 3.8: an ExternalWrite under timeouts.publishSeconds (a big package takes a while), never retried (AD-3).
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.OpenPackage(packagePath, destinationFolder!, out var pathOut);
+                return pathOut;
+            },
+            CallKind.Write,
+            ct,
+            publish: true);
+    }
+
+    public Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.OpenHierarchy);
+        if (LocalFileProblem(path?.TrimEnd('\\')) is { } problem)
+        {
+            return Task.FromException<string>(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: the path {problem}.", retryable: false));
+        }
+
+        // Story 3.8: open an existing folder or file (cftNone never creates); AppState, never retried after a disconnect.
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.OpenHierarchy(path!, string.Empty, out var id, CreateFileType.cftNone);
+                return id;
+            },
+            CallKind.Write,
+            ct);
+    }
+
     private const string NameUserAction = "Use a name with no path separators, no '..' and no characters a Windows file name can't hold.";
 
     /// <summary>
@@ -447,6 +493,29 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
+    public Task MergeSectionsAsync(string sourceId, string destinationId, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.MergeSections);
+        if (string.IsNullOrEmpty(sourceId) || string.IsNullOrEmpty(destinationId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no source or destination section ID was given.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.MergeSections(sourceId, destinationId);
+                return true;
+            },
+            // A write is never retried after a disconnect (AD-3): the pipeline reports outcomeUnknown instead.
+            CallKind.Write,
+            ct);
+    }
+
     public Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct)
     {
         const string method = nameof(IApplication.DeleteHierarchy);
@@ -476,7 +545,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             ct);
     }
 
-    public Task PublishAsync(string objectId, string targetPath, CancellationToken ct)
+    public Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct)
     {
         const string method = nameof(IApplication.Publish);
         if (string.IsNullOrEmpty(objectId))
@@ -484,6 +553,16 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             return Task.FromException(new OneNoteException(
                 ErrorCode.InvalidArgument,
                 $"{method} wasn't sent: no object ID was given.",
+                retryable: false));
+        }
+
+        // AD-11: only the formats Core names reach COM; any other value (pfOneNote2007's 8 included, which ends
+        // ONENOTE.EXE) is refused here.
+        if (ToPublishFormat(format) is not { } publishFormat)
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.NotSupported,
+                string.Create(CultureInfo.InvariantCulture, $"{method} wasn't sent: export format {(int)format} isn't supported."),
                 retryable: false));
         }
 
@@ -500,13 +579,27 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             method,
             app =>
             {
-                app.Publish(objectId, targetPath, PublishFormat.pfOneNote, string.Empty);
+                app.Publish(objectId, targetPath, publishFormat, string.Empty);
                 return true;
             },
             CallKind.Write,
             ct,
             publish: true);
     }
+
+    /// <summary>Com's format for Core's <paramref name="format"/>, or null for a value that isn't a member (AD-5, AD-11).</summary>
+    private static PublishFormat? ToPublishFormat(ExportFormat format) => format switch
+    {
+        ExportFormat.OneNote => PublishFormat.pfOneNote,
+        ExportFormat.Pdf => PublishFormat.pfPDF,
+        ExportFormat.Xps => PublishFormat.pfXPS,
+        ExportFormat.Word => PublishFormat.pfWord,
+        ExportFormat.Mhtml => PublishFormat.pfMHTML,
+        ExportFormat.Html => PublishFormat.pfHTML,
+        ExportFormat.Emf => PublishFormat.pfEMF,
+        ExportFormat.OneNotePackage => PublishFormat.pfOneNotePackage,
+        _ => null,
+    };
 
     /// <summary>Why <paramref name="path"/> can't be a <c>Publish</c> target, or null: it must be a fully qualified local file path (<c>C:\…</c>), not UNC, a device path or a URL.</summary>
     private static string? LocalFileProblem(string? path)

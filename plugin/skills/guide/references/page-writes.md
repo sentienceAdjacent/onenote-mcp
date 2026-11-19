@@ -11,12 +11,12 @@ Read this before any page write; for creating, renaming, reordering or deleting 
 
 ## The basis
 
-- `mcp__plugin_onenote_desktop__get_page_content` returns `meta.basis`: the page's date and a hash of each Outline and OE. Pass it unchanged as `basis`. The server compares it with the page as it is now: the date, and the hash of each Outline you send with an `objectID` (and of any OE you send outside an Outline, such as the title's). A change since your read fails with `StaleWrite`, and nothing is written.
+- `mcp__plugin_onenote_desktop__get_page_content` returns `meta.basis`: the page's date and a hash of each Outline and OE, and of each image, ink drawing or inserted file placed directly on the page. Pass it unchanged as `basis`. The server compares it with the page as it is now: the date, and the hash of each Outline you send with an `objectID` (and of any OE you send outside an Outline, such as the title's, and of any image, ink or file you send that sits directly on the page). A change since your read fails with `StaleWrite`, and nothing is written.
 - Every successful write returns the page's new `meta.basis`. Use it for the next write to that page instead of re-reading.
 - **Always use the newest basis you have.** After a write, OneNote can change Outlines you didn't send: adding an Outline can change the others' hashes. The write's own `meta.basis` already has the new hashes; an older basis then fails with `StaleWrite` although nobody else changed the page. (The server doesn't send `one:Position`'s `z`, so resending an Outline as read no longer re-stacks the page, and the stacking order can't be changed.)
 - Never edit a basis, reuse one from another page, or build one, except to merge the parts of an oversized page (below). Without `basis`, the write is checked against the page's current version (read internally; nothing of it is returned), not against what you last read, with the warning `noBasis`. Leave it out only for a page you've just created (recipe 7), or in a password-protected section you can't read (recipe 5).
 - A basis that lacks a hash the write needs makes the server skip that check, with the warning `partialBasis`.
-- **An oversized page** (read part by part with `mcp__plugin_onenote_desktop__read_result`): each part's `meta.basis` has the page's date and the hashes of the Outlines and OEs wholly inside that part. For a write, merge the `elementHashes` from the parts of the same `resultId` into one basis that covers every Outline you send.
+- **An oversized page** (read part by part with `mcp__plugin_onenote_desktop__read_result`): each part's `meta.basis` has the page's date and the hashes of the Outlines, OEs and page-level images, ink and files wholly inside that part. For a write, merge the `elementHashes` from the parts of the same `resultId` into one basis that covers every Outline and page-level image, ink or file you send.
 
 ## Page XML for a write
 
@@ -121,7 +121,7 @@ Changing the second of two paragraphs in one Outline:
 - The notebook must be open in OneNote, at the path it had (`ObjectNotFound` otherwise: relay `userAction`), and needs the user's write grant.
 - If the restore fails after it created the page, the error names that new, possibly empty page: ask the user to delete it before you try again.
 - Entries are kept for 30 days by default, and may go sooner if the journal passes its size cap. No tool lists them: an entry ID lost with the session (a new session, a restarted client) can't be looked up. So when a change matters, give the user its `meta.journalEntryId`.
-- `create_page` and `restore_from_journal` save no entry. To undo a new or restored page, delete it to the recycle bin with `delete_hierarchy_object` if the user asks (`references/hierarchy-writes.md`, recipe 4), or the user deletes it in OneNote.
+- `create_page` (without `parentPageId`) and `restore_from_journal` save no entry; `create_page` with `parentPageId` saves the section's layout only, which this tool can't restore. To undo a new or restored page, delete it to the recycle bin with `delete_hierarchy_object` if the user asks (`references/hierarchy-writes.md`, recipe 4), or the user deletes it in OneNote.
 
 ## 7. A new page, then its content
 
@@ -129,7 +129,7 @@ Changing the second of two paragraphs in one Outline:
 2. `mcp__plugin_onenote_desktop__update_page_content` with that `pageId` and an XML holding new Outlines only (no `objectID`s), and no `basis`. The warning `noBasis` is expected: nothing can have changed a page you just created.
 3. To set the title, read the new page with `mcp__plugin_onenote_desktop__get_page_content` and change its `one:Title` OE as in recipe 1. In a password-protected section you can't read, leave the title as it is.
 
-Each `create_page` call adds another page. If one fails with `outcomeUnknown: true`, list the section's pages before trying again.
+Each `create_page` call adds another page. If one fails with `outcomeUnknown: true`, list the section's pages before trying again. For a new **subpage**, pass `parentPageId` (`references/hierarchy-writes.md`, recipe 9).
 
 ## When a write fails
 
@@ -139,4 +139,4 @@ Each `create_page` call adds another page. If one fails with `outcomeUnknown: tr
 
 ## What this release can't do
 
-Moving a page, section or section group to another place, deleting a notebook, and deleting images or ink. Tell the user this release can't do it, and that they can do it in OneNote. Never work around it (`SKILL.md`, Writing). Renaming a page is a title edit (recipe 1); renaming sections, section groups and notebooks, reordering, and deleting pages, sections and section groups are in `references/hierarchy-writes.md`.
+Deleting or moving a notebook, and deleting images or ink. Tell the user this release can't do it, and that they can do it in OneNote. Never work around it (`SKILL.md`, Writing). Renaming a page is a title edit (recipe 1); renaming sections, section groups and notebooks, reordering, deleting, moving, merging, restoring from the recycle bin and page levels are in `references/hierarchy-writes.md`; exports and opening packages in `references/exports-and-packages.md`.

@@ -52,6 +52,13 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
     public const string NotAPageUserAction =
         "Pass the ID of a page that isn't in the recycle bin. Read the hierarchy (get_hierarchy with scope pages) and use a one:Page ID.";
 
+    /// <summary>
+    /// What to do when the page, or its section, is in the notebook's recycle bin: restore first (AD-7 "Recycled pages";
+    /// backlog 6). A restored page gets a new ID, so the hierarchy is read again.
+    /// </summary>
+    public const string RecycledPageUserAction =
+        "The page is in its notebook's recycle bin. Ask the user to restore it in OneNote first, then re-read the hierarchy (get_hierarchy with scope pages) for its new ID: a restored page gets one. Or pass the ID of a page that isn't in the recycle bin.";
+
     /// <summary>What to do after <c>noBasis</c>, <c>partialBasis</c> or a basis date that isn't a date.</summary>
     public const string NoBasisUserAction =
         "Pass meta.basis from get_page_content (or from the previous update_page_content or delete_page_content) unchanged as basis, so a change made since your read is caught.";
@@ -103,7 +110,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
             ?? throw NotAPage("isn't in a section");
         if (section.InRecycleBin)
         {
-            throw NotAPage("is in the recycle bin");
+            throw RecycledPage();
         }
 
         // Never asks (AD-21). Like a read's grant check, it comes before SectionLocked (AD-7 step 1 as amended by 5.2), and
@@ -130,7 +137,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
 
         if (page.InRecycleBin)
         {
-            throw NotAPage("is in the recycle bin");
+            throw RecycledPage();
         }
 
         basicXml = await Services.Gateway.GetPageContentAsync(PageId, PageInfo.Basic, ct).ConfigureAwait(false);
@@ -193,7 +200,7 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
 
     public override async Task SnapshotAsync(CancellationToken ct)
     {
-        var written = await Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, Class, PageId, BasicXml), ct).ConfigureAwait(false);
+        var written = await Services.Snapshot.TakeAsync(new PageSnapshotRequest(CorrelationId, Operation, Class, PageId, BasicXml, Services.ReadAccess.Protection()), ct).ConfigureAwait(false);
         JournalEntryId = written.EntryId;
         JournalFile = written;
     }
@@ -379,6 +386,9 @@ public abstract class PageWrite : WriteOperation<PageWriteResult>
 
     private OneNoteException NotAPage(string why) =>
         new(ErrorCode.ObjectNotFound, $"Object {PageId} {why}, so nothing was written.", userAction: NotAPageUserAction);
+
+    private OneNoteException RecycledPage() =>
+        new(ErrorCode.ObjectNotFound, $"Object {PageId} is in the recycle bin, so nothing was written.", userAction: RecycledPageUserAction);
 }
 
 /// <summary>
@@ -585,7 +595,7 @@ public sealed class UpdatePageContentWrite : PageWrite
         {
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
-                $"Section {sectionId} is password-protected and has no read grant, so a write to it may carry only a basis lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds. Nothing was written.",
+                $"Section {sectionId} is protected (password-protected, or under the opened-copies folder, an export root or the backups folder) and has no read grant, so a write to it may carry only a basis lastModifiedTime and new content: no hashes, no objectIDs and no removeObjectIds. Nothing was written.",
                 userAction: ReadFirstUserAction);
         }
     }
@@ -851,7 +861,7 @@ public sealed class DeletePageContentWrite : PageWrite
         + "send its Outline with update_page_content and name the OE in removeObjectIds. Images and ink can't be deleted in this version.";
 
     public const string ReadFirstUserAction =
-        "In a password-protected section, delete_page_content needs a read grant for the section. Read the page with get_page_content first "
+        "In a protected section, delete_page_content needs a read grant for the section. Read the page with get_page_content first "
         + "(it asks the user for the grant), then call delete_page_content again with the meta.basis from that read.";
 
     public const string StillThereUserAction =
@@ -897,7 +907,7 @@ public sealed class DeletePageContentWrite : PageWrite
     protected override void CheckWithoutReadGrant(string sectionId) =>
         throw new OneNoteException(
             ErrorCode.ReadNotGranted,
-            $"Section {sectionId} is password-protected, and {Operation} there needs a read grant for it held when the call starts, so nothing was read or written.",
+            $"Section {sectionId} is protected (password-protected, or under the opened-copies folder, an export root or the backups folder), and {Operation} there needs a read grant for it held when the call starts, so nothing was read or written.",
             userAction: ReadFirstUserAction);
 
     public override void Validate()

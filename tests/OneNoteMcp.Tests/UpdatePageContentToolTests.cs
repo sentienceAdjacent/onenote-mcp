@@ -39,6 +39,9 @@ public sealed class UpdatePageContentToolTests : IDisposable
     private const string VaultPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000002}";
     private const string LockedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000003}";
     private const string BinnedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000004}";
+    private const string RecycledSectionId = "{SRW00000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string UnflaggedBinnedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000005}";
+    private const string FlaggedLivePageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000006}";
     private const string ReadDate = "2026-11-12T00:00:00.000Z";
 
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
@@ -64,6 +67,9 @@ public sealed class UpdatePageContentToolTests : IDisposable
         gateway.Parents[VaultPageId] = ProtectedId;
         gateway.Parents[LockedPageId] = LockedId;
         gateway.Parents[BinnedPageId] = DeletedPagesId;
+        gateway.Parents[RecycledSectionId] = RecycleBinId;
+        gateway.Parents[UnflaggedBinnedPageId] = RecycledSectionId;
+        gateway.Parents[FlaggedLivePageId] = SectionId;
         Self(NotebookId, $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" />");
         Self(SectionId, Section(SectionId, "Open", string.Empty));
         Self(ProtectedId, Section(ProtectedId, "Vault", "encrypted=\"true\""));
@@ -74,6 +80,9 @@ public sealed class UpdatePageContentToolTests : IDisposable
         Self(VaultPageId, $"<one:Page {Ns} ID=\"{VaultPageId}\" name=\"Synthetic Update\" />");
         Self(LockedPageId, $"<one:Page {Ns} ID=\"{LockedPageId}\" name=\"Synthetic Update\" />");
         Self(BinnedPageId, $"<one:Page {Ns} ID=\"{BinnedPageId}\" name=\"Synthetic Update\" isInRecycleBin=\"true\" />");
+        Self(RecycledSectionId, Section(RecycledSectionId, "Binned section", "isInRecycleBin=\"true\""));
+        Self(UnflaggedBinnedPageId, $"<one:Page {Ns} ID=\"{UnflaggedBinnedPageId}\" name=\"Synthetic Update\" />");
+        Self(FlaggedLivePageId, $"<one:Page {Ns} ID=\"{FlaggedLivePageId}\" name=\"Synthetic Update\" isInRecycleBin=\"true\" />");
         gateway.Pages[PageId] = Read;
         gateway.Pages[VaultPageId] = Read.Replace(PageId, VaultPageId, StringComparison.Ordinal);
         Grant();
@@ -123,6 +132,36 @@ public sealed class UpdatePageContentToolTests : IDisposable
 
         Assert.Contains(G(40), error.GetProperty("message").GetString(), StringComparison.Ordinal);
         await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AStalePageLevelImage_IsStaleWrite_NamingIt_NotOnlyThePageWideCheck()
+    {
+        // Backlog 5: an image placed on the page, outside every Outline, has its own hash. The page's date is unchanged,
+        // as for a page that isn't open in OneNote, so only that hash can catch the change.
+        var read = WithPageImage(Read, width: "40.0");
+        var basis = PageBasis.From(read);
+        gateway.Pages[PageId] = WithPageImage(Read, width: "80.0");
+        var image = XDocument.Parse(read).Descendants(One + "Image").Single(e => (string?)e.Attribute("objectID") == G(70));
+        image.Element(One + "Position")!.SetAttributeValue("x", "500.0");
+
+        var error = Error(
+            await Tool().UpdatePageContent(PageId, Sent(image.ToString(SaveOptions.DisableFormatting)), new PageBasisArgument(basis.LastModifiedTime, basis.PageHash, basis.ElementHashes), cancellationToken: Ct),
+            "StaleWrite");
+
+        Assert.Contains(G(70), error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    /// <summary><paramref name="page"/> with a page-level image <c>70</c> (outside every Outline) of the given width.</summary>
+    private static string WithPageImage(string page, string width)
+    {
+        var root = XDocument.Parse(page);
+        root.Root!.Add(new XElement(One + "Image", new XAttribute("objectID", G(70)), new XAttribute("format", "png"),
+            new XElement(One + "Position", new XAttribute("x", "400.0"), new XAttribute("y", "86.4"), new XAttribute("z", "3")),
+            new XElement(One + "Size", new XAttribute("width", width), new XAttribute("height", "40.0")),
+            new XElement(One + "CallbackID", new XAttribute("callbackID", G(80)))));
+        return root.ToString(SaveOptions.DisableFormatting);
     }
 
     [Fact]
@@ -361,6 +400,70 @@ public sealed class UpdatePageContentToolTests : IDisposable
         Assert.Equal(["readBackWithheld"], success.Warnings.Select(w => w.Code));
         Assert.Null(success.Meta.Basis);
     }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowOpenedDuringTheCall_NoHashOrObjectId_IsCountsOnly_Withheld_AndNoMetaBasis()
+    {
+        // Backlog 9: step 3's NamesIds (PageWrite l.118) counts a grant only from when it was given, so a window opened under
+        // the lock, after step 1 passed and before that check, degrades the write as if there were none.
+        var readAccess = NewReadAccess(gateway);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, VaultSection(), "Vault", MidCallGrant.UnderTheLock(writeLock));
+        var sent = Sent(NewOutline("alignment=\"right\""), VaultPageId);
+        VaultAfterWrite(p => p.Add(new XElement(One + "Outline", new XAttribute("objectID", G(60)), new XElement(One + "OEChildren",
+            new XElement(One + "OE", new XAttribute("objectID", G(61)), new XElement(One + "T", "new"))))));
+
+        var success = await UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, null, Ct);
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Null(success.Meta.Basis);
+        Assert.Equal(["noBasis", "readBackDiffers", "readBackWithheld"], success.Warnings.Select(w => w.Code));
+        Assert.All(success.Warnings, w => Assert.DoesNotContain("{B0}", w.Message, StringComparison.Ordinal));
+        Assert.Contains("1 attribute(s)", success.Warnings[1].Message, StringComparison.Ordinal);
+        Assert.Single(gateway.UpdateCalls);
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowOpenedDuringTheCall_AnObjectId_IsReadNotGranted_ARetryWrites()
+    {
+        // Backlog 9: a grant opened after the call's start is no grant; the retry starts inside the window and passes.
+        var readAccess = NewReadAccess(gateway);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, VaultSection(), "Vault");
+        var sent = Sent(OutlineAsRead(40), VaultPageId);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, [], Ct));
+
+        Assert.True(opened());
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.Equal(UpdatePageContentWrite.ReadFirstUserAction, ex.UserAction);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+
+        gateway.OnGetHierarchy = null;
+        var success = await UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, [], Ct);
+        Assert.Single(gateway.UpdateCalls);
+        Assert.DoesNotContain("readBackWithheld", success.Warnings.Select(w => w.Code));
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowReGivenUnderTheLock_AnObjectId_IsReadNotGranted_ByTheRecheck()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so step 3's recheck (PageWrite l.118) refuses before the page is read.
+        var readAccess = NewReadAccess(gateway);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, VaultSection(), "Vault", writeLock);
+        var sent = Sent(OutlineAsRead(40), VaultPageId);
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => UseCase(readAccess: readAccess).ExecuteAsync(new ToolCallContext("c"), VaultPageId, sent, null, [], Ct));
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    private HierarchyNode VaultSection() => HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
 
     // --- Date-only basis without a read grant (AD-17 as amended by 5.2; Phill, 2026-11-12, story 2.9 security review) --
 
@@ -848,8 +951,30 @@ public sealed class UpdatePageContentToolTests : IDisposable
     [Fact]
     public async Task APageInTheRecycleBin_IsObjectNotFound()
     {
-        Error(await Tool().UpdatePageContent(BinnedPageId, Sent(EditedOutlineB(), BinnedPageId), cancellationToken: Ct), "ObjectNotFound");
+        var error = Error(await Tool().UpdatePageContent(BinnedPageId, Sent(EditedOutlineB(), BinnedPageId), cancellationToken: Ct), "ObjectNotFound");
 
+        Assert.Equal(PageWrite.RecycledPageUserAction, error.GetProperty("userAction").GetString());
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AnUnflaggedPageInARecycledSection_IsObjectNotFound_WithRestoreFirstAdvice()
+    {
+        // OneMore lesson 8: the recycle-bin flags sit on sections, so the section check must catch an unflagged page.
+        var error = Error(await Tool().UpdatePageContent(UnflaggedBinnedPageId, Sent(EditedOutlineB(), UnflaggedBinnedPageId), cancellationToken: Ct), "ObjectNotFound");
+
+        Assert.Equal(PageWrite.RecycledPageUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AFlaggedPageInALiveSection_IsObjectNotFound_WithRestoreFirstAdvice()
+    {
+        var error = Error(await Tool().UpdatePageContent(FlaggedLivePageId, Sent(EditedOutlineB(), FlaggedLivePageId), cancellationToken: Ct), "ObjectNotFound");
+
+        Assert.Equal(PageWrite.RecycledPageUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
         await AssertRefusedAsync();
     }
 
@@ -937,18 +1062,20 @@ public sealed class UpdatePageContentToolTests : IDisposable
         return new PageBasisArgument(date ?? basis.LastModifiedTime, basis.PageHash, hashes);
     }
 
-    private PageWriteServices Services(IOneNoteGateway g, IssuedPathCaches? issued = null) => new(
+    private PageWriteServices Services(IOneNoteGateway g, IssuedPathCaches? issued = null, ReadAccess? readAccess = null) => new(
         g,
         new WriteAccess(g, Store.Read),
-        new ReadAccess(g, Store.Read, new SettingsWriter(Store, clock), clock),
+        readAccess ?? NewReadAccess(g),
         new PageSnapshot(g, new JournalStore(Store.Read), clock),
         issued);
 
-    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null, bool withDialog = false, IssuedPathCaches? issued = null)
+    private ReadAccess NewReadAccess(IOneNoteGateway g) => new(g, Store.Read, new SettingsWriter(Store, clock), clock);
+
+    private UpdatePageContentUseCase UseCase(IOneNoteGateway? over = null, bool withDialog = false, IssuedPathCaches? issued = null, ReadAccess? readAccess = null)
     {
         var g = over ?? gateway;
         var dialog = withDialog ? new WriteGrantDialog(g, new SettingsWriter(Store, clock), clock) : null;
-        return new UpdatePageContentUseCase(Services(g, issued), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, dialog: dialog));
+        return new UpdatePageContentUseCase(Services(g, issued, readAccess), new WritePipeline(writeLock, g, cache, Store.Read, TimeProvider.System, dialog: dialog));
     }
 
     /// <summary>
