@@ -3,7 +3,8 @@ title: 'Skill, README and harness for round 2'
 type: 'feature'
 ticket: '10'
 created: '2026-11-19'
-status: 'draft'
+baseline_revision: 'e97afd76365f24a9d451ac216f9d55cf2610eb72'
+status: 'in-progress'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -22,6 +23,12 @@ context:
 **Problem:** Round 2 shipped six tools (`publish`, `open_package`, `move_hierarchy_object`, `merge_sections`, `restore_from_recycle_bin`, `set_page_level`) and `create_page`'s `parentPageId`, but the guide skill and README name none of them (`PluginPackagingTests.DocumentedByRound2Entry10` exempts them, l.256). Several lines are now wrong: the skill says moves and exports can't be done (`SKILL.md` l.3, l.32; `references/hierarchy-writes.md` l.113–115; `references/page-writes.md` l.140–142), and so does the README (l.5, l.54, l.82, l.308 "*(planned)* `Documents\OneNote Exports\`"). The harness's `WriteTools` (`spikes/stress-harness/Calls.cs` l.70) lacks all six, so its startup contract check fails on today's 29-tool contract. E8's allowed paths in an unlocked protected section haven't run live through the tools.
 
 **Approach:** Documentation and a small harness fix, describing the code at the baseline and the round-2 sittings, in 5.7's form (its plan is the template). The skill gets recipes for every round-2 tool, tool-map rows, and error and warning rows; the README gets the rows, an export-roots section and every stale line fixed; the harness lists the new write tools; the exemption set is emptied. A live step with Phill (hitl) runs the matrix below and E8's unverified paths.
+
+**Decisions (Phill, 2026-11-19, "Proceed" on the coordinator's recommendations):**
+1. Q1 (a): recipes 1–2 go in a new `plugin/skills/guide/references/exports-and-packages.md`; recipes 3–6 are added to `references/hierarchy-writes.md`. `SKILL.md`'s Writing overview names which file to read before which write.
+2. Q2 (a): the full live step: a plugin session over every matrix row, the README-only export and restore, the harness on MCP Test, and E8's five paths through the tools with Phill unlocking MCP Test's protected section: `publish` of it with a read grant (`exportNotEncrypted`), a merge into it, a page moved into it (with and without `position`), `set_page_level` and a subpage `create_page` in it with a read grant, and a restore by the name fallback.
+3. Q3 (a): the story stays whole.
+4. Q4: approved.
 
 ## Boundaries & Constraints
 
@@ -71,7 +78,7 @@ What an agent does when it follows the skill: the live step's script (MCP Test; 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Recipe file(s) per Open Question 1 -- recipes 1–6, "when a write fails" (re-reads), "what this release can't do".
+- [ ] `plugin/skills/guide/references/exports-and-packages.md` (new) and `references/hierarchy-writes.md` (decision 1) -- recipes 1–6, "when a write fails" (re-reads), "what this release can't do".
 - [ ] `plugin/skills/guide/SKILL.md` -- description, Writing overview, tool map, error and warning rows, `outcomeUnknown`.
 - [ ] `plugin/skills/guide/references/{hierarchy,page}-writes.md` -- the stale lines.
 - [ ] `README.md` -- per Boundaries.
@@ -84,12 +91,6 @@ What an agent does when it follows the skill: the live step's script (MCP Test; 
 - Given the harness built from the branch, when it runs `--contract-only` against itself as a `contract-ok` fake server (harness `README.md` l.79), then it exits 0.
 - Given the plugin packed from the branch, when `claude plugin validate --strict dist/stage/onenote` runs, then it passes with only the existing missing-icon notice.
 - Given `SKILL.md`, the references and `README.md`, when searched for "planned", "not built", "can't", "yet", then only notebook deletes, image and ink deletes and OneDrive notebook creation remain unsupported.
-
-## Open Questions
-
-1. **Where the round-2 recipes go.** (a) A new `references/exports-and-packages.md` for recipes 1–2, and recipes 3–6 added to `references/hierarchy-writes.md` (moves, merges, restores and levels are hierarchy writes). (b) One new `references/round-2.md` for all six. (c) Everything into the two existing references. Recommended: (a): one file per kind of write, as 5.7 did; (b) groups by release, which a reader doesn't know.
-2. **The live step's scope.** (a) Full: a plugin session over every matrix row, the ticket's README-only export and restore, the harness on MCP Test, and E8's five paths not yet run live through the tools, with Phill unlocking MCP Test's protected section: `publish` of it with a read grant (`exportNotEncrypted`), a merge into it unlocked, a page moved into it (with and without `position`), `set_page_level` and a subpage `create_page` in it with a read grant, and a restore by name fallback. (b) Only the matrix and the ticket's two README checks; E8's paths stay unit-tested. Recommended: (a): the ticket asks for "each round-2 tool gives the result E8's rule sets" live, and these five are the gaps.
-3. **Scope size.** The plan is about 3,000 tokens, over 1,600 (5.7's was similar). (a) Keep it whole, as 5.7 did (its Q7 (a)). (b) Split: docs and harness here; the live E8 run as its own hitl story. Recommended: (a): the live step is this story's verification, and the docs it checks are this story's.
 
 ## Implementation Notes
 
@@ -105,4 +106,4 @@ What an agent does when it follows the skill: the live step's script (MCP Test; 
 - The harness's `--contract-only --exe <StressHarness.exe> --exe-arg --fake-server --exe-arg 100 --exe-arg --fake-variant --exe-arg contract-ok` (harness `README.md` l.79) -- exit 0.
 - `pwsh -File scripts/pack-plugin.ps1`, then `claude plugin validate --strict dist/stage/onenote` -- passes.
 
-**Manual checks (the live step, Phill):** per Open Question 2.
+**Manual checks (the live step, Phill):** per decision 2.
