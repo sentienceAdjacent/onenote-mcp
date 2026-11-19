@@ -59,6 +59,9 @@ The spine's Deferred row already names the direction: "if it happens … amend A
 - **Q2, a.** One `readNotGranted` warning for all withheld sections, giving the count and the reasons by kind (password-protected, or protected by path). `meta.withheld` keeps every ID. This applies to every tool that withholds sections (`find_pages`, `find_meta`, and `get_hierarchy`'s broad reads).
 - **Q3, a.** A general rule in `ResultDelivery`: when a stored result's first index wouldn't fit, `meta.filtered` moves out as in Q1. Today only the search tools carry it.
 - **Version (AD-14).** No bump: `<Version>` is `0.9.0-rc.1`, not yet released (the latest tag is `v0.8.0-rc.2`), and before 1.0.0 one minor bump covers every contract change since the last release.
+- **Version, revised (Phill, 2026-11-19, Inbox).** The premise above was wrong: `v0.9.0-rc.1` was tagged and released on 2026-11-19, before this change. This change bumps to `0.10.0-rc.1`, with contract snapshot `0.10`. A pre-release tag counts as a release (AD-14).
+- **Every index (Phill, 2026-11-19).** The first index and every `read_result` index page carry `meta.filteredCount` and `meta.filteredResultId`, as built.
+- **Fable optional findings 5–12 (Phill, 2026-11-19).** All eight are kept.
 
 </frozen-after-approval>
 
@@ -133,6 +136,7 @@ The spine's Deferred row already names the direction: "if it happens … amend A
     - the AD-4 and AD-12 lines and AD-20's Contract line;
     - the memlog `updated` date.
 - Verification after both: build 0 warnings; unit tests 3,795 passed, 3 skipped; the stress harness builds.
+- 2026-11-19, Phill's answers recorded in Decisions: version `0.10.0-rc.1` (Directory.Build.props, `contractVersion` 0.10, and AD-14 states that a pre-release tag counts), every index, and all optionals kept.
 
 ## Verification
 
