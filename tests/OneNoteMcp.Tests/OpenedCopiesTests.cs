@@ -9,8 +9,8 @@ namespace OneNoteMcp.Tests;
 
 /// <summary>
 /// Story 3.8, Phill's Q3 (a) and follow-ups (2026-11-18): where opened copies live, and the startup cleanup (b): a folder in
-/// the opened-copies folder is deleted when it holds the marker, its notebook isn't open in OneNote, and it is more than 7
-/// days old. Folders without the marker are never touched. Everything runs in a temporary folder.
+/// the opened-copies folder is deleted when it holds the marker, its notebook isn't open in OneNote, and nothing in it has
+/// changed for more than 7 days (backlog 21). Folders without the marker are never touched. Everything runs in a temporary folder.
 /// </summary>
 public sealed class OpenedCopiesTests : IDisposable
 {
@@ -86,6 +86,87 @@ public sealed class OpenedCopiesTests : IDisposable
         Assert.True(Directory.Exists(young));
         Assert.True(Directory.Exists(unmarked));
         Assert.True(Directory.Exists(open));
+    }
+
+    // --- Backlog 21: age is the last change in the copy, never its folder's creation time alone ----------------------------
+
+    [Fact]
+    public async Task ACopyCreatedLongAgo_WithAFileWrittenYesterday_IsKept()
+    {
+        var copy = Copy("Edited 20261101-100000", Now.AddDays(-30));
+        File.SetLastWriteTimeUtc(Path.Combine(copy, "Section.one"), Now.AddDays(-1).UtcDateTime);
+
+        Assert.Equal(0, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        Assert.True(Directory.Exists(copy));
+    }
+
+    [Fact]
+    public async Task ACopyWithANestedFileChangedRecently_IsKept()
+    {
+        var copy = Copy("Nested 20261101-100000", Now.AddDays(-30));
+        var inner = Path.Combine(copy, "Group");
+        Directory.CreateDirectory(inner);
+        File.WriteAllText(Path.Combine(inner, "Inner.one"), "y");
+        Age(copy, Now.AddDays(-30));
+        File.SetLastWriteTimeUtc(Path.Combine(inner, "Inner.one"), Now.AddDays(-6).UtcDateTime);
+
+        Assert.Equal(0, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        Assert.True(Directory.Exists(copy));
+    }
+
+    [Fact]
+    public async Task AFileCopiedInRecently_KeepsItsOldWriteTime_ButItsCreationTimeKeepsTheCopy()
+    {
+        // A copied file keeps its source's last-write time; its creation time says when it arrived.
+        var copy = Copy("Copied 20261101-100000", Now.AddDays(-30));
+        File.SetCreationTimeUtc(Path.Combine(copy, "Section.one"), Now.AddDays(-2).UtcDateTime);
+
+        Assert.Equal(0, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        Assert.True(Directory.Exists(copy));
+    }
+
+    [Fact]
+    public async Task ACopyWhoseFolderWasWrittenRecently_IsKept()
+    {
+        // A file added or removed changes the folder's own last-write time.
+        var copy = Copy("Touched 20261101-100000", Now.AddDays(-30));
+        Directory.SetLastWriteTimeUtc(copy, Now.AddDays(-3).UtcDateTime);
+
+        Assert.Equal(0, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        Assert.True(Directory.Exists(copy));
+    }
+
+    [Fact]
+    public async Task AJunctionInsideACopy_CountsByItsOwnTimes_AndIsNeverFollowed()
+    {
+        // The target outside the copy changed yesterday; the copy and the junction itself are 8 days old.
+        var outside = temp.Combine("outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "Recent.one"), "z");
+        var copy = Copy("Linked 20261101-100000", Now.AddDays(-30));
+        Junction(Path.Combine(copy, "Link"), outside);
+        Age(copy, Now.AddDays(-8));
+        File.SetLastWriteTimeUtc(Path.Combine(outside, "Recent.one"), Now.AddDays(-1).UtcDateTime);
+        Directory.SetLastWriteTimeUtc(outside, Now.AddDays(-1).UtcDateTime);
+        await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct);
+
+        // The copy was judged old and deleted: its contents are gone. Windows can briefly refuse the now-empty folder after
+        // a junction is removed from it, so the folder itself may linger (the sweep counts it as not deleted then).
+        Assert.True(!Directory.Exists(copy) || !Directory.EnumerateFileSystemEntries(copy).Any());
+        Assert.True(File.Exists(Path.Combine(outside, "Recent.one")));
+    }
+
+    [Fact]
+    public async Task ACopyUntouchedFor8Days_InsideAndOut_IsStillDeleted()
+    {
+        var copy = Copy("Stale 20261101-100000", Now.AddDays(-30));
+        var inner = Path.Combine(copy, "Group");
+        Directory.CreateDirectory(inner);
+        File.WriteAllText(Path.Combine(inner, "Inner.one"), "y");
+        Age(copy, Now.AddDays(-8));
+
+        Assert.Equal(1, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        Assert.False(Directory.Exists(copy));
     }
 
     [Fact]
@@ -174,8 +255,29 @@ public sealed class OpenedCopiesTests : IDisposable
             File.WriteAllText(Path.Combine(folder, ExportRootGuard.MarkerFileName), string.Empty);
         }
 
-        Directory.SetCreationTimeUtc(folder, created.UtcDateTime);
+        // Backlog 21: the copy as a whole is untouched since it was made, so every entry's times are that date.
+        Age(folder, created);
         return folder;
+    }
+
+    /// <summary>Sets the creation and last-write times of <paramref name="folder"/> and everything in it to <paramref name="at"/>.</summary>
+    private static void Age(string folder, DateTimeOffset at)
+    {
+        // Never through a link or junction: a link is aged as an entry, what it points at is left alone.
+        foreach (var entry in new DirectoryInfo(folder).EnumerateFileSystemInfos())
+        {
+            if (entry is DirectoryInfo inner && !inner.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                Age(inner.FullName, at);
+                continue;
+            }
+
+            entry.CreationTimeUtc = at.UtcDateTime;
+            entry.LastWriteTimeUtc = at.UtcDateTime;
+        }
+
+        Directory.SetCreationTimeUtc(folder, at.UtcDateTime);
+        Directory.SetLastWriteTimeUtc(folder, at.UtcDateTime);
     }
 
     private void OpenNotebooks(params string[] paths) =>
