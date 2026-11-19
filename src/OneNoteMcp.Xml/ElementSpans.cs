@@ -55,7 +55,7 @@ public sealed class SpanNode
     /// <summary>A hierarchy node's <c>name</c>, or the first 80 characters of a page element's text; null when there is none.</summary>
     public string? Label { get; internal set; }
 
-    /// <summary>The <c>objectID</c> of a page's <c>one:Outline</c> or <c>one:OE</c>, the elements AD-17 hashes; null otherwise.</summary>
+    /// <summary>The <c>objectID</c> of an element AD-17 hashes (<see cref="PageBasis.IsHashed"/>); null otherwise.</summary>
     public string? HashId { get; internal set; }
 
     /// <summary>Counts of <c>one:Table</c>, <c>one:Image</c> and <c>one:InsertedFile</c> anywhere below this node.</summary>
@@ -133,10 +133,7 @@ public static class ElementSpans
     /// <summary>The length of a page element's label (AD-20).</summary>
     public const int LabelChars = 80;
 
-    private static readonly XName Outline = OneNoteXml.One + "Outline";
-    private static readonly XName OE = OneNoteXml.One + "OE";
-
-    /// <summary>Page XML: refs are <c>objectID</c>s, labels are the element's text by AD-12's rule, Outlines and OEs carry <see cref="SpanNode.HashId"/>.</summary>
+    /// <summary>Page XML: refs are <c>objectID</c>s, labels are the element's text by AD-12's rule, the elements AD-17 hashes (<see cref="PageBasis.IsHashed"/>) carry <see cref="SpanNode.HashId"/>.</summary>
     public static SpanTree Page(string xml)
     {
         var tree = Scan(xml, "objectID", nameLabels: false);
@@ -157,7 +154,7 @@ public static class ElementSpans
                 node.Label = label;
             }
 
-            if ((element.Name == Outline || element.Name == OE) && (string?)element.Attribute("objectID") is { Length: > 0 } objectId)
+            if (PageBasis.IsHashed(element) && (string?)element.Attribute("objectID") is { Length: > 0 } objectId)
             {
                 node.HashId = objectId;
             }

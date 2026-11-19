@@ -135,6 +135,36 @@ public sealed class UpdatePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task AStalePageLevelImage_IsStaleWrite_NamingIt_NotOnlyThePageWideCheck()
+    {
+        // Backlog 5: an image placed on the page, outside every Outline, has its own hash. The page's date is unchanged,
+        // as for a page that isn't open in OneNote, so only that hash can catch the change.
+        var read = WithPageImage(Read, width: "40.0");
+        var basis = PageBasis.From(read);
+        gateway.Pages[PageId] = WithPageImage(Read, width: "80.0");
+        var image = XDocument.Parse(read).Descendants(One + "Image").Single(e => (string?)e.Attribute("objectID") == G(70));
+        image.Element(One + "Position")!.SetAttributeValue("x", "500.0");
+
+        var error = Error(
+            await Tool().UpdatePageContent(PageId, Sent(image.ToString(SaveOptions.DisableFormatting)), new PageBasisArgument(basis.LastModifiedTime, basis.PageHash, basis.ElementHashes), cancellationToken: Ct),
+            "StaleWrite");
+
+        Assert.Contains(G(70), error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertRefusedAsync();
+    }
+
+    /// <summary><paramref name="page"/> with a page-level image <c>70</c> (outside every Outline) of the given width.</summary>
+    private static string WithPageImage(string page, string width)
+    {
+        var root = XDocument.Parse(page);
+        root.Root!.Add(new XElement(One + "Image", new XAttribute("objectID", G(70)), new XAttribute("format", "png"),
+            new XElement(One + "Position", new XAttribute("x", "400.0"), new XAttribute("y", "86.4"), new XAttribute("z", "3")),
+            new XElement(One + "Size", new XAttribute("width", width), new XAttribute("height", "40.0")),
+            new XElement(One + "CallbackID", new XAttribute("callbackID", G(80)))));
+        return root.ToString(SaveOptions.DisableFormatting);
+    }
+
+    [Fact]
     public async Task StaleDate_IsStaleWrite_WithNoComWrite()
     {
         Error(await Tool().UpdatePageContent(PageId, Sent(EditedOutlineB()), BasisArgument(date: "2026-11-11T23:00:00.000Z"), cancellationToken: Ct), "StaleWrite");
