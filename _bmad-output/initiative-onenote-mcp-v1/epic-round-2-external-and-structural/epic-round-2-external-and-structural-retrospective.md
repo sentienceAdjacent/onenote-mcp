@@ -220,16 +220,16 @@ All are proposed; nothing was applied.
 
 1. **Cut the release for Done when 5:** tag `v0.9.0-rc.1` through the epic 1 pipeline (R2). Owner: Phill.
 2. **Record 3.10's sitting parts B and C** in its plan, and close `deferred-work.md:634` (R3). Owner: main session, from Phill's sitting notes. **Resolved (2026-11-19, 18c9a98).**
-3. **Re-run 3.7's sitting S1 on the locked-section build, or record its acceptance** (R4). Owner: Phill, with the main session.
-4. **Reconcile E3 and Done when 1 in the epic file** to the as-built `open_package` destination, an opened-copies folder (R1). This is a spec reconciliation. Owner: the main session, applied with Phill's approval.
-5. **Reword E5's cache sentence** to pages only (R7). This is a spec reconciliation. Owner: the main session, with Phill's approval.
-6. **Add re-resolve tests for page writes and `restore_from_recycle_bin`** (V1). This is remediation. Owner: the next build lane (one small backlog story).
-7. **Use `Protection.Phrase` in restore's refusals** (V4), **and align `ExportTarget`'s `FileExists` messages with its doc** (V6). This is remediation. Owner: the next build lane (one small backlog bug).
-8. **A refactor story for D1, D2, D3 and P1:** one shared partial-copy re-read, one `settled` text, shared constants out of `MovePageWrite`, and step-7 recovery moved toward the pipeline. Owner: a backlog story for Phill to schedule.
+3. **Re-run 3.7's sitting S1 on the locked-section build, or record its acceptance** (R4). Owner: Phill, with the main session. **Re-run at the next sitting (Phill's choice, 2026-11-19).**
+4. **Reconcile E3 and Done when 1 in the epic file** to the as-built `open_package` destination, an opened-copies folder (R1). This is a spec reconciliation. Owner: the main session, applied with Phill's approval. **Ticketed (2026-11-19): backlog 20.**
+5. **Reword E5's cache sentence** to pages only (R7). This is a spec reconciliation. Owner: the main session, with Phill's approval. **Ticketed (2026-11-19): backlog 20.**
+6. **Add re-resolve tests for page writes and `restore_from_recycle_bin`** (V1). This is remediation. Owner: the next build lane (one small backlog story). **Ticketed (2026-11-19): backlog 18.**
+7. **Use `Protection.Phrase` in restore's refusals** (V4), **and align `ExportTarget`'s `FileExists` messages with its doc** (V6). This is remediation. Owner: the next build lane (one small backlog bug). **Ticketed (2026-11-19): backlog 19.**
+8. **A refactor story for D1, D2, D3 and P1:** one shared partial-copy re-read, one `settled` text, shared constants out of `MovePageWrite`, and step-7 recovery moved toward the pipeline. Owner: a backlog story for Phill to schedule. **Ticketed (2026-11-19): backlog 17.**
 9. **Process: an AD-21 "no read grant" probe** in the quick lens or the plan template (T1). Owner: Phill (BMAD customization).
 10. **Process: teach the fake each newly observed OneNote behaviour, and require a red-run or mutation note for guard tests** (T2, T4). Owner: Phill (review checklist).
 11. **Process: record `end_revision` on a plan when it is marked done** (T6). Owner: Phill (bmad-ticket customization).
-12. **Settle the opened-copies sweep's notion of "age"** (V2): creation time or last change. Owner: Phill (a decision, then a backlog bug if it changes).
+12. **Settle the opened-copies sweep's notion of "age"** (V2): creation time or last change. Owner: Phill (a decision, then a backlog bug if it changes). **Ticketed (2026-11-19): backlog 21** (Phill chose last change).
 
 ## Acceptance verdict
 
@@ -244,8 +244,8 @@ All are proposed; nothing was applied.
 ## Open questions
 
 1. **Acceptance:** answered. Phill accepted the epic with open items on 2026-11-19, with the tag tracked.
-2. **V2:** should the opened-copies sweep age a copy by creation time or by last change?
-3. **R4:** does 3.7's S1 need a re-run after the locked-section refusal, or is its unit coverage enough?
+2. **V2:** answered (Phill, 2026-11-19): by last change; backlog 21.
+3. **R4:** answered (Phill, 2026-11-19): re-run at the next sitting.
 
 ## Assumptions
 
