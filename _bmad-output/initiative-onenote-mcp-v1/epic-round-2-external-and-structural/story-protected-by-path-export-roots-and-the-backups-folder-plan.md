@@ -47,7 +47,7 @@ context:
 | Look-alike root | section under `…\exports2`, root `…\exports` | unprotected | none |
 | Case or separator variants | `C:/Users/X/Exports` vs `c:\users\x\exports\` | protected | — |
 | Root not yet created; root on a mapped drive | section path under it | protected | — |
-| Cloud section | URL path | marker only | none |
+| Cloud section | URL path | marker only (until backlog 13, 2026-11-18: a URL holding a root's OneDrive tail counts as under it) | none |
 | Loose section under `one:OpenSections` (a `.one` opened by hand, P3) | its path under a root; no notebook | protected by its own path, in broad reads (`get_hierarchy` of all notebooks) and target reads alike | `ReadNotGranted` / withheld |
 | Gated write | soft delete of a page in a path-protected section | refused as for a marked one, wording per Always | `NotSupported` |
 | Journal snapshot | a group holding a path-protected section | its pages stripped; entry protected | none |

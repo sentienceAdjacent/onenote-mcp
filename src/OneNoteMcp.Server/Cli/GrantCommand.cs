@@ -49,9 +49,10 @@ public sealed class GrantCommand
     private readonly Func<CancellationToken, Task<string>> readSections;
     private readonly SettingsWriter writer;
     private readonly TimeProvider clock;
+    private readonly Func<OneDriveFolders> oneDrive;
 
     /// <param name="readSections">Returns <c>GetHierarchy</c> of every open notebook at <c>sections</c> level.</param>
-    public GrantCommand(TextReader input, TextWriter output, bool interactive, Func<CancellationToken, Task<string>> readSections, SettingsWriter writer, TimeProvider clock)
+    public GrantCommand(TextReader input, TextWriter output, bool interactive, Func<CancellationToken, Task<string>> readSections, SettingsWriter writer, TimeProvider clock, Func<OneDriveFolders>? oneDrive = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(output);
@@ -64,6 +65,7 @@ public sealed class GrantCommand
         this.readSections = readSections;
         this.writer = writer;
         this.clock = clock;
+        this.oneDrive = oneDrive ?? (() => OneDriveFolders.None);
     }
 
     /// <summary>Runs <c>grant</c> with the arguments after it. Returns the exit code: 0 done, 1 refused or failed, 2 bad usage.</summary>
@@ -455,7 +457,7 @@ public sealed class GrantCommand
     /// <c>settings.json</c> as it reads now (the defaults when it is invalid).
     /// </summary>
     private async Task<IReadOnlyList<ProtectedSection>> ProtectedSectionsAsync(CancellationToken ct) =>
-        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false), Protection.From(writer.Store.Read()));
+        ProtectedSections.Find(await readSections(ct).ConfigureAwait(false), Protection.From(writer.Store.Read(), oneDrive()));
 
     /// <summary>The only match, or the one the user picks from a numbered list; default when they pick none.</summary>
     private T? Pick<T>(IReadOnlyList<T> matches, Func<T, string> describe, string what = "sections")

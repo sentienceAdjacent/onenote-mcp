@@ -49,13 +49,15 @@ public sealed class RestoreFromJournalUseCase : IUseCase
     private readonly WritePipeline pipeline;
     private readonly Func<SettingsSnapshot> settings;
     private readonly Func<string, bool> keepPathCache;
+    private readonly Func<OneDriveFolders> oneDrive;
 
     /// <param name="gateway">The gateway.</param>
     /// <param name="access">The write-grant check (AD-6).</param>
     /// <param name="pipeline">The write pipeline (AD-7).</param>
     /// <param name="settings">Reads <c>settings.json</c> for <c>journal.path</c>, at every call.</param>
     /// <param name="keepPathCache">Which attachment <c>pathCache</c>s may be sent (Q2); <see cref="RestoreAttachments.Keeps(string)"/> when null.</param>
-    public RestoreFromJournalUseCase(IOneNoteGateway gateway, WriteAccess access, WritePipeline pipeline, Func<SettingsSnapshot> settings, Func<string, bool>? keepPathCache = null)
+    /// <param name="oneDrive">The OneDrive folders on this machine, for the protected-by-path rule (backlog 13); none known when null.</param>
+    public RestoreFromJournalUseCase(IOneNoteGateway gateway, WriteAccess access, WritePipeline pipeline, Func<SettingsSnapshot> settings, Func<string, bool>? keepPathCache = null, Func<OneDriveFolders>? oneDrive = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(access);
@@ -66,6 +68,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
         this.pipeline = pipeline;
         this.settings = settings;
         this.keepPathCache = keepPathCache ?? RestoreAttachments.Keeps;
+        this.oneDrive = oneDrive ?? (() => OneDriveFolders.None);
     }
 
     public OperationClass Class => OperationClass.Create;
@@ -86,7 +89,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                 retryable: false);
         }
 
-        var restore = new Restore(gateway, access, settings, keepPathCache, id);
+        var restore = new Restore(gateway, access, settings, keepPathCache, oneDrive, id);
         var result = await pipeline.RunAsync(context, restore, ct).ConfigureAwait(false);
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId, ParentId: result.SectionId, PageId: result.PageId), result.Warnings);
     }
@@ -95,7 +98,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
     private sealed record Restored(string PageId, string SectionId, IReadOnlyList<ToolWarning> Warnings);
 
     /// <summary>The <c>Create</c> class's steps for one restore.</summary>
-    private sealed class Restore(IOneNoteGateway gateway, WriteAccess access, Func<SettingsSnapshot> settings, Func<string, bool> keepPathCache, Guid entryId) : WriteOperation<Restored>
+    private sealed class Restore(IOneNoteGateway gateway, WriteAccess access, Func<SettingsSnapshot> settings, Func<string, bool> keepPathCache, Func<OneDriveFolders> oneDrive, Guid entryId) : WriteOperation<Restored>
     {
         private const string FileName = RecoveredSectionName + SectionFileNames.Extension;
 
@@ -238,7 +241,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                     retryable: false);
             }
 
-            if (!Protection.From(settings()).IsProtected(section))
+            if (!Protection.From(settings(), oneDrive()).IsProtected(section))
             {
                 // AD-9: retryable once the user protects the section again at the same path (entry 15: or it is under an
                 // export root or the backups folder again).

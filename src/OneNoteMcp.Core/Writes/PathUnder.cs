@@ -7,7 +7,8 @@ namespace OneNoteMcp.Core.Writes;
 /// case-insensitively, after <see cref="Path.GetFullPath(string)"/> (separators and <c>..</c> normalised). A root counts in
 /// both its <see cref="FilePathGate.Canonical"/> form (links followed) and its plain full path, so a root on a mapped drive,
 /// or one that doesn't exist yet, still counts. A path that isn't a fully qualified local path (a URL, a relative path,
-/// empty) is under nothing. No file I/O happens for the path itself.
+/// empty) is under nothing here; AD-21's rule matches web addresses separately (<c>Protection</c>, <see cref="UrlPath"/>,
+/// backlog 13). No file I/O happens for the path itself.
 /// </summary>
 public static class PathUnder
 {
