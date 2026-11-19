@@ -12,14 +12,18 @@ namespace OneNoteMcp.Core.Writes;
 /// <item>Access check (<see cref="WriteOperation{TResult}.AuthorizeAsync"/>). When it finds a notebook with a path but no
 /// write grant, and the call can ask (<see cref="ToolCallContext.Prompt"/>), it raises the write-grant dialog
 /// (<see cref="WriteGrantDialog"/>, AD-6) with the deadline paused and on the client's token only, then runs the check
-/// once more, with no second grant dialog. A page write whose XML names new file paths throws
+/// once more, with no second grant dialog for the same notebook key (a move between two notebooks may ask once for each,
+/// story 3.4 Q3). A page write whose XML names new file paths throws
 /// <see cref="FilePathsUnconfirmed"/> from step 1; the runner then raises the file-path dialog (<see cref="FilePathDialog"/>,
 /// AD-7) the same way, at most once, and runs step 1 again. A permanent delete without a stored permanent-delete grant
 /// throws <see cref="PermanentDeleteUnconfirmed"/>; the runner raises the one-call confirmation
 /// (<see cref="PermanentDeleteDialog"/>; 5.6 plan Q1 c) the same way, at most once, and runs step 1 again.</item>
 /// <item>Take the write lock (AD-18), waiting up to <c>timeouts.callSeconds</c>, capped by what is left of the deadline.
 /// A wait that expires is <see cref="ErrorCode.ComBusy"/>, retryable. Then, while the gateway reports an abandoned write
-/// still outstanding, the pipeline is <see cref="ErrorCode.ComBusy"/>, retryable, before anything is read (AD-3).</item>
+/// still outstanding, the pipeline is <see cref="ErrorCode.ComBusy"/>, retryable, before anything is read (AD-3). Then every
+/// notebook whose write grant step 1 checked is walked to again (<see cref="WriteAccess.ReResolveAsync"/>): one that changed
+/// is <see cref="ErrorCode.WriteNotGranted"/>, retryable, before step 3 (AD-7; story 3.12), unless the operation re-resolves
+/// its own (<see cref="WriteOperation{TResult}.ReResolvesNotebooks"/>).</item>
 /// <item>Read the current state; 4. validate; 5. optimistic check; 6. snapshot (AD-8). A step-6 failure that isn't a
 /// <see cref="OneNoteException"/> (the snapshot's own COM reads keep their codes) or a cancellation becomes
 /// <see cref="ErrorCode.JournalFailed"/>; like any failure before step 7, it is never <c>outcomeUnknown</c>. A step-6 write
@@ -58,6 +62,7 @@ public sealed class WritePipeline
     private readonly TimeProvider clock;
     private readonly TimeSpan? deadlineOverride;
     private readonly WriteGrantDialog? dialog;
+    private readonly ExportRootGuard? guard;
 
     /// <param name="writeLock">The write lock (AD-18).</param>
     /// <param name="gateway">The gateway the operations call, asked after a step-7 failure whether an abandoned write is still running.</param>
@@ -66,7 +71,8 @@ public sealed class WritePipeline
     /// <param name="clock">The clock the deadline runs on.</param>
     /// <param name="deadline">The pipeline deadline for every class, a test's override; when null, each class's own (<see cref="DeadlineFor"/>).</param>
     /// <param name="dialog">The write-grant dialog step 1 raises (AD-6), or null for none.</param>
-    public WritePipeline(WriteLock writeLock, IOneNoteGateway gateway, PageTextCache? cache, Func<SettingsSnapshot> settings, TimeProvider? clock = null, TimeSpan? deadline = null, WriteGrantDialog? dialog = null)
+    /// <param name="guard">The export-root guard (entry 15 Q1): step 1 refuses every write with <c>SettingsInvalid</c> while it reports a problem; null for none.</param>
+    public WritePipeline(WriteLock writeLock, IOneNoteGateway gateway, PageTextCache? cache, Func<SettingsSnapshot> settings, TimeProvider? clock = null, TimeSpan? deadline = null, WriteGrantDialog? dialog = null, ExportRootGuard? guard = null)
     {
         ArgumentNullException.ThrowIfNull(writeLock);
         ArgumentNullException.ThrowIfNull(gateway);
@@ -78,6 +84,7 @@ public sealed class WritePipeline
         this.clock = clock ?? TimeProvider.System;
         deadlineOverride = deadline;
         this.dialog = dialog;
+        this.guard = guard;
     }
 
     /// <summary>The deadline for a class that doesn't publish: the constructor's, else <see cref="DefaultDeadline"/>.</summary>
@@ -101,23 +108,39 @@ public sealed class WritePipeline
         var token = linked.Token;
         WriteLockHold? hold = null;
         var callFailed = false;
+        var calling = false;
         try
         {
             // 1. Access check. A missing write grant may raise the grant dialog (AD-6), and new file paths in a page write
-            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once.
-            var askedGrant = false;
+            // the file-path dialog (AD-7); after each, step 1 runs once more. Each dialog is raised at most once, the grant
+            // dialog at most once per notebook key, so a move between two notebooks can ask for both (story 3.4 Q3).
+            // Entry 15 (Phill, 2026-11-17, Q1): an export root that holds the user's notebooks disables writes, like an
+            // invalid settings.json, until the user changes it.
+            // An invalid or newer file is refused by each write's own EnsureWritable, with its own message, so the guard
+            // runs only on a readable one.
+            if (guard is not null
+                && settings() is { Status: SettingsStatus.Ok or SettingsStatus.Absent } readable
+                && await guard.ProblemAsync(readable.ExportRoots.Paths, token).ConfigureAwait(false) is { } problem)
+            {
+                throw new OneNoteException(ErrorCode.SettingsInvalid, problem + " Writes are disabled until then.", userAction: "Ask the user to change exportRoots in settings.json, then retry.");
+            }
+
+            var askedGrant = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var askedPaths = false;
             var askedPermanent = false;
+            var granted = WriteAccess.BeginLedger();
             while (true)
             {
                 try
                 {
+                    // Only the grants of the try that passes count (story 3.12).
+                    granted.Clear();
                     await operation.AuthorizeAsync(token).ConfigureAwait(false);
                     break;
                 }
-                catch (WriteGrantMissing missing) when (!askedGrant && dialog is not null && context.Prompt is { } prompt)
+                catch (WriteGrantMissing missing) when (!askedGrant.Contains(missing.Key) && dialog is not null && context.Prompt is { } prompt)
                 {
-                    askedGrant = true;
+                    askedGrant.Add(missing.Key);
                     await PausedAsync(() => dialog.AskAsync(prompt, missing, ct)).ConfigureAwait(false);
                 }
                 catch (FilePathsUnconfirmed unconfirmed) when (!askedPaths && context.Prompt is { } prompt)
@@ -187,6 +210,13 @@ public sealed class WritePipeline
                     retryable: true);
             }
 
+            // AD-7: every notebook step 1 granted is re-resolved under the lock, so a section moved to another notebook
+            // since can't take that grant (story 3.12; epic 2's create-page race). The move tool does its own.
+            if (!operation.ReResolvesNotebooks)
+            {
+                await WriteAccess.ReResolveAsync(gateway, [.. granted], token).ConfigureAwait(false);
+            }
+
             // 3–6. Read, validate, optimistic check, snapshot.
             await operation.ReadAsync(token).ConfigureAwait(false);
             operation.Validate();
@@ -218,6 +248,7 @@ public sealed class WritePipeline
             try
             {
                 callFailed = true;
+                calling = true;
                 result = await operation.CallAsync(token).ConfigureAwait(false);
                 callFailed = false;
             }
@@ -263,7 +294,10 @@ public sealed class WritePipeline
             // 8. Release the lock, unless a step-7 call abandoned in OneNote may still be writing (AD-3, AD-18).
             if (hold is not null)
             {
-                var settling = callFailed ? AbandonedWrites() : Task.CompletedTask;
+                // Also after a step 7 that returned: an operation may report a second call it abandoned as a warning
+                // (create_page's subpage placement, story 3.14 review), and OneNote may still be making it. Step 2 refused
+                // any write outstanding before, so one outstanding once step 7 started is this write's.
+                var settling = callFailed || (calling && !AbandonedWrites().IsCompleted) ? AbandonedWrites() : Task.CompletedTask;
                 if (settling.IsCompleted)
                 {
                     hold.Dispose();

@@ -33,6 +33,11 @@ static async Task<int> MainAsync(string[] args)
 {
     var options = Options.Parse(args);
 
+    if (options.ProbeSectionSync)
+    {
+        return ProbeSectionSync.Run(options.Section!, options.MaxSeconds ?? Options.DefaultMaxSeconds);
+    }
+
     if (options.ProbeNavigate)
     {
         return ProbeNavigate.Run(options.NotebookId!, options.ProbePage);
@@ -88,8 +93,8 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (twenty-three since story 5.6 added
-    // permanently_delete_hierarchy_object), each readOnlyHint: true except navigate_to, the one user-visible tool, and the
+    // Startup check, before any read: exactly the contract tools (twenty-nine since round 2: story 3.10 lists its six
+    // write tools), each readOnlyHint: true except navigate_to, the one user-visible tool, and the
     // write tools, none of which the harness ever calls (ToolClient refuses them).
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();

@@ -141,6 +141,41 @@ public sealed class JournalStore
     }
 
     /// <summary>
+    /// Reads the entry file at <paramref name="path"/> as it is stored, never decrypting anything (story 3.5,
+    /// <c>restore_from_recycle_bin</c>): a protected entry keeps its <see cref="JournalEntry.Protected"/> blob, and its
+    /// <see cref="JournalEntry.Title"/> and <see cref="JournalEntry.Xml"/> stay null. Its plain members (<c>objectId</c>,
+    /// <c>parentId</c>, <c>sectionKey</c> and the rest) are all a restore's matching needs. Throws as <see cref="Read"/>
+    /// does: <see cref="ErrorCode.JournalFailed"/>, or <see cref="ErrorCode.NotSupported"/> for a newer
+    /// <c>schemaVersion</c>.
+    /// </summary>
+    public static JournalEntry ReadMetadata(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        JournalEntry? entry = null;
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var gzip = new GZipStream(file, CompressionMode.Decompress);
+            entry = JsonSerializer.Deserialize<JournalEntry>(gzip, JournalEntry.JsonOptions)
+                ?? throw new JsonException("The entry is null.");
+            if (entry.SchemaVersion > JournalEntry.CurrentSchemaVersion)
+            {
+                throw new OneNoteException(
+                    ErrorCode.NotSupported,
+                    string.Create(CultureInfo.InvariantCulture, $"Journal entry {entry.EntryId:D} has schemaVersion {entry.SchemaVersion}, newer than this server reads ({JournalEntry.CurrentSchemaVersion})."));
+            }
+
+            // A protected entry's title and XML are only inside its blob; a plain one carries none.
+            return entry.Protected is null ? entry : entry with { Title = null, Xml = null };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or FormatException or NotSupportedException)
+        {
+            throw Failed(entry?.EntryId, "read", ex);
+        }
+    }
+
+    /// <summary>
     /// The one later change to an entry (AD-8, AD-10; story 5.5): adds <paramref name="recycleBinId"/> to the page soft
     /// delete's entry at <paramref name="path"/>, which must hold entry <paramref name="entryId"/>, by writing the whole
     /// entry again to <c>.{name}.tmp</c> beside it, flushed, then <see cref="File.Replace(string, string, string?)"/>.

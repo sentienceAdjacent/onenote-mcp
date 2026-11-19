@@ -945,6 +945,56 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task MergeSections_SendsTheSourceThenTheDestination()
+    {
+        // Story 3.6: one MergeSections(source, destination), a write (AD-7 HierarchyWrite).
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.MergeSectionsAsync("{source}", "{destination}", Ct);
+
+        Assert.Equal([["{source}", "{destination}"]], app.Calls.Where(c => c.Method == "MergeSections").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("", "{destination}")]
+    [InlineData("{source}", "")]
+    public async Task MergeSections_RefusesAnEmptyId_BeforeCom(string source, string destination)
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync(source, destination, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task MergeSections_IsNotRetriedAfterADisconnect_AndItsHResultsMapLikeAnyCall()
+    {
+        // A write: a disconnect that reached COM is never repeated (AD-3); the pipeline then reports outcomeUnknown.
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        // hrMergeFailed stays Internal (AD-9; the merge write adds outcomeUnknown); a locked section is SectionLocked.
+        app.OnCall = _ => throw new COMException("merge", unchecked((int)0x8004201F));
+        var failed = await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct));
+        Assert.Equal(ErrorCode.Internal, failed.Code);
+        Assert.Equal(unchecked((int)0x8004201F), failed.ComHResult);
+        app.OnCall = _ => throw new COMException("locked", unchecked((int)0x8004201B));
+        Assert.Equal(ErrorCode.SectionLocked, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct))).Code);
+        app.OnCall = _ => throw new COMException("dialog", unchecked((int)0x80042030));
+        Assert.Equal(ErrorCode.ModalDialogOpen, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.MergeSectionsAsync("{s}", "{d}", Ct))).Code);
+        Assert.Equal(4, app.Calls.Count);
+    }
+
+    [Fact]
     public async Task CreateSectionGroup_OpensTheNameUnderTheParentId_WithCftFolder_AndReturnsTheNewId()
     {
         var app = new FakeApplication { OnCall = _ => "{group}" };
@@ -1037,6 +1087,74 @@ public sealed class ComGatewayLifecycleTests
         using var gateway = Gateway(app, Settings());
 
         var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CreateNotebookAsync(path, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    // --- Story 3.8: OpenPackage and OpenHierarchy of an existing path ---------------------------------------------------
+
+    [Fact]
+    public async Task OpenPackage_PassesBothPaths_AndReturnsThePathOut()
+    {
+        var app = new FakeApplication { OnCall = _ => @"C:\Exports\Copy" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal(@"C:\Exports\Copy", await gateway.OpenPackageAsync(@"C:\Downloads\Trip.onepkg", @"C:\Exports\Copy", Ct));
+
+        Assert.Equal([[@"C:\Downloads\Trip.onepkg", @"C:\Exports\Copy"]], app.Calls.Where(c => c.Method == "OpenPackage").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("", @"C:\Exports\Copy")]
+    [InlineData(@"Trip.onepkg", @"C:\Exports\Copy")]
+    [InlineData(@"\\server\share\Trip.onepkg", @"C:\Exports\Copy")]
+    [InlineData(@"C:\Downloads\Trip.onepkg", @"Copy")]
+    [InlineData(@"C:\Downloads\Trip.onepkg", @"\\server\share\Copy")]
+    public async Task OpenPackage_ANonLocalPath_IsInvalidArgument_BeforeCom(string package, string destination)
+    {
+        var app = new FakeApplication { OnCall = _ => "x" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.OpenPackageAsync(package, destination, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task OpenPackage_IsNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.OpenPackageAsync(@"C:\Downloads\Trip.onepkg", @"C:\Exports\Copy", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+    }
+
+    [Fact]
+    public async Task OpenHierarchy_OfAnExistingPath_NeverCreates_AndReturnsTheId()
+    {
+        var app = new FakeApplication { OnCall = _ => "{copy}" };
+        using var gateway = Gateway(app, Settings());
+
+        Assert.Equal("{copy}", await gateway.OpenHierarchyAsync(@"C:\Exports\Copy", Ct));
+
+        Assert.Equal([[@"C:\Exports\Copy", string.Empty, Com.Interop.CreateFileType.cftNone]], app.Calls.Where(c => c.Method == "OpenHierarchy").Select(c => c.Args));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Copy")]
+    [InlineData(@"\\server\share\Copy")]
+    public async Task OpenHierarchy_ANonLocalPath_IsInvalidArgument_BeforeCom(string path)
+    {
+        var app = new FakeApplication { OnCall = _ => "{copy}" };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.OpenHierarchyAsync(path, Ct));
 
         Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
         Assert.Empty(app.Calls);
@@ -1161,7 +1279,7 @@ public sealed class ComGatewayLifecycleTests
         var app = new FakeApplication { OnCall = _ => string.Empty };
         using var gateway = Gateway(app, Settings());
 
-        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct);
+        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", ExportFormat.OneNote, Ct);
 
         Assert.Equal(["{s}", @"C:\journal\backups\x.one", PublishFormat.pfOneNote, string.Empty], app.Calls.Single(c => c.Method == "Publish").Args);
     }
@@ -1178,7 +1296,7 @@ public sealed class ComGatewayLifecycleTests
         var app = new FakeApplication { OnCall = _ => string.Empty };
         using var gateway = Gateway(app, Settings());
 
-        var error = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", path, Ct));
+        var error = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", path, ExportFormat.OneNote, Ct));
 
         Assert.Equal(ErrorCode.InvalidArgument, error.Code);
         Assert.Empty(app.Calls);
@@ -1193,7 +1311,7 @@ public sealed class ComGatewayLifecycleTests
             new Timeouts(TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(1)),
             AllowSilentActivation: false));
 
-        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct);
+        await gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", ExportFormat.OneNote, Ct);
 
         Assert.Single(app.Calls, c => c.Method == "Publish");
     }
@@ -1205,7 +1323,7 @@ public sealed class ComGatewayLifecycleTests
         var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
         using var gateway = Gateway(app, Settings());
 
-        var publish = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", Ct));
+        var publish = await Assert.ThrowsAsync<OneNoteException>(() => gateway.PublishAsync("{s}", @"C:\journal\backups\x.one", ExportFormat.OneNote, Ct));
 
         Assert.Equal(ErrorCode.ComUnavailable, publish.Code);
         Assert.Single(app.Calls, c => c.Method == "Publish");

@@ -7,7 +7,7 @@ namespace OneNoteMcp.Core;
 /// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
 /// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
 /// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>), and
-/// <see cref="DeleteHierarchyAsync"/> (<c>SoftDelete</c>, and story 5.6's <c>PermanentDelete</c>), with 5.6's <see cref="PublishAsync"/> (the section backup). Every XML result is 2013-schema, returned unchanged (AD-4).
+/// <see cref="DeleteHierarchyAsync"/> (<c>SoftDelete</c>, and story 5.6's <c>PermanentDelete</c>), with <see cref="PublishAsync"/> (5.6's section backup, and story 3.3's <c>ExternalWrite</c>). Every XML result is 2013-schema, returned unchanged (AD-4).
 /// IDs are opaque strings, passed through unchanged.
 /// </summary>
 public interface IOneNoteGateway
@@ -87,6 +87,26 @@ public interface IOneNoteGateway
     Task<string> CreateNotebookAsync(string folderPath, CancellationToken ct);
 
     /// <summary>
+    /// An <c>ExternalWrite</c> (AD-7; story 3.8): <c>OpenPackage</c> unpacks the <c>.onepkg</c> at
+    /// <paramref name="packagePath"/> into the existing folder <paramref name="destinationFolder"/> and returns the path
+    /// OneNote reports (spike 3.1 O1: the folder itself). It opens no notebook. Both must be fully qualified local paths;
+    /// anything else is <see cref="ErrorCode.InvalidArgument"/> before COM. It runs under <c>timeouts.publishSeconds</c>
+    /// and is never retried after a disconnect (AD-3). Only the write pipeline calls it, under the write lock (AD-18). A
+    /// gateway that doesn't implement it refuses with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task<string> OpenPackageAsync(string packagePath, string destinationFolder, CancellationToken ct) =>
+        Task.FromException<string>(new OneNoteException(ErrorCode.NotSupported, "OpenPackage isn't available on this gateway.", retryable: false));
+
+    /// <summary>
+    /// <c>AppState</c> (AD-7; story 3.8): <c>OpenHierarchy</c> with <c>cftNone</c> of the existing local folder or file at
+    /// <paramref name="path"/> (never a create), and returns the ID of what it opened. A fully qualified local path only;
+    /// anything else is <see cref="ErrorCode.InvalidArgument"/> before COM. Never retried after a disconnect. A gateway that
+    /// doesn't implement it refuses with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task<string> OpenHierarchyAsync(string path, CancellationToken ct) =>
+        Task.FromException<string>(new OneNoteException(ErrorCode.NotSupported, "OpenHierarchy isn't available on this gateway.", retryable: false));
+
+    /// <summary>
     /// A write (<c>PageWrite</c>, AD-7): applies <paramref name="pageXml"/>, a 2013-schema page document, with
     /// <c>force: false</c>. <paramref name="expectedLastModified"/> is the page's <c>lastModifiedTime</c> exactly as
     /// OneNote wrote it; one that is empty, unparsable or the minimum date is refused with
@@ -113,6 +133,18 @@ public interface IOneNoteGateway
     Task UpdateHierarchyAsync(string changesXml, CancellationToken ct);
 
     /// <summary>
+    /// A write (<c>HierarchyWrite</c>, AD-7 Merges; story 3.6): <c>MergeSections</c> of the section
+    /// <paramref name="sourceId"/> into the section <paramref name="destinationId"/>. OneNote leaves the source and its
+    /// pages untouched and puts copies under new IDs at the end of the destination (spike 3.1 Implication 4). It takes no
+    /// date, so the optimistic check is the pipeline's own (AD-17). An empty ID is refused with
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. Never retried after a disconnect (AD-3), and tracked if abandoned.
+    /// Only the write pipeline calls it, after the access check and under the write lock (AD-18). The default throws
+    /// <see cref="ErrorCode.NotSupported"/>, for test doubles that never merge.
+    /// </summary>
+    Task MergeSectionsAsync(string sourceId, string destinationId, CancellationToken ct) =>
+        Task.FromException(new OneNoteException(ErrorCode.NotSupported, "MergeSections isn't available through this gateway."));
+
+    /// <summary>
     /// A write (<c>SoftDelete</c> when <paramref name="permanent"/> is false, <c>PermanentDelete</c> when true; AD-7):
     /// <c>DeleteHierarchy</c> of the page, section or section group <paramref name="objectId"/>.
     /// <paramref name="expectedLastModified"/> is the target's hierarchy <c>lastModifiedTime</c> exactly as OneNote wrote
@@ -124,15 +156,18 @@ public interface IOneNoteGateway
     Task DeleteHierarchyAsync(string objectId, string expectedLastModified, bool permanent, CancellationToken ct);
 
     /// <summary>
-    /// A write (AD-7; story 5.6, the <c>PermanentDelete</c> backup): <c>Publish</c> of the section
-    /// <paramref name="objectId"/> in OneNote's own format (<c>pfOneNote</c>) to the new file
+    /// A write (AD-7): <c>Publish</c> of the object <paramref name="objectId"/> in <paramref name="format"/> to the new file
     /// <paramref name="targetPath"/>, a fully qualified local path whose folder exists (OneNote raises a modal for a missing
-    /// folder and refuses an existing file). An empty ID or a path that isn't fully qualified and local is refused with
-    /// <see cref="ErrorCode.InvalidArgument"/> before COM. It runs under <c>timeouts.publishSeconds</c>, not the call
-    /// timeout, and is never retried after a disconnect (AD-3). The file may land after the call returns: the caller waits
-    /// for it. The default throws <see cref="ErrorCode.NotSupported"/>, for test doubles that never publish.
+    /// folder and refuses an existing file). Its callers: story 5.6's <c>PermanentDelete</c> section backup
+    /// (<see cref="ExportFormat.OneNote"/>) and <c>publish</c> (stories 3.3 and 3.13: every member, for a page or a
+    /// section, an <c>ExternalWrite</c>). A format that isn't an <see cref="ExportFormat"/> member is refused with
+    /// <see cref="ErrorCode.NotSupported"/> before COM, so <c>pfOneNote2007</c> is never sent (AD-11); an empty ID or a
+    /// path that isn't fully qualified and local is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. It runs
+    /// under <c>timeouts.publishSeconds</c>, not the call timeout, and is never retried after a disconnect (AD-3). The file
+    /// may land after the call returns: the caller waits for it (<c>PublishedFile</c>). The default throws
+    /// <see cref="ErrorCode.NotSupported"/>, for test doubles that never publish.
     /// </summary>
-    Task PublishAsync(string objectId, string targetPath, CancellationToken ct) =>
+    Task PublishAsync(string objectId, string targetPath, ExportFormat format, CancellationToken ct) =>
         Task.FromException(new OneNoteException(ErrorCode.NotSupported, "Publish isn't available through this gateway."));
 
     /// <summary>

@@ -17,7 +17,7 @@ public sealed record SectionPage(string Name, string? LastModifiedTime, int Page
 /// <c>ID</c>, <c>name</c>, a notebook's <c>nickname</c> (null when it has none), <c>path</c>, <c>lastModifiedTime</c> (the
 /// exact string OneNote wrote, null when absent, AD-17), whether it is a notebook's recycle bin (<c>isRecycleBin</c> on any
 /// element, or a section group named <c>OneNote_RecycleBin</c>), <c>isInRecycleBin</c> and <c>isDeletedPages</c> each as
-/// written (<see cref="InRecycleBin"/> is either), a section's <c>encrypted</c> and <c>locked</c>, and its live children
+/// written (<see cref="InRecycleBin"/> is either), a section's <c>encrypted</c> marker (not "protected": Core decides that, entry 15) and <c>locked</c>, and its live children
 /// in document order: sections and section groups under a notebook or section group, pages under a section. A child that
 /// is the recycle bin or in it is never listed. Read at <c>self</c> scope it has no children.
 /// </summary>
@@ -31,7 +31,7 @@ public sealed record HierarchyTarget(
     bool IsRecycleBin,
     bool IsInRecycleBin,
     bool IsDeletedPages,
-    bool Encrypted,
+    bool EncryptedMarker,
     bool Locked,
     IReadOnlyList<HierarchyMember> Children)
 {
@@ -119,5 +119,19 @@ public sealed record HierarchyTarget(
     {
         var root = OneNoteXml.ParseRoot(hierarchyXml);
         return [.. root.Descendants(OneNoteXml.One + "Section").Select(s => (string?)s.Attribute("path") ?? string.Empty)];
+    }
+
+    /// <summary>
+    /// The <c>ID</c> of every section and section group below the root of <paramref name="hierarchyXml"/> (a section group
+    /// read at <c>sections</c> scope), nested ones included: a move may not put a group inside itself (story 3.12). Throws
+    /// <see cref="OneNoteXmlException"/> when the XML isn't well-formed or has no root.
+    /// </summary>
+    public static IReadOnlyList<string> ContainerIdsBelow(string hierarchyXml)
+    {
+        var root = OneNoteXml.ParseRoot(hierarchyXml);
+        return [.. root.Descendants()
+            .Where(e => e.Name == OneNoteXml.One + "Section" || e.Name == OneNoteXml.One + "SectionGroup")
+            .Select(e => (string?)e.Attribute("ID") ?? string.Empty)
+            .Where(id => id.Length > 0)];
     }
 }

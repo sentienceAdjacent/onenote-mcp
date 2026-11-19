@@ -960,7 +960,7 @@ public sealed class RestoreFromJournalToolTests : IDisposable
     {
         gateway.Parents[PageId] = sectionId;
         var written = await new PageSnapshot(gateway, new JournalStore(Store.Read), clock)
-            .TakeAsync(new PageSnapshotRequest("snapshot", UpdatePageContentWrite.OperationName, OperationClass.PageWrite, PageId, Read), Ct);
+            .TakeAsync(new PageSnapshotRequest("snapshot", UpdatePageContentWrite.OperationName, OperationClass.PageWrite, PageId, Read, new Protection([])), Ct);
         gateway.Calls.Clear();
         gateway.PageCalls.Clear();
         return written.EntryId.ToString("D");

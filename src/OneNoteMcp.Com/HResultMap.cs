@@ -105,7 +105,7 @@ internal static class HResultMap
         [unchecked((int)0x80042009)] = new(ErrorCode.Internal, InsertingUserAction),
         [unchecked((int)0x8004200A)] = new(ErrorCode.Internal, "OneNote couldn't go to the page. Re-read the hierarchy to check the ID."),
         [unchecked((int)0x8004200B)] = new(ErrorCode.Internal, "OneNote reports the section as read-only (for example a view-only share). Ask the user for edit access, then retry.", Retryable: true),
-        [unchecked((int)0x8004200C)] = new(ErrorCode.Internal, "OneNote reports the page as read-only. Ask the user to make it editable in OneNote, then retry.", Retryable: true),
+        [unchecked((int)0x8004200C)] = new(ErrorCode.Internal, "OneNote reports the page as read-only. If the page is in the recycle bin, it must be restored in OneNote and used under its new ID; otherwise ask the user to make it editable in OneNote, then retry.", Retryable: true),
         [unchecked((int)0x8004200D)] = new(ErrorCode.Internal, InsertingUserAction),
         [unchecked((int)0x8004200E)] = new(ErrorCode.ObjectNotFound),
         [unchecked((int)0x8004200F)] = new(ErrorCode.Internal), // Reads degrade it to the BinaryUnavailable warning (AD-9).

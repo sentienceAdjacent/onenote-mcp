@@ -17,6 +17,12 @@ public abstract class WriteOperation<TResult>
     /// <summary>Step 1: the access check (AD-6). Runs before the lock.</summary>
     public abstract Task AuthorizeAsync(CancellationToken ct);
 
+    /// <summary>
+    /// True when the operation re-resolves its own notebooks under the lock (the move tool, story 3.4), so the pipeline's
+    /// generic re-resolve of every grant step 1 checked is skipped (AD-7; story 3.12). False by default.
+    /// </summary>
+    public virtual bool ReResolvesNotebooks => false;
+
     /// <summary>Step 3: reads the current state, under the lock.</summary>
     public abstract Task ReadAsync(CancellationToken ct);
 
@@ -49,6 +55,9 @@ public abstract class WriteOperation<TResult>
     /// 2.11). IDs only, never content (AD-9). None by default.
     /// </summary>
     public virtual string? FailureNote => null;
+
+    /// <summary><paramref name="message"/> followed by <see cref="FailureNote"/> when there is one (story 3.11: shared by the moves and the restore).</summary>
+    protected string WithNote(string message) => FailureNote is { } note ? $"{message} {note}" : message;
 
     /// <summary>
     /// Runs step 7's COM <paramref name="call"/>; a <see cref="OneNoteException"/> it throws comes back with the same code,

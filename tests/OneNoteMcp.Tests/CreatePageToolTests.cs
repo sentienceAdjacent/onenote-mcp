@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
+using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.Settings;
 using OneNoteMcp.Core.UseCases;
@@ -892,6 +894,430 @@ public sealed class CreatePageToolTests : IDisposable
         Assert.Empty(prompt.WriteQuestions);
         var listed = Assert.Single((await new ListGrantsUseCase(gateway, Store.Read, clock).ExecuteAsync(new ToolCallContext("l"), Ct)).Meta.Grants!);
         Assert.Equal(("active", NotebookId), (listed.Status, listed.IdAtGrant));
+    }
+
+    // --- Story 3.14: parentPageId ------------------------------------------------------------------------------------
+
+    // Well-formed IDs: the placement's XML must pass the XSD. Tree is a plain section of W, Locket a protected one.
+    private const string TreeId = "{B1000000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string LocketId = "{B2000000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string TreeLmt = "2026-11-17T10:00:00.000Z";
+
+    [Fact]
+    public async Task UnderAParent_TheNewPageLandsAfterTheParentsSubpages_OneLevelDeeper_WithOneEntry()
+    {
+        Grant();
+        TreeIs("P:1 S:2 T:2 X:1");
+        CreateAppendsToTree();
+        ApplyTreeLevels();
+        var entriesAtPlacement = -1;
+        gateway.OnUpdateHierarchyCall = _ =>
+        {
+            entriesAtPlacement = TreeEntryFiles().Count;
+            return Task.CompletedTask;
+        };
+
+        var root = Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreePage("P")));
+
+        var created = FakeGateway.CreatedPageId(1);
+        var meta = root.GetProperty("meta");
+        Assert.Equal(created, meta.GetProperty("pageId").GetString());
+        Assert.Equal(["correlationId", "journalEntryId", "pageId"], meta.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(0, root.GetProperty("warnings").GetArrayLength());
+        Assert.Equal([(TreeId, NewPageStyle.BlankPageWithTitle)], gateway.CreateCalls);
+
+        // One placement: every page in order, the new one after T at level 2, the others as read (5.4 L6).
+        var sent = Assert.Single(gateway.UpdateHierarchyCalls);
+        Assert.Empty(SchemaValidation.Problems(sent));
+        var pages = XElement.Parse(sent).Elements(OneNoteXml.One + "Page").ToList();
+        Assert.Equal([TreePage("P"), TreePage("S"), TreePage("T"), created, TreePage("X")], pages.Select(p => (string?)p.Attribute("ID")));
+        Assert.Equal(["1", "2", "2", "2", "1"], pages.Select(p => (string?)p.Attribute("pageLevel")));
+        Assert.DoesNotContain("isSubPage", sent, StringComparison.Ordinal);
+
+        // AD-8: the section's hierarchy entry, stored before the create.
+        Assert.Equal(1, entriesAtPlacement);
+        var entry = JournalStore.Read(JournalFiles.Find(temp.Combine("journal"), Guid.Parse(meta.GetProperty("journalEntryId").GetString()!))!);
+        Assert.Equal((TreeId, JournalEntry.HierarchyKind, CreatePageUseCase.OperationName, nameof(OperationClass.Create)), (entry.ObjectId, entry.SnapshotKind, entry.Operation, entry.OperationClass));
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task UnderASubpage_TheNewPageGoesToLevel3()
+    {
+        Grant();
+        TreeIs("P:1 S:2 X:1");
+        CreateAppendsToTree();
+        ApplyTreeLevels();
+
+        Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreePage("S")));
+
+        var pages = XElement.Parse(Assert.Single(gateway.UpdateHierarchyCalls)).Elements(OneNoteXml.One + "Page").ToList();
+        Assert.Equal(["1", "2", "3", "1"], pages.Select(p => (string?)p.Attribute("pageLevel")));
+        Assert.Equal(FakeGateway.CreatedPageId(1), (string?)pages[2].Attribute("ID"));
+    }
+
+    [Theory]
+    [InlineData("T")] // at level 3
+    [InlineData("Z")] // not listed in the section (another section's page, or no page at all)
+    public async Task AParentAtLevel3_OrNotInTheSection_IsInvalidArgument_NoPageCreated(string parent)
+    {
+        Grant();
+        TreeIs("P:1 S:2 T:3");
+        var prompt = new FakePrompt();
+
+        var error = Error(await CreateUnderParentWithPrompt(prompt, TreePage(parent)), "InvalidArgument");
+
+        Assert.Equal(CreatePageUseCase.ParentUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains(TreePage(parent), error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNoWrite();
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+        Assert.Empty(TreeEntryFiles());
+    }
+
+    [Fact]
+    public async Task ASectionAsParent_IsInvalidArgument_NoPageCreated()
+    {
+        Grant();
+        TreeIs("P:1");
+
+        Error(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreeId), "InvalidArgument");
+
+        AssertNoWrite();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task NoParent_OrAnEmptyOne_IsTheCreateAsBefore_NoHierarchyReadOrWrite(string? parent)
+    {
+        Grant();
+        TreeIs("P:1");
+
+        var root = Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: parent));
+
+        Assert.Equal(["correlationId", "pageId"], root.GetProperty("meta").EnumerateObject().Select(p => p.Name));
+        Assert.DoesNotContain(gateway.Calls, c => c == (TreeId, HierarchyScope.Children));
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(TreeEntryFiles());
+    }
+
+    [Fact]
+    public async Task APlacementThatThrows_IsOk_WithThePageId_AndSubpageNotPlaced()
+    {
+        Grant();
+        TreeIs("P:1 X:1");
+        CreateAppendsToTree();
+        gateway.UpdateHierarchyFailure = Com.HResultMap.ToException("UpdateHierarchy", new System.Runtime.InteropServices.COMException("modal", unchecked((int)0x80042030)));
+
+        var root = Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreePage("P")));
+
+        Assert.Equal(FakeGateway.CreatedPageId(1), root.GetProperty("meta").GetProperty("pageId").GetString());
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal(ToolWarnings.SubpageNotPlaced, warning.GetProperty("code").GetString());
+        Assert.Contains("level 1", warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("set_page_level", warning.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.Contains("reorder_hierarchy_children", warning.GetProperty("userAction").GetString(), StringComparison.Ordinal);
+        Assert.Single(gateway.UpdateHierarchyCalls);
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task AParentGoneAfterTheCreate_IsSubpageNotPlaced_NothingSent()
+    {
+        Grant();
+        TreeIs("P:1 X:1");
+        gateway.OnCreated = (_, id) => TreeIs("X:1", (id, 1));
+
+        var root = Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreePage("P")));
+
+        Assert.Equal(ToolWarnings.SubpageNotPlaced, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task APlacementCancelled_IsSubpageNotPlaced()
+    {
+        Grant();
+        TreeIs("P:1");
+        CreateAppendsToTree();
+        gateway.OnUpdateHierarchyCall = _ => throw new OperationCanceledException();
+
+        var root = Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreePage("P")));
+
+        Assert.Equal(ToolWarnings.SubpageNotPlaced, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task APlacementTimeout_IsSubpageNotPlaced_SayingItMayHaveBeenPlaced_AndKeepsTheLockUntilItSettles()
+    {
+        // 3.14 review: a placement UpdateHierarchy abandoned in OneNote may still apply, so the warning says so and the lock
+        // stays until the abandoned call settles (AD-3, AD-18), though the call itself returns ok (Q4).
+        Grant();
+        TreeIs("P:1");
+        CreateAppendsToTree();
+        var abandoned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        gateway.OnUpdateHierarchyCall = _ =>
+        {
+            gateway.AbandonedWrites = abandoned;
+            throw new OneNoteException(ErrorCode.Timeout, "UpdateHierarchy did not return within 30 s; the connection to OneNote was reset.");
+        };
+
+        var root = Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreePage("P")));
+
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal(ToolWarnings.SubpageNotPlaced, warning.GetProperty("code").GetString());
+        Assert.Contains("may or may not", warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+        await AssertLockHeldAsync();
+
+        abandoned.SetResult();
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task APlacementThatReadsBackElsewhere_IsReadBackDiffers()
+    {
+        // The fake doesn't apply the placement: the page stays last at level 1.
+        Grant();
+        TreeIs("P:1 X:1");
+        CreateAppendsToTree();
+
+        var root = Ok(await ParentTool().CreatePage(TreeId, cancellationToken: Ct, parentPageId: TreePage("P")));
+
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal(ToolWarnings.ReadBackDiffers, warning.GetProperty("code").GetString());
+        Assert.Contains("position 2", warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("position 3 at level 1", warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AProtectedSection_WithoutAReadGrant_IsReadNotGranted_NeverAsked_NoPageCreated()
+    {
+        Grant();
+        LocketIs("P:1");
+        var prompt = new FakePrompt();
+
+        var error = Error(await CreateUnderParentWithPrompt(prompt, LocketPage("P"), LocketId), "ReadNotGranted");
+
+        Assert.Equal(CreatePageUseCase.ProtectedParentUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(prompt.Questions);
+        AssertNoWrite();
+        Assert.Empty(holds);
+    }
+
+    [Fact]
+    public async Task AProtectedSection_WithNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown()
+    {
+        // Phill, 2026-11-17 (3.14 Fable review): the read grant before the write grant; the accepting prompt is never asked.
+        LocketIs("P:1");
+        var prompt = new FakePrompt(Typed("W"));
+
+        Error(await CreateUnderParentWithPrompt(prompt, LocketPage("P"), LocketId), "ReadNotGranted");
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(prompt.WriteQuestions);
+        Assert.Empty(prompt.Questions);
+        AssertNoWrite();
+        Assert.Empty(holds);
+    }
+
+    [Fact]
+    public async Task AProtectedSection_WithAReadGrant_PlacesThePage()
+    {
+        Grant();
+        LocketIs("P:1");
+        new SettingsWriter(Store, clock).SaveReadGrant(new ProtectedSectionGrant(
+            GrantKeys.SectionKey(@"C:\notebooks\W\Locket.one"), "Locket", GrantKeys.NotebookKey(NotebookPath), LocketId, clock.GetUtcNow(), GrantedVia.Cli));
+        gateway.OnCreated = (_, id) => LocketIs("P:1", (id, 1));
+
+        var root = Ok(await ParentTool().CreatePage(LocketId, cancellationToken: Ct, parentPageId: LocketPage("P")));
+
+        Assert.Equal(["1", "2"], XElement.Parse(Assert.Single(gateway.UpdateHierarchyCalls)).Elements(OneNoteXml.One + "Page").Select(p => (string?)p.Attribute("pageLevel")));
+        var entry = JournalStore.Read(JournalFiles.Find(temp.Combine("journal"), Guid.Parse(root.GetProperty("meta").GetProperty("journalEntryId").GetString()!))!);
+        Assert.Equal(GrantKeys.SectionKey(@"C:\notebooks\W\Locket.one"), entry.SectionKey);
+    }
+
+    [Fact]
+    public async Task AProtectedSection_AOnceWindowOpenedDuringTheCall_IsReadNotGranted_NoPageCreated_ARetryPlacesThePage()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        Grant();
+        LocketIs("P:1");
+        var readAccess = NewReadAccess();
+        var locket = HierarchyNode.Root(gateway.Hierarchies[(LocketId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, locket, "Locket");
+
+        var error = Error(await ParentTool(readAccess).CreatePage(LocketId, cancellationToken: Ct, parentPageId: LocketPage("P")), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Equal(CreatePageUseCase.ProtectedParentUserAction, error.GetProperty("userAction").GetString());
+        AssertNoWrite();
+        Assert.Empty(holds);
+
+        gateway.OnGetHierarchy = null;
+        gateway.OnCreated = (_, id) => LocketIs("P:1", (id, 1));
+        Ok(await ParentTool(readAccess).CreatePage(LocketId, cancellationToken: Ct, parentPageId: LocketPage("P")));
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task AProtectedSection_AOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck_NoPageCreated()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so the recheck under the lock (CreatePageUseCase l.329 from step 4) refuses.
+        Grant();
+        LocketIs("P:1");
+        var readAccess = NewReadAccess();
+        var locket = HierarchyNode.Root(gateway.Hierarchies[(LocketId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, locket, "Locket", writeLock);
+
+        var error = Error(await ParentTool(readAccess).CreatePage(LocketId, cancellationToken: Ct, parentPageId: LocketPage("P")), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(CreatePageUseCase.ProtectedParentUserAction, error.GetProperty("userAction").GetString());
+        AssertNoWrite();
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ALockedSection_WithAParent_IsSectionLocked_BeforeReadNotGranted()
+    {
+        Grant();
+        gateway.Hierarchies[(LockedId, HierarchyScope.Children)] = "<?xml version=\"1.0\"?>\n" + Section(LockedId, "Locked vault", "encrypted=\"true\" locked=\"true\"");
+
+        Error(await ParentTool().CreatePage(LockedId, cancellationToken: Ct, parentPageId: TreePage("P")), "SectionLocked");
+
+        AssertNoWrite();
+        Assert.Empty(holds);
+    }
+
+    /// <summary>A well-formed page ID in Tree for the one-letter <paramref name="name"/>.</summary>
+    private static string TreePage(string name) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{{B1000000-0000-4000-8000-000000000001}}{{1}}{{E{name[0] - 'A' + 11}}}");
+
+    private static string LocketPage(string name) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{{B2000000-0000-4000-8000-000000000001}}{{1}}{{E{name[0] - 'A' + 11}}}");
+
+    /// <summary>Tree's pages as "name:level" in order, then <paramref name="extra"/> (ID, level); Tree's parent chain is W.</summary>
+    private void TreeIs(string pages, params (string Id, int Level)[] extra) =>
+        SectionIs(TreeId, "Tree", string.Empty, TreePage, pages, extra);
+
+    private void LocketIs(string pages, params (string Id, int Level)[] extra) =>
+        SectionIs(LocketId, "Locket", "encrypted=\"true\"", LocketPage, pages, extra);
+
+    private void SectionIs(string id, string name, string extra, Func<string, string> pageId, string pages, (string Id, int Level)[] more)
+    {
+        Parents[id] = NotebookId;
+        var attributes = $"name=\"{name}\" ID=\"{id}\" path=\"C:\\notebooks\\W\\{name}.one\" lastModifiedTime=\"{TreeLmt}\" {extra}";
+        Self(id, $"<one:Section {Ns} {attributes} />");
+        var listed = pages.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => (Id: pageId(p.Split(':')[0]), Level: int.Parse(p.Split(':')[1], System.Globalization.CultureInfo.InvariantCulture)))
+            .Concat(more);
+        var xml = string.Concat(listed.Select(p => $"<one:Page ID=\"{p.Id}\" name=\"Page\" pageLevel=\"{p.Level}\" lastModifiedTime=\"{TreeLmt}\" />"));
+        gateway.Hierarchies[(id, HierarchyScope.Children)] = $"<?xml version=\"1.0\"?>\n<one:Section {Ns} {attributes}>{xml}</one:Section>";
+    }
+
+    /// <summary>The fake's CreateNewPage puts the new page last in Tree at level 1, as OneNote does.</summary>
+    private void CreateAppendsToTree() => gateway.OnCreated = (_, id) =>
+    {
+        var key = (TreeId, HierarchyScope.Children);
+        var section = XDocument.Parse(gateway.Hierarchies[key]);
+        section.Root!.Add(new XElement(OneNoteXml.One + "Page", new XAttribute("ID", id), new XAttribute("name", string.Empty), new XAttribute("pageLevel", 1)));
+        gateway.Hierarchies[key] = section.ToString();
+    };
+
+    /// <summary>Makes the fake apply a sent order and levels to Tree, so the read-back sees what was sent.</summary>
+    private void ApplyTreeLevels() => gateway.OnUpdateHierarchy = sent =>
+    {
+        var key = (TreeId, HierarchyScope.Children);
+        var section = XDocument.Parse(gateway.Hierarchies[key]);
+        var pages = section.Root!.Elements(OneNoteXml.One + "Page").ToDictionary(p => (string)p.Attribute("ID")!);
+        section.Root.ReplaceNodes(XElement.Parse(sent).Elements(OneNoteXml.One + "Page").Select(p =>
+        {
+            var copy = new XElement(pages[(string)p.Attribute("ID")!]);
+            copy.SetAttributeValue("pageLevel", (string?)p.Attribute("pageLevel"));
+            return copy;
+        }));
+        gateway.Hierarchies[key] = section.ToString();
+    };
+
+    private IReadOnlyList<string> TreeEntryFiles() =>
+        Directory.Exists(temp.Combine("journal"))
+            ? [.. Directory.GetFiles(temp.Combine("journal")).Where(f => JournalFiles.IsEntry(Path.GetFileName(f)))]
+            : [];
+
+    /// <summary>The use case as the server builds it (story 3.14): with the read access check and the hierarchy snapshot.</summary>
+    private CreatePageUseCase ParentUseCase(ReadAccess? readAccess = null) =>
+        new(
+            gateway,
+            new WriteAccess(gateway, Store.Read),
+            new WritePipeline(writeLock, gateway, cache, Store.Read, TimeProvider.System, null, new WriteGrantDialog(gateway, new SettingsWriter(Store, clock), clock)),
+            readAccess ?? NewReadAccess(),
+            new HierarchySnapshot(gateway, new JournalStore(Store.Read), clock));
+
+    private ReadAccess NewReadAccess() => new(gateway, Store.Read, new SettingsWriter(Store, clock), clock);
+
+    private CreatePageTool ParentTool(ReadAccess? readAccess = null) => new(new ToolRunner(NullLogger<ToolRunner>.Instance), ParentUseCase(readAccess));
+
+    private Task<CallToolResult> CreateUnderParentWithPrompt(IGrantPrompt prompt, string parentPageId, string sectionId = TreeId)
+    {
+        var useCase = ParentUseCase();
+        return new ToolRunner(NullLogger<ToolRunner>.Instance).RunAsync(
+            CreatePageTool.Name,
+            useCase,
+            (context, token) => useCase.ExecuteAsync(context, sectionId, NewPageStyle.BlankPageWithTitle, parentPageId, token),
+            Ct,
+            prompt);
+    }
+
+    // --- AD-7: the notebook re-resolved under the lock (story 3.12) --------------------------------------------------
+
+    [Fact]
+    public async Task ASectionMovedToAnotherNotebookAfterStep1_IsWriteNotGranted_Retryable_NoPageCreated()
+    {
+        // Epic 2's create-page race (deferred-work, story 2.4): step 1 granted W; before the lock the section moves to X,
+        // which is granted too. The grant step 1 checked no longer covers the section, so the write is refused.
+        const string XId = "{NBX00000-0000-4000-8000-000000000009}{1}{B0}";
+        const string XPath = @"C:\notebooks\X\";
+        Grant();
+        new SettingsWriter(Store, clock).SaveWriteGrant(
+            new NotebookGrant(GrantKeys.NotebookKey(XPath), "X", XId, true, PermanentDelete: false, clock.GetUtcNow(), GrantedVia.Cli));
+        Parents[XId] = string.Empty;
+        Self(XId, $"<one:Notebook {Ns} name=\"X\" nickname=\"X\" ID=\"{XId}\" path=\"{XPath}\" />");
+        var moved = false;
+        gateway.OnGetHierarchy = (id, scope) =>
+        {
+            // Step 1's walk ends at W's self read; the lock comes next.
+            if (!moved && id == NotebookId && scope == HierarchyScope.Self)
+            {
+                moved = true;
+                Parents[SectionId] = XId;
+            }
+        };
+
+        var error = Error(await Tool().CreatePage(SectionId, cancellationToken: Ct), "WriteNotGranted");
+
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains(SectionId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains(NotebookId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        AssertNoWrite();
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
+    public async Task ASectionThatStaysInItsNotebook_StillCreates_AfterTheReResolve()
+    {
+        Grant();
+        var notebookSelfReads = 0;
+        gateway.OnGetHierarchy = (id, scope) => notebookSelfReads += id == NotebookId && scope == HierarchyScope.Self ? 1 : 0;
+
+        Ok(await Tool().CreatePage(SectionId, cancellationToken: Ct));
+
+        // Step 1's walk, then the walk under the lock.
+        Assert.Equal(2, notebookSelfReads);
     }
 
     // --- The tool ---------------------------------------------------------------------------------------------------

@@ -248,6 +248,12 @@ public sealed class SettingsSnapshot
     public ExportRoots ExportRoots { get; }
 
     /// <summary>
+    /// Where <c>open_package</c> unpacks copies (story 3.8, Phill's Q3 (a)): a protected root (AD-21), set by the store
+    /// whatever the file's status, since it isn't read from the file.
+    /// </summary>
+    public string OpenedCopies { get; internal set; } = Writes.OpenedCopies.DefaultFolder(Environment.GetEnvironmentVariable);
+
+    /// <summary>
     /// The stored read grants by <c>SectionKey</c>, compared ignoring case (AD-21). Empty unless the status is
     /// <see cref="SettingsStatus.Ok"/>: an invalid or newer file's grants count as absent.
     /// </summary>

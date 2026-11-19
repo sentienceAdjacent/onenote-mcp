@@ -49,13 +49,15 @@ public sealed class RestoreFromJournalUseCase : IUseCase
     private readonly WritePipeline pipeline;
     private readonly Func<SettingsSnapshot> settings;
     private readonly Func<string, bool> keepPathCache;
+    private readonly Func<OneDriveFolders> oneDrive;
 
     /// <param name="gateway">The gateway.</param>
     /// <param name="access">The write-grant check (AD-6).</param>
     /// <param name="pipeline">The write pipeline (AD-7).</param>
     /// <param name="settings">Reads <c>settings.json</c> for <c>journal.path</c>, at every call.</param>
     /// <param name="keepPathCache">Which attachment <c>pathCache</c>s may be sent (Q2); <see cref="RestoreAttachments.Keeps(string)"/> when null.</param>
-    public RestoreFromJournalUseCase(IOneNoteGateway gateway, WriteAccess access, WritePipeline pipeline, Func<SettingsSnapshot> settings, Func<string, bool>? keepPathCache = null)
+    /// <param name="oneDrive">The OneDrive folders on this machine, for the protected-by-path rule (backlog 13); none known when null.</param>
+    public RestoreFromJournalUseCase(IOneNoteGateway gateway, WriteAccess access, WritePipeline pipeline, Func<SettingsSnapshot> settings, Func<string, bool>? keepPathCache = null, Func<OneDriveFolders>? oneDrive = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(access);
@@ -66,6 +68,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
         this.pipeline = pipeline;
         this.settings = settings;
         this.keepPathCache = keepPathCache ?? RestoreAttachments.Keeps;
+        this.oneDrive = oneDrive ?? (() => OneDriveFolders.None);
     }
 
     public OperationClass Class => OperationClass.Create;
@@ -86,7 +89,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                 retryable: false);
         }
 
-        var restore = new Restore(gateway, access, settings, keepPathCache, id);
+        var restore = new Restore(gateway, access, settings, keepPathCache, oneDrive, id);
         var result = await pipeline.RunAsync(context, restore, ct).ConfigureAwait(false);
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId, ParentId: result.SectionId, PageId: result.PageId), result.Warnings);
     }
@@ -95,7 +98,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
     private sealed record Restored(string PageId, string SectionId, IReadOnlyList<ToolWarning> Warnings);
 
     /// <summary>The <c>Create</c> class's steps for one restore.</summary>
-    private sealed class Restore(IOneNoteGateway gateway, WriteAccess access, Func<SettingsSnapshot> settings, Func<string, bool> keepPathCache, Guid entryId) : WriteOperation<Restored>
+    private sealed class Restore(IOneNoteGateway gateway, WriteAccess access, Func<SettingsSnapshot> settings, Func<string, bool> keepPathCache, Func<OneDriveFolders> oneDrive, Guid entryId) : WriteOperation<Restored>
     {
         private const string FileName = RecoveredSectionName + SectionFileNames.Extension;
 
@@ -238,13 +241,14 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                     retryable: false);
             }
 
-            if (!section.Encrypted)
+            if (!Protection.From(settings(), oneDrive()).IsProtected(section))
             {
-                // AD-9: retryable once the user protects the section again at the same path.
+                // AD-9: retryable once the user protects the section again at the same path (entry 15: or it is under an
+                // export root or the backups folder again).
                 throw new OneNoteException(
                     ErrorCode.ObjectNotFound,
-                    $"The section journal entry {entryId:D} came from is no longer password-protected, so nothing was restored.",
-                    userAction: $"A protected page goes back only into its own section while it is password-protected. Ask the user to password-protect that section again in OneNote (same path), then retry. The entry file {entryFile} stays in the journal folder (journal.path in settings.json) for its 30 days.",
+                    $"The section journal entry {entryId:D} came from is no longer protected (password-protected, or under the opened-copies folder, an export root or the backups folder), so nothing was restored.",
+                    userAction: $"A protected page goes back only into its own section while it is protected. Ask the user to password-protect that section again in OneNote (same path), or to restore the export root it was under in settings.json, then retry. The entry file {entryFile} stays in the journal folder (journal.path in settings.json) for its 30 days.",
                     retryable: true);
             }
 
@@ -259,7 +263,7 @@ public sealed class RestoreFromJournalUseCase : IUseCase
                 return own;
             }
 
-            var byPath = live.Where(s => SamePath(s, Entry.ParentNamePath)).ToList();
+            var byPath = JournalTargets.SectionsAt(live, Entry.ParentNamePath);
             if (byPath.Count == 1)
             {
                 fallback = "parentNamePath";
@@ -268,20 +272,6 @@ public sealed class RestoreFromJournalUseCase : IUseCase
 
             fallback = RecoveredSectionName;
             return live.FirstOrDefault(s => s.Groups.Count == 0 && string.Equals(s.Name, RecoveredSectionName, StringComparison.OrdinalIgnoreCase));
-        }
-
-        /// <summary>Segment by segment, ignoring case, as Windows names compare; names can't hold <c>/</c>, so the split is safe.</summary>
-        private static bool SamePath(NotebookSection section, string namePath)
-        {
-            if (namePath.Length == 0)
-            {
-                return false;
-            }
-
-            var segments = namePath.Split('/');
-            string[] own = [.. section.Groups, section.Name];
-            return segments.Length == own.Length
-                && segments.Zip(own).All(pair => string.Equals(pair.First, pair.Second, StringComparison.OrdinalIgnoreCase));
         }
 
         public override void Validate()

@@ -69,6 +69,37 @@ internal sealed class HierarchyWalk(IOneNoteGateway gateway)
     }
 
     /// <summary>
+    /// The notebook that owns <paramref name="objectId"/> and the nearest <c>one:Section</c> above it, in one pass up the
+    /// chain (backlog 12). With no notebook, a section above the object means it sits in a section open outside any
+    /// notebook (<c>one:OpenSections</c>, entry 15's probe P3). Stops at the notebook or after <see cref="MaxChainDepth"/>
+    /// ancestors.
+    /// </summary>
+    internal async Task<(HierarchyNode? Notebook, HierarchyNode? Section)> OwnersAsync(string objectId, CancellationToken ct)
+    {
+        HierarchyNode? section = null;
+        var depth = 0;
+        await foreach (var node in AncestorsAsync(objectId ?? string.Empty, ct).ConfigureAwait(false))
+        {
+            if (node.Kind == HierarchyKind.Notebook)
+            {
+                return (node, section);
+            }
+
+            if (section is null && node.Kind == HierarchyKind.Section)
+            {
+                section = node;
+            }
+
+            if (++depth == MaxChainDepth)
+            {
+                break;
+            }
+        }
+
+        return (null, section);
+    }
+
+    /// <summary>
     /// The notebook and section groups around <paramref name="sectionId"/>, groups outermost first, for the grant dialog:
     /// up the chain to the first <c>one:Notebook</c>. Every other ancestor counts as a group. A chain that ends, or runs
     /// past <see cref="MaxChainDepth"/> ancestors, before a notebook gives a null notebook and the groups seen so far.

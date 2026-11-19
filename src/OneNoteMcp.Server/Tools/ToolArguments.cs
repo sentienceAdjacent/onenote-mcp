@@ -54,9 +54,54 @@ public enum PageStyleArgument
     BlankPageNoTitle,
 }
 
+/// <summary>
+/// <c>publish</c>'s <c>format</c> on the wire (AD-14; stories 3.3 and 3.13, plan Q1): each named after its usual file
+/// extension. There is never one for <c>pfOneNote2007</c> (AD-11).
+/// </summary>
+[JsonConverter(typeof(StrictStringEnumConverter<PublishFormatArgument>))]
+public enum PublishFormatArgument
+{
+    [JsonStringEnumMemberName("pdf")]
+    Pdf,
+
+    [JsonStringEnumMemberName("xps")]
+    Xps,
+
+    [JsonStringEnumMemberName("docx")]
+    Docx,
+
+    [JsonStringEnumMemberName("mhtml")]
+    Mhtml,
+
+    [JsonStringEnumMemberName("html")]
+    Html,
+
+    [JsonStringEnumMemberName("emf")]
+    Emf,
+
+    [JsonStringEnumMemberName("one")]
+    One,
+
+    [JsonStringEnumMemberName("onepkg")]
+    Onepkg,
+}
+
 /// <summary>Maps the wire enums to Core's. Total over each, so an unknown value is a bug, never a silent default.</summary>
 public static class ToolArguments
 {
+    public static ExportFormat ToCore(this PublishFormatArgument format) => format switch
+    {
+        PublishFormatArgument.Pdf => ExportFormat.Pdf,
+        PublishFormatArgument.Xps => ExportFormat.Xps,
+        PublishFormatArgument.Docx => ExportFormat.Word,
+        PublishFormatArgument.Mhtml => ExportFormat.Mhtml,
+        PublishFormatArgument.Html => ExportFormat.Html,
+        PublishFormatArgument.Emf => ExportFormat.Emf,
+        PublishFormatArgument.One => ExportFormat.OneNote,
+        PublishFormatArgument.Onepkg => ExportFormat.OneNotePackage,
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unknown export format."),
+    };
+
     public static NewPageStyle ToCore(this PageStyleArgument style) => style switch
     {
         PageStyleArgument.Default => NewPageStyle.Default,

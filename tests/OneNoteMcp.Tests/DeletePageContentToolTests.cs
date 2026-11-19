@@ -39,6 +39,9 @@ public sealed class DeletePageContentToolTests : IDisposable
     private const string VaultPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000002}";
     private const string LockedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000003}";
     private const string BinnedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000004}";
+    private const string RecycledSectionId = "{SRW00000-0000-4000-8000-000000000001}{1}{B0}";
+    private const string UnflaggedBinnedPageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000005}";
+    private const string FlaggedLivePageId = "{5E900000-0000-4000-8000-000000000001}{1}{E1900000000000000000000000000000000000000006}";
 
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
 
@@ -65,6 +68,9 @@ public sealed class DeletePageContentToolTests : IDisposable
         gateway.Parents[VaultPageId] = ProtectedId;
         gateway.Parents[LockedPageId] = LockedId;
         gateway.Parents[BinnedPageId] = DeletedPagesId;
+        gateway.Parents[RecycledSectionId] = RecycleBinId;
+        gateway.Parents[UnflaggedBinnedPageId] = RecycledSectionId;
+        gateway.Parents[FlaggedLivePageId] = SectionId;
         Self(NotebookId, $"<one:Notebook {Ns} name=\"W\" nickname=\"W\" ID=\"{NotebookId}\" path=\"{NotebookPath}\" />");
         Self(SectionId, Section(SectionId, "Open", string.Empty));
         Self(ProtectedId, Section(ProtectedId, "Vault", "encrypted=\"true\""));
@@ -75,6 +81,9 @@ public sealed class DeletePageContentToolTests : IDisposable
         Self(VaultPageId, $"<one:Page {Ns} ID=\"{VaultPageId}\" name=\"Synthetic Update\" />");
         Self(LockedPageId, $"<one:Page {Ns} ID=\"{LockedPageId}\" name=\"Synthetic Update\" />");
         Self(BinnedPageId, $"<one:Page {Ns} ID=\"{BinnedPageId}\" name=\"Synthetic Update\" isInRecycleBin=\"true\" />");
+        Self(RecycledSectionId, Section(RecycledSectionId, "Binned section", "isInRecycleBin=\"true\""));
+        Self(UnflaggedBinnedPageId, $"<one:Page {Ns} ID=\"{UnflaggedBinnedPageId}\" name=\"Synthetic Update\" />");
+        Self(FlaggedLivePageId, $"<one:Page {Ns} ID=\"{FlaggedLivePageId}\" name=\"Synthetic Update\" isInRecycleBin=\"true\" />");
         gateway.Pages[PageId] = Read;
         gateway.Pages[VaultPageId] = Read.Replace(PageId, VaultPageId, StringComparison.Ordinal);
         Grant();
@@ -384,6 +393,19 @@ public sealed class DeletePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task UnderAnExportRoot_WithoutAReadGrant_IsReadNotGranted_SayingWhy_NothingReadOrDeleted()
+    {
+        // Entry 15: the open section carries no marker, but the notebook's folder is an export root.
+        TestSettings.SetExportRoots(Store.Path, @"C:\notebooks\W");
+
+        var error = Error(await Tool().DeletePageContent(PageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.Contains("export root or the backups folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task ProtectedWithoutAReadGrant_ThroughTheTool_IsReadNotGranted_AndItsUserAction()
     {
         var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
@@ -427,6 +449,43 @@ public sealed class DeletePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ProtectedWithAOnceWindowOpenedDuringTheCall_IsReadNotGranted_NothingReadOrDeleted_ARetryDeletes()
+    {
+        // Backlog 9: a grant counts only from when it was given; one opened after the call's start is no grant.
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+        var opened = MidCallGrant.OpenWindowDuringCall(gateway, clock, readAccess, vault, "Vault");
+
+        var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Equal(DeletePageContentWrite.ReadFirstUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+
+        gateway.OnGetHierarchy = null;
+        Deletes(VaultPageId);
+        Ok(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct));
+        Assert.Single(gateway.DeleteCalls);
+    }
+
+    [Fact]
+    public async Task ProtectedWithAOnceWindowReGivenUnderTheLock_IsReadNotGranted_ByTheRecheck_NothingReadOrDeleted()
+    {
+        // Backlog 9, Q1 (a): step 1 passes on the window held at the call's start; under the lock it has ended and a new
+        // one was opened, given after the start, so step 3's recheck (PageWrite l.118) refuses before the page is read.
+        var vault = HierarchyNode.Root(gateway.Hierarchies[(ProtectedId, HierarchyScope.Self)]);
+        var opened = await MidCallGrant.RegiveWindowUnderTheLockAsync(gateway, clock, readAccess, vault, "Vault", writeLock);
+
+        var error = Error(await Tool().DeletePageContent(VaultPageId, G(40), cancellationToken: Ct), "ReadNotGranted");
+
+        Assert.True(opened());
+        Assert.Single(holds);
+        Assert.Equal(DeletePageContentWrite.ReadFirstUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task ProtectedWithoutAReadGrant_AndNoWriteGrant_IsReadNotGranted_BeforeTheWriteGrantDialog()
     {
         // AD-7 step 1 as amended by 5.2: the no-prompt read-grant check comes before the write grant, so the user is never
@@ -466,8 +525,30 @@ public sealed class DeletePageContentToolTests : IDisposable
     [Fact]
     public async Task APageInTheRecycleBin_IsObjectNotFound()
     {
-        Error(await Tool().DeletePageContent(BinnedPageId, G(40), cancellationToken: Ct), "ObjectNotFound");
+        var error = Error(await Tool().DeletePageContent(BinnedPageId, G(40), cancellationToken: Ct), "ObjectNotFound");
 
+        Assert.Equal(PageWrite.RecycledPageUserAction, error.GetProperty("userAction").GetString());
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AnUnflaggedPageInARecycledSection_IsObjectNotFound_WithRestoreFirstAdvice()
+    {
+        // OneMore lesson 8: the recycle-bin flags sit on sections, so the section check must catch an unflagged page.
+        var error = Error(await Tool().DeletePageContent(UnflaggedBinnedPageId, G(40), cancellationToken: Ct), "ObjectNotFound");
+
+        Assert.Equal(PageWrite.RecycledPageUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
+    public async Task AFlaggedPageInALiveSection_IsObjectNotFound_WithRestoreFirstAdvice()
+    {
+        var error = Error(await Tool().DeletePageContent(FlaggedLivePageId, G(40), cancellationToken: Ct), "ObjectNotFound");
+
+        Assert.Equal(PageWrite.RecycledPageUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.PageCalls);
         await AssertRefusedAsync();
     }
 

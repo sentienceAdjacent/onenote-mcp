@@ -38,23 +38,28 @@ public sealed class GetHierarchyUseCase(IOneNoteGateway gateway, ReadAccess acce
         IReadOnlyList<ToolWarning> accessWarnings = [];
         IReadOnlyList<string>? withheld = null;
         LargeResults.ResultGrants grants = LargeResults.ResultGrants.None;
+        var protection = await access.ProtectionAsync(ct).ConfigureAwait(false);
         if (root.Kind == HierarchyKind.Page)
         {
             var target = await access.CheckObjectAsync(context, start, ct).ConfigureAwait(false);
             (accessWarnings, grants) = (target.Warnings, target.ResultGrants);
         }
-        else if (root.Kind == HierarchyKind.Section && root.Encrypted)
+        else if (protection.IsProtected(root))
         {
             if (scope is HierarchyScope.Children or HierarchyScope.Pages)
             {
                 var target = await access.CheckSectionAsync(context, root, ct).ConfigureAwait(false);
                 (accessWarnings, grants) = (target.Warnings, target.ResultGrants);
             }
+            else
+            {
+                accessWarnings = protection.Warnings;
+            }
         }
         else
         {
             // Pages appear only at scope pages here (children of a notebook or group are sections and groups).
-            var broad = access.CheckBroad(Readable(() => EncryptedSections.Find(xml)), includesPages: scope == HierarchyScope.Pages);
+            var broad = access.CheckBroad(Readable(() => EncryptedSections.Find(xml, protection.UnderRoot)), includesPages: scope == HierarchyScope.Pages, protection);
             xml = Readable(() => SearchResultFilter.RemovePagesInSections(xml, broad.Withheld.ToHashSet(StringComparer.Ordinal))).Xml;
             (accessWarnings, withheld, grants) = (broad.Warnings, broad.Meta, broad.ResultGrants);
         }

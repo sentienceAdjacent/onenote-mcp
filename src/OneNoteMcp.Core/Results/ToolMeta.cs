@@ -18,8 +18,19 @@ namespace OneNoteMcp.Core.Results;
 /// Deleted Pages, when it was read back; Phill, 2026-11-13, 5.5 plan Q6). A permanent delete (story 5.6) reports
 /// <see cref="ObjectId"/>, <see cref="JournalEntryId"/> (its page, <c>hierarchy</c> or
 /// <c>onenoteBackup</c> entry) and, for a section, <see cref="BackupFile"/> (the backup's file name only, never a path) and
-/// <see cref="PageEntryIds"/> (its pages' entries in section order, 5.6 plan Q3 b). They are null, and so omitted on the
-/// wire, on every other result.
+/// <see cref="PageEntryIds"/> (its pages' entries in section order, 5.6 plan Q3 b). An export (<c>publish</c>, story 3.3)
+/// reports <see cref="ObjectId"/> (the page exported) and <see cref="OutputPath"/> (AD-11: the file's canonical path, which
+/// the caller tells the user). A page move (<c>move_hierarchy_object</c>, story 3.4) reports <see cref="ObjectId"/> (the
+/// page's new ID), <see cref="ParentId"/> (the section it moved to), <see cref="JournalEntryId"/> (the source section's
+/// <c>hierarchy</c> entry) and <see cref="JournalEntryIds"/> (both sections' entries, source then target; 3.4 plan Q1).
+/// A page level change (<c>set_page_level</c>, story 3.14) reports <see cref="ObjectId"/> (the page), <see cref="ParentId"/>
+/// (its section) and <see cref="JournalEntryId"/> (the section's <c>hierarchy</c> entry, absent when nothing changed); a
+/// <c>create_page</c> with <c>parentPageId</c> adds <see cref="JournalEntryId"/> (the section's entry) to <see cref="PageId"/>.
+/// A merge (<c>merge_sections</c>, story 3.6) reports <see cref="ObjectId"/> (the source, untouched), <see cref="ParentId"/>
+/// (the destination), <see cref="JournalEntryId"/> (the destination's <c>hierarchy</c> entry) and <see cref="PageIds"/> (the
+/// copies' new IDs in destination order; Phill, 2026-11-18, 3.6 plan Q1), left out for a password-protected destination
+/// (Q6) and when the read-back failed.
+/// They are null, and so omitted on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
     string CorrelationId,
@@ -39,7 +50,10 @@ public sealed record ToolMeta(
     string? ObjectId = null,
     string? RecycleBinId = null,
     string? BackupFile = null,
-    IReadOnlyList<string>? PageEntryIds = null);
+    IReadOnlyList<string>? PageEntryIds = null,
+    string? OutputPath = null,
+    IReadOnlyList<string>? JournalEntryIds = null,
+    IReadOnlyList<string>? PageIds = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read
