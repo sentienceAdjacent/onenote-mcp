@@ -103,7 +103,8 @@ public static class OpenedCopies
 
 /// <summary>
 /// Story 3.8, Phill's cleanup answer (b) (2026-11-18): when the server starts, a copy in the opened-copies folder is deleted
-/// when it holds the marker, its notebook isn't open in OneNote, and its folder is more than <see cref="MaxAge"/> old.
+/// when it holds the marker, its notebook isn't open in OneNote, and nothing in it changed for more than <see cref="MaxAge"/>
+/// (backlog 21, Phill 2026-11-19: age is the last change, never the folder's creation time alone).
 /// OneNote is read only when some copy is old enough. Only a successful read of OneNote's open notebooks counts: a failed
 /// read, OneNote not running (a closed OneNote still lists its notebooks and reopens them; "not running" also covers one
 /// with no window yet) included, deletes nothing (the review of 6fe92b3). A copy that can't be deleted is left for the
@@ -111,7 +112,7 @@ public static class OpenedCopies
 /// </summary>
 public static class OpenedCopySweep
 {
-    /// <summary>How old a copy's folder must be before it is deleted.</summary>
+    /// <summary>How long a copy must go unchanged before it is deleted.</summary>
     public static readonly TimeSpan MaxAge = TimeSpan.FromDays(7);
 
     /// <summary>Deletes the expired copies in <paramref name="folder"/> as of <paramref name="now"/>; returns how many went.</summary>
@@ -154,15 +155,50 @@ public static class OpenedCopySweep
         return deleted;
     }
 
+    /// <summary>
+    /// True when the copy's last change is more than <see cref="MaxAge"/> before <paramref name="now"/>. The last change is
+    /// the newest creation or last-write time of the copy's folder and of every file and folder inside it (a file copied
+    /// in keeps its source's write time, so its creation time counts too). Links and junctions count by their own times and
+    /// are never followed. A time that can't be read keeps the copy.
+    /// </summary>
     private static bool IsOld(string copy, DateTimeOffset now)
     {
         try
         {
-            return now.UtcDateTime - Directory.GetCreationTimeUtc(copy) > MaxAge;
+            return now.UtcDateTime - LastChange(new DirectoryInfo(copy)) > MaxAge;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             return false;
         }
     }
+
+    /// <summary>One folder's entries, links and junctions included as entries; recursion is <see cref="LastChange"/>'s.</summary>
+    private static readonly EnumerationOptions OneLevel = new()
+    {
+        RecurseSubdirectories = false,
+        AttributesToSkip = 0,
+        IgnoreInaccessible = false,
+        ReturnSpecialDirectories = false,
+    };
+
+    /// <summary>The newest time of <paramref name="folder"/> and everything below it, never descending through a reparse point.</summary>
+    private static DateTime LastChange(DirectoryInfo folder)
+    {
+        var newest = Newest(folder);
+        foreach (var entry in folder.EnumerateFileSystemInfos("*", OneLevel))
+        {
+            newest = Max(newest, Newest(entry));
+            if (entry is DirectoryInfo inner && !inner.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                newest = Max(newest, LastChange(inner));
+            }
+        }
+
+        return newest;
+    }
+
+    private static DateTime Newest(FileSystemInfo entry) => Max(entry.CreationTimeUtc, entry.LastWriteTimeUtc);
+
+    private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
 }
