@@ -72,7 +72,7 @@ context:
 - **Q3 follow-ups (Phill, 2026-11-18):**
   - *Named destination, (i):* a named destination may only be inside the opened-copies folder (a folder name lands in it; a full path must be inside it). Export roots are no longer used by `open_package`.
   - *Cleanup, (b):* when the server starts, a copy's folder in the opened-copies folder is deleted when it holds the marker, its notebook is no longer open in OneNote, and the folder is more than 7 days old. Folders without the marker are never touched.
-  - *`uninstall --purge`, (b):* it deletes the opened copies, but skips any copy OneNote still has open and lists the ones it skipped.
+  - *`uninstall --purge`, (b):* it deletes the opened copies, but skips any copy OneNote still has open and lists the ones it skipped. When OneNote isn't running it can't tell what is open, so it skips every copy and lists them (Phill confirmed, 2026-11-18, after the review of 6fe92b3 changed it from deleting them all).
 
 ## Open Questions
 
