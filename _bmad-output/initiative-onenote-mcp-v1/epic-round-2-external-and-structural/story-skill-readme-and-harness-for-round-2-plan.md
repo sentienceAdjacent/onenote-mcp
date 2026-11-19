@@ -130,3 +130,28 @@ What an agent does when it follows the skill: the live step's script (MCP Test; 
 - `pwsh -File scripts/pack-plugin.ps1`, then `claude plugin validate --strict dist/stage/onenote` -- passes.
 
 **Manual checks (the live step, Phill):** per decision 2.
+
+**Sitting script (main session with Phill; MCP Test, its protected section Ballast Vault, and the throwaway notebook; build c9ef3ee).** Load the new skill with the packed plugin (`claude --plugin-dir dist/onenote-0.9.0-rc.1-win-x64.zip`, or onenote-dev plus the stage's skill). Give the terminal heads-up before every step that can raise a grant dialog.
+
+A. The docs, through the plugin (the agent works only from the skill and README):
+1. "Save page P of MCP Test as a PDF": `publish`, tells the path. Ask again with the same name: `FileExists`, asks for another name.
+2. "Export section group G": one file per section in a folder named after the group, listed; a locked section is reported and skipped.
+3. "Open this .onepkg" (a package of the throwaway notebook): the copy in `%LOCALAPPDATA%\OneNoteMcp\opened\…`, the path and how to close it; Phill closes it.
+4. "Move page P to section S2": basis read, reports the new ID. "Move a page out of Ballast Vault": relays `NotSupported`.
+5. "Merge S1 into S2" (throwaway sections): confirms first, reports the copies, S1 kept. "Do it again": warns it would duplicate.
+6. Soft-delete a throwaway page, then "bring back the page I deleted": restored, new ID. Two same-named deleted pages: lists the candidates and asks.
+7. "Make P a subpage of Q": `set_page_level` (or a reorder first), tells the level.
+8. README only: a fresh agent given only the README exports an MCP Test page and restores a soft-deleted one.
+
+B. The harness on MCP Test (normal run, not `--contract-only`): its startup check passes on 29 tools, and 0 mismatches.
+
+C. E8 live, with Phill unlocking Ballast Vault:
+1. `publish` a Vault page with a read grant (Phill allows once): ok with `exportNotEncrypted`, the agent says the file is plain; then delete the file.
+2. `merge_sections` a one-page throwaway section into the Vault: copies land encrypted, `meta.pageIds` absent. Phill removes the copy in OneNote.
+3. `move_hierarchy_object` a throwaway page into the Vault without `position` (write grant only), then another with `position` (needs the read grant held at the start): both ok. Phill moves them out or deletes them in OneNote (a move out is refused by design).
+4. In the Vault with the read grant: `set_page_level` on a page, and `create_page` with `parentPageId`; both ok. With no grant (after the once window ends): `ReadNotGranted`.
+5. Restore by name: soft-delete a throwaway page, Phill closes and reopens its notebook (the recycle-bin ID goes stale), then `restore_from_recycle_bin`: restored with `restoredByName`.
+6. Phill locks Ballast Vault again.
+
+D. Phill deletes what the sitting made that he doesn't want.
+
