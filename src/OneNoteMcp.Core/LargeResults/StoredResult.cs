@@ -91,7 +91,7 @@ public sealed class StoredResult
     /// <summary>The original success: its meta (the full basis included) and warnings come with the first index.</summary>
     public ToolSuccess Original { get; }
 
-    /// <summary>The page basis computed from <see cref="PiBasicXml"/>, with every Outline and OE hash; null for other kinds.</summary>
+    /// <summary>The page basis computed from <see cref="PiBasicXml"/>, with every element hash (Outlines, OEs and page-level objects); null for other kinds.</summary>
     public PageBasisResult? Basis => Original.Meta.Basis;
 
     /// <summary>
