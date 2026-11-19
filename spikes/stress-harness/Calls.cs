@@ -269,6 +269,51 @@ internal sealed class ToolClient(McpClient client)
             node["xml"] = body.ToString();
         }
 
+        // Backlog 15: a meta.filtered too long for the header is a second stored result (JSON text in meta.binary). Read it
+        // back too, and put it where an inline result has it, so the filtered counts stay right.
+        if (envelope.GetProperty("meta").TryGetProperty("filteredResultId", out var listId) && listId.GetString() is { } listResultId)
+        {
+            var list = new System.Text.StringBuilder();
+            var listTotal = int.MaxValue;
+            while (list.Length < listTotal)
+            {
+                CallToolResult part;
+                using (var cts = new CancellationTokenSource(CallLimit))
+                {
+                    try
+                    {
+                        part = await client.CallToolAsync(
+                            "read_result",
+                            new Dictionary<string, object?> { ["resultId"] = listResultId, ["ref"] = "/", ["offset"] = list.Length },
+                            cancellationToken: cts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        return new Reassembly(envelope, parts, maxText, "reassembly:filtered:protocol:" + ex.GetType().Name);
+                    }
+                }
+
+                parts++;
+                maxText = Math.Max(maxText, TextChars(part));
+                var p = Envelope(part, bodyIsBinary: true);
+                if (p is not { } env || !env.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True)
+                {
+                    return new Reassembly(envelope, parts, maxText, "reassembly:filtered");
+                }
+
+                listTotal = env.GetProperty("meta").GetProperty("result").GetProperty("totalChars").GetInt32();
+                var chunk = env.GetProperty("meta").TryGetProperty("binary", out var b) ? b.GetString() : null;
+                if (string.IsNullOrEmpty(chunk))
+                {
+                    return new Reassembly(envelope, parts, maxText, "reassembly:filtered:emptyPart");
+                }
+
+                list.Append(chunk);
+            }
+
+            node["meta"]!.AsObject()["filtered"] = JsonNode.Parse(list.ToString());
+        }
+
         return new Reassembly(JsonSerializer.SerializeToElement(node), parts, maxText, null);
     }
 

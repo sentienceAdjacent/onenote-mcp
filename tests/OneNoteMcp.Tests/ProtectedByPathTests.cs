@@ -48,11 +48,11 @@ public sealed class ProtectedByPathTests
 
         // The recycle bin's Deleted Pages lies in the notebook's folder too.
         Assert.Equal([V.OpenSectionId, V.VaultId, V.GroupVaultId, V.DeletedSectionId], Grants.Withheld(root));
-        var warnings = root.GetProperty("warnings").EnumerateArray().ToList();
-        var open = warnings.Single(w => w.GetProperty("message").GetString()!.Contains(V.OpenSectionId, StringComparison.Ordinal));
-        Assert.Equal(ToolWarnings.ReadNotGranted, open.GetProperty("code").GetString());
-        Assert.Contains("export root or the backups folder", open.GetProperty("message").GetString()!, StringComparison.Ordinal);
-        var vault = warnings.Single(w => w.GetProperty("message").GetString()!.Contains(V.VaultId, StringComparison.Ordinal));
-        Assert.Contains("is password-protected", vault.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        // Backlog 15 (Phill, 2026-11-19, Q2 a): one warning for all of them, giving the count by reason; the IDs are in meta.withheld.
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray(), w => w.GetProperty("code").GetString() == ToolWarnings.ReadNotGranted);
+        var message = warning.GetProperty("message").GetString()!;
+        Assert.Contains("4 protected section(s)", message, StringComparison.Ordinal);
+        Assert.Contains("2 password-protected and 2 under an export root or the backups folder", message, StringComparison.Ordinal);
+        Assert.DoesNotContain(V.OpenSectionId, message, StringComparison.Ordinal);
     }
 }

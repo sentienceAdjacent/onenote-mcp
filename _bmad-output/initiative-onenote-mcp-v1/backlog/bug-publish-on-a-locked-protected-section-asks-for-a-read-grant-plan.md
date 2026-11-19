@@ -51,3 +51,9 @@ context: []
   - Tests first: four tests (page and section advice wording, the locked-without-grant advice, the notebook arm) ran red on stubs (4 failing), then green; the locked-with-grant test also asserts the plain advice.
   - Version note for the coordinator: `ReadNotGranted` → `SectionLocked` for a locked protected export target changes an error code callers can see, and the new `userAction` texts change messages. AD-14's contract snapshot covers tool schemas, not error codes, so no snapshot moves; whether it counts as a contract change for the 0.10.0-rc.1 decision is Phill's (`Directory.Build.props` untouched).
 
+## Verification
+
+- Live check, 2026-11-19 (the coordinator's sitting with Phill, on a combined backlog 14+15+16 build, no read grant held):
+  - `publish` of the locked section "Restore 3.5 Vault": `SectionLocked`, with the unlock-then-grant advice (`UnlockThenGrantUserAction`); no dialog.
+  - `publish` of a page in the locked Ballast Vault: `SectionLocked`, with the same advice; no dialog.
+  - `publish` of MCP Test as `onepkg` (3.7's S1 re-check): `SectionLocked`; no dialog.
