@@ -226,7 +226,7 @@ internal sealed class ResultResponses(ITextBlockMeasure measure)
     private static ResultIndex IndexOf(SpanNode node, int page, List<IndexEntry> entries) =>
         new(node.Ref, node.Length, page, entries, Element: node.Element);
 
-    /// <summary>An expand response carries the expanded element's own hash (AD-17, AD-20), when it is an Outline or OE.</summary>
+    /// <summary>An expand response carries the expanded element's own hash (AD-17, AD-20), when it is an element AD-17 hashes: an Outline, an OE or a page-level image, ink or file (backlog 5).</summary>
     private static PageBasisResult? ExpandBasis(StoredResult entry, SpanNode node)
     {
         if (entry.Basis is not { } b)
@@ -240,7 +240,7 @@ internal sealed class ResultResponses(ITextBlockMeasure measure)
         return new PageBasisResult(b.PageHash, b.LastModifiedTime, own);
     }
 
-    /// <summary>A page part's basis: the hashes, from the piBasic read, of the Outlines and OEs wholly inside the part (AD-20).</summary>
+    /// <summary>A page part's basis: the hashes, from the piBasic read, of the hashed elements (Outlines, OEs and page-level objects; backlog 5) wholly inside the part (AD-20).</summary>
     private static PageBasisResult? PartBasis(StoredResult entry, int start, int end)
     {
         if (entry.Basis is not { } b)

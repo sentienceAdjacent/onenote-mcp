@@ -319,6 +319,23 @@ public sealed partial class LargeResultTests
         Assert.Equal(expected.ElementHashes["{HOE}{1}{B0}"], Assert.Single(hashes.EnumerateObject()).Value.GetString());
     }
 
+    [Fact]
+    public async Task ExpandOfAPageLevelImage_CarriesItsOwnHash()
+    {
+        // Backlog 5: an image placed directly on the page has its own hash, in a part's basis as in a whole read's.
+        using var h = new LargeResultHarness();
+        var page = BigXml.Page(outlines: 12, oes: 20, hugeT: 45_000);
+        var end = page.LastIndexOf("</one:Page>", StringComparison.Ordinal);
+        h.Gateway.Basic = page[..end] + "<one:Image objectID=\"{PIMG}{1}{B0}\"><one:Size width=\"40.0\" height=\"40.0\" /><one:CallbackID callbackID=\"{PCB}{1}{B0}\" /></one:Image>" + page[end..];
+        var expected = PageBasis.From(h.Gateway.Basic);
+        var id = ResultId(Ok(await h.Page()));
+
+        var expand = Ok(await h.Read(id, expand: "{PIMG}{1}{B0}"));
+
+        var hashes = expand.GetProperty("meta").GetProperty("basis").GetProperty("elementHashes");
+        Assert.Equal(expected.ElementHashes["{PIMG}{1}{B0}"], Assert.Single(hashes.EnumerateObject()).Value.GetString());
+    }
+
     // --- Oversized hierarchy ----------------------------------------------------------------------------------------
 
     [Fact]
