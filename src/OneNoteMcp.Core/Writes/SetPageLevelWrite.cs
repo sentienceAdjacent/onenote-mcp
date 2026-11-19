@@ -130,7 +130,7 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
         var self = await services.Gateway.GetHierarchyAsync(section.Id, HierarchyScope.Self, ct).ConfigureAwait(false);
         CheckLockedAndReadGrant(XmlReads.Readable(() => HierarchyTarget.Read(self), "GetHierarchy"));
 
-        notebook = await services.WriteAccess.CheckAsync(section.Id, () => PageNotFound("isn't inside a notebook"), ct).ConfigureAwait(false);
+        notebook = await services.WriteAccess.CheckAsync(section.Id, () => PageNotFound("isn't inside a notebook"), ct, PageId).ConfigureAwait(false);
 
         // Step 4's refusals against a read made now, so the lock is never taken for one; step 4 checks again under it.
         var now = await services.Gateway.GetHierarchyAsync(section.Id, HierarchyScope.Children, ct).ConfigureAwait(false);

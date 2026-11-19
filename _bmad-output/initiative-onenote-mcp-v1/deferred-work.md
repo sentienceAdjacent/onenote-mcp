@@ -621,6 +621,9 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/backlog/story-publish-let-onenote-skip-unsynced-placeholder-pages-plan.md`
   summary: Spine AD-7 operation-class table, ExternalWrite row (l.326), still says "nor a notebook holding a locked or not fully downloaded section"; reword to the unsynced placeholder page once the 3.15 and 3.5 lanes have merged.
   evidence: backlog 11 corrected the reason at l.313, l.480 and l.750 only, to merge cleanly beside those lanes (team lead, 2026-11-17).
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/backlog/bug-a-write-to-a-page-in-a-loose-section-says-it-isnt-a-page-plan.md`
+  summary: Writes whose step 1 checks the section before WriteAccess (set_page_level, a move with position, create_page with parentPageId, a permanent delete's subpage check) refuse a protected or subpaged loose section with ReadNotGranted or the subpage error before the loose-section NotSupported.
+  evidence: backlog 12 quick review, verified at SetPageLevelWrite.cs:126-131, MovePageWrite.cs:182-196, CreatePageUseCase.cs:117-127, PermanentDeleteUseCase.cs:241-254. Each refusal is true and nothing is written; the fix is a loose check before those pre-checks (a WriteAccess helper called first).
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/backlog/story-hash-page-level-images-ink-and-files-plan.md`
   summary: Check live whether a file dropped directly on a page (not in an Outline) has an objectID; without one it gets no element hash (backlog 5).
   evidence: PageWriteScan.cs l.167-168 records OneNote writing InsertedFile and MediaFile without an objectID (2026-11-12); backlog 5 hashes only page-level objects that have one. A get_page_content of such a page settles it (maybe-false, would be medium).

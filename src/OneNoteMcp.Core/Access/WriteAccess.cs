@@ -54,19 +54,29 @@ public sealed class WriteAccess
         + GrantCli.Run("--write \"<notebook name>\"") + ". Then retry. Never run the grant command yourself.";
 
     /// <summary>
+    /// What to do about a write in or to a section open outside any notebook (backlog 12): a <c>.one</c> file opened by hand
+    /// sits under <c>one:OpenSections</c>, where no write grant can apply (AD-6 grants are per notebook).
+    /// </summary>
+    public const string LooseSectionUserAction =
+        "Edit it in OneNote, or move the section into a notebook in OneNote and retry. Reading it works as for any section; a password-protected one, or one under an export root or the backups folder, needs a read grant.";
+
+    /// <summary>
     /// Step 1 for a write to <paramref name="objectId"/> (a section, for <c>create_page</c>). Throws
     /// <see cref="ErrorCode.SettingsInvalid"/> when <c>settings.json</c> is invalid or newer, an ordinary error when the
     /// chain can't be read (<see cref="ErrorCode.ObjectNotFound"/> for an unknown ID), and
-    /// <see cref="ErrorCode.WriteNotGranted"/> when the notebook has no write grant.
+    /// <see cref="ErrorCode.WriteNotGranted"/> when the notebook has no write grant. An object in, or that is, a section open
+    /// outside any notebook is <see cref="ErrorCode.NotSupported"/> naming the section (backlog 12).
     /// </summary>
-    /// <param name="notInsideANotebook">The error for an object no notebook owns (it is a notebook itself).</param>
-    public async Task<WriteTarget> CheckAsync(string objectId, Func<OneNoteException> notInsideANotebook, CancellationToken ct)
+    /// <param name="notInsideANotebook">The error for an object no notebook and no section owns (a notebook itself).</param>
+    /// <param name="subjectId">The page the write is for, when <paramref name="objectId"/> is its section (a page move,
+    /// <c>set_page_level</c>), so a loose section's refusal names the page.</param>
+    public async Task<WriteTarget> CheckAsync(string objectId, Func<OneNoteException> notInsideANotebook, CancellationToken ct, string? subjectId = null)
     {
         ArgumentNullException.ThrowIfNull(notInsideANotebook);
         var snapshot = settings();
         snapshot.EnsureWritable();
 
-        var notebook = await walk.OwningNotebookAsync(objectId ?? string.Empty, ct).ConfigureAwait(false) ?? throw notInsideANotebook();
+        var notebook = await NotebookOrLooseAsync(objectId ?? string.Empty, notInsideANotebook, ct, subjectId).ConfigureAwait(false);
         return Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path, objectId ?? string.Empty, container: false);
     }
 
@@ -74,8 +84,8 @@ public sealed class WriteAccess
     /// Step 1 for a write under <paramref name="parentId"/>, a parent that may be the notebook itself (story 5.3: a new
     /// section or section group's parent), with <see cref="CheckAsync"/>'s rules and errors. The grant is the owning
     /// notebook's, found by the parent walk; when the walk ends at once (the parent has no parent), the parent itself is
-    /// read at <c>self</c>, and it is the notebook when it is a <c>one:Notebook</c>. Anything else is
-    /// <paramref name="notInsideANotebook"/>. Whether the parent is the right kind is AD-7 step 4's to decide.
+    /// read at <c>self</c>, and it is the notebook when it is a <c>one:Notebook</c>. A section open outside any notebook is
+    /// <see cref="ErrorCode.NotSupported"/> naming it (backlog 12); anything else is <paramref name="notInsideANotebook"/>. Whether the parent is the right kind is AD-7 step 4's to decide.
     /// </summary>
     public async Task<WriteTarget> CheckContainerAsync(string parentId, Func<OneNoteException> notInsideANotebook, CancellationToken ct)
     {
@@ -84,12 +94,14 @@ public sealed class WriteAccess
         snapshot.EnsureWritable();
 
         var id = parentId ?? string.Empty;
-        var notebook = await walk.OwningNotebookAsync(id, ct).ConfigureAwait(false);
+        var (notebook, section) = await walk.OwnersAsync(id, ct).ConfigureAwait(false);
         if (notebook is null)
         {
             var xml = await gateway.GetHierarchyAsync(id, HierarchyScope.Self, ct).ConfigureAwait(false);
             var self = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
-            notebook = self.Kind == HierarchyKind.Notebook ? self : throw notInsideANotebook();
+            notebook = self.Kind == HierarchyKind.Notebook ? self
+                : Loose(id, section ?? (self.Kind == HierarchyKind.Section ? self : null)) is { } loose ? throw loose
+                : throw notInsideANotebook();
         }
 
         return Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path, id, container: true);
@@ -108,11 +120,52 @@ public sealed class WriteAccess
         var snapshot = settings();
         snapshot.EnsureWritable();
 
-        var notebook = await walk.OwningNotebookAsync(objectId ?? string.Empty, ct).ConfigureAwait(false) ?? throw notInsideANotebook();
+        var notebook = await NotebookOrLooseAsync(objectId ?? string.Empty, notInsideANotebook, ct).ConfigureAwait(false);
         var target = Granted(snapshot, notebook.Id, notebook.DisplayName, notebook.Path, objectId ?? string.Empty, container: false);
         var granted = snapshot.Notebooks.TryGetValue(target.NotebookKey, out var grant) && grant.Write && grant.PermanentDelete;
         return new PermanentDeleteAccess(target, granted, notebook.DisplayName);
     }
+
+    /// <summary>
+    /// The notebook that owns <paramref name="objectId"/>. With none, a write in or to a section open outside any notebook
+    /// is <see cref="ErrorCode.NotSupported"/> naming it (backlog 12); anything else is <paramref name="notInsideANotebook"/>,
+    /// as before. Only when the chain finds no section is the object itself read, to tell a loose section from a notebook.
+    /// </summary>
+    private async Task<HierarchyNode> NotebookOrLooseAsync(string objectId, Func<OneNoteException> notInsideANotebook, CancellationToken ct, string? subjectId = null)
+    {
+        var (notebook, section) = await walk.OwnersAsync(objectId, ct).ConfigureAwait(false);
+        if (notebook is not null)
+        {
+            return notebook;
+        }
+
+        if (section is null)
+        {
+            try
+            {
+                var xml = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Self, ct).ConfigureAwait(false);
+                var self = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
+                section = self.Kind == HierarchyKind.Section ? self : null;
+            }
+            catch (OneNoteException)
+            {
+                // The extra read only tells a loose section apart; when it fails, the caller's own error stands, as before.
+            }
+        }
+
+        throw Loose(subjectId ?? objectId, section) ?? notInsideANotebook();
+    }
+
+    /// <summary>The refusal for a write in or to the loose <paramref name="section"/>; null when there is none. IDs only (AD-9).</summary>
+    private static OneNoteException? Loose(string objectId, HierarchyNode? section) => section is null
+        ? null
+        : new OneNoteException(
+            ErrorCode.NotSupported,
+            string.Equals(section.Id, objectId, StringComparison.OrdinalIgnoreCase)
+                ? $"Section {objectId} is open in OneNote outside any notebook (a .one file opened by hand), and the server can't write there, so nothing was written."
+                : $"Page {objectId} is in section {section.Id}, which is open in OneNote outside any notebook (a .one file opened by hand), and the server can't write there, so nothing was written.",
+            userAction: LooseSectionUserAction,
+            retryable: false);
 
     /// <summary>
     /// The stored grants of the notebook keyed <paramref name="notebookKey"/>, from a fresh read of <c>settings.json</c>
