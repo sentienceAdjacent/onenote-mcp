@@ -319,6 +319,7 @@ public sealed class PublishToolTests : IDisposable
         Assert.Contains(VaultId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Equal(PublishUseCase.ReadFirstUserAction, error.GetProperty("userAction").GetString());
         Assert.StartsWith("Exporting a page", PublishUseCase.ReadFirstUserAction, StringComparison.Ordinal);
+        Assert.DoesNotContain("password", PublishUseCase.ReadFirstUserAction, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Vault", result.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("Secret", result.StructuredContent.Value.GetRawText(), StringComparison.Ordinal);
         await AssertRefusedAsync();
@@ -662,7 +663,10 @@ public sealed class PublishToolTests : IDisposable
 
         Assert.Contains(VaultId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Equal(PublishUseCase.ReadFirstSectionUserAction, error.GetProperty("userAction").GetString());
-        Assert.StartsWith("Exporting a password-protected section", PublishUseCase.ReadFirstSectionUserAction, StringComparison.Ordinal);
+        Assert.StartsWith("Exporting this section", PublishUseCase.ReadFirstSectionUserAction, StringComparison.Ordinal);
+        // Fable F6: it works for a section with no pages too, through get_hierarchy of the section.
+        Assert.Contains("get_hierarchy", PublishUseCase.ReadFirstSectionUserAction, StringComparison.Ordinal);
+        Assert.DoesNotContain("password", PublishUseCase.ReadFirstSectionUserAction, StringComparison.OrdinalIgnoreCase);
         await AssertRefusedAsync();
     }
 
@@ -673,6 +677,8 @@ public sealed class PublishToolTests : IDisposable
         var error = Error(await Tool().Publish(LockedId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SectionLocked");
 
         Assert.Contains(LockedId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        // Fable F9: no grant is held, so the advice names both steps: unlock, then the grant dialog asks.
+        Assert.Equal(PublishUseCase.UnlockThenGrantUserAction, error.GetProperty("userAction").GetString());
         await AssertRefusedAsync();
     }
 
@@ -681,8 +687,10 @@ public sealed class PublishToolTests : IDisposable
     {
         GrantRead(LockedId, "Locked vault");
 
-        Error(await Tool().Publish(LockedId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SectionLocked");
+        var error = Error(await Tool().Publish(LockedId, "x.pdf", PublishFormatArgument.Pdf, Ct), "SectionLocked");
 
+        // With the grant held, only unlocking is left: the plain SectionLocked advice.
+        Assert.NotEqual(PublishUseCase.UnlockThenGrantUserAction, error.GetProperty("userAction").GetString());
         await AssertRefusedAsync();
     }
 
@@ -718,6 +726,8 @@ public sealed class PublishToolTests : IDisposable
 
         var error = Error(await Tool().Publish(NotebookId, "w.onepkg", PublishFormatArgument.Onepkg, Ct), "ReadNotGranted");
         Assert.Contains(SectionId, error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        // Backlog 14 (F7's notebook arm): the advice speaks of the notebook's sections, not of a page.
+        Assert.Equal(PublishUseCase.ReadFirstNotebookUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.PublishCalls);
 
         GrantRead(SectionId, "Open");

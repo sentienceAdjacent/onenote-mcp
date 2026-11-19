@@ -24,9 +24,9 @@ Read this before an export (`mcp__plugin_onenote_desktop__publish`) or before op
 
 **Password-protected content.**
 
-- Exporting a protected section, or a page in one, needs the user's read grant for that section, held when the call starts (`ReadNotGranted` otherwise; reading one of its pages with `mcp__plugin_onenote_desktop__get_page_content` asks the user). Such an export succeeds with the warning `exportNotEncrypted`: the file isn't password-protected. Always tell the user that, and where the file is.
-- A notebook package needs no read grant: protected sections stay encrypted inside it.
-- A locked section, a page in one, or a notebook holding one, is `SectionLocked`: the user unlocks it in OneNote, or you export the other sections one by one.
+- Exporting a protected section, or a page in one, needs the user's read grant for that section, held when the call starts (`ReadNotGranted` otherwise). Reading the section with `mcp__plugin_onenote_desktop__get_hierarchy` (`startNodeId` = the section, `scope: pages`), or one of its pages with `mcp__plugin_onenote_desktop__get_page_content`, asks the user; the section read works even when it has no pages. Such an export succeeds with the warning `exportNotEncrypted`: the file isn't password-protected. Always tell the user that, and where the file is.
+- A notebook package needs no read grant for its password-protected sections: they stay encrypted inside it. A section protected only by its location (under an export root, the opened-copies folder or the backups folder) would be plain in the package, so it needs its read grant (`ReadNotGranted` names it).
+- A locked section, a page in one, or a notebook holding one, is `SectionLocked`, checked before the read grant: ask the user to unlock it in OneNote first, since a read grant can't help until then, or export the other sections one by one. If you have no read grant for it, the error's `userAction` says so: after unlocking, read the section (the grant dialog asks), then export again.
 
 **When it fails.** With `outcomeUnknown: true` (a `Timeout`, say), the file may still have been written: its path is in the message. Check it with the user before trying again under a new name. Never retry under the same name (`FileExists`).
 
