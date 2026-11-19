@@ -114,6 +114,26 @@ public sealed class UninstallCommandTests : IDisposable
     }
 
     [Fact]
+    public void Purge_ChecksAgainAfterTheQuestion_ACopyOpenedMeanwhileIsKept()
+    {
+        var copy = OpenedCopy("Copy 20261101-100000");
+        var asked = 0;
+        var command = new UninstallCommand(
+            new StringReader("purge\n"),
+            output,
+            interactive: true,
+            new UninstallPaths(SettingsPath, LogFolder, JournalFolder, [], OpenedFolder),
+            () => [],
+            RecordingLock,
+            () => asked++ == 0 ? [] : [copy]);
+
+        command.Run(["--purge"]);
+
+        Assert.True(File.Exists(Path.Combine(copy, "Section.one")));
+        Assert.Contains("still open in OneNote", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Purge_RemovesTheEmptiedOpenedCopiesFolder()
     {
         OpenedCopy("Closed 20261101-100000");

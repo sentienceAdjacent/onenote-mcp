@@ -3,7 +3,7 @@ title: 'open_package'
 type: 'feature'
 ticket: '8'
 created: '2026-11-17'
-status: 'in-review'
+status: 'built'
 baseline_revision: '2982032d3e2a65718031195099ab5f3670605ea6'
 route: 'full'
 route_source: 'auto'
@@ -176,6 +176,15 @@ Main now has `OneDriveFolders` (Core/Access; accounts with their folder's plain 
 - 2026-11-17, Phill settled Q2: optional destination, timestamped default under the first export root; the matrix gains the default row; no open questions left. If entry 15's guard question is answered with its marker-file option, this story also writes `.onenote-mcp-opened` into each folder it creates (entry 15 decides; a Plan Change Log entry here will add the task).
 
 ## Review Triage Log
+
+- 2026-11-18, one reviewer on 6fe92b3 (the Q3 rework); each finding checked against the code:
+  - 1 (high, fixed): the sweep took `OneNoteNotRunning` as "nothing open". A closed OneNote still lists its notebooks and reopens them, and the code also covers a OneNote with no window yet, so a copy with the user's edits could go. Now only a successful read counts; the purge likewise treats "OneNote not running" as can't tell (skips and lists). Test flipped: `OneNoteNotRunning_IsCantTell_SoNothingIsDeleted`.
+  - 2 (high, fixed): `IsOpen` compared plain forms only, while OneNote is given the canonical path; through a link in the opened-copies path an open copy looked closed. Now every form of both. Test `IsOpen_MatchesTheSameFolderInEveryForm_ThroughAJunction`.
+  - 3 (medium-low, fixed): the purge's gateway used the user's settings, so `allowSilentActivation` could start a hidden OneNote in a race; it now reads defaults.
+  - 4 (low, fixed): a nested destination (`opened\a\b`) left a copy the sweep and purge never find; a destination must be a direct child. Test `ANestedDestination_…`.
+  - 5 (low, fixed): the purge now checks what is open again after the question. Test `Purge_ChecksAgainAfterTheQuestion_…`.
+  - 6 (low, fixed): the invalid-settings warning now names the opened-copies folder.
+- The four review-fix tests ran red (4 failing) before the fixes, then green.
 
 - 2026-11-18, quick lens, iteration 0 (findings written to the build's scratchpad): 9 findings, each checked against the code: 0 high, 2 medium, 5 low, 1 rejected, 1 for Phill. Patched test-first where a test fit (7 new tests in `OpenPackageToolTests`; 4 ran red first, the other 3 passed before the patch and stay as guards); no loopback.
   - **medium, patch.** A cancel or the pipeline's deadline during the page wait turned a successful open into a failure saying "opening it there failed", losing the copy's ID. Fix: the wait ends on a cancel with `pagesNotListed` and the result keeps `meta.objectId`; once `OpenHierarchy` has succeeded the failure note names the opened notebook. Test: `ACancelDuringThePageWait_…`.

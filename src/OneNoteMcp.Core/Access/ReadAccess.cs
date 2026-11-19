@@ -108,7 +108,7 @@ public sealed class ReadAccess
             Access.Protection.RootsOf(NoSettings()),
             [new ToolWarning(
                 ToolWarnings.SettingsInvalid,
-                $"settings.json is unreadable ({snapshot.Reason}), so only the default export folder and the journal's backups folder count as protected locations.",
+                $"settings.json is unreadable ({snapshot.Reason}), so only the default export folder, the opened-copies folder and the journal's backups folder count as protected locations.",
                 "Fix settings.json, then retry.")],
             oneDrive());
     }

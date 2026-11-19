@@ -317,6 +317,15 @@ public sealed class OpenPackageToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ANestedDestination_IsExportPathNotAllowed_ACopyIsAlwaysADirectChild()
+    {
+        // Review of 6fe92b3: a copy below an unmarked folder would never be swept or purged.
+        Error(await Tool().OpenPackage(package, @"a\b", Ct), "ExportPathNotAllowed");
+
+        await AssertNothingDoneAsync();
+    }
+
+    [Fact]
     public async Task AFullPathInsideTheOpenedCopiesFolder_IsAllowed()
     {
         var root = Ok(await Tool().OpenPackage(package, Path.Combine(Root, "Opened trip"), Ct));

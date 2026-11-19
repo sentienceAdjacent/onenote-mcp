@@ -56,8 +56,9 @@ public sealed record UninstallPaths(string SettingsPath, string LogDirectory, st
 /// Claude Code's own <c>tool-results</c> files. It starts no OneNote.
 /// <para>Story 3.8 (Phill's purge answer (b), 2026-11-18): it also deletes the copies <c>open_package</c> made, the
 /// folders in the opened-copies folder that hold the marker, whole, but skips and lists any copy OneNote still has open.
-/// It learns that from OneNote only when OneNote is already running; when it can't tell, it skips every copy and lists
-/// them. A folder there without the marker is never touched.</para>
+/// It learns that from OneNote only when OneNote is already running, and checks again after the question; when it can't
+/// tell (OneNote not running included, since a closed OneNote reopens its notebooks), it skips every copy and lists them.
+/// A folder there without the marker is never touched.</para>
 /// <para>Interactive, it asks the user to type <c>purge</c>; otherwise it needs <c>--yes</c>.</para>
 /// <para>Before that question it warns with the process ID of every other running <c>OneNoteMcp.exe</c>, since a running
 /// server may write a grant or a log meanwhile. It removes <c>settings.json</c> and its temporary files only while holding
@@ -259,9 +260,24 @@ public sealed partial class UninstallCommand
             failed |= !Delete(file);
         }
 
+        // Checked again now: the user may have opened a copy in OneNote while the question waited (the review of 6fe92b3).
+        var openNow = plan.Copies.Count > 0 ? openNotebooks() : [];
         foreach (var copy in plan.Copies)
         {
-            failed |= !DeleteCopy(copy);
+            if (openNow is null)
+            {
+                output.WriteLine($"Kept {copy}: couldn't tell whether OneNote has it open now.");
+                failed = true;
+            }
+            else if (OpenedCopies.IsOpen(copy, openNow))
+            {
+                output.WriteLine($"Kept {copy}: it is still open in OneNote. Close it in OneNote, then run this again.");
+                failed = true;
+            }
+            else
+            {
+                failed |= !DeleteCopy(copy);
+            }
         }
 
         foreach (var folder in plan.Folders)
@@ -337,7 +353,7 @@ public sealed partial class UninstallCommand
             {
                 if (open is null)
                 {
-                    plan.Notes.Add($"Skipped {copy}: couldn't tell whether OneNote still has it open. Close it in OneNote if it is, then run this again.");
+                    plan.Notes.Add($"Skipped {copy}: couldn't tell whether OneNote still has it open (OneNote must be running for that). Start OneNote, close the copy there if it is open, then run this again; or delete the folder yourself.");
                 }
                 else if (OpenedCopies.IsOpen(copy, open))
                 {
@@ -464,8 +480,10 @@ public sealed partial class UninstallCommand
     }
 
     /// <summary>
-    /// The open notebooks' paths, for the purge's opened-copies check: empty when OneNote isn't running (nothing is open,
-    /// and OneNote is never started), null when it runs but couldn't be read.
+    /// The open notebooks' paths, for the purge's opened-copies check, or null when it can't tell, so every copy is skipped
+    /// and listed. It asks only a OneNote that is already running: a closed OneNote still lists its notebooks and reopens
+    /// them, so "not running" is "can't tell" too (the review of 6fe92b3). The gateway gets default settings, so the user's
+    /// <c>allowSilentActivation</c> can never start a hidden OneNote here.
     /// </summary>
     public static IReadOnlyList<string>? OpenNotebooksIfOneNoteRuns()
     {
@@ -474,7 +492,7 @@ public sealed partial class UninstallCommand
         {
             if (running.Length == 0)
             {
-                return [];
+                return null;
             }
         }
         finally
@@ -487,7 +505,9 @@ public sealed partial class UninstallCommand
 
         try
         {
-            using var gateway = new Com.ComGateway(new Com.ProcessProbe(), new SettingsStore());
+            // A settings path that doesn't exist reads as every default: silent activation off.
+            var defaults = new SettingsStore(Path.Combine(Path.GetTempPath(), $"onenote-mcp-purge-{Guid.NewGuid():N}", "settings.json"));
+            using var gateway = new Com.ComGateway(new Com.ProcessProbe(), defaults);
             var xml = gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, CancellationToken.None).GetAwaiter().GetResult();
             return [.. Xml.HierarchyNode.Notebooks(xml).Select(n => n.Path)];
         }

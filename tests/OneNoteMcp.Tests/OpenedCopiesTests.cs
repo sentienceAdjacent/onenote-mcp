@@ -100,13 +100,42 @@ public sealed class OpenedCopiesTests : IDisposable
     }
 
     [Fact]
-    public async Task OneNoteNotRunning_MeansNothingIsOpen_SoOldCopiesGo()
+    public async Task OneNoteNotRunning_IsCantTell_SoNothingIsDeleted()
     {
+        // Review of 6fe92b3: a closed OneNote still lists its notebooks and reopens them, and "not running" also covers a
+        // OneNote with no window yet; "the app is closed" isn't "the notebook was closed", so nothing goes.
         var old = Copy("Old 20261101-100000", Now.AddDays(-8));
         gateway.OnGetHierarchy = (_, _) => throw new OneNoteException(ErrorCode.OneNoteNotRunning, "not running");
 
-        Assert.Equal(1, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
-        Assert.False(Directory.Exists(old));
+        Assert.Equal(0, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        Assert.True(Directory.Exists(old));
+    }
+
+    [Fact]
+    public void IsOpen_MatchesTheSameFolderInEveryForm_ThroughAJunction()
+    {
+        // OneNote is given the canonical (link-followed) path; the sweep lists copies through the plain folder.
+        var real = temp.Combine("real");
+        Directory.CreateDirectory(Path.Combine(real, "Copy"));
+        var link = temp.Combine("linked");
+        Junction(link, real);
+
+        Assert.True(OpenedCopies.IsOpen(Path.Combine(link, "Copy"), [Path.Combine(real, "Copy")]));
+        Assert.True(OpenedCopies.IsOpen(Path.Combine(link, "Copy"), [Path.Combine(real, "Copy", "Inner")]));
+        Assert.False(OpenedCopies.IsOpen(Path.Combine(link, "Copy"), [Path.Combine(real, "Other")]));
+    }
+
+    private static void Junction(string link, string target)
+    {
+        using var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        })!;
+        mklink.WaitForExit();
+        Assert.Equal(0, mklink.ExitCode);
     }
 
     [Fact]

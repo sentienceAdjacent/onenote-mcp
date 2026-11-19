@@ -95,7 +95,7 @@ public static class ExportTarget
     /// <summary>What to do about an <c>open_package</c> destination outside the opened-copies folder (story 3.8 Q3 (i)).</summary>
     public const string OpenedNotAllowedUserAction =
         "Leave destination out for a new folder named after the package, or pass a new folder name, which lands in the opened-copies folder. "
-        + "A full path must be inside that folder (meta.outputPath of an earlier open_package shows where it is).";
+        + "A full path must be a folder directly inside that folder (meta.outputPath of an earlier open_package shows where it is).";
 
     /// <summary>
     /// Story 3.8 (<c>open_package</c>): the canonical path for <paramref name="raw"/>, a new folder, inside
@@ -113,7 +113,16 @@ public static class ExportTarget
             throw new OneNoteException(ErrorCode.InvalidArgument, "The argument destination is empty, so nothing was opened.", userAction: InvalidFolderUserAction, retryable: false);
         }
 
-        return UnderARoot(raw.TrimEnd('\\', '/'), new ExportRoots([openedCopies]), Opened, extensions: null, OpenedCopiesPlace);
+        var target = UnderARoot(raw.TrimEnd('\\', '/'), new ExportRoots([openedCopies]), Opened, extensions: null, OpenedCopiesPlace);
+
+        // A copy is always a direct child, so the sweep and the purge find its marker (the review of 6fe92b3).
+        var parent = Path.GetDirectoryName(target);
+        if (!PathUnder.Prefixes(openedCopies).Any(root => string.Equals(Path.TrimEndingDirectorySeparator(root), parent, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw NotAllowed(raw, "it isn't directly inside the opened-copies folder", Opened, OpenedNotAllowedUserAction);
+        }
+
+        return target;
     }
 
     private const string Exported = "nothing was exported";

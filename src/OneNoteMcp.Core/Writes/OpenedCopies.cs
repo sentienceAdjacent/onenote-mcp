@@ -73,31 +73,41 @@ public static class OpenedCopies
     }
 
     /// <summary>
-    /// True when one of <paramref name="openNotebookPaths"/> is <paramref name="copy"/>, lies inside it, or holds it.
-    /// Paths that aren't local (a URL) never match.
+    /// True when one of <paramref name="openNotebookPaths"/> is <paramref name="copy"/>, lies inside it, or holds it, in any
+    /// of their forms (plain and canonical, <see cref="PathUnder.Prefixes"/>): OneNote is given the canonical path, while
+    /// copies are listed through the plain folder, which may go through a link (the review of 6fe92b3). Paths that aren't
+    /// local (a URL) never match.
     /// </summary>
     public static bool IsOpen(string copy, IEnumerable<string> openNotebookPaths)
     {
         ArgumentNullException.ThrowIfNull(copy);
         ArgumentNullException.ThrowIfNull(openNotebookPaths);
-        var full = PathUnder.Full(copy)?.TrimEnd(Path.DirectorySeparatorChar);
-        if (full is null)
+        var copyForms = PathUnder.Prefixes(copy);
+        if (copyForms.Count == 0)
         {
             return false;
         }
 
-        return openNotebookPaths
-            .Select(p => PathUnder.Full(p)?.TrimEnd(Path.DirectorySeparatorChar))
-            .OfType<string>()
-            .Any(n => string.Equals(n, full, StringComparison.OrdinalIgnoreCase) || PathUnder.IsUnder(n, [full]) || PathUnder.IsUnder(full, [n]));
+        foreach (var notebookForms in openNotebookPaths.Select(PathUnder.Prefixes))
+        {
+            // Each form ends in a separator, so a prefix test is "the same folder, or inside it", at a segment boundary.
+            if (copyForms.Any(c => notebookForms.Any(n => n.StartsWith(c, StringComparison.OrdinalIgnoreCase) || c.StartsWith(n, StringComparison.OrdinalIgnoreCase))))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 
 /// <summary>
 /// Story 3.8, Phill's cleanup answer (b) (2026-11-18): when the server starts, a copy in the opened-copies folder is deleted
 /// when it holds the marker, its notebook isn't open in OneNote, and its folder is more than <see cref="MaxAge"/> old.
-/// OneNote is read only when some copy is old enough; OneNote not running means nothing is open; any other failed read
-/// deletes nothing. A copy that can't be deleted is left for the next start.
+/// OneNote is read only when some copy is old enough. Only a successful read of OneNote's open notebooks counts: a failed
+/// read, OneNote not running (a closed OneNote still lists its notebooks and reopens them; "not running" also covers one
+/// with no window yet) included, deletes nothing (the review of 6fe92b3). A copy that can't be deleted is left for the
+/// next start.
 /// </summary>
 public static class OpenedCopySweep
 {
@@ -120,10 +130,6 @@ public static class OpenedCopySweep
         {
             var xml = await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, ct).ConfigureAwait(false);
             open = [.. HierarchyNode.Notebooks(xml).Select(n => n.Path)];
-        }
-        catch (OneNoteException ex) when (ex.Code == ErrorCode.OneNoteNotRunning)
-        {
-            open = [];
         }
         catch (Exception ex) when (ex is OneNoteException or OneNoteXmlException)
         {
