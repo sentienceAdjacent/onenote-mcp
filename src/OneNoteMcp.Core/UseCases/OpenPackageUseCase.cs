@@ -11,15 +11,18 @@ namespace OneNoteMcp.Core.UseCases;
 
 /// <summary>
 /// <c>open_package</c> (story 3.8; AD-5 promoted task, AD-7 <c>ExternalWrite</c>): unpacks a OneNote package into a new
-/// folder under an export root and opens it, through the write pipeline. Spike 3.1 (O1–O5, Implication 10) and the 3.8
+/// folder in the opened-copies folder (<see cref="OpenedCopies"/>; Phill's Q3 (a), 2026-11-18) and opens it, through the
+/// write pipeline. Spike 3.1 (O1–O5, Implication 10) and the 3.8
 /// sitting S0 (P1, P2): <c>OpenPackage</c> unpacks into the folder it is given and opens nothing; <c>OpenHierarchy</c> of
 /// that folder then opens a copy with its own ID beside the original, and its sections and pages list a few seconds later.
 /// <list type="number">
 /// <item>Step 1, before the lock: <c>package</c> must be a fully qualified local path to an existing <c>.onepkg</c> file, in
 /// any folder (Phill, Q3); anything else is <see cref="ErrorCode.InvalidArgument"/>. <c>settings.json</c> must be writable.
-/// The destination is the caller's folder, or by default <c>&lt;package name&gt; &lt;yyyyMMdd-HHmmss&gt;</c> (local
-/// time) under the first export root (Phill, Q2, Q6), resolved by <see cref="ExportTarget.ResolveFolder"/>; it must not
-/// exist.</item>
+/// The destination is the caller's folder name or path inside the opened-copies folder (Q3 follow-up (i)), or by default
+/// <c>&lt;package name&gt; &lt;yyyyMMdd-HHmmss&gt;</c> (local time) there (Q6), resolved by
+/// <see cref="ExportTarget.ResolveFolder"/>; it must not exist. A destination inside a OneDrive folder (the opened-copies
+/// folder itself, under a redirected AppData) is <see cref="ErrorCode.ExportPathNotAllowed"/>: OneDrive's client converts
+/// a notebook folder unpacked through COM into an online notebook, and OneNote closes (the 3.8 crash probe).</item>
 /// <item value="3">Steps 3 and 4, under the lock: the destination resolved again and identical, still absent; then the
 /// folder is created and the marker file <see cref="ExportRootGuard.MarkerFileName"/> written into it, so the export-root
 /// guard (entry 15, Phill's Q1) never counts the copy as the user's own notebook. A failure there removes the folder.</item>
@@ -64,20 +67,23 @@ public sealed class OpenPackageUseCase : IUseCase
     private readonly TimeProvider clock;
     private readonly TimeSpan pollInterval;
     private readonly TimeSpan listWait;
+    private readonly Func<OneDriveFolders> oneDrive;
 
     /// <param name="gateway">Unpacks, opens and reads the copy.</param>
-    /// <param name="settings">Reads <c>settings.json</c> (export roots), once per call.</param>
+    /// <param name="settings">Reads <c>settings.json</c> once per call, for writability and the opened-copies folder.</param>
     /// <param name="pipeline">The AD-7 step runner.</param>
     /// <param name="clock">The clock the default folder's timestamp comes from (local time); the system clock when null.</param>
     /// <param name="pollInterval">The page wait's poll; 500 ms when null.</param>
     /// <param name="listWait">The page wait; 5 s when null.</param>
+    /// <param name="oneDrive">The OneDrive folders on this machine (backlog 13's seam), asked at step 1 and under the lock; none known when null.</param>
     public OpenPackageUseCase(
         IOneNoteGateway gateway,
         Func<SettingsSnapshot> settings,
         WritePipeline pipeline,
         TimeProvider? clock = null,
         TimeSpan? pollInterval = null,
-        TimeSpan? listWait = null)
+        TimeSpan? listWait = null,
+        Func<OneDriveFolders>? oneDrive = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(settings);
@@ -88,6 +94,7 @@ public sealed class OpenPackageUseCase : IUseCase
         this.clock = clock ?? TimeProvider.System;
         this.pollInterval = pollInterval ?? DefaultPoll;
         this.listWait = listWait ?? DefaultWait;
+        this.oneDrive = oneDrive ?? (() => OneDriveFolders.None);
     }
 
     public OperationClass Class => OperationClass.ExternalWrite;
@@ -132,8 +139,23 @@ public sealed class OpenPackageUseCase : IUseCase
             snapshot = owner.settings();
             snapshot.EnsureWritable();
             raw = string.IsNullOrWhiteSpace(destination) ? DefaultName(packagePath) : destination;
-            folder = ExportTarget.ResolveFolder(raw, snapshot.ExportRoots);
+            RefuseOneDrive(snapshot.OpenedCopies, snapshot.OpenedCopies);
+            folder = ExportTarget.ResolveFolder(raw, snapshot.OpenedCopies);
+            RefuseOneDrive(folder, snapshot.OpenedCopies);
             await RefuseInsideAnOpenNotebookAsync(ct).ConfigureAwait(false);
+        }
+
+        /// <summary>Phill's Q3 (a): nothing is unpacked inside a OneDrive folder, whose client would convert the copy.</summary>
+        private void RefuseOneDrive(string path, string openedCopies)
+        {
+            if (owner.oneDrive().Holds(path))
+            {
+                throw new OneNoteException(
+                    ErrorCode.ExportPathNotAllowed,
+                    $"The destination {path} is inside OneDrive, whose sync client converts an unpacked notebook into an online one while OneNote has it open, and OneNote then closes; so nothing was opened.",
+                    userAction: $"Copies are opened outside OneDrive only. The opened-copies folder is {openedCopies}; if that is inside OneDrive (a redirected AppData folder), tell the user open_package can't be used on this machine. They can open the package themselves in OneNote (File > Open), which uploads it as an online notebook.",
+                    retryable: false);
+            }
         }
 
         /// <summary>
@@ -170,7 +192,9 @@ public sealed class OpenPackageUseCase : IUseCase
         {
             // The package may have gone since step 1; the folder must still be the same and still absent.
             CheckPackage(package);
-            var again = ExportTarget.ResolveFolder(raw!, snapshot!.ExportRoots);
+            RefuseOneDrive(snapshot!.OpenedCopies, snapshot.OpenedCopies);
+            var again = ExportTarget.ResolveFolder(raw!, snapshot.OpenedCopies);
+            RefuseOneDrive(again, snapshot.OpenedCopies);
             if (!string.Equals(again, folder, StringComparison.OrdinalIgnoreCase))
             {
                 throw new OneNoteException(
@@ -206,7 +230,7 @@ public sealed class OpenPackageUseCase : IUseCase
                 throw new OneNoteException(
                     ErrorCode.Internal,
                     $"The destination folder couldn't be prepared ({ex.GetType().Name}), so nothing was opened.",
-                    userAction: "Check that the export root exists or can be created, and that the user can write to it; or choose another destination under it.");
+                    userAction: $"Check that the opened-copies folder ({snapshot.OpenedCopies}) exists or can be created, and that the user can write to it.");
             }
         }
 
@@ -375,7 +399,7 @@ public sealed class OpenPackageUseCase : IUseCase
             return canonical;
         }
 
-        /// <summary>Phill's Q2 and Q6: the package's name and a local timestamp, so a folder name is never reused.</summary>
+        /// <summary>Phill's Q6: the package's name and a local timestamp, so a folder name is never reused.</summary>
         private string DefaultName(string canonicalPackage) =>
             $"{Path.GetFileNameWithoutExtension(canonicalPackage)} {owner.clock.GetLocalNow().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}";
 

@@ -62,7 +62,8 @@ public sealed class OpenPackageIntegrationTests(ITestOutputHelper output) : IDis
             ["exportRoots"] = new[] { Root },
             ["journal"] = new Dictionary<string, object> { ["path"] = Path.Combine(tempDir, "journal") },
         }));
-        var store = new SettingsStore(settingsPath, Path.Combine(tempDir, "journal"));
+        // The run's temp root is also its opened-copies folder (3.8 Q3), so the copy never lands in the user's AppData.
+        var store = new SettingsStore(settingsPath, Path.Combine(tempDir, "journal"), Root);
         using var com = new ComGateway(new ProcessProbe(), store);
 
         var throwaway = await TestNotebook.AdoptThrowawayNotebookAsync(com, Round2.LocalThrowawayName, Ct);

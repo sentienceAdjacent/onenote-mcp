@@ -29,9 +29,10 @@ public sealed class OpenPackageTool(ToolRunner runner, OpenPackageUseCase useCas
         "Opens a OneNote package (.onepkg, for example one publish made of a notebook) in OneNote as a separate copy: it unpacks the package into a new folder on this PC and opens that folder as a notebook. "
         + "Call it only when the user asks to open or import a package. Nothing in the user's own notebooks changes, and the original stays open if it is. "
         + "package is the full local path (C:\\…) of an existing .onepkg file, in any folder; a relative, network or device path, or another kind of file, fails with InvalidArgument. "
-        + "destination is the new folder, a name such as \"Opened trip\" (under the first export root) or a full local path inside an export root; leave it out for a new folder named after the package with the date and time. "
-        + "A destination outside every export root fails with ExportPathNotAllowed, and one that already exists with FileExists: nothing is opened into an existing folder. "
-        + "Every section of the opened copy counts as password-protected, because it lies under an export folder: reading its pages needs the user's read grant (get_page_content asks). The copy gets no write grant. "
+        + "Copies go in OneNoteMcp's opened-copies folder (by default %LOCALAPPDATA%\\OneNoteMcp\\opened, outside OneDrive). destination is the new folder there, a name such as \"Opened trip\" or a full local path inside that folder; leave it out for a new folder named after the package with the date and time. "
+        + "A destination outside the opened-copies folder, or inside OneDrive (whose sync would convert the copy while OneNote has it open), fails with ExportPathNotAllowed, and one that already exists with FileExists: nothing is opened into an existing folder. "
+        + "Every section of the opened copy counts as password-protected, because it lies in the opened-copies folder: reading its pages needs the user's read grant (get_page_content asks). The copy gets no write grant. "
+        + "A copy the user has closed in OneNote is deleted when the server next starts, once it is more than 7 days old. "
         + "Its pages may list a few seconds after it opens; if none is listed within 5 s the result warns pagesNotListed, which is expected when every section is empty, locked or protected. "
         + "On success, tell the user where the copy is (meta.outputPath) and that it is open in OneNote as a separate notebook (meta.objectId), which they close in OneNote when done. "
         + "If a call fails after the folder was made, the message names the folder and says whether the package was unpacked; another try needs a new destination. "
@@ -39,7 +40,7 @@ public sealed class OpenPackageTool(ToolRunner runner, OpenPackageUseCase useCas
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> OpenPackage(
         [Description("Full local path (C:\\…) of the .onepkg file to open.")] string package,
-        [Description("Optional new folder for the copy: a name under the first export root, or a full local path inside an export root. It must not exist yet. Leave it out for a folder named after the package with the date and time.")] string? destination = null,
+        [Description("Optional new folder for the copy: a name, which lands in the opened-copies folder, or a full local path inside that folder. It must not exist yet. Leave it out for a folder named after the package with the date and time.")] string? destination = null,
         CancellationToken cancellationToken = default) =>
         runner.RunAsync(
             Name,

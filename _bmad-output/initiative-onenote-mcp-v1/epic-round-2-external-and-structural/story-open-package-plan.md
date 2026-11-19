@@ -3,7 +3,7 @@ title: 'open_package'
 type: 'feature'
 ticket: '8'
 created: '2026-11-17'
-status: 'draft'
+status: 'in-review'
 baseline_revision: '2982032d3e2a65718031195099ab5f3670605ea6'
 route: 'full'
 route_source: 'auto'
@@ -69,7 +69,14 @@ context:
 
 </frozen-after-approval>
 
+- **Q3 follow-ups (Phill, 2026-11-18):**
+  - *Named destination, (i):* a named destination may only be inside the opened-copies folder (a folder name lands in it; a full path must be inside it). Export roots are no longer used by `open_package`.
+  - *Cleanup, (b):* when the server starts, a copy's folder in the opened-copies folder is deleted when it holds the marker, its notebook is no longer open in OneNote, and the folder is more than 7 days old. Folders without the marker are never touched.
+  - *`uninstall --purge`, (b):* it deletes the opened copies, but skips any copy OneNote still has open and lists the ones it skipped.
+
 ## Open Questions
+
+All answered (Decisions, 2026-11-18); kept as asked.
 
 1. **Where a named destination may go (Q3 follow-up).** (i) Only inside the opened-copies folder: `destination` becomes a folder name under it (or a full path inside it); export roots stop being used by `open_package` at all. (ii) Inside an export root or the opened-copies folder, either, as long as it isn't OneDrive-synced. (iii) Only inside an export root, refusing OneDrive. Recommended: (i): every copy in one known, non-synced, always-protected place; the export folders stay for files the user exports.
 2. **Cleaning up closed copies (asked of Phill by the coordinating session).** Why not delete a copy at once: its folder *is* the open notebook, so it can only go after the user closes it. Recommended there: a sweep when the server starts that deletes folders in the opened-copies folder that hold the marker, whose notebook isn't open, and that are older than 7 days. Its answer may add tasks below.
@@ -143,6 +150,13 @@ Main now has `OneDriveFolders` (Core/Access; accounts with their folder's plain 
 
 ## Implementation Notes
 
+- 2026-11-18, the Q3 rework, built test-first (23 new or changed tests ran red: `OpenPackageToolTests`, the new `OpenedCopiesTests`, and three `UninstallCommandTests`; then green):
+  - `Core/Writes/OpenedCopies.cs` (new): `DefaultFolder` (`ONENOTE_MCP_OPENED_DIR`, else beside an overridden settings file, else `%LOCALAPPDATA%\OneNoteMcp\opened`), `MarkedCopies` (direct subfolders with the marker, not links), `IsOpen`; `OpenedCopySweep.SweepAsync` (older than 7 days by folder creation time; reads OneNote only when a copy is old enough; `OneNoteNotRunning` means none open; other failures delete nothing).
+  - `SettingsStore` takes and carries the opened-copies folder; every snapshot has `OpenedCopies`; `Protection.RootsOf` adds it; the by-path phrase now says "under the opened-copies folder, an export root or the backups folder" everywhere (it keeps the old wording as a substring, so earlier assertions hold).
+  - `OneDriveFolders.Holds(path)`; `ExportTarget.ResolveFolder(raw, openedCopies)` with its own messages and user action; `OpenPackageUseCase` refuses OneDrive (the opened-copies folder, then the resolved folder) at step 1 and in Validate.
+  - Server: `OpenedCopiesSweepService` (once at start, counts only in the log) via `AddOpenedCopiesSweep` in `Program`; `ServerSetup` passes `OneDriveAccounts.Current`; `UninstallCommand` removes marked copies whole, skipping and listing open ones, through `OpenNotebooksIfOneNoteRuns` (never starts OneNote; empty when it isn't running; null, so every copy is skipped, when the read fails).
+  - Tool description, README (purge), spine (AD-7 open_package, the ExternalWrite row, AD-19 uninstall, AD-21 unpacked packages); the integration test's store is given the run's temp root as its opened-copies folder.
+
 - Implemented directly in this lane (no implementation subagents). **Test-first:** `OpenPackageToolTests` (15) ran red against a stub use case (15 failed), then green; the five `ComGatewayLifecycleTests.OpenPackage*`/`OpenHierarchy*` refusal and pass-through tests were written after `ComGateway`'s two methods but ran red on the two that reach COM (the fake application threw for `OpenPackage`), green once it recorded the call; the integration test came after the code (it can't run without OneNote).
 - `IOneNoteGateway.OpenPackageAsync` and `OpenHierarchyAsync` have default bodies that refuse with `NotSupported`, so the 21 test gateways needn't change; `ComGateway` and `FakeGateway` implement them. `OpenPackage` runs under `timeouts.publishSeconds`; neither is retried after a disconnect.
 - `ExportTarget.ResolveFolder` shares one private core (`UnderARoot`) with `Resolve`, so the folder variant uses the same root test (`PathUnder`) as exports and AD-21's path rule; its messages say "nothing was opened".
@@ -152,6 +166,7 @@ Main now has `OneDriveFolders` (Core/Access; accounts with their folder's plain 
 
 ## Plan Change Log
 
+- 2026-11-18, Phill answered the named-destination (i), cleanup (b) and purge (b) questions; status in-progress, building the Q3 rework test-first.
 - 2026-11-18, merged main after backlog 13 (#97, 30cb630) and planned the Q3 rework on its `OneDriveFolders` seam (Tasks, "Rework for Q3"); build waits for Open Questions 1 and 2.
 - 2026-11-18, Phill's Q3 (option a) after the OneDrive crash probe: the default destination moves to `%LOCALAPPDATA%\OneNoteMcp\opened\…`, a protected root, and OneDrive-synced destinations are refused; status back to `draft` until Open Questions 1 and 2 are answered. **Rework, after backlog 13 (#97) merges and this branch is rebased** (it brings the OneDrive folder seam `OneDriveFolders` to reuse for "is this OneDrive-synced"): `Protection.RootsOf` adds the opened-copies folder; `OpenPackageUseCase` takes it as the default and refuses OneDrive destinations; `ExportTarget.ResolveFolder` gains the opened-copies root per Open Question 1; tests first (default location, OneDrive refusal, the copy protected with no export root covering it); the integration test and S1/S2 rerun. The built code on this branch (default under the export root) is not to merge as it stands.
 

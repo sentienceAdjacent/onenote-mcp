@@ -57,6 +57,14 @@ public sealed class OneDriveFolders
         prefixes = new(() => [.. Accounts.Select(a => (a, PathUnder.Prefixes(a.Folder)))]);
     }
 
+    /// <summary>
+    /// True when the local path <paramref name="path"/> is a known OneDrive folder or lies inside one, in any of its forms
+    /// (plain and canonical), at a segment boundary, case-insensitively (story 3.8 Q3: nothing is unpacked there). A path
+    /// that isn't a fully qualified local path is held by none.
+    /// </summary>
+    public bool Holds(string? path) =>
+        PathUnder.Prefixes(path).Any(form => FolderPrefixes.Any(f => f.Prefixes.Any(folder => form.StartsWith(folder, StringComparison.OrdinalIgnoreCase))));
+
     /// <summary>No OneDrive folder known.</summary>
     public static OneDriveFolders None { get; } = new([]);
 

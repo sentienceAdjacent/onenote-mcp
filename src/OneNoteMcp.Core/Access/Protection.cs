@@ -28,7 +28,7 @@ public sealed class Protection
 {
     /// <summary>Appended to a refusal's message when the section is protected by its path only, so the caller learns why.</summary>
     public const string ByPathReason =
-        " It is under an export root or the backups folder, so it is treated as password-protected.";
+        " It is under the opened-copies folder, an export root or the backups folder, so it is treated as password-protected.";
 
     /// <param name="roots">The protected roots; an empty list leaves the marker as the only rule.</param>
     /// <param name="warnings">Warnings about the roots themselves, attached to reads.</param>
@@ -82,11 +82,11 @@ public sealed class Protection
     /// <summary>Copies this rule with <paramref name="warnings"/> in place of its own.</summary>
     public Protection WithWarnings(IReadOnlyList<ToolWarning> warnings) => new(Roots, warnings, OneDrive);
 
-    /// <summary>The roots <paramref name="settings"/> names: its export roots and its journal's <c>backups</c> folder.</summary>
+    /// <summary>The roots <paramref name="settings"/> names: its export roots, its journal's <c>backups</c> folder, and the opened-copies folder (story 3.8 Q3).</summary>
     public static IReadOnlyList<string> RootsOf(SettingsSnapshot settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        return [.. settings.ExportRoots.Paths, Path.Combine(settings.Journal.Path, JournalFiles.BackupsFolderName)];
+        return [.. settings.ExportRoots.Paths, Path.Combine(settings.Journal.Path, JournalFiles.BackupsFolderName), settings.OpenedCopies];
     }
 
     /// <summary>The rule on <paramref name="settings"/>'s roots and the OneDrive folders <paramref name="oneDrive"/>, as the grant CLI and other one-off readers build it.</summary>
@@ -171,8 +171,8 @@ public sealed class Protection
 
     /// <summary>
     /// How a refusal says a section is protected: "is password-protected" for a marked one, and for one protected by its
-    /// path alone, "is under an export root or the backups folder, so it is treated as password-protected" (entry 15).
+    /// path alone, "is under the opened-copies folder, an export root or the backups folder, so it is treated as password-protected" (entry 15).
     /// </summary>
     public static string Phrase(bool marked) =>
-        marked ? "is password-protected" : "is under an export root or the backups folder, so it is treated as password-protected";
+        marked ? "is password-protected" : "is under the opened-copies folder, an export root or the backups folder, so it is treated as password-protected";
 }

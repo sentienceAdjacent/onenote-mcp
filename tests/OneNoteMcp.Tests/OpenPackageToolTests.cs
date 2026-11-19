@@ -18,9 +18,10 @@ namespace OneNoteMcp.Tests;
 
 /// <summary>
 /// Story 3.8: <c>open_package</c> on <see cref="FakeGateway"/>, one test per row of the plan's I/O matrix. A package is
-/// unpacked with <c>OpenPackage</c> into a new folder under an export root that already holds the marker file
-/// (<see cref="ExportRootGuard.MarkerFileName"/>), then opened with <c>OpenHierarchy</c>, and the pages are awaited.
-/// The export root is a temporary folder; the package is a file in another temporary folder.
+/// unpacked with <c>OpenPackage</c> into a new folder in the opened-copies folder (Phill's Q3 (a) and its follow-up (i),
+/// 2026-11-18) that already holds the marker file (<see cref="ExportRootGuard.MarkerFileName"/>), then opened with
+/// <c>OpenHierarchy</c>, and the pages are awaited. The opened-copies folder is a temporary folder (the store is given it,
+/// so the user's AppData is never touched); the package is a file in another temporary folder.
 /// </summary>
 public sealed class OpenPackageToolTests : IDisposable
 {
@@ -36,7 +37,8 @@ public sealed class OpenPackageToolTests : IDisposable
     public OpenPackageToolTests()
     {
         writeLock = new WriteLock($@"Local\OneNoteMcp.Test.{Guid.NewGuid():N}", holds.Enqueue);
-        File.WriteAllText(temp.Combine("settings.json"), JsonSerializer.Serialize(new { schemaVersion = 1, exportRoots = new[] { Root } }));
+        File.WriteAllText(temp.Combine("settings.json"), JsonSerializer.Serialize(new { schemaVersion = 1, exportRoots = new[] { ExportRoot } }));
+        openedCopies = Root;
         Directory.CreateDirectory(temp.Combine("downloads"));
         package = temp.Combine(@"downloads\Trip notes.onepkg");
         File.WriteAllBytes(package, [0x4D, 0x53, 0x43, 0x46]);
@@ -45,12 +47,20 @@ public sealed class OpenPackageToolTests : IDisposable
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    /// <summary>The only export root, absent until a call creates it.</summary>
-    private string Root => temp.Combine("exports");
+    /// <summary>The opened-copies folder, absent until a call creates it.</summary>
+    private string Root => temp.Combine("opened");
+
+    /// <summary>The settings' only export root: no longer a place <c>open_package</c> may unpack into (Q3 follow-up (i)).</summary>
+    private string ExportRoot => temp.Combine("exports");
+
+    /// <summary>The OneDrive seam the use case is given; none known unless a test sets one.</summary>
+    private OneDriveFolders oneDrive = OneDriveFolders.None;
+
+    private string openedCopies = string.Empty;
 
     private string CanonicalRoot => FilePathGate.Canonical(Root, out _)!;
 
-    private SettingsStore Store => new(temp.Combine("settings.json"), temp.Combine("journal"));
+    private SettingsStore Store => new(temp.Combine("settings.json"), temp.Combine("journal"), openedCopies);
 
     public void Dispose() => temp.Dispose();
 
@@ -73,7 +83,7 @@ public sealed class OpenPackageToolTests : IDisposable
     }
 
     [Fact]
-    public async Task WithNoDestination_TheFolderIsThePackagesName_AndATimestamp_UnderTheFirstRoot_CreatedIfMissing()
+    public async Task WithNoDestination_TheFolderIsThePackagesName_AndATimestamp_InTheOpenedCopiesFolder_CreatedIfMissing()
     {
         Assert.False(Directory.Exists(Root));
 
@@ -111,7 +121,7 @@ public sealed class OpenPackageToolTests : IDisposable
     [Theory]
     [InlineData(@"..\escaped")]
     [InlineData(@"Z:\elsewhere\copy")]
-    public async Task ADestinationOutsideEveryRoot_IsExportPathNotAllowed_NothingDone(string destination)
+    public async Task ADestinationOutsideTheOpenedCopiesFolder_IsExportPathNotAllowed_NothingDone(string destination)
     {
         Error(await Tool().OpenPackage(package, destination, Ct), "ExportPathNotAllowed");
 
@@ -292,6 +302,57 @@ public sealed class OpenPackageToolTests : IDisposable
         Assert.Empty(gateway.OpenPackageCalls);
     }
 
+    // --- Q3 (Phill, 2026-11-18): the opened-copies folder, and OneDrive refused ---------------------------------------------
+
+    [Fact]
+    public async Task ADestinationInsideAnExportRoot_IsExportPathNotAllowed_NamedDestinationsGoInTheOpenedCopiesFolderOnly()
+    {
+        Directory.CreateDirectory(ExportRoot);
+
+        var error = Error(await Tool().OpenPackage(package, Path.Combine(ExportRoot, "Opened trip"), Ct), "ExportPathNotAllowed");
+
+        Assert.Contains("opened-copies folder", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(ExportRoot, "Opened trip")));
+        await AssertNothingDoneAsync();
+    }
+
+    [Fact]
+    public async Task AFullPathInsideTheOpenedCopiesFolder_IsAllowed()
+    {
+        var root = Ok(await Tool().OpenPackage(package, Path.Combine(Root, "Opened trip"), Ct));
+
+        Assert.Equal(Path.Combine(CanonicalRoot, "Opened trip"), root.GetProperty("meta").GetProperty("outputPath").GetString());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Opened trip")]
+    public async Task AnOpenedCopiesFolderInsideOneDrive_IsExportPathNotAllowed_NamingOneDrive_NothingCreated(string? destination)
+    {
+        // A redirected %LOCALAPPDATA%: the OneDrive client would convert the unpacked notebook and OneNote would close (3.8 crash probe).
+        var cloud = temp.Combine("OneDrive");
+        openedCopies = Path.Combine(cloud, "AppData", "opened");
+        oneDrive = new OneDriveFolders([new OneDriveAccount(cloud.ToUpperInvariant())]);
+
+        var error = Error(await Tool().OpenPackage(package, destination, Ct), "ExportPathNotAllowed");
+
+        Assert.Contains("OneDrive", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(openedCopies));
+        Assert.Empty(gateway.OpenPackageCalls);
+    }
+
+    [Fact]
+    public async Task TheCopy_IsProtectedByItsPath_WithNoExportRootCoveringIt()
+    {
+        var folder = Ok(await Tool().OpenPackage(package, null, Ct)).GetProperty("meta").GetProperty("outputPath").GetString()!;
+
+        var protection = new ReadAccess(gateway, Store.Read, null, clock).Protection();
+
+        Assert.Contains(Root, protection.Roots);
+        Assert.True(protection.UnderRoot(Path.Combine(folder, "New Section 1.one")));
+        Assert.Contains("opened-copies folder", Protection.Phrase(marked: false), StringComparison.Ordinal);
+    }
+
     // --- Helpers -----------------------------------------------------------------------------------------------------------
 
     /// <summary>The copy's pages-scope read: one page when <paramref name="listed"/>, else none.</summary>
@@ -313,7 +374,8 @@ public sealed class OpenPackageToolTests : IDisposable
         new WritePipeline(writeLock, gateway, null, Store.Read, TimeProvider.System),
         clock,
         pollInterval: TimeSpan.FromMilliseconds(10),
-        listWait: TimeSpan.FromMilliseconds(80));
+        listWait: TimeSpan.FromMilliseconds(80),
+        oneDrive: () => oneDrive);
 
     private OpenPackageTool Tool() => new(new ToolRunner(NullLogger<ToolRunner>.Instance), UseCase());
 

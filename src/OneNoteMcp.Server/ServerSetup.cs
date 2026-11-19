@@ -225,12 +225,14 @@ public static class ServerSetup
             sp.GetRequiredService<WritePipeline>(),
             TimeProvider.System));
 
-        // Story 3.8: open_package (AD-7 ExternalWrite): unpack a package under an export root, open it, wait for its pages.
+        // Story 3.8: open_package (AD-7 ExternalWrite): unpack a package into the opened-copies folder, outside OneDrive
+        // (Phill's Q3 (a)), open it, wait for its pages.
         services.AddSingleton(sp => new OpenPackageUseCase(
             sp.GetRequiredService<IOneNoteGateway>(),
             sp.GetRequiredService<SettingsStore>().Read,
             sp.GetRequiredService<WritePipeline>(),
-            TimeProvider.System));
+            TimeProvider.System,
+            oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
 
         var builder = services
             .AddMcpServer(o => o.ServerInfo = new Implementation { Name = ServerName, Version = Version })
@@ -296,6 +298,20 @@ public static class ServerSetup
             sp.GetRequiredService<JournalPruner>(),
             TimeProvider.System,
             sp.GetRequiredService<ILogger<JournalPruneService>>()));
+    }
+
+    /// <summary>
+    /// Story 3.8 (Phill's cleanup answer (b)): one sweep of the opened-copies folder when the server starts. <c>Program</c>
+    /// adds it to the server's host; test hosts leave it out, so they never delete a real copy.
+    /// </summary>
+    public static IServiceCollection AddOpenedCopiesSweep(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddHostedService(sp => new OpenedCopiesSweepService(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<SettingsStore>(),
+            TimeProvider.System,
+            sp.GetRequiredService<ILogger<OpenedCopiesSweepService>>()));
     }
 
     /// <summary>

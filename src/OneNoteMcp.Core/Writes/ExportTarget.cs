@@ -89,34 +89,48 @@ public static class ExportTarget
 
     /// <summary>What to do about a destination folder this check refuses as malformed (story 3.8).</summary>
     public const string InvalidFolderUserAction =
-        "Pass a new folder name, such as \"Opened trip\", which lands under the export root, or a full local path (C:\\…) under an export root, "
+        "Pass a new folder name, such as \"Opened trip\", which lands in the opened-copies folder, or a full local path (C:\\…) inside it, "
         + "or leave destination out for a folder named after the package. No network or device paths, no ':' after the drive, and none of < > \" | ? *.";
 
+    /// <summary>What to do about an <c>open_package</c> destination outside the opened-copies folder (story 3.8 Q3 (i)).</summary>
+    public const string OpenedNotAllowedUserAction =
+        "Leave destination out for a new folder named after the package, or pass a new folder name, which lands in the opened-copies folder. "
+        + "A full path must be inside that folder (meta.outputPath of an earlier open_package shows where it is).";
+
     /// <summary>
-    /// Story 3.8 (<c>open_package</c>): the canonical path for <paramref name="raw"/>, a new folder, under
-    /// <paramref name="roots"/>, with <see cref="Resolve"/>'s rules but no extension, or throws
+    /// Story 3.8 (<c>open_package</c>): the canonical path for <paramref name="raw"/>, a new folder, inside
+    /// <paramref name="openedCopies"/> (Phill's Q3 follow-up (i), 2026-11-18), with <see cref="Resolve"/>'s rules but no
+    /// extension, or throws
     /// <see cref="ErrorCode.InvalidArgument"/>, <see cref="ErrorCode.ExportPathNotAllowed"/> or
     /// <see cref="ErrorCode.FileExists"/>; messages say nothing was opened. The same root test as exports and AD-21's path
     /// rule (<see cref="PathUnder"/>).
     /// </summary>
-    public static string ResolveFolder(string raw, ExportRoots roots)
+    public static string ResolveFolder(string raw, string openedCopies)
     {
-        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(openedCopies);
         if (string.IsNullOrWhiteSpace(raw))
         {
             throw new OneNoteException(ErrorCode.InvalidArgument, "The argument destination is empty, so nothing was opened.", userAction: InvalidFolderUserAction, retryable: false);
         }
 
-        return UnderARoot(raw.TrimEnd('\\', '/'), roots, Opened, extensions: null);
+        return UnderARoot(raw.TrimEnd('\\', '/'), new ExportRoots([openedCopies]), Opened, extensions: null, OpenedCopiesPlace);
     }
 
     private const string Exported = "nothing was exported";
 
     private const string Opened = "nothing was opened";
 
+    /// <summary>How the shared checks name the place a path must be inside, and what to do when it isn't.</summary>
+    private sealed record Place(string Inside, string First, string NotAllowedUserAction);
+
+    private static readonly Place ExportRootPlace = new("an export root", "the first export root", NotAllowedUserAction);
+
+    private static readonly Place OpenedCopiesPlace = new("the opened-copies folder", "the opened-copies folder", OpenedNotAllowedUserAction);
+
     /// <summary>The checks <see cref="Resolve"/> and <see cref="ResolveFolder"/> share, in the class summary's order.</summary>
-    private static string UnderARoot(string raw, ExportRoots roots, string nothing, IReadOnlyList<string>? extensions)
+    private static string UnderARoot(string raw, ExportRoots roots, string nothing, IReadOnlyList<string>? extensions, Place? place = null)
     {
+        place ??= ExportRootPlace;
         var full = raw;
         if (!Path.IsPathRooted(raw))
         {
@@ -128,7 +142,7 @@ public static class ExportTarget
             // The first root must itself be a usable local folder; otherwise the root is at fault, not the caller's name.
             if (string.IsNullOrWhiteSpace(roots.Paths[0]) || FilePathGate.Canonical(roots.Paths[0], out _) is not { } firstRoot)
             {
-                throw NotAllowed(raw, "the first export root isn't a usable local folder", nothing);
+                throw NotAllowed(raw, $"{place.First} isn't a usable local folder", nothing, place.NotAllowedUserAction);
             }
 
             full = Path.Combine(firstRoot, raw);
@@ -148,12 +162,12 @@ public static class ExportTarget
         if ((extensions is not null && !EndsInOneOf(target, extensions)) || target.IndexOf(':', 2) >= 0)
         {
             // A link followed to a name with another extension (the caller's own path passed the check above).
-            throw NotAllowed(raw, extensions is null ? "it leads somewhere that isn't a plain local path" : $"it leads to a file that doesn't end in {string.Join(" or ", extensions)}", nothing);
+            throw NotAllowed(raw, extensions is null ? "it leads somewhere that isn't a plain local path" : $"it leads to a file that doesn't end in {string.Join(" or ", extensions)}", nothing, place.NotAllowedUserAction);
         }
 
         if (!roots.Paths.Any(root => Contains(root, target)))
         {
-            throw NotAllowed(raw, "it isn't inside an export root", nothing);
+            throw NotAllowed(raw, $"it isn't inside {place.Inside}", nothing, place.NotAllowedUserAction);
         }
 
         if (Exists(full) || Exists(target))
@@ -207,6 +221,6 @@ public static class ExportTarget
     private static OneNoteException Invalid(string message, bool folder = false) =>
         new(ErrorCode.InvalidArgument, message, userAction: folder ? InvalidFolderUserAction : InvalidPathUserAction, retryable: false);
 
-    private static OneNoteException NotAllowed(string raw, string why, string nothing = Exported) =>
-        new(ErrorCode.ExportPathNotAllowed, $"The path {raw} isn't allowed: {why}, so {nothing}.", userAction: NotAllowedUserAction, retryable: false);
+    private static OneNoteException NotAllowed(string raw, string why, string nothing = Exported, string userAction = NotAllowedUserAction) =>
+        new(ErrorCode.ExportPathNotAllowed, $"The path {raw} isn't allowed: {why}, so {nothing}.", userAction: userAction, retryable: false);
 }

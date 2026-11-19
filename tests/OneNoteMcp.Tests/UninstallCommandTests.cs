@@ -35,6 +35,12 @@ public sealed class UninstallCommandTests : IDisposable
 
     private string JournalFolder => Path.Combine(LocalFolder, "journal");
 
+    /// <summary>The opened-copies folder (3.8 Q3), beside the journal, as the server's default puts it.</summary>
+    private string OpenedFolder => Path.Combine(LocalFolder, "opened");
+
+    /// <summary>What the purge is told is open in OneNote: null for "couldn't tell".</summary>
+    private IReadOnlyList<string>? openNotebooks = [];
+
     public void Dispose()
     {
         output.Dispose();
@@ -55,9 +61,67 @@ public sealed class UninstallCommandTests : IDisposable
             new StringReader(input),
             output,
             interactive,
-            new UninstallPaths(SettingsPath, LogFolder, JournalFolder, systemFolders ?? []),
+            new UninstallPaths(SettingsPath, LogFolder, JournalFolder, systemFolders ?? [], OpenedFolder),
             () => running ?? [],
-            settingsLock ?? RecordingLock);
+            settingsLock ?? RecordingLock,
+            () => openNotebooks);
+
+    // --- 3.8 Q3 follow-up (b), Phill 2026-11-18: the opened copies ------------------------------------------------------
+
+    private string OpenedCopy(string name, bool marker = true)
+    {
+        var folder = Path.Combine(OpenedFolder, name);
+        Directory.CreateDirectory(Path.Combine(folder, "Group"));
+        File.WriteAllText(Path.Combine(folder, "Section.one"), "x");
+        File.WriteAllText(Path.Combine(folder, "Group", "Inner.one"), "x");
+        if (marker)
+        {
+            File.WriteAllText(Path.Combine(folder, OneNoteMcp.Core.Access.ExportRootGuard.MarkerFileName), string.Empty);
+        }
+
+        return folder;
+    }
+
+    [Fact]
+    public void Purge_DeletesTheOpenedCopies_SkipsAndListsOneStillOpen_AndNeverTouchesAnUnmarkedFolder()
+    {
+        var closed = OpenedCopy("Closed 20261101-100000");
+        var open = OpenedCopy("Open 20261101-100000");
+        var unmarked = OpenedCopy("Mine", marker: false);
+        openNotebooks = [open];
+
+        Command(interactive: false).Run(["--purge", "--yes"]);
+
+        Assert.False(Directory.Exists(closed));
+        Assert.True(File.Exists(Path.Combine(open, "Section.one")));
+        Assert.True(File.Exists(Path.Combine(unmarked, "Section.one")));
+        var text = output.ToString();
+        Assert.Contains("still open in OneNote", text, StringComparison.Ordinal);
+        Assert.Contains(open, text, StringComparison.Ordinal);
+        Assert.Contains(closed, text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Purge_WhenItCantTellWhatIsOpen_SkipsEveryCopy_AndListsThem()
+    {
+        var copy = OpenedCopy("Copy 20261101-100000");
+        openNotebooks = null;
+
+        Command(interactive: false).Run(["--purge", "--yes"]);
+
+        Assert.True(File.Exists(Path.Combine(copy, "Section.one")));
+        Assert.Contains(copy, output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Purge_RemovesTheEmptiedOpenedCopiesFolder()
+    {
+        OpenedCopy("Closed 20261101-100000");
+
+        Command(interactive: false).Run(["--purge", "--yes"]);
+
+        Assert.False(Directory.Exists(OpenedFolder));
+    }
 
     /// <summary>A stand-in for the settings mutex: records which seeded files still existed before and after its action.</summary>
     private void RecordingLock(Action action)
