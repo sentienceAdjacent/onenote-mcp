@@ -4,12 +4,12 @@ type: 'feature'
 ticket: '10'
 created: '2026-11-19'
 baseline_revision: 'e97afd76365f24a9d451ac216f9d55cf2610eb72'
-status: 'in-progress'
+status: 'built'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/CLAUDE.md'
@@ -94,9 +94,32 @@ What an agent does when it follows the skill: the live step's script (MCP Test; 
 
 ## Implementation Notes
 
+- 2026-11-19, built directly (no implementation subagent, per the coordinator's standing rule), test-first where code changed:
+  - `PluginPackagingTests`: the exemption set and its test removed; `GuideSkill_MentionsEveryContractTool` and `Readme_NamesEveryContractTool` went red (2 failing) on the six round-2 tools, then green once the docs named them.
+  - Harness: it didn't build on main (`ProbeSectionSync.cs` used `HierarchyNode.Encrypted`, renamed `EncryptedMarker` by entry 15); fixed. Its `--contract-only` check against a `contract-ok` fake then failed (exit 3, 6 tools not read-only), and passes (exit 0, "contract ok: 29 tools") with the six tools in `WriteTools`.
+  - Skill: new `references/exports-and-packages.md` (recipes 1 export, 2 open a package); `references/hierarchy-writes.md` recipes 6 move, 7 merge, 8 restore from the recycle bin, 9 subpages, recipe 4's undo, the `outcomeUnknown` re-reads and "can't do"; `page-writes.md` l.124, the new-page recipe and "can't do"; `SKILL.md` description (1,015 chars), intro, When to use, Writing, six tool-map rows and `create_page`'s, `FileExists`, `NotSupported` and a new `ExportPathNotAllowed` row, eight warning rows.
+  - README: status line, six rows and `create_page`'s, the "(planned)" line removed, Limits, the journal list, a new "Exports and opened packages" section ("Export folders", "Opened packages"), the Files rows. "edit `settings.json` yourself", not "by hand", which `Readme_DocumentsPurge_AsBuilt` forbids.
+- Matrix test audit: the matrix is what an agent does following the skill, the live step's script (as in 5.7); no unit test covers its rows. What the build could check ran: the doc guards, the harness's fake contract run, and `claude plugin validate --strict dist/stage/onenote` (passed; the stage holds all three references).
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-19, quick lens, 13 findings, each checked against the tool descriptions, `ToolWarnings.cs` and the docs; 12 patched, 1 noted:
+  - medium, patched: README `create_page` row said "never a read grant", but `parentPageId` in a protected section needs one (`CreatePageTool.cs`).
+  - medium, patched: `SKILL.md`'s grant rule said every write but `create_notebook` needs the write grant; `publish` and `open_package` need none.
+  - medium, patched: `SKILL.md`'s `outcomeUnknown` paragraph lacked the round-2 re-reads (Boundaries); added per tool.
+  - low, patched: `SectionLocked` (publish's export-the-others route) and `ObjectNotFound` (its meaning for `restore_from_recycle_bin`) rows widened.
+  - low, patched: the harness README's exit-3 text still said twenty-three tools.
+  - low, patched: README Files row said "later export settings".
+  - low, patched: README "What it can't restore" didn't name the round-2 layout entries.
+  - low, patched: README `restore_from_recycle_bin` row implied only `delete_hierarchy_object` deletes can be restored.
+  - low, patched: `SKILL.md`'s `restore_from_recycle_bin` row put `parentId` as a fallback; it wins when given.
+  - low, patched: recipe 6 and the `settled` row implied a page move waits for a cloud settle; only a section or group move does (`ToolWarnings.Settled`).
+  - low, patched: recipe 1 left `onepkg` out of a page's formats (only a notebook is limited to it).
+  - low, patched: README `move_hierarchy_object` row said "OneDrive notebook" for a rule that covers any cloud notebook.
+  - noted: the AC's search expects only three unsupported items, but moving a notebook is unsupported too (`move_hierarchy_object` takes pages, sections and groups). The docs say so consistently now; the AC's list is narrower than the fact, and the frozen plan isn't edited.
+- Verification after the patches: build 0 warnings; unit 3774 passed, 3 skipped; integration 220 passed, 126 skipped; harness `--contract-only` against a `contract-ok` fake: "contract ok: 29 tools", exit 0; `claude plugin validate --strict dist/stage/onenote`: passed.
 
 ## Verification
 
