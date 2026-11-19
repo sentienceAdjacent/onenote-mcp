@@ -198,7 +198,7 @@ Before `permanently_delete_hierarchy_object` deletes a section, OneNote publishe
 - **Never in OneDrive.** A copy unpacked inside a OneDrive folder is converted into an online notebook by OneDrive's sync client while OneNote has it open, and OneNote then closes, so any destination in OneDrive is refused. If your AppData folder is itself in OneDrive, `open_package` can't be used on that PC; open the package in OneNote (File > Open) instead, which uploads it properly.
 - **Protected, read-only to Claude.** Every section of the copy counts as password-protected, so reading it needs your read grant, and Claude has no write grant to it.
 - **Closing it.** Close the copy in OneNote when you're done; no tool closes a notebook.
-- **Cleanup.** When the server starts while OneNote is running, it deletes a copy's folder once the copy is closed and the folder is more than 7 days old. It only touches folders it made (they hold a `.onenote-mcp-opened` file). `OneNoteMcp uninstall --purge` deletes the copies too, skipping any still open (see [Uninstall](#uninstall)).
+- **Cleanup.** When the server starts while OneNote is running, it deletes a copy's folder once the copy is closed and nothing in it has changed for more than 7 days. It only touches folders it made (they hold a `.onenote-mcp-opened` file). `OneNoteMcp uninstall --purge` deletes the copies too, skipping any still open (see [Uninstall](#uninstall)).
 
 ## Install
 
