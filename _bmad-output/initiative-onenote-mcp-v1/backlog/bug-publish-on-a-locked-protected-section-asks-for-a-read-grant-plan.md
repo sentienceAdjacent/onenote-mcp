@@ -39,7 +39,7 @@ context: []
 ## Review Triage Log
 
 - 2026-11-19, quick lens (4) and a Fable check of the spine edit at low effort (11), each checked against the code and spine:
-  - patched: step 4's new order had no test (both): `APageMovedIntoALockedProtectedSectionBeforeTheLock_IsSectionLocked_NotReadNotGranted`, mutation-checked (see below).
+  - patched: step 4's new order had no test (both): `APageMovedIntoALockedProtectedSectionBeforeTheLock_IsSectionLocked_NotReadNotGranted`, mutation-checked 2026-11-19: with step 4's two calls swapped back on the committed tree, only that test failed (1 of 3787); restored with `git restore --source=HEAD`, green again.
   - patched (Fable F1, F3, F4, F5, F10, F11): the AD-9 `ReadNotGranted` row lists `publish`; the 1.2 sentence moved after the 3.14 rationale and stands alone; the lock check's place in publish's step 1 is stated; memlog `updated:`; the rejected option (b) recorded and the Code Map headed "as found"; "fifth" dropped in code, test and memlog.
   - for the coordinator / owner: Fable F6 and the quick lens (the section advice dead-ends for a section with no pages: offer `get_hierarchy` of the section too); F7 (the advice says "password-protected" for a section protected by path only); F8 (the guide could say unlock first); F9 (after unlocking without a grant, the retry is `ReadNotGranted`: an optional combined `userAction`); quick lens (a notebook package holding a path-protected section still gets the page wording, pre-existing).
   - the quick lens's "no Fable on record" is answered by the Fable check above.
