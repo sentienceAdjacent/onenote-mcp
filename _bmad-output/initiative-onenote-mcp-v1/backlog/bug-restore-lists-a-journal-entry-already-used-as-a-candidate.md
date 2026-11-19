@@ -40,7 +40,7 @@ Verify:
 1. **The expected behavior holds**
    **Given** a soft-delete entry whose page an earlier restore brought back
    **When** a recycled page with the same name is restored by name
-   **Then** that entry isn't offered as a candidate (or is marked as used, per the decision below)
+   **Then** that entry is still listed as a candidate, marked "already restored" in the candidate text
 2. **Tests cover the condition found and fixed**
    **Given** the unit test suite
    **When** it runs
@@ -58,5 +58,5 @@ Verify:
 
 ## Notes
 
-- Unknown: should a used entry be excluded from the candidates, marked as used, or left as it is? Settle it with Phill before the build. The restore's own journal entry names the target, but not the soft-delete entry it used, so recording that link may be part of the fix.
+- Decision: Phill, 2026-11-19 (Inbox): keep listing a used entry as a candidate, marked "already restored"; don't exclude it (excluding would hide a real deleted copy if the first restore was later deleted again). The restore's own journal entry names the target, but not the soft-delete entry it used, so recording that link is part of the fix.
 - Severity is low: the result is a question to the user, never a wrong restore.
