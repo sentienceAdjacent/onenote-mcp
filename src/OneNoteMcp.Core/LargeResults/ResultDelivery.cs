@@ -55,16 +55,44 @@ public sealed class ResultDelivery
 
         var (tree, warning) = Spans(source.Kind, body);
         var original = warning is null ? success : success with { Warnings = [.. success.Warnings, warning] };
-        var entry = new StoredResult(
-            Guid.NewGuid().ToString("N"),
-            source.Kind,
-            tree,
-            source.PiBasicXml,
-            original,
-            SubtreeHashChars(tree, success.Meta.Basis),
-            success.Grants ?? ResultGrants.None);
+        var resultId = Guid.NewGuid().ToString("N");
+        var hashChars = SubtreeHashChars(tree, success.Meta.Basis);
+        var grants = success.Grants ?? ResultGrants.None;
+        var entry = new StoredResult(resultId, source.Kind, tree, source.PiBasicXml, original, hashChars, grants);
+
+        // Backlog 15 (Phill, 2026-11-19, Q1 a, Q3 a): a header too long for the first index loses meta.filtered to a second
+        // stored result, JSON text read with read_result, and keeps its count and resultId. Every index of the result shows
+        // the same header, so the stored original carries the moved form. Nothing is dropped (AD-20, no loss).
+        if (original.Meta.Filtered is { Count: > 0 } filtered
+            && measure.TextBlock(responses.FirstIndex(entry, DateTimeOffset.MaxValue, inlineMax)) > inlineMax)
+        {
+            var listId = StoreFilteredList(original.Meta.CorrelationId, filtered, grants, settings);
+            original = original with { Meta = original.Meta with { Filtered = null, FilteredCount = filtered.Count, FilteredResultId = listId } };
+            entry = new StoredResult(resultId, source.Kind, tree, source.PiBasicXml, original, hashChars, grants);
+        }
+
         var (expiresAt, change) = store.Add(entry, settings);
         return new DeliveryOutcome(responses.FirstIndex(entry, expiresAt, inlineMax), new StoredEvent(entry.ResultId, body.Length, change));
+    }
+
+    /// <summary>The camelCase of the envelope, so the stored list reads as <c>meta.filtered</c> would have.</summary>
+    private static readonly System.Text.Json.JsonSerializerOptions ListJson = new() { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
+
+    /// <summary>Stores <paramref name="filtered"/> as JSON text, under the parent's grants, and returns its resultId.</summary>
+    private string StoreFilteredList(string correlationId, IReadOnlyList<FilteredPage> filtered, ResultGrants grants, ResultSettings settings)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(filtered, ListJson);
+        var tree = ElementSpans.Text(json);
+        var list = new StoredResult(
+            Guid.NewGuid().ToString("N"),
+            ResultKind.Text,
+            tree,
+            null,
+            new ToolSuccess(null, new ToolMeta(correlationId, Binary: json), []),
+            new int[tree.Nodes.Count],
+            grants);
+        store.Add(list, settings);
+        return list.ResultId;
     }
 
     /// <summary>

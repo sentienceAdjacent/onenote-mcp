@@ -207,9 +207,18 @@ internal sealed class ResultResponses(ITextBlockMeasure measure)
         return new ToolSuccess(null, meta, entry.Original.Warnings) { Index = IndexOf(entry.Tree.Root, page, entries) };
     }
 
+    /// <summary>
+    /// Every index of a result whose <c>meta.filtered</c> moved to a second stored result carries its count and resultId
+    /// (backlog 15; Phill, 2026-11-19, Q1 a), so the list stays findable from any page of the index.
+    /// </summary>
+    private static ToolMeta WithMovedList(ToolMeta meta, StoredResult entry) =>
+        entry.Original.Meta.FilteredResultId is { } listId
+            ? meta with { FilteredCount = entry.Original.Meta.FilteredCount, FilteredResultId = listId }
+            : meta;
+
     private static ToolSuccess ExpandResponse(StoredResult entry, string correlationId, DateTimeOffset expiresAt, SpanNode node, int page, List<IndexEntry> entries, int pages)
     {
-        var meta = new ToolMeta(correlationId, Basis: ExpandBasis(entry, node), Result: ResultMeta(entry, expiresAt, pages));
+        var meta = WithMovedList(new ToolMeta(correlationId, Basis: ExpandBasis(entry, node), Result: ResultMeta(entry, expiresAt, pages)), entry);
         return new ToolSuccess(null, meta, []) { Index = IndexOf(node, page, entries) };
     }
 
@@ -219,6 +228,7 @@ internal sealed class ResultResponses(ITextBlockMeasure measure)
             correlationId,
             Basis: entry.Basis is { } b ? new PageBasisResult(b.PageHash, b.LastModifiedTime) : null,
             Result: ResultMeta(entry, expiresAt, pages));
+        meta = WithMovedList(meta, entry);
         var index = new ResultIndex(first.Parent!.Ref, last.End - first.Start, page, entries, Run: [first.Ref, last.Ref]);
         return new ToolSuccess(null, meta, []) { Index = index };
     }

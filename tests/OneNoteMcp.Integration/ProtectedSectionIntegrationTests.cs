@@ -60,7 +60,8 @@ public sealed class ProtectedSectionIntegrationTests(ITestOutputHelper output) :
         var keptVault = broadXml.Descendants(One + "Section").Single(s => (string?)s.Attribute("ID") == vaultId);
         Assert.Empty(keptVault.Elements(One + "Page"));
         Assert.Contains(vaultId, Withheld(broad));
-        Assert.Contains(broad.GetProperty("warnings").EnumerateArray(), w => w.GetProperty("code").GetString() == "readNotGranted" && w.GetProperty("message").GetString()!.Contains(vaultId, StringComparison.Ordinal));
+        // Backlog 15 (Phill, 2026-11-19, Q2 a): one readNotGranted warning counts the withheld sections; meta.withheld has the IDs.
+        Assert.Single(broad.GetProperty("warnings").EnumerateArray(), w => w.GetProperty("code").GetString() == "readNotGranted");
 
         var self = await OkAsync(Hierarchy(access, vaultId, HierarchyScope.Self), "get_hierarchy(Vault, self)");
         Assert.Empty(Withheld(self));

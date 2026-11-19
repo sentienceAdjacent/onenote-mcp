@@ -356,7 +356,7 @@ public abstract class ProtectedSectionToolTestsBase
     // --- get_hierarchy -----------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task BroadHierarchy_KeepsTheSections_RemovesTheirPages_ListsThemWithheld_WithOneWarningEach()
+    public async Task BroadHierarchy_KeepsTheSections_RemovesTheirPages_ListsThemWithheld_WithOneWarningForAll()
     {
         using var h = Harness();
         var prompt = new FakePrompt();
@@ -369,7 +369,7 @@ public abstract class ProtectedSectionToolTestsBase
         Assert.Empty(SectionOf(xml, V.GroupVaultId)!.Elements(One + "Page"));
         Assert.Single(SectionOf(xml, V.OpenSectionId)!.Elements(One + "Page"));
         Assert.Equal([V.VaultId, V.GroupVaultId], Grants.Withheld(root));
-        Assert.Equal([ToolWarnings.ReadNotGranted, ToolWarnings.ReadNotGranted], Grants.WarningCodes(root));
+        Assert.Equal([ToolWarnings.ReadNotGranted], Grants.WarningCodes(root));
         Assert.All(root.GetProperty("warnings").EnumerateArray(), w => Assert.Contains("OneNoteMcp grant --read-section", w.GetProperty("userAction").GetString()!, StringComparison.Ordinal));
         Assert.DoesNotContain("Vault page", Grants.Xml(root), StringComparison.Ordinal);
         Assert.Empty(prompt.Questions);
@@ -452,7 +452,7 @@ public abstract class ProtectedSectionToolTestsBase
         var root = Grants.Ok(await h.Hierarchy(V.NotebookId, HierarchyScope.Pages));
 
         Assert.Equal([V.VaultId, V.GroupVaultId], Grants.Withheld(root));
-        Assert.Equal([ToolWarnings.ReadNotGranted, ToolWarnings.ReadNotGranted, ToolWarnings.SectionLocked, ToolWarnings.SectionLocked], Grants.WarningCodes(root));
+        Assert.Equal([ToolWarnings.ReadNotGranted, ToolWarnings.SectionLocked, ToolWarnings.SectionLocked], Grants.WarningCodes(root));
     }
 
     // --- Allowed and target-scoped scalar tools --------------------------------------------------------------------
@@ -503,7 +503,7 @@ public abstract class ProtectedSectionToolTestsBase
 
         Assert.Empty(XDocument.Parse(Grants.Xml(root)).Descendants(One + "Page"));
         Assert.Equal([V.VaultId, V.GroupVaultId], Grants.Withheld(root));
-        Assert.Equal([ToolWarnings.ReadNotGranted, ToolWarnings.ReadNotGranted], Grants.WarningCodes(root));
+        Assert.Equal([ToolWarnings.ReadNotGranted], Grants.WarningCodes(root));
         var filtered = root.GetProperty("meta").GetProperty("filtered").EnumerateArray().Select(f => f.GetProperty("pageId").GetString()).ToList();
         Assert.Equal([V.OpenPageId, V.DeletedPageId], filtered);
         Assert.DoesNotContain(h.Gateway.ContentCalls, c => c.Contains("{SV", StringComparison.Ordinal));
