@@ -183,10 +183,15 @@ public static class ServerSetup
 
         // Story 3.5: a restore out of the recycle bin (AD-7 HierarchyWrite, AD-8), one UpdateHierarchy of the target with a
         // hierarchy entry; it reads the soft-delete entries from the journal folder settings.json names, at every call.
-        services.AddSingleton(sp => new RestoreFromRecycleBinUseCase(
-            sp.GetRequiredService<HierarchyWriteServices>(),
-            sp.GetRequiredService<WritePipeline>(),
-            sp.GetRequiredService<SettingsStore>().Read));
+        services.AddSingleton(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("OneNoteMcp.Server.Journal");
+            return new RestoreFromRecycleBinUseCase(
+                sp.GetRequiredService<HierarchyWriteServices>(),
+                sp.GetRequiredService<WritePipeline>(),
+                sp.GetRequiredService<SettingsStore>().Read,
+                restoredFromNotSaved: (entryId, why) => JournalLog.RestoredFromNotSaved(logger, entryId, why));
+        });
 
         // Story 3.14: a page's subpage level (AD-7 HierarchyWrite), one UpdateHierarchy of its section with a hierarchy entry.
         services.AddSingleton<SetPageLevelUseCase>();

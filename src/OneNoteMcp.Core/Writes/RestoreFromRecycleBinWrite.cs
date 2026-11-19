@@ -150,6 +150,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
 
     /// <param name="loadEntries">Reads every journal entry, from metadata only (<see cref="SoftDeleteEntries.Load"/> of the folder <c>journal.path</c> names now).</param>
     /// <param name="settle">Waits the cloud settle out (<see cref="CloudSettle.Time"/>); a test passes its own.</param>
+    /// <param name="linkNotSaved">Told the restore's entry ID and why when <c>restoredFrom</c> couldn't be added (backlog 16), for the log; null for none.</param>
     public RestoreFromRecycleBinWrite(
         HierarchyWriteServices services,
         Func<IReadOnlyList<JournalEntry>> loadEntries,
@@ -158,7 +159,8 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         string objectId,
         string? parentId,
         string? entryId,
-        int? position)
+        int? position,
+        Action<Guid, string>? linkNotSaved = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(loadEntries);
@@ -172,6 +174,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         parentArgument = parentId?.Trim() ?? string.Empty;
         entryArgument = entryId?.Trim() ?? string.Empty;
         this.position = position;
+        this.linkNotSaved = linkNotSaved;
         callStart = services.ReadAccess.Now();
     }
 
@@ -187,6 +190,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     public Guid? JournalEntryId { get; private set; }
 
     private JournalWritten? journalFile;
+    private readonly Action<Guid, string>? linkNotSaved;
 
     /// <summary>
     /// Q7: the notebook or section group in another notebook that the caller named for a plain section, which the use case
@@ -280,12 +284,14 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             throw new OneNoteException(ex.Code, WithNote(ex.Message), ex.ComHResult, ex, ex.OutcomeUnknown, ex.UserAction, ex.Retryable);
         }
 
-        // Backlog 16 (Phill, 2026-11-19): the restore happened, so its entry now names the soft-delete entry it used, and a
-        // later choice between same-named entries marks that one "already restored". A failed call records nothing; a
-        // rewrite that fails leaves the entry as written, and only the mark is lost.
-        if (now.State.Entry is { } used && journalFile is { } file)
+        // Backlog 16 (Phill, 2026-11-19): the UpdateHierarchy call returned, so before the read-back the restore's entry
+        // names the soft-delete entry it used, and a later choice between same-named entries marks that one "already
+        // restored". A failed call records nothing; a rewrite that fails is logged, leaves the entry as written, and loses
+        // only the mark (best effort).
+        if (now.State.Entry is { } used && journalFile is { } file
+            && JournalStore.TryAddRestoredFrom(file.Path, file.EntryId, used.EntryId) is { } why)
         {
-            JournalStore.TryAddRestoredFrom(file.Path, file.EntryId, used.EntryId);
+            linkNotSaved?.Invoke(file.EntryId, why);
         }
 
         var warnings = new List<ToolWarning>();

@@ -26,7 +26,8 @@ public sealed class RestoreFromRecycleBinUseCase(
     WritePipeline pipeline,
     Func<SettingsSnapshot> settings,
     Func<TimeSpan, CancellationToken, Task>? settle = null,
-    Func<string, IReadOnlyList<JournalEntry>>? loadEntries = null) : IUseCase
+    Func<string, IReadOnlyList<JournalEntry>>? loadEntries = null,
+    Action<Guid, string>? restoredFromNotSaved = null) : IUseCase
 {
     /// <summary>What to do after the warning <c>restoredNotMoved</c> (Q7).</summary>
     public const string RestoredNotMovedUserAction =
@@ -61,7 +62,8 @@ public sealed class RestoreFromRecycleBinUseCase(
             objectId ?? string.Empty,
             parentId,
             entryId,
-            position);
+            position,
+            restoredFromNotSaved);
         var result = await pipeline.RunAsync(context, write, ct).ConfigureAwait(false);
         var restoreEntry = write.JournalEntryId?.ToString("D", CultureInfo.InvariantCulture);
         if (write.MoveTargetId is not { } moveTo)

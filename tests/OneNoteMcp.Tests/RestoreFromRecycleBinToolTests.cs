@@ -287,6 +287,31 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ARewriteThatFails_LeavesTheRestoreSucceeded_AndIsReported()
+    {
+        // Backlog 16, Fable finding 6: the link is best effort. The restore's entry file vanishes after the call returns, so
+        // the rewrite fails; the restore still succeeds, and the failure reaches the log callback with the entry's ID.
+        Grant();
+        var before = Directory.GetFiles(JournalFolder).ToHashSet();
+        var apply = gateway.OnUpdateHierarchy;
+        gateway.OnUpdateHierarchy = sent =>
+        {
+            apply?.Invoke(sent);
+            foreach (var file in Directory.GetFiles(JournalFolder).Where(f => !before.Contains(f)))
+            {
+                File.Delete(file);
+            }
+        };
+
+        var root = Ok(await Tool().RestoreFromRecycleBin(TwinAId, null, entries["twinA"].ToString("D"), null, Ct));
+
+        var (entryId, why) = Assert.Single(linksNotSaved);
+        Assert.Equal(root.GetProperty("meta").GetProperty("journalEntryId").GetString(), entryId.ToString("D"));
+        Assert.Equal("the entry file is gone", why);
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
     public async Task ARestoreWithNoJournalEntry_RecordsNoSource()
     {
         Grant();
@@ -1238,8 +1263,12 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
             {
                 loads++;
                 return SoftDeleteEntries.Load(folder);
-            });
+            },
+            (entryId, why) => linksNotSaved.Add((entryId, why)));
     }
+
+    /// <summary>What the use case reported as a <c>restoredFrom</c> it couldn't save (backlog 16).</summary>
+    private readonly List<(Guid EntryId, string Why)> linksNotSaved = [];
 
     private static ToolRunner Runner() => new(NullLogger<ToolRunner>.Instance);
 

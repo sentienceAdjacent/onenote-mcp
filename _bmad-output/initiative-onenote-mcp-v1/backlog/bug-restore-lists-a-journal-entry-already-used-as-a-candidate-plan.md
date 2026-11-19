@@ -39,3 +39,13 @@ context: []
   - low, patched: `SoftDeleteEntries` repeated the operation-name literal; it now uses `RestoreFromRecycleBinWrite.OperationName` (tests too).
   - low, rejected: no test that a protected restore entry keeps `restoredFrom` readable by `ReadMetadata`; verified by reading (`Protect` moves only title and XML into the blob, `TryRewrite` copies the blob as is), and a test would need a protected restore target fixture for one property.
   - low, rejected: no test of the cross-notebook restore-then-move path; only the restore's own write sets the link (the move's entry can't), checked by reading.
+- 2026-11-19, Fable review (relayed by the coordinator), six findings, all applied:
+  1. AD-8 Which entry: the mark comes from the `restore_from_recycle_bin` entries' `restoredFrom`, read from plain metadata; they count for nothing else.
+  2. The mark is best effort (an unknown outcome, a failed rewrite, an older OneNoteMcp, a pruned restore entry leave it off); the guide says an unmarked entry isn't proof it was never used. A failed `TryAddRestoredFrom` is now logged (`JournalLog.RestoredFromNotSaved`, entry ID and reason only) through a new `restoredFromNotSaved` callback on the use case and write.
+  3. Timing worded as "after the `UpdateHierarchy` call returned and before the read-back".
+  4. The write-side sentence moved to AD-8's How bullet; AD-10's pointers now point there.
+  5. Memlog entry added.
+  6. Test `ARewriteThatFails_LeavesTheRestoreSucceeded_AndIsReported`: the restore's entry file is deleted after the call returns; the restore succeeds and the callback gets its entry ID and "the entry file is gone". Written with the fix; red by construction on the previous code, which had no callback and discarded the rewrite's result.
+  The ticket's stale Description, reproduction step 5 and Verify lines (written before Phill chose to keep used entries) now describe the marking.
+- Verification after these: build 0 warnings; unit 3800 passed, 3 skipped (after merging main); integration 220 passed, 126 skipped.
+
