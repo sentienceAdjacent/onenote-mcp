@@ -253,6 +253,74 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         Assert.Equal(before, EntryCount());
     }
 
+    [Fact]
+    public async Task ARestore_RecordsTheSoftDeleteEntryItUsed_AndALaterChoiceMarksItAlreadyRestored()
+    {
+        // Backlog 16 (Phill, 2026-11-19): the used entry stays listed, marked; the unused one isn't.
+        Grant();
+        var restored = Ok(await Tool().RestoreFromRecycleBin(TwinAId, null, entries["twinA"].ToString("D"), null, Ct));
+        var restoreEntry = Entry(restored.GetProperty("meta").GetProperty("journalEntryId").GetString()!);
+        Assert.Equal(entries["twinA"], restoreEntry.RestoredFrom);
+
+        // The other twin, still in the bin, matches both entries by name.
+        var error = Error(await Tool().RestoreFromRecycleBin(TwinBId, null, null, null, Ct), "InvalidArgument");
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains($"entry {entries["twinA"]:D}, deleted ", message, StringComparison.Ordinal);
+        Assert.Matches($@"entry {entries["twinA"]:D}, deleted [^;]*, already restored", message);
+        Assert.DoesNotMatch($@"entry {entries["twinB"]:D}, deleted [^;]*, already restored", message);
+    }
+
+    [Fact]
+    public async Task AFailedRestore_RecordsNoSource_SoItsEntryIsNeverMarkedAlreadyRestored()
+    {
+        // Review of backlog 16: the link is written only once the restore happened.
+        Grant();
+        gateway.UpdateHierarchyFailure = Com.HResultMap.ToException("UpdateHierarchy", new System.Runtime.InteropServices.COMException("refused", unchecked((int)0x80042004)));
+        var before = Directory.GetFiles(JournalFolder).Where(f => JournalFiles.IsEntry(Path.GetFileName(f))).ToHashSet();
+
+        Assert.True((await Tool().RestoreFromRecycleBin(TwinAId, null, entries["twinA"].ToString("D"), null, Ct)).IsError);
+
+        var written = Directory.GetFiles(JournalFolder).Where(f => JournalFiles.IsEntry(Path.GetFileName(f)) && !before.Contains(f)).Select(JournalStore.Read).ToList();
+        Assert.All(written, e => Assert.Null(e.RestoredFrom));
+        Assert.Empty(SoftDeleteEntries.Used(SoftDeleteEntries.Load(JournalFolder)));
+    }
+
+    [Fact]
+    public async Task ARewriteThatFails_LeavesTheRestoreSucceeded_AndIsReported()
+    {
+        // Backlog 16, Fable finding 6: the link is best effort. The restore's entry file vanishes after the call returns, so
+        // the rewrite fails; the restore still succeeds, and the failure reaches the log callback with the entry's ID.
+        Grant();
+        var before = Directory.GetFiles(JournalFolder).ToHashSet();
+        var apply = gateway.OnUpdateHierarchy;
+        gateway.OnUpdateHierarchy = sent =>
+        {
+            apply?.Invoke(sent);
+            foreach (var file in Directory.GetFiles(JournalFolder).Where(f => !before.Contains(f)))
+            {
+                File.Delete(file);
+            }
+        };
+
+        var root = Ok(await Tool().RestoreFromRecycleBin(TwinAId, null, entries["twinA"].ToString("D"), null, Ct));
+
+        var (entryId, why) = Assert.Single(linksNotSaved);
+        Assert.Equal(root.GetProperty("meta").GetProperty("journalEntryId").GetString(), entryId.ToString("D"));
+        Assert.Equal("the entry file is gone", why);
+        Assert.Single(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ARestoreWithNoJournalEntry_RecordsNoSource()
+    {
+        Grant();
+
+        var restored = Ok(await Tool().RestoreFromRecycleBin(OrphanId, PlansId, null, null, Ct));
+
+        Assert.Null(Entry(restored.GetProperty("meta").GetProperty("journalEntryId").GetString()!).RestoredFrom);
+    }
+
     [Theory]
     [InlineData("twinA", PlansId)]
     [InlineData("twinB", IdeasId)]
@@ -865,6 +933,30 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ATargetMovedToAnotherGrantedNotebookAfterStep1_IsWriteNotGranted_Retryable_NothingWritten()
+    {
+        // Backlog 18 (AD-7, story 3.12): step 1 granted A for the page and for its original section Plans; before the lock
+        // Plans moves to notebook Other, granted too. Step 1's last read is A's fourth self read, the end of the target's grant walk (after the state read's, the parent walk's and the item's).
+        Grant();
+        Grant(OtherPath, OtherId);
+        var before = EntryCount();
+        var moved = NotebookMoveKit.MoveOnRead(gateway, AId, HierarchyScope.Self, () => gateway.Parents[PlansId] = OtherId, nth: 4);
+
+        var error = Error(await Tool().RestoreFromRecycleBin(LostId, null, null, null, Ct), "WriteNotGranted");
+
+        Assert.True(moved.Moved(), "the section never moved: the test's trigger read didn't happen");
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        // The read order is pinned: step 1 reads A's self four times (the move ran on the last), and the re-resolve under the
+        // lock once more (the item's walk) before the target's walk finds Other. If step 1 ever read A one time fewer, the
+        // move would land inside the re-resolve and this count would change.
+        Assert.Equal(5, moved.Reads());
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Equal(before, EntryCount());
+        await AssertLockFreeAsync();
+    }
+
+    [Fact]
     public async Task Step4_RepeatsTheChecks_UnderTheLock()
     {
         // The target is locked between step 1's read and step 3's (the second children read of Plans).
@@ -1171,8 +1263,12 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
             {
                 loads++;
                 return SoftDeleteEntries.Load(folder);
-            });
+            },
+            (entryId, why) => linksNotSaved.Add((entryId, why)));
     }
+
+    /// <summary>What the use case reported as a <c>restoredFrom</c> it couldn't save (backlog 16).</summary>
+    private readonly List<(Guid EntryId, string Why)> linksNotSaved = [];
 
     private static ToolRunner Runner() => new(NullLogger<ToolRunner>.Instance);
 

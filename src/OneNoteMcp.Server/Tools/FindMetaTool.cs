@@ -26,9 +26,9 @@ public sealed class FindMetaTool(ToolRunner runner, FindMetaUseCase useCase)
         + "Unindexed pages are always searched. Recycle-bin pages and pages with no one:Meta of exactly that name (case-sensitive) are removed from the XML, and nothing else in it is changed; "
         + "each removed page is listed in meta.filtered as {pageId, reason}, reason recycleBin or noMatch. "
         + "Results are possibly incomplete (meta.possiblyIncomplete is always true): a notebook that is still syncing can lack pages. "
-        + "Pages in password-protected sections the user hasn't granted a read of are never searched or listed (not even in meta.filtered); each such section in the searched scope has its ID in meta.withheld and a warning with code readNotGranted, whether or not it would have matched. "
+        + "Pages in password-protected sections the user hasn't granted a read of are never searched or listed (not even in meta.filtered); each such section in the searched scope has its ID in meta.withheld, whether or not it would have matched, and one warning with code readNotGranted gives their count. When meta.filtered would make the result too long to return, it comes as meta.filteredCount plus meta.filteredResultId instead: read the list (JSON, the same {pageId, reason} items) with read_result(filteredResultId, ref \"/\", offset). "
         + ToolMetaKeys.LargeResultNote
-        + "Success: {ok:true, xml, meta:{correlationId, filtered, possiblyIncomplete, withheld?}, warnings:[{code, message, userAction?}]}. "
+        + "Success: {ok:true, xml, meta:{correlationId, filtered (or filteredCount and filteredResultId), possiblyIncomplete, withheld?}, warnings:[{code, message, userAction?}]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> FindMeta(
         [Description("The one:Meta name to find, compared exactly.")] string name,

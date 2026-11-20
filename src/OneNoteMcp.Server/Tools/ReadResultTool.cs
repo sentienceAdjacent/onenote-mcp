@@ -33,6 +33,7 @@ public sealed class ReadResultTool(ToolRunner runner, ReadResultUseCase useCase)
         + "Every part is an exact substring of the result; its namespace prefixes are declared in meta.result.namespaces. A page part's meta.basis has the hashes of the Outlines, OEs and page-level images, ink and files wholly inside it; an expand of an Outline, an OE or a page-level image, ink or file carries that element's own hash. "
         + "A part inside a password-protected section is served only while the user's read grant that allowed the original call holds; after it ends, ReadNotGranted. "
         + "Results expire ttlMinutes after their last read (30 by default): ResultExpired means repeat the original call. "
+        + "A search's meta.filteredResultId is a result too: its JSON list of {pageId, reason} comes back in meta.binary, read with ref / and offset. "
         + "Success: {ok:true, xml? (meta.binary for a binary result), index?, meta:{correlationId, result, basis?}, warnings:[]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> ReadResult(

@@ -118,7 +118,7 @@ No tool can create a grant. `list_grants` shows them all, and the plugin blocks 
 
 ### Read grants for password-protected sections
 
-A section with a password stays private even after you unlock it in OneNote. Claude sees that it exists, but its pages are left out of hierarchy listings and searches (`meta.withheld` names the section by ID, with a `readNotGranted` warning), and reading inside it fails with `ReadNotGranted`, until you grant a read of that one section:
+A section with a password stays private even after you unlock it in OneNote. Claude sees that it exists, but its pages are left out of hierarchy listings and searches (`meta.withheld` names the section by ID, and one `readNotGranted` warning counts such sections), and reading inside it fails with `ReadNotGranted`, until you grant a read of that one section:
 
 - **In Claude Code**, reading one of its pages raises a dialog. Type the section's name (the field's hint shows it, to copy) and pick from one list: **this section, for 5 minutes** (the default), **1 hour**, **8 hours**, **24 hours**, **7 days** or **until I revoke it**. For any other number of hours (1 to 168), use the terminal command below. Declining, or a client that can't show dialogs, grants nothing. The dialog's name field gets a new name on every request, so the client has no earlier answer to fill it in from.
 - **In a terminal**, with any client: `OneNoteMcp grant --read-section "Section name"`. It lists the matches if several open sections share the name, and offers hours or until revoked. It refuses to run without an interactive terminal, so a program can't run it for you.
@@ -198,7 +198,7 @@ Before `permanently_delete_hierarchy_object` deletes a section, OneNote publishe
 - **Never in OneDrive.** A copy unpacked inside a OneDrive folder is converted into an online notebook by OneDrive's sync client while OneNote has it open, and OneNote then closes, so any destination in OneDrive is refused. If your AppData folder is itself in OneDrive, `open_package` can't be used on that PC; open the package in OneNote (File > Open) instead, which uploads it properly.
 - **Protected, read-only to Claude.** Every section of the copy counts as password-protected, so reading it needs your read grant, and Claude has no write grant to it.
 - **Closing it.** Close the copy in OneNote when you're done; no tool closes a notebook.
-- **Cleanup.** When the server starts while OneNote is running, it deletes a copy's folder once the copy is closed and the folder is more than 7 days old. It only touches folders it made (they hold a `.onenote-mcp-opened` file). `OneNoteMcp uninstall --purge` deletes the copies too, skipping any still open (see [Uninstall](#uninstall)).
+- **Cleanup.** When the server starts while OneNote is running, it deletes a copy's folder once the copy is closed and nothing in it has changed for more than 7 days. It only touches folders it made (they hold a `.onenote-mcp-opened` file). `OneNoteMcp uninstall --purge` deletes the copies too, skipping any still open (see [Uninstall](#uninstall)).
 
 ## Install
 
