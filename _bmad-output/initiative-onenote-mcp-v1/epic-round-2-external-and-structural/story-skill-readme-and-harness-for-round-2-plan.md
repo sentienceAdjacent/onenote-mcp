@@ -157,3 +157,24 @@ C. E8 live, with Phill unlocking Ballast Vault:
 
 D. Phill deletes what the sitting made that he doesn't want.
 
+### Sitting results (2026-11-19)
+
+Build: the 3.10 head with backlog 12 merged in (scratch commit c4aa562), version 0.9.0-rc.1.
+
+- **A. A fresh agent working from the skill and README only:** 7 checks passed and 2 partly passed. The two partial passes led to three doc fixes in 90d35c7:
+  - `FileExists`: the README now says to ask the user for another name.
+  - A same-named restore: the skill and README now say when the server lists candidates.
+  - Nested section groups in an export: now covered.
+  
+  One code finding went to backlog 14.
+- **B. The harness on MCP Test:** 843 comparisons, 0 mismatches, and the contract held for 29 tools. The harness exited 1 because 16 text blocks were over inline-max (the largest 102,870 characters). That issue predates this story and is backlog 15.
+- **C. E8 live, with Ballast Vault unlocked and a `once` grant:**
+  1. `publish` of a Vault page: `ok`, with `exportNotEncrypted`. The file was then deleted.
+  2. A merge into the Vault: `ok`, with no `pageIds`.
+  3. A move into the Vault with `position`, and one without `position` after the grant expired: both `ok`.
+  4. `set_page_level` and `create_page` with `parentPageId`: `ok` with the grant. Without it, both gave `ReadNotGranted`, with no dialog.
+  5. After the notebook was closed and reopened, a restore by its stale ID matched by name. Two journal entries matched, so it gave `InvalidArgument` listing the candidates. A retry with `entryId` restored the page into the reopened section. One entry that had already been used was still listed: backlog 16.
+  6. The Vault was locked again.
+- **D:** the exports were deleted. The Vault leftovers were kept, as Phill chose.
+- **Backlog 12, live:** a `create_page` into a loose section gave `NotSupported`.
+

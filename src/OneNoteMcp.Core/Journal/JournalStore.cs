@@ -185,8 +185,23 @@ public sealed class JournalStore
     /// </summary>
     public static string? TryAddRecycleBinId(string path, Guid entryId, string recycleBinId)
     {
-        ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentException.ThrowIfNullOrEmpty(recycleBinId);
+        return TryRewrite(path, entryId, entry => entry with { RecycleBinId = recycleBinId });
+    }
+
+    /// <summary>
+    /// Backlog 16 (Phill, 2026-11-19): adds <see cref="JournalEntry.RestoredFrom"/>, the soft-delete entry a
+    /// <c>restore_from_recycle_bin</c> used, to that restore's own entry at <paramref name="path"/>, once the restore
+    /// succeeded, the same way <see cref="TryAddRecycleBinId"/> adds a page's recycle-bin ID: the whole entry written again,
+    /// a protected blob copied as it is. Null when rewritten, else why not; the entry then stays as first written.
+    /// </summary>
+    public static string? TryAddRestoredFrom(string path, Guid entryId, Guid restoredFrom) =>
+        TryRewrite(path, entryId, entry => entry with { RestoredFrom = restoredFrom });
+
+    /// <summary>The one rewrite of an entry (<see cref="TryAddRecycleBinId"/>, <see cref="TryAddRestoredFrom"/>): <paramref name="change"/> applied to it as read.</summary>
+    private static string? TryRewrite(string path, Guid entryId, Func<JournalEntry, JournalEntry> change)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
         var folder = Path.GetDirectoryName(path) ?? string.Empty;
         var temp = Path.Combine(folder, JournalFiles.TempName(Path.GetFileName(path)));
         try
@@ -213,7 +228,7 @@ public sealed class JournalStore
             {
                 using (var gzip = new GZipStream(file, CompressionLevel.Optimal, leaveOpen: true))
                 {
-                    JsonSerializer.Serialize(gzip, entry with { RecycleBinId = recycleBinId }, JournalEntry.JsonOptions);
+                    JsonSerializer.Serialize(gzip, change(entry), JournalEntry.JsonOptions);
                 }
 
                 file.Flush(flushToDisk: true);

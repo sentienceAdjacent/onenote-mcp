@@ -8,7 +8,7 @@ namespace OneNoteMcp.Server.Journal;
 
 /// <summary>
 /// Story 3.8 (Phill's cleanup answer (b), 2026-11-18): once, when the server starts, in the background, deletes the copies
-/// in the opened-copies folder that hold the marker, aren't open in OneNote and are more than 7 days old
+/// in the opened-copies folder that hold the marker, aren't open in OneNote and haven't changed for more than 7 days (backlog 21)
 /// (<see cref="OpenedCopySweep"/>). A failure is logged, with counts only (AD-13), and never stops the server.
 /// </summary>
 public sealed partial class OpenedCopiesSweepService : BackgroundService
