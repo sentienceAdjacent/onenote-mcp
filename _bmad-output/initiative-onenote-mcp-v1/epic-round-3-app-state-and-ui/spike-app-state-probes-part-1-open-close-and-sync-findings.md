@@ -2,7 +2,7 @@
 title: 'Findings: app-state probes, part 1: open, close and sync'
 type: 'spike-findings'
 findings_for: '1'
-status: 'draft'
+status: 'final'
 created: '2026-11-19'
 machine: 'Windows 11 Pro 10.0.26300, OneNote desktop (M365), not elevated; the OneNote build was not recorded by these runs'
 evidence: '%LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state-local-20261119-191413.jsonl, app-state-local-20261119-194035.jsonl, app-state-cloud-20261120-032732.jsonl and app-state-cloud-20261120-044350.jsonl (outside the repo); Phill''s reports and screenshots per pause, in the coordinator''s sitting logs'
@@ -10,7 +10,7 @@ evidence: '%LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state-local-20261119-191413
 
 # Findings: app-state probes, part 1: open, close and sync
 
-**Draft: both sittings run.** Sitting A (local) ran on 2026-11-19 and sitting B (cloud) on 2026-11-20 (UTC). C3 (close offline) was deferred by Phill and isn't probed. The Fable final review and the memlog lines are still to come.
+**Final** (approved by Phill on 2026-11-20). Sitting A (local) ran on 2026-11-19 and sitting B (cloud) on 2026-11-20 (UTC). C3 (close offline) was deferred by Phill and isn't probed. The Fable final review ran and its 13 confirmed findings were fixed; the memlog lines are in the spine's `.memlog.md`.
 
 **Top finding: `OpenHierarchy` with `cftNone` creates a notebook in any existing folder.** An empty folder and a folder holding only `probe-marker.txt` both opened as notebooks (O6), each named after its folder. Both then held an `Open Notebook.onetoc2` (6,080 bytes) that the probe never wrote (L). Only a missing path is refused (`0x80042006`, O5). So `cftNone` doesn't protect a folder that isn't a notebook: `open_notebook` has to apply entry 2's notebook test before COM, and that test can't trust a `.onetoc2` that an earlier open may have written.
 
