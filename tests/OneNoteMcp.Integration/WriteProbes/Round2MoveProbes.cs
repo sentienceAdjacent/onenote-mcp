@@ -301,13 +301,8 @@ internal static class Round2MoveProbes
         }
     }
 
-    /// <summary>Waits 10 s after a cross-storage move, then reads the notebook list: a crash the move set off trips the breaker here.</summary>
-    private static async Task SettleAsync(ProbeSession s, string after)
-    {
-        await Task.Delay(TimeSpan.FromSeconds(10));
-        _ = await s.NotebooksAsync();
-        s.Recorder.Row($"{after}-settled", "Move", "GetHierarchy", null, null, new { after, settledSeconds = 10, oneNoteAlive = true });
-    }
+    /// <summary>Waits 10 s after a cross-storage move, then reads the notebook list: a crash the move set off trips the breaker here (<see cref="ProbeSession.SettleAsync"/>).</summary>
+    private static Task SettleAsync(ProbeSession s, string after) => s.SettleAsync(after, "Move");
 
     /// <summary>
     /// D (local only): with File &gt; Options open, a plain <c>GetHierarchy</c>, <c>Publish</c> pfPDF, <c>OpenPackage</c>,

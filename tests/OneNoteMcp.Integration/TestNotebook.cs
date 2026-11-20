@@ -470,11 +470,20 @@ internal sealed class TestNotebook
     /// exactly that name at that path. With <paramref name="requireEmpty"/> the folder must be absent or empty (AD-7's
     /// create rule); without it, the folder may hold only <see cref="ProbeMarkerFile"/> (the non-empty-path probe).
     /// </summary>
-    public static async Task<string> CreateThrowawayNotebookAsync(ComGateway gateway, string leafName, bool requireEmpty, CancellationToken ct)
+    /// <remarks>
+    /// Spike 4.1: with <paramref name="root"/>, the notebook is made in that folder instead, which must be a run's probe
+    /// folder, <c>…\probes\app-state\&lt;stamp&gt;</c> (<see cref="TestNotebookGuard.IsRunProbeRoot"/>).
+    /// </remarks>
+    public static async Task<string> CreateThrowawayNotebookAsync(ComGateway gateway, string leafName, bool requireEmpty, CancellationToken ct, string? root = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
         TestNotebookGuard.EnsureThrowawayLeaf(leafName);
-        var root = ThrowawayRoot;
+        if (root is not null && !TestNotebookGuard.IsRunProbeRoot(root, ThrowawayRoot))
+        {
+            throw new InvalidOperationException($"Refusing OpenHierarchy(throwaway notebook): {root} is not a run's probe folder.");
+        }
+
+        root ??= ThrowawayRoot;
         var path = Path.Combine(root, leafName);
         if (requireEmpty)
         {
@@ -533,6 +542,95 @@ internal sealed class TestNotebook
 
     /// <summary>The one file a non-empty throwaway folder may hold before the non-empty-path probe.</summary>
     public const string ProbeMarkerFile = "probe-marker.txt";
+
+    // --- Spike 4.1: app state (CloseNotebook, OpenHierarchy cftNone, SyncHierarchy) ---------------------------------
+
+    /// <summary>Spike 4.1: the folder that holds each run's probe folder, <c>%LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state</c>.</summary>
+    public static string AppStateProbesDir => TestNotebookGuard.AppStateDir(ThrowawayRoot);
+
+    /// <summary>
+    /// Spike 4.1's guarded <c>CloseNotebook</c>. A live read must show <paramref name="notebookId"/> as an open notebook in
+    /// the allowed set (<see cref="TestNotebookGuard.CheckClose"/>): throwaway <c>b</c> or <c>c</c> by exact name and folder,
+    /// the cloud throwaway, or a notebook whose path lies in <paramref name="runProbeRoot"/>. There is no <c>force</c>
+    /// parameter: <see cref="CloseCall"/> always sends <c>false</c> (Q1).
+    /// </summary>
+    public static async Task CloseNotebookAsync(ComGateway gateway, string notebookId, string? runProbeRoot, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "CloseNotebook";
+        var notebooks = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
+        TestNotebookGuard.CheckClose(Method, notebooks, notebookId, ResolveFolder(Environment.GetEnvironmentVariable), ThrowawayRoot, runProbeRoot);
+        await gateway.InvokeAsync(
+            app =>
+            {
+                CloseCall(app, notebookId);
+                return true;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+    }
+
+    /// <summary>
+    /// Spike 4.1's guarded <c>OpenHierarchy</c> of an existing path, always with <c>cftNone</c> (<see cref="OpenExistingCall"/>;
+    /// there is no create-type parameter). A live read must allow <paramref name="path"/> (<see cref="TestNotebookGuard.CheckOpen"/>):
+    /// a path in <paramref name="runProbeRoot"/> (or its <c>\\localhost\X$</c> form), one of <paramref name="recordedPaths"/>
+    /// that is throwaway <c>b</c>'s, <c>c</c>'s or the cloud throwaway's, an open test notebook's own path when
+    /// <paramref name="allowOpenTestNotebooks"/> (O4 only), or a run-stamped probe URL in MCP Test Cloud's OneDrive (O3).
+    /// </summary>
+    public static async Task<string> OpenExistingAsync(
+        ComGateway gateway,
+        string path,
+        string? runProbeRoot,
+        IReadOnlyCollection<string> recordedPaths,
+        bool allowOpenTestNotebooks,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "OpenHierarchy(cftNone)";
+        var notebooks = await gateway.GetHierarchyAsync(string.Empty, CoreScope.Notebooks, ct);
+        TestNotebookGuard.CheckOpen(Method, path, notebooks, ResolveFolder(Environment.GetEnvironmentVariable), ThrowawayRoot, runProbeRoot, recordedPaths, allowOpenTestNotebooks);
+        return await gateway.InvokeAsync(app => OpenExistingCall(app, path), ct, retryOnDisconnect: false, method: Method);
+    }
+
+    /// <summary>
+    /// Spike 4.1's guarded <c>SyncHierarchy</c>: <paramref name="id"/> must be MCP Test, MCP Test Cloud, a live-verified
+    /// throwaway in <paramref name="throwawayNotebookIds"/>, or inside one of them; or else an ID in <paramref name="gone"/>
+    /// (S2's synthetic ID, a closed run notebook's old ID) that a full live read finds in no notebook.
+    /// </summary>
+    public static async Task SyncHierarchyAsync(
+        ComGateway gateway,
+        string id,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> throwawayNotebookIds,
+        IReadOnlySet<string> gone,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        const string Method = "SyncHierarchy";
+        await EnsureTargetsAsync(gateway, [id], Method, ct, throwawayNotebookIds, gone);
+        await gateway.InvokeAsync(
+            app =>
+            {
+                SyncCall(app, id);
+                return true;
+            },
+            ct,
+            retryOnDisconnect: false,
+            method: Method);
+    }
+
+    /// <summary>The one <c>CloseNotebook</c> call shape: <c>force</c> is always <c>false</c>.</summary>
+    internal static void CloseCall(IApplication app, string notebookId) => app.CloseNotebook(notebookId, force: false);
+
+    /// <summary>The one <c>OpenHierarchy</c> call shape for an existing path: no parent, and always <c>cftNone</c>.</summary>
+    internal static string OpenExistingCall(IApplication app, string path)
+    {
+        app.OpenHierarchy(path, string.Empty, out var id, CreateFileType.cftNone);
+        return id;
+    }
+
+    /// <summary>The one <c>SyncHierarchy</c> call shape.</summary>
+    internal static void SyncCall(IApplication app, string id) => app.SyncHierarchy(id);
 
     /// <summary>
     /// The shared check: every target must be inside MCP Test, MCP Test Cloud or a live-verified throwaway, or, when
@@ -743,7 +841,8 @@ internal static partial class TestNotebookGuard
     /// <summary>
     /// Those of <paramref name="candidates"/> (ID → the exact names this run gave it) that are open throwaway notebooks
     /// (Q1 a, review finding 8). A local one counts only when its <c>name</c> is one of its names and its folder, directly
-    /// in <paramref name="root"/>, is named one of them too (ignoring case); the cloud one only by
+    /// in <paramref name="root"/> (or, from spike 4.1, directly in a run's probe folder under it,
+    /// <see cref="IsRunProbeThrowaway"/>), is named one of them too (ignoring case); the cloud one only by
     /// <see cref="IsCloudThrowaway"/> with that exact name. A candidate that is open but fails this is refused (throws);
     /// one that isn't open is left out.
     /// </summary>
@@ -762,7 +861,7 @@ internal static partial class TestNotebookGuard
             var name = (string?)notebook.Attribute("name");
             var path = (string?)notebook.Attribute("path");
             var leaf = path is null ? null : Path.GetFileName(TrimPath(path));
-            var local = IsLocalThrowaway(name, path, root)
+            var local = (IsLocalThrowaway(name, path, root) || IsRunProbeThrowaway(name, path, root)) // spike 4.1: o1…o4
                 && names.Contains(name!)
                 && names.Any(n => string.Equals(n, leaf, StringComparison.OrdinalIgnoreCase));
             var cloud = IsCloudThrowaway(name, path) && names.Contains(name!);
@@ -1060,6 +1159,274 @@ internal static partial class TestNotebookGuard
 
     [GeneratedRegex("""\bID\s*=\s*["'](?<id>[^"']*)["']""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex IdAttribute();
+
+    // --- Spike 4.1: CloseNotebook, OpenHierarchy cftNone and SyncHierarchy ------------------------------------------
+
+    /// <summary>
+    /// The two adopted throwaways spike 4.1 may close and reopen (Phill keeps them open between sittings). Throwaway
+    /// <c>a</c> of the same run is not here: it is never closed.
+    /// </summary>
+    public static readonly IReadOnlySet<string> ClosableAdoptedNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "MCP Test Throwaway 1112-034716 b",
+        "MCP Test Throwaway 1112-034716 c",
+    };
+
+    /// <summary><c>&lt;throwaway root&gt;\probes\app-state</c>: where each run's probe folder is made.</summary>
+    public static string AppStateDir(string throwawayRoot) => Path.Combine(TrimPath(throwawayRoot), "probes", "app-state");
+
+    /// <summary>
+    /// A run's probe folder: an absolute path with no <c>..</c>, directly in <see cref="AppStateDir"/>, whose own name is a
+    /// run stamp (<c>MMdd-HHmmss</c>, as <c>HierarchyProbes.Stamp</c> makes it).
+    /// </summary>
+    public static bool IsRunProbeRoot(string? path, string throwawayRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || HasParentSegment(path) || path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var trimmed = TrimPath(path);
+        return string.Equals(Path.GetDirectoryName(trimmed), AppStateDir(throwawayRoot), StringComparison.OrdinalIgnoreCase)
+            && StampPattern().IsMatch(Path.GetFileName(trimmed));
+    }
+
+    /// <summary>The run stamp a run's probe folder is named after.</summary>
+    public static string RunStamp(string runProbeRoot) => Path.GetFileName(TrimPath(runProbeRoot));
+
+    /// <summary>A local throwaway whose folder is directly in a run's probe folder (<see cref="IsRunProbeRoot"/>) under <paramref name="throwawayRoot"/>.</summary>
+    public static bool IsRunProbeThrowaway(string? name, string? path, string throwawayRoot) =>
+        !string.IsNullOrEmpty(path)
+        && Path.IsPathFullyQualified(path)
+        && Path.GetDirectoryName(TrimPath(path)) is { } parent
+        && IsRunProbeRoot(parent, throwawayRoot)
+        && IsLocalThrowaway(name, path, parent);
+
+    /// <summary>
+    /// <c>\\localhost\X$\rest</c> as <c>X:\rest</c> (ignoring case), so a UNC path OneNote reports can be checked against a
+    /// local folder. Null for anything else, including other servers and other shares.
+    /// </summary>
+    public static string? MapLocalhostAdminShare(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return null;
+        }
+
+        var match = LocalhostAdminShare().Match(path);
+        return match.Success ? $"{char.ToUpperInvariant(match.Groups["drive"].Value[0])}:{(match.Groups["rest"].Value.Length == 0 ? @"\" : match.Groups["rest"].Value)}" : null;
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> (a local path, or its <c>\\localhost\X$</c> form) lies strictly inside
+    /// <paramref name="runProbeRoot"/>, at any depth, with no <c>..</c> segment. A URL, another UNC path, or the folder
+    /// itself never does.
+    /// </summary>
+    public static bool IsUnderRunProbeRoot(string? path, string runProbeRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(runProbeRoot) || HasParentSegment(path))
+        {
+            return false;
+        }
+
+        var local = MapLocalhostAdminShare(path) ?? path;
+        if (!Path.IsPathFullyQualified(local) || local.StartsWith(@"\\", StringComparison.Ordinal) || local.Contains('/', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var prefix = TrimPath(runProbeRoot) + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(local).StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The open notebooks whose <c>path</c> lies in <paramref name="runProbeRoot"/> (<see cref="IsUnderRunProbeRoot"/>):
+    /// the run's own notebooks, whatever name OneNote gave them.
+    /// </summary>
+    public static IReadOnlyList<(string Id, string? Name, string Path)> NotebooksUnder(string notebooksXml, string runProbeRoot) =>
+        XDocument.Parse(notebooksXml).Root!.Elements(One + "Notebook")
+            .Select(n => (Id: (string?)n.Attribute("ID"), Name: (string?)n.Attribute("name"), Path: (string?)n.Attribute("path")))
+            .Where(n => !string.IsNullOrEmpty(n.Id) && IsUnderRunProbeRoot(n.Path, runProbeRoot))
+            .Select(n => (n.Id!, n.Name, n.Path!))
+            .ToList();
+
+    /// <summary>
+    /// Refuses a <c>CloseNotebook</c> unless <paramref name="notebookId"/> is an open notebook (a section's or page's ID
+    /// never is) that is neither test notebook and is one of: throwaway <c>b</c> or <c>c</c> by exact name, in its own
+    /// folder of that name directly in <paramref name="throwawayRoot"/> (<see cref="ClosableAdoptedNames"/>); the cloud
+    /// throwaway (<see cref="IsCloudThrowaway"/>); a notebook whose path lies in <paramref name="runProbeRoot"/>, when
+    /// that is a run's probe folder; or (Phill, 2026-11-16, O3) a notebook whose path is this run's stamped probe URL in
+    /// MCP Test Cloud's OneDrive (<see cref="IsProbeUrl"/> with the run folder's exact stamp).
+    /// </summary>
+    public static void CheckClose(string method, string notebooksXml, string notebookId, string testFolder, string throwawayRoot, string? runProbeRoot)
+    {
+        if (string.IsNullOrEmpty(notebookId))
+        {
+            throw new InvalidOperationException($"Refusing {method}: no notebook ID.");
+        }
+
+        if (TestNotebookIds(notebooksXml, testFolder).Contains(notebookId))
+        {
+            throw new InvalidOperationException($"Refusing {method}: {notebookId} is the MCP Test or MCP Test Cloud notebook.");
+        }
+
+        var notebook = XDocument.Parse(notebooksXml).Root!.Elements(One + "Notebook").SingleOrDefault(n => (string?)n.Attribute("ID") == notebookId)
+            ?? throw new InvalidOperationException($"Refusing {method}: {notebookId} is not an open notebook.");
+        var name = (string?)notebook.Attribute("name");
+        var path = (string?)notebook.Attribute("path");
+        var run = runProbeRoot is not null && IsRunProbeRoot(runProbeRoot, throwawayRoot) ? runProbeRoot : null;
+        if (IsAdoptedClosable(name, path, throwawayRoot)
+            || IsCloudThrowaway(name, path)
+            || (run is not null && IsUnderRunProbeRoot(path, run))
+            || (run is not null && IsProbeUrl(path, CloudCid(notebooksXml), RunStamp(run)))) // Phill 2026-11-16: O3's notebook, this run's stamp only
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Refusing {method}: notebook {notebookId} is not throwaway b or c, the cloud throwaway, a notebook in this run's probe folder, or one opened from this run's probe URL.");
+    }
+
+    /// <summary>
+    /// Refuses an <c>OpenHierarchy</c> <c>cftNone</c> unless <paramref name="path"/> (no <c>..</c> segment) is one of:
+    /// a path in <paramref name="runProbeRoot"/>, or its <c>\\localhost\X$</c> form (<see cref="IsUnderRunProbeRoot"/>);
+    /// one of <paramref name="recordedPaths"/> that is throwaway <c>b</c>'s or <c>c</c>'s folder or the cloud throwaway's URL
+    /// (<see cref="IsClosableThrowawayPath"/>); with <paramref name="allowOpenTestNotebooks"/> (O4), the path of MCP Test
+    /// or MCP Test Cloud while a live read shows it open; or a run-stamped probe URL in MCP Test Cloud's OneDrive
+    /// (<see cref="IsProbeUrl"/>, O3).
+    /// </summary>
+    public static void CheckOpen(
+        string method,
+        string path,
+        string notebooksXml,
+        string testFolder,
+        string throwawayRoot,
+        string? runProbeRoot,
+        IReadOnlyCollection<string> recordedPaths,
+        bool allowOpenTestNotebooks)
+    {
+        ArgumentNullException.ThrowIfNull(recordedPaths);
+        if (string.IsNullOrWhiteSpace(path) || HasParentSegment(path))
+        {
+            throw new InvalidOperationException($"Refusing {method}: {path} is empty or has a .. segment.");
+        }
+
+        var run = runProbeRoot is not null && IsRunProbeRoot(runProbeRoot, throwawayRoot) ? runProbeRoot : null;
+        if (run is not null && IsUnderRunProbeRoot(path, run))
+        {
+            return;
+        }
+
+        if (recordedPaths.Any(p => SamePath(p, path)) && IsClosableThrowawayPath(path, throwawayRoot))
+        {
+            return;
+        }
+
+        if (allowOpenTestNotebooks)
+        {
+            var notebooks = XDocument.Parse(notebooksXml).Root!.Elements(One + "Notebook").ToList();
+            if (FindNotebookId(notebooksXml, testFolder) is not null && SamePath(path, testFolder))
+            {
+                return;
+            }
+
+            if (FindCloudNotebookId(notebooksXml) is { } cloudId
+                && notebooks.FirstOrDefault(n => (string?)n.Attribute("ID") == cloudId) is { } cloud
+                && SamePath(path, (string?)cloud.Attribute("path")))
+            {
+                return;
+            }
+        }
+
+        if (run is not null && IsProbeUrl(path, CloudCid(notebooksXml), RunStamp(run)))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Refusing {method}: {path} is not in this run's probe folder, a recorded throwaway path, an open test notebook (O4), or a probe URL.");
+    }
+
+    /// <summary>Throwaway <c>b</c>'s or <c>c</c>'s folder (exact leaf, directly in <paramref name="throwawayRoot"/>), or the cloud throwaway's OneDrive URL.</summary>
+    public static bool IsClosableThrowawayPath(string? path, string throwawayRoot)
+    {
+        if (string.IsNullOrEmpty(path) || HasParentSegment(path))
+        {
+            return false;
+        }
+
+        if (IsCloudPathNamed(path, TestNotebook.CloudThrowawayName))
+        {
+            return true;
+        }
+
+        return Path.IsPathFullyQualified(path)
+            && !path.StartsWith(@"\\", StringComparison.Ordinal)
+            && string.Equals(Path.GetDirectoryName(TrimPath(path)), TrimPath(throwawayRoot), StringComparison.OrdinalIgnoreCase)
+            && ClosableAdoptedNames.Any(n => string.Equals(n, Path.GetFileName(TrimPath(path)), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// O3's URL: <c>https://d.docs.live.net/&lt;cid&gt;/Documents/probe … &lt;stamp&gt;</c> (trailing slash optional), where
+    /// the account ID is MCP Test Cloud's (<paramref name="cloudCid"/>, compared ignoring case) and the last folder starts
+    /// with <c>probe </c> and ends with the run's stamp. Nothing deeper, nothing else.
+    /// </summary>
+    public static bool IsProbeUrl(string? path, string? cloudCid, string stamp)
+    {
+        if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(cloudCid) || string.IsNullOrEmpty(stamp)
+            || !Uri.TryCreate(path, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.Equals(uri.Host, CloudHost, StringComparison.OrdinalIgnoreCase)
+            || !uri.IsDefaultPort
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
+        {
+            return false;
+        }
+
+        var segments = Uri.UnescapeDataString(uri.AbsolutePath).TrimEnd('/').Split('/');
+        return segments.Length == 4
+            && segments[0].Length == 0
+            && string.Equals(segments[1], cloudCid, StringComparison.OrdinalIgnoreCase)
+            && segments[2] == "Documents"
+            && segments[3].StartsWith("probe ", StringComparison.Ordinal)
+            && segments[3].EndsWith(" " + stamp, StringComparison.Ordinal)
+            && !segments.Any(s => s is ".." or ".");
+    }
+
+    /// <summary>MCP Test Cloud's OneDrive account ID (the first segment of its path), or null when it isn't open.</summary>
+    public static string? CloudCid(string notebooksXml)
+    {
+        if (FindCloudNotebookId(notebooksXml) is not { } id)
+        {
+            return null;
+        }
+
+        var path = NotebookPath(notebooksXml, id);
+        if (path is null || !Uri.TryCreate(path, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var segments = Uri.UnescapeDataString(uri.AbsolutePath).Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length > 0 ? segments[0] : null;
+    }
+
+    private static bool IsAdoptedClosable(string? name, string? path, string throwawayRoot) =>
+        name is not null
+        && ClosableAdoptedNames.Contains(name)
+        && IsLocalThrowaway(name, path, throwawayRoot)
+        && string.Equals(Path.GetFileName(TrimPath(path!)), name, StringComparison.OrdinalIgnoreCase);
+
+    private static bool SamePath(string? a, string? b) =>
+        a is not null && b is not null && string.Equals(a.TrimEnd('\\', '/'), b.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasParentSegment(string path) => path.Split('\\', '/').Any(s => s == "..");
+
+    [GeneratedRegex(@"^\d{4}-\d{6}$", RegexOptions.CultureInvariant)]
+    private static partial Regex StampPattern();
+
+    [GeneratedRegex(@"^\\\\localhost\\(?<drive>[A-Za-z])\$(?<rest>\\.*)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex LocalhostAdminShare();
 
     /// <summary>The IDs of the open test notebooks: MCP Test at <paramref name="folder"/>, then MCP Test Cloud. Either may be absent.</summary>
     public static IReadOnlyList<string> TestNotebookIds(string notebooksXml, string folder)
