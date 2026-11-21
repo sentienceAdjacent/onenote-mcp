@@ -46,11 +46,6 @@ public sealed record MoveResult(string? NewPageId, IReadOnlyList<ToolWarning> Wa
 [SupportedOSPlatform("windows")]
 public sealed class MovePageWrite : WriteOperation<MoveResult>
 {
-    public const string OperationName = "move_hierarchy_object";
-
-    /// <summary>hrSectionDoesNotExist (and friends): on a move it may have left a partial copy (AD-7 Moves, AD-9).</summary>
-    public const int PartialCopyHResult = unchecked((int)0x80042004);
-
     /// <summary>What to do after <c>noBasis</c> or <c>partialBasis</c>.</summary>
     public const string NoBasisUserAction =
         "Pass the page's lastModifiedTime attribute from its section's get_hierarchy read (scope children or pages) as basis: {lastModifiedTime}, so a change made since your read is caught.";
@@ -86,13 +81,6 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     /// <summary>What to do about a position the server refuses.</summary>
     public const string PositionUserAction =
         "Read the target section with get_hierarchy (scope children) and pass a position from 1 to one more than its page count, at a top-level page rather than a subpage; or leave position out to put the page last.";
-
-    /// <summary>
-    /// What to do about a <c>position</c> in a password-protected target without a read grant (3.4 security review, Phill
-    /// 2026-11-17): a position's checks would show the section's page count and where its subpages sit.
-    /// </summary>
-    public const string ProtectedPositionUserAction =
-        "Leave position out to put the page last in the password-protected section. Placing it at a position needs a read grant for that section, held when the call starts: ask the user whether to grant it (they can run the grant command with --read-section, or accept the dialog that appears when you read one of its pages with get_page_content in a client that supports it), then retry. Never run the grant command yourself.";
 
     /// <summary>What to do when a notebook changed under the lock (AD-7).</summary>
     public const string NotebookChangedUserAction =
@@ -246,10 +234,10 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         // AD-8: a hierarchy entry per section, source then target. No page snapshot: no page move lost a page (AD-7).
         var now = Planned;
         SourceEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Source.Id, sourceXml, services.ReadAccess.Protection()),
+            new HierarchySnapshotRequest(correlationId, MoveWrites.OperationName, OperationClass.HierarchyWrite, now.Source.Id, sourceXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
         TargetEntryId = (await services.Snapshot.TakeAsync(
-            new HierarchySnapshotRequest(correlationId, OperationName, OperationClass.HierarchyWrite, now.Target.Id, targetXml, services.ReadAccess.Protection()),
+            new HierarchySnapshotRequest(correlationId, MoveWrites.OperationName, OperationClass.HierarchyWrite, now.Target.Id, targetXml, services.ReadAccess.Protection()),
             ct).ConfigureAwait(false)).EntryId;
     }
 
@@ -260,11 +248,12 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
         {
             await services.Gateway.UpdateHierarchyAsync(now.Xml, ct).ConfigureAwait(false);
         }
-        catch (OneNoteException ex) when (ex.ComHResult == PartialCopyHResult)
+        catch (OneNoteException ex) when (ex.ComHResult == PartialCopyReRead.HResult)
         {
             // AD-7 Moves: a partial copy is possible, so the outcome is unknown; the code stays (AD-9). The re-read runs here,
             // under the lock and before the throw, so the pipeline needs no branch of its own.
-            var found = await PartialCopyFindingsAsync(now, ct).ConfigureAwait(false);
+            var found = await PartialCopyReRead.FindingsAsync(
+                services.Gateway, services.ReadAccess.Protection(), "move", now.Source, now.Target, PageId, HierarchyKind.Page, now.Page.Name, ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote($"{ex.Message} {found}"), ex.ComHResult, ex, outcomeUnknown: true, ex.UserAction, retryable: false);
         }
         catch (OneNoteException ex) when (FailureNote is not null)
@@ -428,7 +417,7 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
             throw new OneNoteException(
                 ErrorCode.ReadNotGranted,
                 $"Section {TargetId} {Protection.Phrase(target.EncryptedMarker)}, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was moved.",
-                userAction: ProtectedPositionUserAction);
+                userAction: MoveWrites.ProtectedPositionUserAction);
         }
     }
 
@@ -438,50 +427,6 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
     /// </summary>
     private static string? MovedPage(Plan now, HierarchyTarget after) =>
         MoveReadBack.NewPageId(now.Target.Children, after, now.Page.Name, now.Index);
-
-    /// <summary>After <c>0x80042004</c>: where the page is, as far as a best-effort re-read of both sections can tell (AD-7 Moves).</summary>
-    private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)
-    {
-        string inSource;
-        try
-        {
-            var source = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.Source.Id, ct).ConfigureAwait(false);
-            inSource = source.Children.Any(c => string.Equals(c.Id, PageId, StringComparison.Ordinal))
-                ? $"page {PageId} is still in section {now.Source.Id}"
-                : $"page {PageId} is no longer in section {now.Source.Id}";
-        }
-#pragma warning disable CA1031 // Best effort: the original failure is what the caller gets; the re-read only adds to its message.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            inSource = $"section {now.Source.Id} couldn't be re-read ({MoveReadBack.Why(ex)})";
-        }
-
-        string inTarget;
-        try
-        {
-            var target = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, now.Target.Id, ct).ConfigureAwait(false);
-            var before = now.Target.Children.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
-            var copies = target.Children
-                .Where(c => !before.Contains(c.Id) && string.Equals(c.Name, now.Page.Name, StringComparison.Ordinal))
-                .Select(c => c.Id)
-                .ToList();
-            // In a password-protected target, a count only: nothing inside it is named (AD-21 Messages).
-            inTarget = copies.Count == 0
-                ? $"section {now.Target.Id} has no new page with its name"
-                : services.ReadAccess.Protection().IsProtected(now.Target)
-                    ? string.Create(CultureInfo.InvariantCulture, $"section {now.Target.Id} has {copies.Count} new page(s) with its name")
-                    : string.Create(CultureInfo.InvariantCulture, $"section {now.Target.Id} has {copies.Count} new page(s) with its name ({string.Join(", ", copies)})");
-        }
-#pragma warning disable CA1031 // As above.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            inTarget = $"section {now.Target.Id} couldn't be re-read ({MoveReadBack.Why(ex)})";
-        }
-
-        return $"The move may have left a partial copy. Re-read straight after the failure: {inSource}, and {inTarget}; a copy in a cloud notebook can land later.";
-    }
 
     /// <summary>
     /// With no section above it, the object isn't a page: a section or group is <see cref="ObjectIsContainer"/>, which the

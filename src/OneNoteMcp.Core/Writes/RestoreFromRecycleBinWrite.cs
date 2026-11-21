@@ -127,10 +127,6 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     public const string RestoredByNameUserAction =
         "The item was matched to its journal entry by name, not by ID. Tell the user where it went (meta.parentId), and check it is where they expected.";
 
-    /// <summary>What to do after the warning <c>settled</c>.</summary>
-    public const string SettledUserAction =
-        "The restore touched a cloud notebook (OneDrive or SharePoint). Before relying on it, ask the user to check in OneNote that it synced (no sync error on the notebook).";
-
     private readonly HierarchyWriteServices services;
     private readonly HierarchyWalk walk;
     private readonly Func<IReadOnlyList<JournalEntry>> loadEntries;
@@ -270,11 +266,21 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         {
             await services.Gateway.UpdateHierarchyAsync(now.Xml, ct).ConfigureAwait(false);
         }
-        catch (OneNoteException ex) when (ex.ComHResult == MovePageWrite.PartialCopyHResult)
+        catch (OneNoteException ex) when (ex.ComHResult == PartialCopyReRead.HResult)
         {
             // As a move (AD-7 Moves): a partial copy is possible, so the outcome is unknown; the code stays (AD-9).
             await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
-            var found = await PartialCopyFindingsAsync(now, ct).ConfigureAwait(false);
+            var item = now.State.Item;
+            var found = await PartialCopyReRead.FindingsAsync(
+                services.Gateway,
+                services.ReadAccess.Protection(),
+                "restore",
+                source: null,
+                now.State.Target,
+                ObjectId,
+                item.Kind == SoftDeleteKind.Page ? HierarchyKind.Page : HierarchyKind.Section,
+                item.Name,
+                ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote($"{ex.Message} {found}"), ex.ComHResult, ex, outcomeUnknown: true, ex.UserAction, retryable: false);
         }
         catch (OneNoteException ex) when (FailureNote is not null)
@@ -637,7 +643,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
                     $"Section {target.Id} {Protection.Phrase(target.EncryptedMarker)}, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was restored.",
-                    userAction: MovePageWrite.ProtectedPositionUserAction);
+                    userAction: MoveWrites.ProtectedPositionUserAction);
             }
 
             // As a move (3.4 Q2): 1-based among the target's live pages, before a top-level page; omitted, last. No page count in a message.
@@ -742,48 +748,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             : null;
     }
 
-    /// <summary>After <c>0x80042004</c>: what a best-effort re-read of the target finds (as a move, AD-7 Moves).</summary>
-    private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)
-    {
-        var target = now.State.Target;
-        string found;
-        try
-        {
-            var after = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, target.Id, ct).ConfigureAwait(false);
-            if (now.State.Item.Kind == SoftDeleteKind.Section)
-            {
-                found = after.Children.Any(c => string.Equals(c.Id, ObjectId, StringComparison.Ordinal))
-                    ? $"{ObjectId} is in {target.Id}"
-                    : $"{ObjectId} isn't in {target.Id}";
-            }
-            else
-            {
-                var before = target.Children.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
-                var copies = after.Children
-                    .Where(c => !before.Contains(c.Id) && string.Equals(c.Name, now.State.Item.Name, StringComparison.Ordinal))
-                    .Select(c => c.Id)
-                    .ToList();
-                found = copies.Count == 0
-                    ? $"section {target.Id} has no new page with its name"
-                    : services.ReadAccess.Protection().IsProtected(target)
-                        ? string.Create(CultureInfo.InvariantCulture, $"section {target.Id} has {copies.Count} new page(s) with its name")
-                        : string.Create(CultureInfo.InvariantCulture, $"section {target.Id} has {copies.Count} new page(s) with its name ({string.Join(", ", copies)})");
-            }
-        }
-#pragma warning disable CA1031 // Best effort: the original failure is what the caller gets; the re-read only adds to its message.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            found = $"{target.Id} couldn't be re-read ({MoveReadBack.Why(ex)})";
-        }
-
-        return $"The restore may have left a partial copy. Re-read straight after the failure: {found}; a copy in a cloud notebook can land later.";
-    }
-
-    private ToolWarning SettledWarning() => new(
-        ToolWarnings.Settled,
-        string.Create(CultureInfo.InvariantCulture, $"The restore of {ObjectId} touched a cloud notebook, so the server waited {CloudSettle.Time.TotalSeconds:0} s before re-reading it, as OneNote can fail or block on a write straight after such a move."),
-        SettledUserAction);
+    private ToolWarning SettledWarning() => CloudSettle.SettledWarning($"The restore of {ObjectId}");
 
     private ToolWarning Differs(string message) => new(ToolWarnings.ReadBackDiffers, message, ReadBackUserAction());
 

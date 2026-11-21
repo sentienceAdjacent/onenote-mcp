@@ -204,7 +204,7 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
         Assert.All(new[] { source, target }, e =>
         {
             Assert.Equal(JournalEntry.HierarchyKind, e.SnapshotKind);
-            Assert.Equal(MovePageWrite.OperationName, e.Operation);
+            Assert.Equal(MoveWrites.OperationName, e.Operation);
             Assert.Equal(nameof(OperationClass.HierarchyWrite), e.OperationClass);
             Assert.Null(e.SectionKey);
         });
@@ -546,7 +546,7 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
         var message = error.GetProperty("message").GetString()!;
         Assert.Contains(VaultId, message, StringComparison.Ordinal);
         Assert.DoesNotContain("page(s)", message, StringComparison.Ordinal);
-        Assert.Equal(MovePageWrite.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Equal(MoveWrites.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.UpdateHierarchyCalls);
         Assert.Empty(holds);
     }
@@ -590,7 +590,7 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
         var error = Error(await Tool().MoveHierarchyObject(P2, VaultId, 1, Basis(Lmt), Ct), "ReadNotGranted");
 
         Assert.True(opened());
-        Assert.Equal(MovePageWrite.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Equal(MoveWrites.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.UpdateHierarchyCalls);
         Assert.Empty(holds);
 
@@ -613,7 +613,7 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
 
         Assert.True(opened());
         Assert.Single(holds);
-        Assert.Equal(MovePageWrite.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Equal(MoveWrites.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.UpdateHierarchyCalls);
         Assert.Empty(EntryFiles());
     }

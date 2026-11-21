@@ -430,7 +430,7 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
 
         var error = Error(await RestoreWithPrompt(prompt, LostId, VaultId, position: 1), "ReadNotGranted");
 
-        Assert.Equal(MovePageWrite.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
+        Assert.Equal(MoveWrites.ProtectedPositionUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(prompt.Order);
         Assert.Empty(gateway.UpdateHierarchyCalls);
     }
@@ -798,6 +798,7 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         Assert.Equal(CloudId, root.GetProperty("meta").GetProperty("parentId").GetString());
         var codes = root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()).ToList();
         Assert.Equal([ToolWarnings.Settled], codes);
+        Assert.Equal(CloudSettle.SettledUserAction, root.GetProperty("warnings")[0].GetProperty("userAction").GetString());
     }
 
     // --- Protected sections ------------------------------------------------------------------------------------------
