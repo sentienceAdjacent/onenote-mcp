@@ -14,7 +14,7 @@ status: done
 ## Description
 
 This epic adds the `ExternalWrite` class and the rest of `HierarchyWrite`, through the AD-7 pipeline that epics 2 and 5 build:
-- `Publish`, `OpenPackage` and `MergeFiles`, writing only under `exportRoots` and reporting the output path;
+- `Publish`, writing only under `exportRoots`, and `OpenPackage`, unpacking only into the opened-copies folder, each reporting the output path (`MergeFiles` was dropped);
 - moving a page, section or section group through `UpdateHierarchy`;
 - `MergeSections`;
 - `restore_from_recycle_bin`, which builds on move.
@@ -29,19 +29,19 @@ Claude can export, move and merge notebook content, and bring back deleted items
 
 ## Requirements
 
-- **E1 (R8) — Export roots.** Every `ExternalWrite` call runs the AD-7 pipeline: the write lock and the 600 s deadline for classes that publish. Its target sits under an `exportRoots` entry (AD-10, AD-11); the default root is `Documents\OneNote Exports`, created on first use. Before COM, the server:
+- **E1 (R8) — Export roots.** Every `ExternalWrite` call runs the AD-7 pipeline: the write lock and the 600 s deadline for classes that publish. A `publish` target sits under an `exportRoots` entry (AD-10, AD-11); `open_package`'s destination follows E3; the default root is `Documents\OneNote Exports`, created on first use. Before COM, the server:
   - makes the target canonical (`GetFullPath`, junctions resolved), then checks it: outside every root returns `ExportPathNotAllowed`, and an existing file returns `FileExists`;
   - creates the target's folder, because `Publish` into a missing folder raises a modal and blocks (5.1 constraint 6).
   
   The call counts as done only once the file exists, because a package can land after `Publish` returns (5.1 constraint 18). Every export result carries `meta.outputPath`, and the skill tells the user where the file went. The user manages `exportRoots` by editing `settings.json` (Decision, Q8). (AD-7 `ExternalWrite`, AD-11)
 - **E2 (R8) — `publish`.** Exports a page, section or notebook with `Publish`, in each format the spike proves for that scope. A scope or format that can't work is refused before COM, with the reason. A notebook can't publish as `.one`; of the OneNote formats only `.onepkg` works (5.1 constraint 18), and entry 1 probes the rest. `Publish` can't export a section group at all (5.1 constraint 6), so `publish` refuses one before COM; exporting a group section by section is a skill recipe (Decision, Q7). A locked section is refused as `SectionLocked` before COM, because `Publish` would return a misleading `0x80042014` (5.1 constraint 16). (AD-7 `ExternalWrite`, AD-11)
-- **E3 (R8) — `open_package`.** Unpacks a `.onepkg` with `OpenPackage` into a new folder under an export root, and reports the folder and the notebook OneNote opened from it. The package may come from any path, and the opened notebook gets no automatic write grant (Decision, Q6). Every section in it counts as protected under AD-21 and needs a read grant, as does any notebook under an export root or the backup folder (Decision, Q11). The user closes it in OneNote until epic 4 (Decision, Q13). (AD-7 `ExternalWrite`, AD-21)
+- **E3 (R8) — `open_package`.** Unpacks a `.onepkg` with `OpenPackage` into a new folder in the opened-copies folder (`%LOCALAPPDATA%\OneNoteMcp\opened`, outside OneDrive), and reports the folder and the notebook OneNote opened from it. A named destination is a folder name, which lands there, or a full path directly inside it; anything else, an export root included, is `ExportPathNotAllowed`, and a destination in a OneDrive-synced folder is refused before anything is written (Decision, 3.8 Q3). The package may come from any path, and the opened notebook gets no automatic write grant (Decision, Q6). Every section in it counts as protected under AD-21 and needs a read grant, as does any notebook under an export root, the backup folder or the opened-copies folder (Decision, Q11; 3.8 Q3). The user closes it in OneNote until epic 4 (Decision, Q13). (AD-7 `ExternalWrite`, AD-11, AD-21)
 - **E4 (R8) — `merge_files`.** `MergeFiles` into a target under an export root, shipped only if entry 1 shows a result the user would want; otherwise a dated Decision records why it isn't exposed (Decision, Q5). (AD-7 `ExternalWrite`) Dropped 2026-11-16: `MergeFiles` ended ONENOTE.EXE 3 times out of 3 in spike 3.1 sitting A, so Phill dropped the tool and story 3.9 (3.10 now follows 3.8).
 - **E5 (R8) — Move.** Moves a page, section or section group to another section, section group or notebook through `UpdateHierarchy`, as an explicit move by a separate move tool that takes the item, its new parent and a position and builds the XML in Core (Decision, Q2):
   - it needs the write grant of every notebook it touches, resolved through the gateway (AD-6);
   - it checks the basis (AD-17, as entry 2 sets it for a move) and takes the snapshot entry 2 sets for a move: a hierarchy snapshot of both parents, plus a page snapshot if entry 1 shows a page move can lose the page (AD-7, AD-8);
   - it refuses a move into or out of the recycle bin (restoring is E7);
-  - it reads back and reports the moved item's ID after the move, and drops moved pages from the search cache (AD-12);
+  - it reads back and reports the moved item's ID after the move; a page move drops the page's old ID from the search cache (AD-12), and a section or section-group move drops nothing, since the cache is keyed by page ID and `lastModifiedTime` (inferred, not tested; retrospective R7);
   - a section move updates what depends on the section's path, its `SectionKey`, as entry 2 sets.
 
   No other hierarchy write moves anything: `rename_hierarchy_object` and `reorder_hierarchy_children` keep refusing an ID that isn't already under its parent (5.1 constraint 4). A write's notebook is re-resolved under the write lock, so a section moved between notebooks can't take another write's grant (deferred-work, story 2.4). (AD-7 `HierarchyWrite` move)
@@ -53,7 +53,7 @@ Claude can export, move and merge notebook content, and bring back deleted items
 
 ## Done when
 
-1. `publish`, and `open_package` and `merge_files` where they ship, write only under an export root. Any other path returns `ExportPathNotAllowed`, and an existing file `FileExists`. The result carries `meta.outputPath`, and the skill reports it.
+1. `publish` writes only under an export root, and `open_package` only into a new folder directly inside the opened-copies folder (`merge_files` didn't ship). Any other path returns `ExportPathNotAllowed`, and an existing file or folder `FileExists`. The result carries `meta.outputPath`, and the skill reports it.
 2. A page, section or section group moves between sections, section groups or notebooks, and `merge_sections` merges a section, only when every notebook involved is granted. The snapshot entry 2 sets is in the journal, and the result gives the moved item's current ID.
 3. `restore_from_recycle_bin` restores a soft-deleted page or section. When a name matches several recycled items, it returns the candidates so the user chooses.
 4. An export, move, merge or restore of content in a password-protected section is refused unless E8's rule allows it, and the integration suite shows it.
@@ -140,3 +140,4 @@ Out of scope: app-state and UI tools (epic 4), including `CloseNotebook` for a n
 - Assumption (unconfirmed): test fixtures. Entry 4 owns the second notebook for cross-notebook moves and merges: it reuses a throwaway notebook 5.1 left open (`MCP Test Throwaway 1112-034716 a`, which the integration guard already allows) and grants it in the tests' temporary settings; entries 12 and 6 reuse it. Entry 7 also exports that notebook, which holds no protected section, so entry 8 has a package to open whatever Q1 decides.
 - Decision (Phill 2026-11-12, accepting the plan by answering its questions; drafted in an autonomous inception and revised after its Fable review the same day): the breakdown is entries 1–13 in `tickets.toml`, in one lane, because every story after the spine amendment touches the tool registration and contract snapshot, the error list or the pipeline runner. The tracer bullet is entry 3, `publish` of a page to PDF through the new `ExternalWrite` pipeline. The moves (entries 4 and 12) follow it as the slices least known. If entry 5 (restore) is dropped, entry 6 goes after entry 12. If entry 9 (`merge_files`) is dropped, entry 10 goes after entry 8.
 - Decision (2026-11-19, Phill, Inbox): epic accepted with open items after its retrospective (`epic-round-2-external-and-structural-retrospective.md`). The `v0.9.0-rc.1` tag (Done when 5) stays the tracked open item; status set to done.
+- Decision (Phill, 2026-11-21, Inbox, backlog 20): E3, Done when 1, E5's cache sentence, the Description's first bullet and E1's target sentence now describe what was built: `open_package`'s opened-copies destination (3.8 Q3) and the page-only cache drop. From the retrospective (`epic-round-2-external-and-structural-retrospective.md`, findings R1 and R7; action items 4 and 5). The spine already said so; no code changed.
