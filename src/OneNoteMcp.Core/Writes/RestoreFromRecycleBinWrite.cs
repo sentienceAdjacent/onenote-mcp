@@ -89,11 +89,11 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
 
     /// <summary>What to do about a protected section sent elsewhere (AD-8).</summary>
     public const string ProtectedElsewhereUserAction =
-        "Leave parentId out: a password-protected section goes back only to the place it was deleted from. If the user wants it elsewhere afterwards, they move it in OneNote.";
+        "Leave parentId out: a protected section (password-protected, or under the opened-copies folder, an export root or the backups folder) goes back only to the place it was deleted from. If the user wants it elsewhere afterwards, they move it in OneNote.";
 
     /// <summary>What to do about a protected section whose place can't be found (AD-8).</summary>
     public const string ProtectedOrphanUserAction =
-        "Ask the user to restore it from the Recycle Bin in OneNote: a password-protected section goes back only to the place it was deleted from, and the server can't find that place (no journal entry matches it, or that notebook or section group is gone).";
+        "Ask the user to restore it from the Recycle Bin in OneNote: a protected section (password-protected, or under the opened-copies folder, an export root or the backups folder) goes back only to the place it was deleted from, and the server can't find that place (no journal entry matches it, or that notebook or section group is gone).";
 
     /// <summary>What to do about a page position the server refuses.</summary>
     public const string PagePositionUserAction =
@@ -448,7 +448,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             var deleted = XmlReads.Readable(() => RecycleBin.DeletedPages(binPages), "GetHierarchy");
             var page = deleted.FirstOrDefault(p => string.Equals(p.Id, ObjectId, StringComparison.Ordinal))
                 ?? throw ObjectNotFound("isn't listed in Deleted Pages");
-            return new Item(SoftDeleteKind.Page, ObjectId, page.Name, string.Empty, false, binId, [.. deleted.Select(p => p.Id)]);
+            return new Item(SoftDeleteKind.Page, ObjectId, page.Name, string.Empty, false, false, binId, [.. deleted.Select(p => p.Id)]);
         }
 
         var selfXml = await services.Gateway.GetHierarchyAsync(ObjectId, HierarchyScope.Self, ct).ConfigureAwait(false);
@@ -486,7 +486,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         }
 
         var binned = XmlReads.Readable(() => HierarchyNode.Sections(parentXml), "GetHierarchy").Select(s => s.Id).ToList();
-        return new Item(SoftDeleteKind.Section, ObjectId, self.Name, self.Path, services.ReadAccess.Protection().IsProtected(self), parentId!, binned);
+        return new Item(SoftDeleteKind.Section, ObjectId, self.Name, self.Path, services.ReadAccess.Protection().IsProtected(self), self.EncryptedMarker, parentId!, binned);
     }
 
     /// <summary>The item's soft-delete entry (AD-8; Q1, Q5, Q10): <c>entryId</c> when given, else the match; several are refused, listed.</summary>
@@ -532,22 +532,26 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             var shortcut = entry?.ParentId is { Length: > 0 } parent
                 ? string.Equals(parent, notebook.Id, StringComparison.Ordinal) ? notebook.Path : liveGroups.FirstOrDefault(g => string.Equals(g.Id, parent, StringComparison.Ordinal))?.Path
                 : null;
+            // Backlog 19: worded by the reason it counts as protected, its marker or its path (AD-21).
+            var phrase = Protection.Phrase(item.Marked);
             if (own is null || (shortcut is not null && !GrantKeys.SameLocation(shortcut, folder)))
             {
                 throw new OneNoteException(
                     ErrorCode.ObjectNotFound,
                     entry is null
-                        ? $"Password-protected section {ObjectId} has no journal entry, so the place it was deleted from is unknown, and nothing was restored."
+                        ? $"Section {ObjectId} {phrase}, and it has no journal entry, so the place it was deleted from is unknown, and nothing was restored."
+                        : folder is null
+                            ? $"Section {ObjectId} {phrase}, and its journal entry {entry.EntryId:D} records no SectionKey (it wasn't protected when it was deleted), so the place it was deleted from can't be proven, and nothing was restored."
                         : own is null
-                            ? $"The place password-protected section {ObjectId} was deleted from (journal entry {entry.EntryId:D}) is gone, so nothing was restored."
-                            : $"Journal entry {entry.EntryId:D} of password-protected section {ObjectId} names a parent ({entry.ParentId}) that isn't the place its SectionKey records, so where it was deleted from is uncertain, and nothing was restored.",
+                            ? $"Section {ObjectId} {phrase}, and the place it was deleted from (journal entry {entry.EntryId:D}) is gone, so nothing was restored."
+                            : $"Section {ObjectId} {phrase}, and its journal entry {entry.EntryId:D} names a parent ({entry.ParentId}) that isn't the place its SectionKey records, so where it was deleted from is uncertain, and nothing was restored.",
                     userAction: ProtectedOrphanUserAction,
                     retryable: false);
             }
 
             if (parentArgument.Length > 0 && !string.Equals(parentArgument, own, StringComparison.Ordinal))
             {
-                throw HierarchyWriteSteps.Invalid($"Section {ObjectId} is password-protected and goes back only to {own}, the place it was deleted from, not {parentArgument}, so nothing was restored.", ProtectedElsewhereUserAction);
+                throw HierarchyWriteSteps.Invalid($"Section {ObjectId} {phrase}, and it goes back only to {own}, the place it was deleted from, not {parentArgument}, so nothing was restored.", ProtectedElsewhereUserAction);
             }
 
             return own;
@@ -798,8 +802,8 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
 
     private static string Capitalized(HierarchyKind kind) => HierarchyBasis.Capitalized(HierarchyRules.Noun(kind));
 
-    /// <summary>The recycled item: its kind, ID, name, path (a section's, in the bin), protection, the bin node it is under (the recycle bin), and the IDs of every item of its kind in the bin.</summary>
-    private sealed record Item(SoftDeleteKind Kind, string Id, string Name, string Path, bool Encrypted, string BinId, IReadOnlyList<string> Binned);
+    /// <summary>The recycled item: its kind, ID, name, path (a section's, in the bin), protection (AD-21's test, marker or path) and whether it carries the <c>encrypted</c> marker (backlog 19: the refusals word it by reason), the bin node it is under (the recycle bin), and the IDs of every item of its kind in the bin.</summary>
+    private sealed record Item(SoftDeleteKind Kind, string Id, string Name, string Path, bool Encrypted, bool Marked, string BinId, IReadOnlyList<string> Binned);
 
     /// <summary>What step 3 read: the item, its notebook's path, its entry and whether it matched by name, and the target with its XML and notebook path.</summary>
     private sealed record State(
