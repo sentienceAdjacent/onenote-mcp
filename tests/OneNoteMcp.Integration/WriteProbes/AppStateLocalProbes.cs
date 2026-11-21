@@ -509,7 +509,8 @@ public sealed class AppStateLocalProbes(ITestOutputHelper output)
 }
 
 /// <summary>Spike 4.1: one run's state, shared by its steps (and read live again wherever a step may run alone).</summary>
-internal sealed class AppStateContext(ProbeSession s, string stamp, bool cloud)
+/// <remarks>Spike 4.12: <paramref name="runTags"/> names that scenario's run notebooks (<c>n1</c>); 4.1's are <c>o1</c>…<c>o4</c>.</remarks>
+internal sealed class AppStateContext(ProbeSession s, string stamp, bool cloud, IReadOnlyList<string>? runTags = null)
 {
     public ProbeSession S { get; } = s;
 
@@ -522,7 +523,7 @@ internal sealed class AppStateContext(ProbeSession s, string stamp, bool cloud)
     /// <summary>O1's fill series runs up to 30 s locally; O2's up to 180 s on the cloud.</summary>
     public TimeSpan FillLimit => Cloud ? TimeSpan.FromSeconds(180) : TimeSpan.FromSeconds(30);
 
-    public IReadOnlyList<string> RunTags { get; } = ["o1", "o2", "o3", "o4"];
+    public IReadOnlyList<string> RunTags { get; } = runTags ?? ["o1", "o2", "o3", "o4"];
 
     public string RunName(string tag) => $"{TestNotebook.ThrowawayNamePrefix}{Stamp} {tag}";
 
@@ -610,7 +611,7 @@ internal static class AppState
     /// The run's probe folder: new, for a new stamp; or an earlier run's, when <c>ONENOTE_MCP_PROBE_STAMP</c> names it
     /// (a rerun of later steps, such as <c>cleanup</c>).
     /// </summary>
-    public static AppStateContext Begin(ProbeSession s, bool cloud)
+    public static AppStateContext Begin(ProbeSession s, bool cloud, IReadOnlyList<string>? runTags = null)
     {
         var reused = Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_STAMP");
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ONENOTE_MCP_PROBE_STEPS")) && string.IsNullOrWhiteSpace(reused))
@@ -629,7 +630,7 @@ internal static class AppState
         s.RerunHint = $"This run's stamp is {stamp}. To rerun its remaining steps (cleanup included), set ONENOTE_MCP_PROBE_STAMP={stamp} and ONENOTE_MCP_PROBE_STEPS to those steps.";
         s.Echo(s.RerunHint);
         s.Recorder.Row("setup-run", "Setup", "-", null, null, new { stamp, root = s.RunProbeRoot, reused = !string.IsNullOrWhiteSpace(reused) });
-        return new AppStateContext(s, stamp, cloud);
+        return new AppStateContext(s, stamp, cloud, runTags);
     }
 
     /// <summary>Records b's and c's fixed folders, then adopts whichever of b, c and the cloud throwaway are open, recording their live paths.</summary>

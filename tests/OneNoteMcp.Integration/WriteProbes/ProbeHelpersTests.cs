@@ -770,4 +770,305 @@ public sealed class ProbeHelpersTests
         Assert.True(TestNotebookGuard.IsProbeUrl(AppStateCloudProbes.Url("0123456789abcdef", "probe missing 1116-120000"), "0123456789ABCDEF", "1116-120000"));
         Assert.False(TestNotebookGuard.IsProbeUrl(AppStateCloudProbes.Url("0123456789abcdef", "probe missing 1116-120000"), "0123456789ABCDEF", "1116-120001"));
     }
+
+    // --- Spike 4.12: links, landings, windows ----------------------------------------------------------------------
+
+    // Made-up links in the shapes OneNote's links take; no real path, account ID or name.
+    private const string SectionGuid = "{11111111-2222-3333-4444-555555555555}";
+    private const string PageGuid = "{66666666-7777-8888-9999-AAAAAAAAAAAA}";
+    private const string LocalPageLink = "onenote:///C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP%20Test\\Seed.one#Seed%20page&section-id={11111111-2222-3333-4444-555555555555}&page-id={66666666-7777-8888-9999-aaaaaaaaaaaa}&end";
+    private const string CloudPageLink = "onenote:https://d.docs.live.net/0123456789abcdef/Documents/MCP%20Test%20Cloud/Probes.one#Text%20Page&section-id=%7B11111111-2222-3333-4444-555555555555%7D&page-id=%7B66666666-7777-8888-9999-AAAAAAAAAAAA%7D&end&base-path=https://d.docs.live.net/0123456789abcdef/Documents/MCP%20Test%20Cloud";
+    private const string ParagraphLink = "onenote:///C:\\x\\MCP%20Test\\Probes.one#Probe&section-id={11111111-2222-3333-4444-555555555555}&page-id={66666666-7777-8888-9999-AAAAAAAAAAAA}&object-id={BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF}&10&end";
+    private const string WebLink = "https://onedrive.live.com/redir.aspx?cid=0123456789abcdef&page=edit&resid=0123456789ABCDEF!123&wd=target%28Probes.one%7C11111111-2222-3333-4444-555555555555%2FText%20Page%7C66666666-7777-8888-9999-AAAAAAAAAAAA%2F%29";
+
+    [Fact]
+    public void LinkShape_LocalPageLink()
+    {
+        var shape = LinkShape.Parse(LocalPageLink);
+
+        Assert.Equal(("onenote", "local path", ".one"), (shape.Scheme, shape.PathForm, shape.Target));
+        Assert.True(shape.Title && shape.SectionId && shape.PageId && shape.End);
+        Assert.False(shape.ObjectId || shape.BasePath);
+        Assert.Equal(PageGuid, shape.PageGuid); // upper-cased
+        Assert.Equal(SectionGuid, shape.SectionGuid);
+        Assert.Equal(2, shape.Guids);
+    }
+
+    [Fact]
+    public void LinkShape_CloudPageLink_EncodedGuidsAndBasePath()
+    {
+        var shape = LinkShape.Parse(CloudPageLink);
+
+        Assert.Equal(("onenote", "https d.docs.live.net", ".one"), (shape.Scheme, shape.PathForm, shape.Target));
+        Assert.True(shape.BasePath && shape.PageId && shape.SectionId);
+        Assert.Equal(PageGuid, shape.PageGuid);
+    }
+
+    [Fact]
+    public void LinkShape_NotebookFolder_ParagraphAndWebLinks()
+    {
+        var notebook = LinkShape.Parse("onenote:https://d.docs.live.net/0123456789abcdef/Documents/MCP%20Test%20Cloud/");
+        Assert.Equal(("folder", false, false, null), (notebook.Target, notebook.PageId, notebook.Title, notebook.PageGuid));
+
+        var paragraph = LinkShape.Parse(ParagraphLink);
+        Assert.True(paragraph.ObjectId);
+        Assert.Equal(3, paragraph.Guids);
+
+        var web = LinkShape.Parse(WebLink);
+        Assert.Equal(("https", "https onedrive.live.com", "other extension"), (web.Scheme, web.PathForm, web.Target));
+        Assert.Equal(["cid", "page", "resid", "wd"], web.QueryKeys);
+        Assert.Equal(2, web.Guids);
+        Assert.Null(web.PageGuid);
+
+        var loose = LinkShape.Parse(NavLinks.LooseFile(@"C:\Users\me\AppData\Local\OneNoteMcp-Test\probes\publish\probe nav 1116-120000.one"));
+        Assert.Equal(("onenote", "local path", ".one", false), (loose.Scheme, loose.PathForm, loose.Target, loose.PageId));
+
+        Assert.Equal(("file", "other"), (LinkShape.Parse("file:///C:/x.one").Scheme, LinkShape.Parse("file:///C:/x.one").PathForm));
+        Assert.Equal("none", LinkShape.Parse(null).Scheme);
+    }
+
+    [Fact]
+    public void LinkShape_SerializedRow_HoldsNoPathOrAccountId()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(LinkShape.Parse(CloudPageLink));
+
+        Assert.DoesNotContain("0123456789", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Probes", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WithPageId_ReplacesOnlyThePageGuid_InTheSameForm()
+    {
+        var guid = Guid.Parse("01234567-89ab-cdef-0123-456789abcdef");
+
+        var braces = NavLinks.WithPageId(LocalPageLink, guid);
+        Assert.Equal(LocalPageLink.Replace("{66666666-7777-8888-9999-aaaaaaaaaaaa}", "{01234567-89AB-CDEF-0123-456789ABCDEF}", StringComparison.Ordinal), braces);
+
+        var encoded = NavLinks.WithPageId(CloudPageLink, guid);
+        Assert.Equal(CloudPageLink.Replace("%7B66666666-7777-8888-9999-AAAAAAAAAAAA%7D", "%7B01234567-89AB-CDEF-0123-456789ABCDEF%7D", StringComparison.Ordinal), encoded);
+        Assert.Equal("{01234567-89AB-CDEF-0123-456789ABCDEF}", LinkShape.Parse(encoded).PageGuid);
+        Assert.Equal(SectionGuid, LinkShape.Parse(encoded).SectionGuid);
+    }
+
+    [Theory]
+    [InlineData("onenote:///C:\\x\\MCP%20Test\\Seed.one#Seed&section-id={11111111-2222-3333-4444-555555555555}&end")] // no page-id
+    [InlineData("onenote:///C:\\x\\MCP%20Test\\Seed.one#Seed&page-id={1}&page-id={2}&end")] // two
+    public void WithPageId_NeedsExactlyOnePageId(string link) =>
+        Assert.Throws<InvalidOperationException>(() => NavLinks.WithPageId(link, Guid.NewGuid()));
+
+    private static LandingPoint At(long ms, string page, string? error = null) => new(ms, page, "{S}", "{N}", error);
+
+    [Fact]
+    public void Landing_UnchangedFromTheStart_SettlesAt1500()
+    {
+        var points = new List<LandingPoint>();
+        while (LandingSchedule.NextAtMs(points, cloud: false) is { } at)
+        {
+            points.Add(At(at, "{B}"));
+        }
+
+        Assert.Equal([0, 100, 250, 500, 750, 1000, 1500], points.Select(p => p.Ms));
+        Assert.True(LandingSchedule.Settled(points));
+        Assert.Equal(0, LandingSchedule.SettledAtMs(points));
+    }
+
+    [Fact]
+    public void Landing_AChangeAt1000_SettlesOneSecondLater()
+    {
+        var points = new List<LandingPoint>();
+        while (LandingSchedule.NextAtMs(points, cloud: false) is { } at)
+        {
+            points.Add(At(at, at < 1000 ? "{A}" : "{B}"));
+        }
+
+        Assert.Equal(2000, points[^1].Ms);
+        Assert.Equal(1000, LandingSchedule.SettledAtMs(points));
+    }
+
+    [Fact]
+    public void Landing_NeverStill_RunsToTheLimit_LongerOnTheCloud()
+    {
+        foreach (var cloud in new[] { false, true })
+        {
+            var points = new List<LandingPoint>();
+            var i = 0;
+            while (LandingSchedule.NextAtMs(points, cloud) is { } at)
+            {
+                points.Add(At(at, (i++ % 2).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            }
+
+            Assert.Equal(LandingSchedule.LimitMs(cloud), points[^1].Ms);
+            Assert.False(LandingSchedule.Settled(points));
+            Assert.Null(LandingSchedule.SettledAtMs(points));
+        }
+
+        Assert.Equal((5000L, 10000L), (LandingSchedule.LimitMs(false), LandingSchedule.LimitMs(true)));
+    }
+
+    [Fact]
+    public void Landing_NotBefore1500_EvenIfStillForASecond()
+    {
+        Assert.False(LandingSchedule.Settled([At(0, "{B}"), At(1000, "{B}"), At(1400, "{B}")]));
+        Assert.True(LandingSchedule.Settled([At(0, "{E}", "0x80042014"), At(1500, "{E}", "0x80042014")])); // the same error counts as still
+        Assert.False(LandingSchedule.Settled([At(0, "{B}", "0x80042014"), At(1500, "{B}")]));
+    }
+
+    [Fact]
+    public void Redact_ReplacesOneNoteLinks_InJsonAndText()
+    {
+        var row = System.Text.Json.JsonSerializer.Serialize(new { link = CloudPageLink, other = "kept" });
+
+        var redacted = ProbeRecorder.Redact(row);
+        Assert.Equal("""{"link":"<onenote link>","other":"kept"}""", redacted.Replace("\\u003Conenote link\\u003E", "<onenote link>", StringComparison.Ordinal));
+        Assert.Equal("followed <onenote link>", ProbeRecorder.Redact("followed " + LocalPageLink));
+    }
+
+    [Fact]
+    public void LooseFile_EncodesLikeOneNotesOwnLinks()
+    {
+        // As in Fixtures/mcp-test/link/page.txt: "onenote:///C:\Users\mcp-test\AppData\Local\OneNoteMcp-Test\MCP%20Test\Fixtures.one#…"
+        Assert.Equal(
+            @"onenote:///C:\Users\mcp-test\AppData\Local\OneNoteMcp-Test\probes\publish\probe%20nav%201116-120000.one",
+            NavLinks.LooseFile(@"C:\Users\mcp-test\AppData\Local\OneNoteMcp-Test\probes\publish\probe nav 1116-120000.one"));
+        Assert.DoesNotContain(' ', NavLinks.LooseFile(@"C:\a b\c d.one"));
+        Assert.EndsWith(@"\x%23y%26z.one", NavLinks.LooseFile(@"C:\x#y&z.one"), StringComparison.Ordinal); // a fragment or key separator can't leak in
+    }
+
+    [Fact]
+    public void Redact_KeepsTheGuardsRefusalText()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckNavigateUrl("file:///C:/x.one", new HashSet<string>(StringComparer.Ordinal)));
+
+        Assert.Equal(ex.Message, ProbeRecorder.Redact(ex.Message));
+        Assert.Contains("neither onenote: nor https:", ProbeRecorder.Redact(ex.Message), StringComparison.Ordinal);
+        Assert.Equal("a <onenote link>", ProbeRecorder.Redact("a onenote:https://d.docs.live.net/0123456789abcdef/x.one#p"));
+    }
+
+    [Fact]
+    public void ProbeWindowsInterop_SlotOrderMatchesTheTypeLibrary()
+    {
+        static string[] Declared(Type t) =>
+            [.. t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
+                .OrderBy(m => m.MetadataToken).Select(m => m.Name)];
+
+        // Windows slots 7-10: Item, Count, _NewEnum, CurrentWindow.
+        Assert.Equal(["GetItem", "get_Count", "NewEnumPlaceholder", "get_CurrentWindow"], Declared(typeof(IProbeWindows)));
+
+        // Window slots 7-22: WindowHandle, CurrentPageId, CurrentSectionId, CurrentSectionGroupId, CurrentNotebookId,
+        // NavigateTo, FullPageView get/put, Active get/put, DockedLocation get/put, Application, SideNote, NavigateToUrl,
+        // SetDockedLocation.
+        Assert.Equal(
+            [
+                "get_WindowHandle", "get_CurrentPageId", "get_CurrentSectionId", "get_CurrentSectionGroupId", "get_CurrentNotebookId",
+                "NavigateTo", "GetFullPageView", "SetFullPageViewPlaceholder", "GetActive", "SetActivePlaceholder",
+                "GetDockedLocation", "SetDockedLocationPlaceholder", "ApplicationPlaceholder", "GetSideNote",
+                "NavigateToUrlPlaceholder", "SetDockedLocationMethodPlaceholder",
+            ],
+            Declared(typeof(IProbeWindow)));
+    }
+
+    [Fact]
+    public void ProbeWindowsInterop_IsDualComImport_WithTheTypeLibraryIids_AndUncallablePlaceholders()
+    {
+        foreach (var (type, iid) in new[] { (typeof(IProbeWindows), "6D4B9C3E-CC05-493F-85E2-43D1006DF96A"), (typeof(IProbeWindow), "8E8304B8-CBD1-44F8-B0E8-89C625B2002E") })
+        {
+            Assert.True(type.IsImport);
+            Assert.False(type.IsPublic); // internal to the test assembly
+            Assert.Equal(new Guid(iid), type.GUID);
+            Assert.Equal(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsDual, ((System.Runtime.InteropServices.InterfaceTypeAttribute)Attribute.GetCustomAttribute(type, typeof(System.Runtime.InteropServices.InterfaceTypeAttribute))!).Value);
+        }
+
+        var placeholders = typeof(IProbeWindow).GetMethods().Concat(typeof(IProbeWindows).GetMethods()).Where(m => m.Name.Contains("Placeholder", StringComparison.Ordinal)).ToList();
+        Assert.Equal(7, placeholders.Count);
+        Assert.All(placeholders, m => Assert.True(((ObsoleteAttribute?)Attribute.GetCustomAttribute(m, typeof(ObsoleteAttribute)))?.IsError, m.Name));
+
+        // Every callable window member is a getter or NavigateTo: no setter is declared callable.
+        var callable = typeof(IProbeWindow).GetMethods().Where(m => Attribute.GetCustomAttribute(m, typeof(ObsoleteAttribute)) is null).Select(m => m.Name).ToList();
+        Assert.All(callable, name => Assert.True(name.StartsWith("get_", StringComparison.Ordinal) || name.StartsWith("Get", StringComparison.Ordinal) || name == "NavigateTo", name));
+    }
+
+    [Fact]
+    public void ProbeWindowsRelease_SkipsWhatIsNotComAndEmptiesTheList()
+    {
+        var wrappers = new List<object> { new(), "not com" };
+
+        Assert.Equal(0, ProbeWindowsRelease.All(wrappers));
+        Assert.Empty(wrappers);
+    }
+
+    [Fact]
+    public void Read_KeepsTheHResult_WhenTheRuntimeMapsItToArgumentException()
+    {
+        // Sitting 2026-11-21: Windows.Item(past the end) fails with E_INVALIDARG, which the runtime raises as
+        // ArgumentException, not COMException; it escaped and failed every window read.
+        var value = ProbeValue.Read<object>(() => throw new ArgumentException("past the end") { HResult = unchecked((int)0x80070057) });
+
+        Assert.Null(value.Value);
+        Assert.StartsWith("0x80070057", value.HResult, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IsComFailure_CoversTheRuntimesMappedExceptions_NotOurOwnBugs()
+    {
+        Assert.True(ProbeValue.IsComFailure(new System.Runtime.InteropServices.COMException("x", unchecked((int)0x80042014))));
+        Assert.True(ProbeValue.IsComFailure(new ArgumentException("x") { HResult = unchecked((int)0x80070057) }));
+        Assert.True(ProbeValue.IsComFailure(new NotImplementedException()));
+        Assert.False(ProbeValue.IsComFailure(new InvalidOperationException("ours")));
+    }
+
+    private static WindowRead Window(int index, ulong handle, string page) =>
+        new(index, null, ProbeValue.Ok(handle), true, true, false, ProbeValue.Ok(page), null, null, null, null);
+
+    [Fact]
+    public void Summarize_IndexBaseCurrentWindowAndPastTheEnd()
+    {
+        var snapshot = new WindowsSnapshot(
+            ProbeValue.Ok("Windows"),
+            ProbeValue.Ok(2u),
+            Window(0, 22, "{B}") with { Index = null },
+            [WindowRead.Failed(0, "0x80070057"), Window(1, 11, "{A}"), Window(2, 22, "{B}")],
+            5);
+
+        var summary = NavProbe.Summarize(snapshot);
+
+        Assert.Equal(1, summary.IndexBase);
+        Assert.Equal(2, summary.CurrentIndex);
+        Assert.Equal([new FailedItem(0, "0x80070057")], summary.Failed);
+        Assert.Equal(2, summary.Windows);
+    }
+
+    [Fact]
+    public void Moves_AndSecondWindow_ByHandle()
+    {
+        var before = new WindowsSnapshot(ProbeValue.Ok("Windows"), ProbeValue.Ok(2u), null, [Window(0, 11, "{A}"), Window(1, 22, "{A}")], 1);
+        var after = new WindowsSnapshot(ProbeValue.Ok("Windows"), ProbeValue.Ok(2u), null, [Window(0, 11, "{B}"), Window(1, 22, "{A}")], 1);
+
+        var moves = NavProbe.Moves(before, after);
+
+        Assert.Equal([true, false], moves.Select(m => m.Moved));
+        Assert.Equal(22ul, NavProbe.SecondWindow(after, "{B}")!.HandleValue);
+        Assert.Null(NavProbe.SecondWindow(after with { Items = [Window(0, 11, "{B}")] }, "{B}"));
+    }
+
+    [Fact]
+    public void Pick_SeedThenProbes_LeavingOutTheVaultAndTheRecycleBin()
+    {
+        var tree = XElement.Parse($$"""
+            <one:Notebook xmlns:one="{{Ns}}" name="MCP Test" ID="{T}">
+              <one:Section name="Ballast Vault" ID="{V}" encrypted="true"><one:Page ID="{VP}" name="v" /></one:Section>
+              <one:Section name="Seed" ID="{S}"><one:Page ID="{SP}" name="" /><one:Page ID="{SP2}" name="second" /></one:Section>
+              <one:Section name="Ballast" ID="{BA}"><one:Page ID="{BP}" name="b" /></one:Section>
+              <one:Section name="Probes" ID="{P}"><one:Page ID="{PP}" name="p" isInRecycleBin="true" /><one:Page ID="{PP2}" name="p2" /></one:Section>
+              <one:SectionGroup name="OneNote_RecycleBin" ID="{RB}" isRecycleBin="true"><one:Section name="Seed" ID="{OLD}"><one:Page ID="{OP}" name="o" /></one:Section></one:SectionGroup>
+            </one:Notebook>
+            """);
+
+        var t = NavProbe.Pick(tree, "Seed", "Probes")!;
+
+        Assert.Equal(("{T}", "{SP}", "{PP2}", "{SP2}"), (t.NotebookId, t.A.PageId, t.B.PageId, t.C.PageId));
+        Assert.Equal("MCP Test > Seed > (untitled page)", t.Path(t.A));
+        Assert.Equal("{BP}", NavProbe.Pick(tree, "Seed", null)!.B.PageId); // the first other section
+        Assert.Null(NavProbe.Pick(tree, "Missing", null));
+    }
 }

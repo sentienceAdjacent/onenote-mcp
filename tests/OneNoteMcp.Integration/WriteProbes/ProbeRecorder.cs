@@ -51,6 +51,7 @@ internal sealed partial class ProbeRecorder : IDisposable
     internal static string Redact(string text, string? localAppData)
     {
         ArgumentNullException.ThrowIfNull(text);
+        text = OneNoteLink().Replace(text, LinkPlaceholder); // spike 4.12: a link is logged by its shape only
         text = DocsPath().Replace(text, "${host}<cid>");
         text = CidQuery().Replace(text, "${key}<cid>");
         text = ResourceId().Replace(text, "<cid>!");
@@ -58,6 +59,13 @@ internal sealed partial class ProbeRecorder : IDisposable
     }
 
     private static readonly string LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+    /// <summary>
+    /// Spike 4.12: what any <c>onenote:</c> link becomes in rows and echo lines (it can hold a notebook path, a page title
+    /// and the account ID). Rows log a link's <c>LinkShape</c> instead; this is the safety net. In a JSON string the link
+    /// ends at the closing quote; in free text it takes the rest of the line.
+    /// </summary>
+    public const string LinkPlaceholder = "<onenote link>";
 
     /// <summary>What <c>%LOCALAPPDATA%</c> (it holds the user name) becomes in rows and echo lines.</summary>
     public const string LocalAppDataPlaceholder = "%LOCALAPPDATA%";
@@ -184,6 +192,11 @@ internal sealed partial class ProbeRecorder : IDisposable
     }
 
     public void Dispose() => writer.Dispose();
+
+    // Only a real link: onenote: then // (a local or UNC path, onenote:///…) or an http(s) URL. Free text such as
+    // "neither onenote: nor https:" stays.
+    [GeneratedRegex(@"onenote:(?://|https?:)[^""\r\n<>]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex OneNoteLink();
 
     [GeneratedRegex(@"(?<host>d\.docs\.live\.net/)[0-9a-f]{8,}(?=/|$|"")", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex DocsPath();
