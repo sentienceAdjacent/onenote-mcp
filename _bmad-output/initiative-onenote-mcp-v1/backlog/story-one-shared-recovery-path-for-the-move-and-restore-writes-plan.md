@@ -3,13 +3,13 @@ title: 'One shared recovery path for the move, section-move and restore writes'
 type: 'refactor'
 ticket: '17'
 created: '2026-11-21'
-status: 'in-progress'
+status: 'built'
 baseline_revision: 'e456ccb19790c94743fb5b17a33443d720562bda'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -61,12 +61,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/Writes/PartialCopyReRead.cs` (new) -- `internal static`: `HResult`, `FindingsAsync(gateway, protection, verb, source?, target, objectId, kind, name, ct)`: optional source re-read by ID, target re-read for new same-kind same-name children (pages `Ordinal`, sections and groups `OrdinalIgnoreCase`), object-by-ID in target, counts only when the target is protected -- one copy
-- [ ] `src/OneNoteMcp.Core/Writes/MoveWrites.cs` (new) -- `OperationName`, `ProtectedPositionUserAction` moved from `MovePageWrite` -- one shared place
-- [ ] `src/OneNoteMcp.Core/Writes/CloudSettle.cs` -- `SettledUserAction` + `SettledWarning(string subject)` -- one text
-- [ ] the four writes -- call the helpers, delete the copies and per-class settled constants
-- [ ] `tests/OneNoteMcp.Tests/PartialCopyReReadTests.cs` (new) -- pin the message for page move, section move, page restore, section restore; protected target counts only for each; a case-only name difference for a page (not counted) and a section (counted); a re-read that throws
-- [ ] the four tool test files -- point at the shared constants; list each assertion changed and why in Implementation Notes
+- [x] `src/OneNoteMcp.Core/Writes/PartialCopyReRead.cs` (new) -- `internal static`: `HResult`, `FindingsAsync(gateway, protection, verb, source?, target, objectId, kind, name, ct)`: optional source re-read by ID, target re-read for new same-kind same-name children (pages `Ordinal`, sections and groups `OrdinalIgnoreCase`), object-by-ID in target, counts only when the target is protected -- one copy
+- [x] `src/OneNoteMcp.Core/Writes/MoveWrites.cs` (new) -- `OperationName`, `ProtectedPositionUserAction` moved from `MovePageWrite` -- one shared place
+- [x] `src/OneNoteMcp.Core/Writes/CloudSettle.cs` -- `SettledUserAction` + `SettledWarning(string subject)` -- one text
+- [x] the four writes -- call the helpers, delete the copies and per-class settled constants
+- [x] `tests/OneNoteMcp.Tests/PartialCopyReReadTests.cs` (new) -- pin the message for page move, section move, page restore, section restore; protected target counts only for each; a case-only name difference for a page (not counted) and a section (counted); a re-read that throws
+- [x] the four tool test files -- point at the shared constants; list each assertion changed and why in Implementation Notes
 
 **Acceptance Criteria:**
 - Given each of the three writes hits `0x80042004`, when the re-read runs, then the error code, HRESULT, `outcomeUnknown` and journal note are unchanged and the findings come from `PartialCopyReRead`.
@@ -76,9 +76,24 @@ context:
 
 ## Implementation Notes
 
+- One findings wording for all three writes (where the copies disagreed): "The <verb> may have left a partial copy. Re-read straight after the failure: [<noun> <id> is still in / is no longer in <parent noun> <source>, and ]<noun> <id> is in / isn't in <parent noun> <target>, which has no new <noun> with its name | N new <noun>(s) with its name[ (<ids>)]; a copy in a cloud notebook can land later." A failed re-read gives "<parent noun> <id> couldn't be re-read (<why>)". Every ID now carries its kind's noun (the container copy had bare IDs and "under").
+- The helper checks the object by ID in the target for every kind, and new same-kind same-name children for every kind, so a section restore now also counts a new same-named section (the restore copy checked by ID only; the matrix's "<id> is in / isn't in <target>" is still the sentence's start). The page move and page restore now also say whether the original page ID is in the target (it never is after a page move, as OneNote gives a new ID).
+- New children are filtered by kind for pages too (a section's children are only pages, so no change in practice); the container copy's exclusion of the object's own ID applies to all.
+- `MoveWrites` is public (as `MovePageWrite` was) because tests and the old public constants used it; `CloudSettle.SettledUserAction` is internal like its class (tests see it through InternalsVisibleTo).
+- The shared `settled` text: "<subject> touched a cloud notebook, so the server waited 10 s before reading back what it did, as OneNote can fail or block on a write straight after one." User action: "The write touched a cloud notebook (OneDrive or SharePoint). Before relying on it, ask the user to check in OneNote that it synced (no sync error on any notebook it touched)."
+- Tool test assertions changed:
+  - `MoveHierarchyObjectToolTests`: `MovePageWrite.OperationName` → `MoveWrites.OperationName` (l.207) and `MovePageWrite.ProtectedPositionUserAction` → `MoveWrites.ProtectedPositionUserAction` (3 places): constants moved. The partial-copy assertions (l.696-697) hold unchanged.
+  - `MoveContainerToolTests`: `MoveContainerWrite.SettledUserAction` → `CloudSettle.SettledUserAction` (shared text); `"{IdeasId} is still under {AId}"` → `"section {IdeasId} is still in notebook {AId}"` (the one wording now names the kinds and says "in"). The "1 new section(s) with its name ({CopyId})" assertion holds unchanged.
+  - `RestoreFromRecycleBinToolTests`: `MovePageWrite.ProtectedPositionUserAction` → `MoveWrites.ProtectedPositionUserAction`.
+  - `MergeSectionsToolTests`: `MergeSectionsWrite.SettledUserAction` → `CloudSettle.SettledUserAction`.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- Pass 1 (quick lens, 2026-11-21): 2 findings: 0 high, 0 medium, 2 low, 0 false, 0 maybe-false.
+  - low, patch: the cloud restore's `settled` warning was checked by code only, and no test pinned `CloudSettle.SettledWarning`'s text. Fixed: `RestoreFromRecycleBinToolTests` asserts `CloudSettle.SettledUserAction`; `PartialCopyReReadTests.TheSettledWarning_IsOneTextForEveryWrite` pins code, message and user action.
+  - low, rejected (fix edits the ticket, which bmad-build never writes): the ticket's AC still says "the same name comparison in all three", where Q1 chose one rule by kind. Returned to the coordinator for `bmad-ticket`.
 
 ## Verification
 
