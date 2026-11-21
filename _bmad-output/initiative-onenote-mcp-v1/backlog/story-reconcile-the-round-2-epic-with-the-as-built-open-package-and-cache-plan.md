@@ -3,7 +3,7 @@ title: 'Round-2 epic: as-built open_package destination and page-only cache drop
 type: 'chore'
 ticket: '20'
 created: '2026-11-21'
-status: 'built'
+status: 'done'
 route: 'oneshot'
 route_source: 'auto'
 review: ''
