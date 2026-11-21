@@ -1464,7 +1464,7 @@ internal sealed class ProbeSession : IDisposable
                             wrappers.Add(raw);
                             windows = (IProbeWindows)raw;
                         }
-                        catch (System.Runtime.InteropServices.COMException ex)
+                        catch (Exception ex) when (ProbeValue.IsComFailure(ex))
                         {
                             return new WindowsSnapshot(ProbeValue.Error(ex.HResult), ProbeValue.None, null, [], watch.ElapsedMilliseconds);
                         }
@@ -1488,7 +1488,7 @@ internal sealed class ProbeSession : IDisposable
                                 current = ReadWindow(window, null);
                             }
                         }
-                        catch (System.Runtime.InteropServices.COMException ex)
+                        catch (Exception ex) when (ProbeValue.IsComFailure(ex))
                         {
                             current = WindowRead.Failed(null, ProbeValue.HResultText(ex.HResult));
                         }
@@ -1509,7 +1509,7 @@ internal sealed class ProbeSession : IDisposable
                                 wrappers.Add(window);
                                 items.Add(ReadWindow(window, (int)i));
                             }
-                            catch (System.Runtime.InteropServices.COMException ex)
+                            catch (Exception ex) when (ProbeValue.IsComFailure(ex))
                             {
                                 items.Add(WindowRead.Failed((int)i, ProbeValue.HResultText(ex.HResult)));
                             }
@@ -1599,7 +1599,7 @@ internal sealed class ProbeSession : IDisposable
                         wrappers.Add(window);
                         return new LandingPoint(ms, window.CurrentPageId, window.CurrentSectionId, window.CurrentNotebookId, null);
                     }
-                    catch (System.Runtime.InteropServices.COMException ex)
+                    catch (Exception ex) when (ProbeValue.IsComFailure(ex))
                     {
                         return new LandingPoint(ms, null, null, null, ProbeValue.HResultText(ex.HResult));
                     }
@@ -2190,6 +2190,15 @@ internal sealed record ProbeValue(object? Value, string? HResult)
             ? string.Create(CultureInfo.InvariantCulture, $"0x{hresult:x8} {name}")
             : string.Create(CultureInfo.InvariantCulture, $"0x{hresult:x8}");
 
+    /// <summary>
+    /// True for a failed COM call. The runtime raises a failure HRESULT as <c>COMException</c> unless it maps the code to
+    /// a .NET exception: <c>E_INVALIDARG</c> becomes <see cref="ArgumentException"/> (sitting 2026-11-21:
+    /// <c>Windows.Item</c> past the end) and <c>E_NOTIMPL</c> <see cref="NotImplementedException"/>. The HRESULT is
+    /// still on <see cref="Exception.HResult"/>.
+    /// </summary>
+    public static bool IsComFailure(Exception ex) =>
+        ex is System.Runtime.InteropServices.COMException or ArgumentException or NotImplementedException;
+
     /// <summary>Runs one getter, keeping a COM failure's HRESULT instead of throwing.</summary>
     public static ProbeValue Read<T>(Func<T> getter)
     {
@@ -2198,7 +2207,7 @@ internal sealed record ProbeValue(object? Value, string? HResult)
         {
             return new ProbeValue(getter(), null);
         }
-        catch (System.Runtime.InteropServices.COMException ex)
+        catch (Exception ex) when (IsComFailure(ex))
         {
             return Error(ex.HResult);
         }

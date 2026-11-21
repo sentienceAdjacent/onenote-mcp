@@ -738,7 +738,7 @@ internal sealed class TestNotebook
                         {
                             window = windows.GetItem(i);
                         }
-                        catch (System.Runtime.InteropServices.COMException)
+                        catch (Exception ex) when (WriteProbes.ProbeValue.IsComFailure(ex))
                         {
                             continue; // past the end, or the other index base
                         }
