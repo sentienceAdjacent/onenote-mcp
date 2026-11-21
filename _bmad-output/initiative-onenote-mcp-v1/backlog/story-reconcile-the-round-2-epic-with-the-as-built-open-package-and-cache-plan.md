@@ -3,7 +3,7 @@ title: 'Round-2 epic: as-built open_package destination and page-only cache drop
 type: 'chore'
 ticket: '20'
 created: '2026-11-21'
-status: 'draft'
+status: 'built'
 route: 'oneshot'
 route_source: 'auto'
 review: ''
@@ -31,25 +31,19 @@ context: []
 > - it reads back and reports the moved item's ID after the move; a page move drops the page's old ID from the search cache (AD-12), and a section or section-group move drops nothing, since the cache is keyed by page ID and `lastModifiedTime` (inferred, not tested; retrospective R7);
 
 **Notes, appended after the last Decision:**
-> - Decision (Phill, <approval date>, backlog 20): E3, Done when 1 and E5's cache sentence now describe what was built: `open_package`'s opened-copies destination (3.8 Q3) and the page-only cache drop. From the retrospective (`epic-round-2-external-and-structural-retrospective.md`, findings R1 and R7; action items 4 and 5). The spine already said so; no code changed.
+> - Decision (Phill, 2026-11-21, Inbox, backlog 20): E3, Done when 1 and E5's cache sentence now describe what was built: `open_package`'s opened-copies destination (3.8 Q3) and the page-only cache drop. From the retrospective (`epic-round-2-external-and-structural-retrospective.md`, findings R1 and R7; action items 4 and 5). The spine already said so; no code changed.
 
-**Never:** touch the spine, code, tests, or any other epic passage unless Open Question 1 adds it.
+**Also (Decision, Phill, 2026-11-21, Inbox: Open Question 1, option a):** the Description's first bullet becomes "`Publish`, writing only under `exportRoots`, and `OpenPackage`, unpacking only into the opened-copies folder, each reporting the output path (`MergeFiles` was dropped);" and E1's "Its target sits under an `exportRoots` entry (AD-10, AD-11)" becomes "A `publish` target sits under an `exportRoots` entry (AD-10, AD-11); `open_package`'s destination follows E3". The Notes Decision names these two as well.
+
+**Never:** touch the spine, code, tests, or any other epic passage.
 
 </frozen-after-approval>
-
-## Open Questions
-
-1. **Two more passages carry the same stale claim. Include them?**
-   - Description, first bullet: "`Publish`, `OpenPackage` and `MergeFiles`, writing only under `exportRoots` and reporting the output path;"
-   - E1, second sentence: "Its target sits under an `exportRoots` entry (AD-10, AD-11)", which reads as covering every `ExternalWrite`, `open_package` included.
-
-   (a) Include, with: Description bullet becomes "`Publish`, writing only under `exportRoots`, and `OpenPackage`, unpacking only into the opened-copies folder, each reporting the output path (`MergeFiles` was dropped);" and E1's sentence becomes "A `publish` target sits under an `exportRoots` entry (AD-10, AD-11); `open_package`'s destination follows E3." (b) Leave them; the ticket's Boundaries name only E3, Done when 1, E5 and Notes.
-
-   Recommended: (a). Without it the epic still contradicts E3 in two places, which is what R1 asked to remove; the extra edit is two sentences. It widens the ticket's stated boundary, so it needs Phill's yes.
 
 ## Implementation Notes
 
 Oneshot: about 6 lines changed in one markdown file.
+
+- Applied the approved wording verbatim to E3, Done when 1, E5's fourth sub-bullet, the Description's first bullet and E1's second sentence; appended the Decision after the epic's last Decision. No build or tests (doc-only).
 
 ## Verification
 
