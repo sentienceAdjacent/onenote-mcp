@@ -3,7 +3,8 @@ title: 'One shared recovery path for the move, section-move and restore writes'
 type: 'refactor'
 ticket: '17'
 created: '2026-11-21'
-status: 'draft'
+status: 'in-progress'
+baseline_revision: 'e456ccb19790c94743fb5b17a33443d720562bda'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -26,7 +27,7 @@ context:
 
 **Always:** each write sends the same XML, keeps its error code, HRESULT, `outcomeUnknown: true`, `retryable: false`, journal entries and the `FailureNote` naming them; the cloud settle still runs before the re-read (3.12 Q4); a re-read failure only adds to the message (never replaces the original failure); a protected target section gives counts only (AD-21 Messages); no name is ever quoted.
 
-**Never:** new recovery behaviour; changes to `WritePipeline` step 7 beyond what Q3 decides; the merge's own failure re-read except the `settled` text; a touch to OneNote or integration tests.
+**Never:** new recovery behaviour; changes to `WritePipeline`; the merge's own failure re-read except the `settled` text; a touch to OneNote or integration tests.
 
 ## I/O & Edge-Case Matrix
 
@@ -37,7 +38,13 @@ context:
 | Section move, copy in target | new section, same name | "1 new section(s) with its name (<id>)" |
 | Section restore | by ID only | "<id> is in / isn't in <target>" |
 | Re-read throws | either section | "<id> couldn't be re-read (<why>)", original error kept |
-| Name differs only in case | page vs section | per Q1 |
+| Name differs only in case | page vs section | a page's case variant isn't counted; a section's or group's is |
+
+## Decisions
+
+- Q1 (Phill, 2026-11-21, Inbox): names compare by kind in the one helper: page names `Ordinal`, section and section-group names `OrdinalIgnoreCase`. Ticket AC reads "the same rule in all three". Evidence: same-named pages are allowed (permanent-delete plan l.265) and a copy keeps the exact title; `MoveReadBack.NewPageId` and OneMore's `FindMovedPageId` (`SearchServices.cs` l.190, `==`) match pages exactly; sections refuse a sibling's name (`0x80042017`, spike 5.1) and our clash checks ignore case.
+- Q2 (Phill, 2026-11-21, Inbox): one shared `settled` user action; the message names the object per write ("The move of X", "The restore of X", "The merge of section S into section D").
+- Q3 (Phill, 2026-11-21, Inbox): a shared helper each write calls when its COM call fails; `WritePipeline` unchanged. A `WriteOperation` hook the pipeline calls on `0x80042004` is recorded in deferred-work.
 
 </frozen-after-approval>
 
@@ -54,11 +61,11 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/OneNoteMcp.Core/Writes/PartialCopyReRead.cs` (new) -- `internal static`: `HResult`, `FindingsAsync(gateway, protection, verb, source?, target, objectId, kind, name, ct)`: optional source re-read by ID, target re-read for new same-kind same-name children (comparison per Q1), object-by-ID in target, counts only when the target is protected -- one copy
+- [ ] `src/OneNoteMcp.Core/Writes/PartialCopyReRead.cs` (new) -- `internal static`: `HResult`, `FindingsAsync(gateway, protection, verb, source?, target, objectId, kind, name, ct)`: optional source re-read by ID, target re-read for new same-kind same-name children (pages `Ordinal`, sections and groups `OrdinalIgnoreCase`), object-by-ID in target, counts only when the target is protected -- one copy
 - [ ] `src/OneNoteMcp.Core/Writes/MoveWrites.cs` (new) -- `OperationName`, `ProtectedPositionUserAction` moved from `MovePageWrite` -- one shared place
 - [ ] `src/OneNoteMcp.Core/Writes/CloudSettle.cs` -- `SettledUserAction` + `SettledWarning(string subject)` -- one text
 - [ ] the four writes -- call the helpers, delete the copies and per-class settled constants
-- [ ] `tests/OneNoteMcp.Tests/PartialCopyReReadTests.cs` (new) -- pin the message for page move, section move, page restore, section restore; protected target counts only for each; the Q1 comparison; a re-read that throws
+- [ ] `tests/OneNoteMcp.Tests/PartialCopyReReadTests.cs` (new) -- pin the message for page move, section move, page restore, section restore; protected target counts only for each; a case-only name difference for a page (not counted) and a section (counted); a re-read that throws
 - [ ] the four tool test files -- point at the shared constants; list each assertion changed and why in Implementation Notes
 
 **Acceptance Criteria:**
@@ -66,11 +73,6 @@ context:
 - Given a cloud section move, restore or merge, then its `settled` warning carries `CloudSettle.SettledUserAction`.
 - Given `dotnet build OneNoteMcp.slnx -warnaserror` and `dotnet test tests/OneNoteMcp.Tests`, then 0 warnings and all pass.
 
-## Open Questions
-
-1. **Name comparison.** (a) `Ordinal` everywhere; (b) `OrdinalIgnoreCase` everywhere; (c) by kind in the one helper: pages `Ordinal`, sections and groups `OrdinalIgnoreCase`. Evidence: OneNote allows same-named pages (permanent-delete plan review, l.265), and a copy keeps the exact title; `MoveReadBack.NewPageId` and OneMore's `FindMovedPageId` (`SearchServices.cs` l.190, `==`) match pages exactly. Sections are `.one` files: OneNote refuses a sibling's name (`0x80042017`, spike 5.1) and our clash checks (`HierarchyRules.Named`, `MoveContainerWrite` l.467, restore l.664) ignore case. (c) changes nothing that runs today. Recommended: (c).
-2. **One `settled` text.** (a) one user action, message templated by subject ("The move of X", "The restore of X", "The merge of section S into section D"); (b) one fixed message naming no object. Recommended: (a).
-3. **"Toward the write pipeline".** (a) shared helper called from each write's `CallAsync` catch, `WritePipeline` untouched; (b) a `WriteOperation` hook the pipeline calls on `0x80042004`, so it owns the rethrow with `outcomeUnknown`. (b) changes the pipeline for every write. Recommended: (a), record (b) as deferred work.
 
 ## Implementation Notes
 
