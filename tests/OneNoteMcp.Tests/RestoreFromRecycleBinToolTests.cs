@@ -457,9 +457,34 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         Grant();
         TestSettings.SetExportRoots(Store.Path, APath);
 
-        Error(await Tool().RestoreFromRecycleBin(GoneId, AId, null, null, Ct), "ObjectNotFound");
+        var elsewhere = Error(await Tool().RestoreFromRecycleBin(GoneId, AId, null, null, Ct), "ObjectNotFound");
         Error(await Tool().RestoreFromRecycleBin(GoneId, null, null, null, Ct), "ObjectNotFound");
 
+        // Backlog 19: worded by its path, not as a password-protected section.
+        var message = elsewhere.GetProperty("message").GetString()!;
+        Assert.StartsWith($"Section {GoneId} {Protection.Phrase(marked: false)}, and its journal entry ", message, StringComparison.Ordinal);
+        Assert.Contains("records no SectionKey", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("is password-protected", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Password-protected section", message, StringComparison.Ordinal);
+
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+    }
+
+    [Fact]
+    public async Task ASectionProtectedByPath_WithASectionKeyEntry_SentElsewhere_GivesThePathReason()
+    {
+        // Backlog 19: a section protected by its path alone is refused with the path reason, never as password-protected.
+        Grant();
+        TestSettings.SetExportRoots(Store.Path, APath);
+        ProtectedEntry("gone-protected", GoneId, ArchiveId, APath + @"\Archive\Gone.one");
+
+        // The fixture's own "gone" entry has no SectionKey, so this one is chosen by its ID.
+        var error = Error(await Tool().RestoreFromRecycleBin(GoneId, AId, entries["gone-protected"].ToString("D"), null, Ct), "InvalidArgument");
+
+        Assert.Equal(
+            $"Section {GoneId} {Protection.Phrase(marked: false)}, and it goes back only to {ArchiveId}, the place it was deleted from, not {AId}, so nothing was restored.",
+            error.GetProperty("message").GetString());
+        Assert.Equal(RestoreFromRecycleBinWrite.ProtectedElsewhereUserAction, error.GetProperty("userAction").GetString());
         Assert.Empty(gateway.UpdateHierarchyCalls);
     }
 
@@ -747,6 +772,7 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         var error = Error(await Tool().RestoreFromRecycleBin(LonelyId, null, null, null, Ct), "ObjectNotFound");
 
         Assert.Equal(RestoreFromRecycleBinWrite.ProtectedOrphanUserAction, error.GetProperty("userAction").GetString());
+        Assert.StartsWith($"Section {LonelyId} {Protection.Phrase(marked: true)}, and its journal entry ", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
         Assert.Empty(gateway.UpdateHierarchyCalls);
     }
 
@@ -803,6 +829,7 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         var error = Error(await Tool().RestoreFromRecycleBin(SecretId, parentId, null, null, Ct), "InvalidArgument");
 
         Assert.Equal(RestoreFromRecycleBinWrite.ProtectedElsewhereUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains($"Section {SecretId} {Protection.Phrase(marked: true)}, and it goes back only to {ArchiveId}", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
         Assert.Empty(gateway.UpdateHierarchyCalls);
     }
 
@@ -824,6 +851,7 @@ public sealed class RestoreFromRecycleBinToolTests : IDisposable
         var error = Error(await Tool().RestoreFromRecycleBin(LonelyId, ArchiveId, null, null, Ct), "ObjectNotFound");
 
         Assert.Equal(RestoreFromRecycleBinWrite.ProtectedOrphanUserAction, error.GetProperty("userAction").GetString());
+        Assert.StartsWith($"Section {LonelyId} {Protection.Phrase(marked: true)}, and it has no journal entry", error.GetProperty("message").GetString()!, StringComparison.Ordinal);
         Assert.False(error.GetProperty("retryable").GetBoolean());
         Assert.Empty(gateway.UpdateHierarchyCalls);
     }

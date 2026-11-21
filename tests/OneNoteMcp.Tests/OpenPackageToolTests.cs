@@ -134,8 +134,10 @@ public sealed class OpenPackageToolTests : IDisposable
         Directory.CreateDirectory(Path.Combine(Root, "Opened trip"));
         File.WriteAllText(Path.Combine(Root, "Opened trip", "keep.txt"), "mine");
 
-        Error(await Tool().OpenPackage(package, "Opened trip", Ct), "FileExists");
+        var error = Error(await Tool().OpenPackage(package, "Opened trip", Ct), "FileExists");
 
+        // Backlog 19: the message names the full path, as meta.outputPath does (ExportTarget's documented rule).
+        Assert.Contains(Path.Combine(CanonicalRoot, "Opened trip"), error.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(["keep.txt"], Directory.GetFiles(Path.Combine(Root, "Opened trip")).Select(Path.GetFileName));
         Assert.Empty(gateway.OpenPackageCalls);
     }
