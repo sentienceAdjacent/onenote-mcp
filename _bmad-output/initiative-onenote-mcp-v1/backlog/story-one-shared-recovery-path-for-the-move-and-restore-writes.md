@@ -21,7 +21,7 @@ The page move, the section move and the restore each carry their own copy of the
 ## Acceptance Criteria
 
 Verify:
-- Unit tests pin the shared re-read's message for a page move, a section move and a restore: counts only in a protected target, and the same name comparison in all three.
+- Unit tests pin the shared re-read's message for a page move, a section move and a restore: counts only in a protected target, and the same rule in all three.
 - One `settled` text is asserted for the section move, the restore and the merge.
 - The existing move, restore and merge tool tests pass. Any test that changes because the copies disagreed is listed, with the choice made.
 - `dotnet build -warnaserror` gives 0 warnings.
@@ -40,4 +40,4 @@ Verify:
 
 - Decision (Phill, 2026-11-19, Inbox): filed from the epic 3 retrospective, action item 8.
 - Where the copies are (retro D1): `MovePageWrite`, `MoveContainerWrite` and `RestoreFromRecycleBinWrite`, each in its `PartialCopyFindingsAsync`. The `SettledWarning`/`SettledUserAction` copies are in `MergeSectionsWrite`, `MoveContainerWrite` and `RestoreFromRecycleBinWrite`. The borrowed constants are `PartialCopyHResult`, `OperationName` and `ProtectedPositionUserAction`, read from `MovePageWrite`.
-- Open question: which name comparison wins (page names `Ordinal`, section names `OrdinalIgnoreCase`, as OneNote compares them). Decide it when the build starts, with evidence.
+- Decision (Phill, 2026-11-21, Inbox): names compare by kind, one rule in all three: page names `Ordinal`, section and section-group names `OrdinalIgnoreCase`, as OneNote compares them (evidence in the plan's Decisions, Q1).
