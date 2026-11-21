@@ -27,7 +27,7 @@ public sealed class GetHierarchyTool(ToolRunner runner, GetHierarchyUseCase useC
     [Description(
         "Read-only. Returns OneNote hierarchy XML (notebooks, section groups, sections, pages) in the OneNote 2013 schema, unchanged. "
         + "Each password-locked section in it adds a warning with code sectionLocked naming the section's ID. "
-        + "A password-protected section's pages are left out unless the user has granted a read of it: its one:Section stays, its ID goes in meta.withheld, and a warning with code readNotGranted says how the user grants it (you can't grant it yourself). "
+        + "A password-protected section's pages are left out unless the user has granted a read of it: its one:Section stays, its ID goes in meta.withheld, and one warning with code readNotGranted, for all such sections, says how the user grants it (you can't grant it yourself). "
         + "Starting at a protected section with scope children or pages, or at a page in one, needs that grant: the user may be shown a dialog to grant it, and without a grant the call fails with ReadNotGranted. "
         + ToolMetaKeys.LargeResultNote
         + "Success: {ok:true, xml, meta:{correlationId, withheld?}, warnings:[{code, message, userAction?}]}. "

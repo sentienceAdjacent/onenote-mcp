@@ -1,3 +1,4 @@
+using System.Globalization;
 using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Results;
 
@@ -47,15 +48,28 @@ public sealed record BroadAccess(IReadOnlyList<string> Withheld, IReadOnlyList<R
     /// <summary>The withheld sections protected by their path alone (entry 15): their warnings say why.</summary>
     public IReadOnlyList<string> ByPath { get; init; } = [];
 
-    /// <summary>The rule's own warnings, then one <c>readNotGranted</c> warning per withheld section, naming its ID only (AD-9).</summary>
+    /// <summary>
+    /// The rule's own warnings, then one <c>readNotGranted</c> warning for all the withheld sections: their count and how
+    /// many are protected by password or by path, never an ID or name (backlog 15; Phill, 2026-11-19, Q2 a).
+    /// <see cref="Meta"/> lists every ID.
+    /// </summary>
     public IReadOnlyList<ToolWarning> Warnings =>
-    [
-        .. Extra,
-        .. Withheld.Select(id => new ToolWarning(
-            ToolWarnings.ReadNotGranted,
-            $"Section {id} {Protection.Phrase(!ByPath.Contains(id, StringComparer.Ordinal))}, so its pages were left out: reading them needs the user's permission.",
-            ReadAccess.WithheldUserAction)),
-    ];
+        Withheld.Count == 0
+            ? Extra
+            : [.. Extra, new ToolWarning(ToolWarnings.ReadNotGranted, WithheldMessage(), ReadAccess.WithheldUserAction)];
+
+    private string WithheldMessage()
+    {
+        var byPath = Withheld.Count(id => ByPath.Contains(id, StringComparer.Ordinal));
+        var marked = Withheld.Count - byPath;
+        var kinds = (marked, byPath) switch
+        {
+            (_, 0) => string.Create(CultureInfo.InvariantCulture, $"{marked} password-protected"),
+            (0, _) => string.Create(CultureInfo.InvariantCulture, $"{byPath} under an export root or the backups folder, so treated as password-protected"),
+            _ => string.Create(CultureInfo.InvariantCulture, $"{marked} password-protected and {byPath} under an export root or the backups folder, so treated as password-protected"),
+        };
+        return string.Create(CultureInfo.InvariantCulture, $"{Withheld.Count} protected section(s) were left out ({kinds}): reading their pages needs the user's permission. meta.withheld lists their IDs.");
+    }
 
     /// <summary><c>meta.withheld</c>: the section IDs, or null when nothing was withheld, so the field is omitted.</summary>
     public IReadOnlyList<string>? Meta => Withheld.Count > 0 ? Withheld : null;

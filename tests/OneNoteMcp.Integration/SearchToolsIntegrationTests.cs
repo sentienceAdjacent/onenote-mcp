@@ -69,9 +69,15 @@ public sealed class SearchToolsIntegrationTests : IDisposable
             var pages = SearchResultFilter.Pages(await large.XmlAsync(root, Ct));
             Assert.Contains(pages, p => p.Id == pageId);
             Assert.DoesNotContain(pages, p => p.InRecycleBin);
-            Assert.All(
-                root.GetProperty("meta").GetProperty("filtered").EnumerateArray(),
-                f => Assert.NotEqual(pageId, f.GetProperty("pageId").GetString()));
+            // Backlog 15: a long meta.filtered may have moved to a second stored result (meta.filteredResultId).
+            if (root.GetProperty("meta").TryGetProperty("filtered", out var filtered))
+            {
+                Assert.All(filtered.EnumerateArray(), f => Assert.NotEqual(pageId, f.GetProperty("pageId").GetString()));
+            }
+            else
+            {
+                Assert.True(root.GetProperty("meta").TryGetProperty("filteredResultId", out _), call);
+            }
         }
     }
 

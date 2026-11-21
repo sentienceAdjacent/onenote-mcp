@@ -40,6 +40,12 @@ public static partial class JournalLog
     [LoggerMessage(Level = LogLevel.Information, Message = "journal entry written correlationId={CorrelationId} entryId={EntryId} bytes={Bytes} protected={Protected}")]
     private static partial void LogWritten(ILogger logger, string correlationId, Guid entryId, long bytes, bool @protected);
 
+    /// <summary>Backlog 16: a restore's entry couldn't get <c>restoredFrom</c>; the restore stands and only the "already restored" mark is lost. IDs and a reason only.</summary>
+    public static void RestoredFromNotSaved(ILogger logger, Guid entryId, string reason) => LogRestoredFromNotSaved(logger, entryId, reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "journal restoredFrom not saved entryId={EntryId} reason={Reason}")]
+    private static partial void LogRestoredFromNotSaved(ILogger logger, Guid entryId, string reason);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "journal prune skipped reason={Reason}")]
     private static partial void LogPruneSkipped(ILogger logger, string reason);
 

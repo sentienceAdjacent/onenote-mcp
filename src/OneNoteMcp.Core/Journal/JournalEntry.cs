@@ -81,6 +81,13 @@ public sealed record JournalEntry
     /// </summary>
     public string? RecycleBinId { get; init; }
 
+    /// <summary>
+    /// A <c>restore_from_recycle_bin</c> entry's only: the soft-delete entry the restore used, when it used one (AD-8;
+    /// backlog 16, Phill 2026-11-19), so a later choice between same-named entries can mark it already restored. Absent on
+    /// every other entry, and on a restore that matched no entry.
+    /// </summary>
+    public Guid? RestoredFrom { get; init; }
+
     /// <summary>The page's title; a hierarchy entry's node's displayed name, as it was before the write. Absent on disk for a protected entry.</summary>
     public string? Title { get; init; }
 

@@ -997,6 +997,26 @@ public sealed class ProbeHelpersTests
         Assert.Empty(wrappers);
     }
 
+    [Fact]
+    public void Read_KeepsTheHResult_WhenTheRuntimeMapsItToArgumentException()
+    {
+        // Sitting 2026-11-21: Windows.Item(past the end) fails with E_INVALIDARG, which the runtime raises as
+        // ArgumentException, not COMException; it escaped and failed every window read.
+        var value = ProbeValue.Read<object>(() => throw new ArgumentException("past the end") { HResult = unchecked((int)0x80070057) });
+
+        Assert.Null(value.Value);
+        Assert.StartsWith("0x80070057", value.HResult, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IsComFailure_CoversTheRuntimesMappedExceptions_NotOurOwnBugs()
+    {
+        Assert.True(ProbeValue.IsComFailure(new System.Runtime.InteropServices.COMException("x", unchecked((int)0x80042014))));
+        Assert.True(ProbeValue.IsComFailure(new ArgumentException("x") { HResult = unchecked((int)0x80070057) }));
+        Assert.True(ProbeValue.IsComFailure(new NotImplementedException()));
+        Assert.False(ProbeValue.IsComFailure(new InvalidOperationException("ours")));
+    }
+
     private static WindowRead Window(int index, ulong handle, string page) =>
         new(index, null, ProbeValue.Ok(handle), true, true, false, ProbeValue.Ok(page), null, null, null, null);
 
