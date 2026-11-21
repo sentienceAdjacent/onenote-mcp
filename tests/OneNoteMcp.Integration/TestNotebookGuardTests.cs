@@ -796,6 +796,155 @@ public sealed class TestNotebookGuardTests
     [Fact]
     public void ResolveFolder_HonoursTheOverride() =>
         Assert.Equal(@"D:\Scratch\MCP Test", TestNotebook.ResolveFolder(v => v == TestNotebook.FolderOverrideVariable ? @"D:\Scratch\MCP Test\" : null));
+
+    // --- Spike 4.12: navigation guard ----------------------------------------------------------------------------
+
+    private const string NavRun = Root + @"\probes\app-state\1116-120000";
+
+    private const string NavNotebooks = $$"""
+        <one:Notebooks xmlns:one="{{Ns}}">
+          <one:Notebook name="Personal" ID="{P}" path="C:\Users\me\Documents\OneNote Notebooks\Personal" />
+          <one:Notebook name="MCP Test" ID="{T}" path="{{Root}}\MCP Test\" />
+          <one:Notebook name="MCP Test Cloud" ID="{C}" path="https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Cloud/" />
+          <one:Notebook name="MCP Test Throwaway 1112-034716 b" ID="{B}" path="{{Root}}\MCP Test Throwaway 1112-034716 b\" />
+          <one:Notebook name="MCP Test Throwaway Cloud" ID="{TC}" path="https://d.docs.live.net/0123456789ABCDEF/Documents/MCP Test Throwaway Cloud/" />
+          <one:Notebook name="MCP Test Throwaway 1116-120000 n1" ID="{N1}" path="{{NavRun}}\MCP Test Throwaway 1116-120000 n1\" />
+          <one:Notebook name="MCP Test Throwaway 1116-110000 n1" ID="{OLDRUN}" path="{{Root}}\probes\app-state\1116-110000\MCP Test Throwaway 1116-110000 n1\" />
+        </one:Notebooks>
+        """;
+
+    [Fact]
+    public void NavigableNotebookIds_AreTheTestNotebooksAndThisRunsNotebooks()
+    {
+        var ids = TestNotebookGuard.NavigableNotebookIds(NavNotebooks, Root + @"\MCP Test", Root, NavRun);
+
+        Assert.Equal(["{T}", "{C}", "{N1}"], ids);
+    }
+
+    [Fact]
+    public void NavigableNotebookIds_WithoutARunFolder_AreTheTestNotebooksOnly()
+    {
+        Assert.Equal(["{T}", "{C}"], TestNotebookGuard.NavigableNotebookIds(NavNotebooks, Root + @"\MCP Test", Root, null));
+        Assert.Equal(["{T}", "{C}"], TestNotebookGuard.NavigableNotebookIds(NavNotebooks, Root + @"\MCP Test", Root, Root + @"\probes\app-state\not-a-stamp"));
+    }
+
+    [Theory]
+    [InlineData("{PG}")] // a page of MCP Test
+    [InlineData("{S}")] // its section
+    [InlineData("{T}")] // the notebook
+    public void CheckNavigateTarget_InsideAnAllowedTree_Passes(string id) =>
+        TestNotebookGuard.CheckNavigateTarget("NavigateTo", id, [Tree]);
+
+    [Theory]
+    [InlineData("{P}")] // another notebook
+    [InlineData("{PERSONAL-PAGE}")] // a page outside the allowed trees
+    [InlineData("")]
+    public void CheckNavigateTarget_OutsideTheAllowedNotebooks_IsRefused(string id)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckNavigateTarget("NavigateTo", id, [Tree]));
+        Assert.StartsWith("Refusing NavigateTo", ex.Message, StringComparison.Ordinal);
+    }
+
+    private const string IssuedLink = "onenote:///C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP%20Test\\Seed.one#Seed&section-id={11111111-2222-3333-4444-555555555555}&page-id={66666666-7777-8888-9999-AAAAAAAAAAAA}&end";
+
+    private const string IssuedWebLink = "https://onedrive.live.com/redir.aspx?cid=0123456789abcdef&page=edit&resid=0123456789ABCDEF!123";
+
+    [Fact]
+    public void CheckNavigateUrl_AnIssuedUrl_Passes()
+    {
+        var allowed = new HashSet<string>(StringComparer.Ordinal) { IssuedLink, IssuedWebLink };
+
+        TestNotebookGuard.CheckNavigateUrl(IssuedLink, allowed);
+        TestNotebookGuard.CheckNavigateUrl(IssuedWebLink, allowed);
+    }
+
+    [Theory]
+    [InlineData("onenote:///C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP%20Test\\Other.one#x&end")] // not in the run's set
+    [InlineData("ONENOTE:///C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP%20Test\\Seed.one#Seed&section-id={11111111-2222-3333-4444-555555555555}&page-id={66666666-7777-8888-9999-AAAAAAAAAAAA}&end")] // case
+    [InlineData("onenote:///C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP%20Test\\Seed.one#Seed&section-id={11111111-2222-3333-4444-555555555555}&page-id={66666666-7777-8888-9999-aaaaaaaaaaaa}&end")] // case in the GUID
+    [InlineData("onenote:///C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP%20Test\\Seed.one#Seed&section-id={11111111-2222-3333-4444-555555555555}&page-id={66666666-7777-8888-9999-AAAAAAAAAAAA}&end ")] // a trailing space
+    [InlineData("onenote:///C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\MCP%20Test\\Seed.one#Seed&section-id={11111111-2222-3333-4444-555555555555}&page-id={66666666-7777-8888-9999-AAAAAAAAAAAA}&end/")] // a trailing character
+    [InlineData("https://onedrive.live.com/redir.aspx?cid=0123456789abcdef&page=edit&resid=0123456789ABCDEF!124")] // an https link not issued
+    [InlineData("https://example.com/")]
+    [InlineData("file:///C:/Users/me/AppData/Local/OneNoteMcp-Test/probes/publish/x.one")] // a file: URL
+    [InlineData("C:\\Users\\me\\AppData\\Local\\OneNoteMcp-Test\\probes\\publish\\x.one")] // a bare path
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CheckNavigateUrl_AnythingButAnExactIssuedUrl_IsRefused(string url)
+    {
+        // An ignore-case set must not make the guard ignore case.
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { IssuedLink, IssuedWebLink };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckNavigateUrl(url, allowed));
+        Assert.StartsWith("Refusing NavigateToUrl", ex.Message, StringComparison.Ordinal);
+        if (url.Trim().Length > 0)
+        {
+            Assert.DoesNotContain(url.Trim(), ex.Message, StringComparison.Ordinal); // never repeats the URL
+        }
+    }
+
+    [Fact]
+    public void CheckNavigateUrl_AFileUrl_IsRefusedEvenInTheSet()
+    {
+        const string File = "file:///C:/Users/me/AppData/Local/OneNoteMcp-Test/probes/publish/x.one";
+
+        Assert.Throws<InvalidOperationException>(() => TestNotebookGuard.CheckNavigateUrl(File, new HashSet<string>(StringComparer.Ordinal) { File }));
+    }
+
+    [Fact]
+    public void NavigationCallShapes_SendNoNewWindowAndNoObjectId()
+    {
+        var app = RecordingApplication.Create();
+        var recorder = (RecordingApplication)(object)app;
+
+        TestNotebook.NavigateToCall(app, "{PG}");
+        Assert.Equal("NavigateTo", recorder.Calls[^1].Method);
+        Assert.Equal(new object?[] { "{PG}", string.Empty, false }, recorder.Calls[^1].Args);
+
+        TestNotebook.NavigateToUrlCall(app, IssuedLink);
+        Assert.Equal("NavigateToUrl", recorder.Calls[^1].Method);
+        Assert.Equal(new object?[] { IssuedLink, false }, recorder.Calls[^1].Args);
+        Assert.Equal(2, recorder.Calls.Count);
+
+        var window = RecordingWindow.Create();
+        var windowRecorder = (RecordingWindow)(object)window;
+        TestNotebook.WindowNavigateToCall(window, "{PG}");
+        var call = Assert.Single(windowRecorder.Calls);
+        Assert.Equal("NavigateTo", call.Method);
+        Assert.Equal(new object?[] { "{PG}", string.Empty }, call.Args);
+    }
+
+    [Theory]
+    [InlineData(nameof(TestNotebook.NavigateToAsync))]
+    [InlineData(nameof(TestNotebook.NavigateToCheckedAsync))]
+    [InlineData(nameof(TestNotebook.NavigateToUrlAsync))]
+    [InlineData(nameof(TestNotebook.NavigateToUrlCheckedAsync))]
+    [InlineData(nameof(TestNotebook.WindowNavigateToAsync))]
+    [InlineData(nameof(TestNotebook.CheckNavigateToAsync))]
+    [InlineData(nameof(TestNotebook.CheckNavigateToUrlAsync))]
+    public void NavigationWrappers_HaveNoNewWindowOrObjectIdParameter(string name)
+    {
+        var method = typeof(TestNotebook).GetMethod(name)!;
+
+        Assert.DoesNotContain(method.GetParameters(), p => p.ParameterType == typeof(bool));
+        Assert.DoesNotContain(method.GetParameters(), p => p.Name?.Contains("window", StringComparison.OrdinalIgnoreCase) == true && p.ParameterType != typeof(ulong));
+        Assert.DoesNotContain(method.GetParameters(), p => p.Name?.Contains("object", StringComparison.OrdinalIgnoreCase) == true);
+    }
+}
+
+/// <summary>Spike 4.12: a stand-in <c>Window</c> that records each call's name and arguments (no COM).</summary>
+public class RecordingWindow : System.Reflection.DispatchProxy
+{
+    public List<(string Method, object?[] Args)> Calls { get; } = [];
+
+    internal static OneNoteMcp.Integration.WriteProbes.IProbeWindow Create() => Create<OneNoteMcp.Integration.WriteProbes.IProbeWindow, RecordingWindow>();
+
+    protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
+    {
+        ArgumentNullException.ThrowIfNull(targetMethod);
+        Calls.Add((targetMethod.Name, (object?[])(args ?? []).Clone()));
+        return null;
+    }
 }
 
 /// <summary>Spike 4.1: a stand-in <c>IApplication</c> that records each call's name and arguments (no COM).</summary>
