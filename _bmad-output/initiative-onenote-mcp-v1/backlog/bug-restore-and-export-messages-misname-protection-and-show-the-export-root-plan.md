@@ -3,7 +3,7 @@ title: 'Restore names protection by its reason; FileExists wording matches Expor
 type: 'bugfix'
 ticket: '19'
 created: '2026-11-21'
-status: 'built'
+status: 'done'
 route: 'oneshot'
 route_source: 'auto'
 review: 'quick'
