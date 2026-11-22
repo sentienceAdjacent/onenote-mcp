@@ -60,6 +60,7 @@ The plan's questions are referred to below as OQ1–OQ7.
 - **OQ3 (a).** The notebook test: the canonical folder exists, holds a `.onetoc2`, and no ancestor folder holds one. A missing path, a `.one`, a `.onepkg`, a UNC or device path and a folder failing the test are refused with `InvalidArgument` before COM; a notebook whose `.onetoc2` hasn't landed yet gets a `userAction` to wait. The ancestor check is inferred, not probed.
 - **OQ4 (a).** `navigate_to_url` refuses a link whose target is a local path, with `InvalidArgument` and a `userAction` to use `navigate_to` with the object's ID; it accepts cloud (`onenote:https://…`) links only.
 - **OQ5 (a).** `quick_filing`: a fixed 300 s wait (no setting) that the client can cancel; unparented; no lock; a second call while one of this process's pickers is open is refused with `ComBusy`; a wait that ends is `ok: true` with nothing chosen, warning that the picker may still be on screen and a later choice is ignored; a late answer is dropped.
+  - Superseded in part (Phill, 2026-11-22, review finding 3): the hold on a picker ends when the call's wait ends (the 300 s limit or the client's cancel). The `ComBusy` for a second call ends then, AD-3's idle release applies again, and a late answer is still dropped.
 - **OQ6 (a).** A closed notebook's pages are left to the search cache's eviction.
 - **OQ7 (a).** One story.
 - **Accepted as applied:** `open_notebook` refuses URLs (Q3's condition not met, 4.1 O3); a 30 s per-call limit for every `AppState` call; `get_windows` stays class `AppState`, is never `outcomeUnknown`, and its `Timeout` is retryable.
@@ -122,6 +123,12 @@ The plan's questions are referred to below as OQ1–OQ7.
   - AD-21 says `navigate_to` and `navigate_to_url` need no read grant (as shipped) and that a result naming the current page follows `get_windows`' rule.
 - Ticket effects for the orchestrating session's `bmad-ticket` pass (Design Notes): entry 5 stays non-hitl; entry 4's cloud close is hitl; entry 7 tests cloud links only and tries `Window.NavigateToUrl`; entry 4's Verify needs the local-edit-survives check (OQ2).
 
+2026-11-22, Fable final review fixes (approved by Phill, Inbox; docs only, applied by a subagent):
+- Phill's decisions: D1 `open_notebook` refuses a folder inside a OneDrive-synced folder (step 1 and under the lock); D2 `close_notebook` given an ID no open notebook has is `ObjectNotFound`, a wrong-kind ID stays `InvalidArgument` (this replaces the `InvalidArgument` choice listed above); D3 the small choices listed above, and the review fixes in the memlog's "not Phill's" line, are accepted. Recorded in the spine (AD-7 `AppState`, AD-9, AD-13, AD-21), the epic's Notes and three memlog lines.
+- Fable findings 2–4, 6–19, F1, F2 and the editorial ones applied to the spine (AD-2, AD-3, AD-7 `AppState`, AD-9, AD-11, AD-14, Coverage, Consistency Conventions, Deferred), the epic (A1, A3, A4, OQ5, the four Source conflicts, Answered-before lines), this plan's frozen OQ5 (one dated note, finding F2) and the 4.12 and 4.13 findings ("Draft." removed). Two memlog lines (the fixes, and 4.1's Incomplete sync gap).
+- Design Notes' refusal-code line was then corrected by the build session to `InvalidArgument`, `ObjectNotFound` or `ComBusy`, matching AD-9. Not changed: the frontmatter's local `created` date.
+- Verification: `lint_spine.py` reports only the known `{pid}` low finding; the spine's `status` and `updated` unchanged.
+
 ## Plan Change Log
 
 ## Review Triage Log
@@ -139,7 +146,7 @@ The plan's questions are referred to below as OQ1–OQ7.
 ## Design Notes
 
 - Evidence strength is the findings' own ("one run", "one pair", "nine of nine"); a rule on one run says so, so Fable and later stories see what may move.
-- No new error code: every refusal fits `InvalidArgument`, `ComBusy` or `NotSupported`, and a new code would change the public contract (AD-9, AD-14), as 3.2 found.
+- No new error code: every refusal fits `InvalidArgument`, `ObjectNotFound` or `ComBusy`, and a new code would change the public contract (AD-9, AD-14), as 3.2 found.
 - Ticket effects for the orchestrating session's `bmad-ticket` pass, if Phill wants them recorded: entry 5 stays non-hitl (opens moved neither focus nor view, 4.1 O1/O4); entry 4's cloud close is hitl (C2 C modal box); entry 7 tests cloud links only under OQ4 (a); entry 9's Verify needs no change.
 
 ## Verification
