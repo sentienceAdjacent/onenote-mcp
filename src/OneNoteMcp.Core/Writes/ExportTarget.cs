@@ -20,7 +20,8 @@ namespace OneNoteMcp.Core.Writes;
 /// <see cref="ErrorCode.FileExists"/>. For HTML, nothing may exist at <c>&lt;stem&gt;_files</c> beside it either, where a
 /// web page's images may land (3.13 plan Q3).</item>
 /// </list>
-/// Messages name only the caller's own path, never a root (AD-9).
+/// Messages name the caller's path as given, except <see cref="ErrorCode.FileExists"/>, which names the full resolved path,
+/// as <c>meta.outputPath</c> does (backlog 19, Phill 2026-11-21). None carries page content (AD-9).
 /// </summary>
 public static class ExportTarget
 {

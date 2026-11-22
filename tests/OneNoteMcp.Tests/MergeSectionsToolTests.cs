@@ -263,7 +263,7 @@ public sealed class MergeSectionsToolTests : IDisposable
         Assert.Equal([TimeSpan.FromSeconds(10)], settles);
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.Settled, warning.GetProperty("code").GetString());
-        Assert.Equal(MergeSectionsWrite.SettledUserAction, warning.GetProperty("userAction").GetString());
+        Assert.Equal(CloudSettle.SettledUserAction, warning.GetProperty("userAction").GetString());
         Assert.Equal(sourceId == DriftId ? 1 : 3, root.GetProperty("meta").GetProperty("pageIds").GetArrayLength());
 
         // The read-back's re-reads come after the settle.

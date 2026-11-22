@@ -89,11 +89,11 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
 
     /// <summary>What to do about a protected section sent elsewhere (AD-8).</summary>
     public const string ProtectedElsewhereUserAction =
-        "Leave parentId out: a password-protected section goes back only to the place it was deleted from. If the user wants it elsewhere afterwards, they move it in OneNote.";
+        "Leave parentId out: a protected section (password-protected, or under the opened-copies folder, an export root or the backups folder) goes back only to the place it was deleted from. If the user wants it elsewhere afterwards, they move it in OneNote.";
 
     /// <summary>What to do about a protected section whose place can't be found (AD-8).</summary>
     public const string ProtectedOrphanUserAction =
-        "Ask the user to restore it from the Recycle Bin in OneNote: a password-protected section goes back only to the place it was deleted from, and the server can't find that place (no journal entry matches it, or that notebook or section group is gone).";
+        "Ask the user to restore it from the Recycle Bin in OneNote: a protected section (password-protected, or under the opened-copies folder, an export root or the backups folder) goes back only to the place it was deleted from, and the server can't find that place (no journal entry matches it, or that notebook or section group is gone).";
 
     /// <summary>What to do about a page position the server refuses.</summary>
     public const string PagePositionUserAction =
@@ -126,10 +126,6 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
     /// <summary>What to do after the warning <c>restoredByName</c> (Q6).</summary>
     public const string RestoredByNameUserAction =
         "The item was matched to its journal entry by name, not by ID. Tell the user where it went (meta.parentId), and check it is where they expected.";
-
-    /// <summary>What to do after the warning <c>settled</c>.</summary>
-    public const string SettledUserAction =
-        "The restore touched a cloud notebook (OneDrive or SharePoint). Before relying on it, ask the user to check in OneNote that it synced (no sync error on the notebook).";
 
     private readonly HierarchyWriteServices services;
     private readonly HierarchyWalk walk;
@@ -270,11 +266,21 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         {
             await services.Gateway.UpdateHierarchyAsync(now.Xml, ct).ConfigureAwait(false);
         }
-        catch (OneNoteException ex) when (ex.ComHResult == MovePageWrite.PartialCopyHResult)
+        catch (OneNoteException ex) when (ex.ComHResult == PartialCopyReRead.HResult)
         {
             // As a move (AD-7 Moves): a partial copy is possible, so the outcome is unknown; the code stays (AD-9).
             await CloudSettle.QuietlyAsync(settle, now.TouchesCloud, ct).ConfigureAwait(false);
-            var found = await PartialCopyFindingsAsync(now, ct).ConfigureAwait(false);
+            var item = now.State.Item;
+            var found = await PartialCopyReRead.FindingsAsync(
+                services.Gateway,
+                services.ReadAccess.Protection(),
+                "restore",
+                source: null,
+                now.State.Target,
+                ObjectId,
+                item.Kind == SoftDeleteKind.Page ? HierarchyKind.Page : HierarchyKind.Section,
+                item.Name,
+                ct).ConfigureAwait(false);
             throw new OneNoteException(ex.Code, WithNote($"{ex.Message} {found}"), ex.ComHResult, ex, outcomeUnknown: true, ex.UserAction, retryable: false);
         }
         catch (OneNoteException ex) when (FailureNote is not null)
@@ -448,7 +454,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             var deleted = XmlReads.Readable(() => RecycleBin.DeletedPages(binPages), "GetHierarchy");
             var page = deleted.FirstOrDefault(p => string.Equals(p.Id, ObjectId, StringComparison.Ordinal))
                 ?? throw ObjectNotFound("isn't listed in Deleted Pages");
-            return new Item(SoftDeleteKind.Page, ObjectId, page.Name, string.Empty, false, binId, [.. deleted.Select(p => p.Id)]);
+            return new Item(SoftDeleteKind.Page, ObjectId, page.Name, string.Empty, false, false, binId, [.. deleted.Select(p => p.Id)]);
         }
 
         var selfXml = await services.Gateway.GetHierarchyAsync(ObjectId, HierarchyScope.Self, ct).ConfigureAwait(false);
@@ -486,7 +492,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
         }
 
         var binned = XmlReads.Readable(() => HierarchyNode.Sections(parentXml), "GetHierarchy").Select(s => s.Id).ToList();
-        return new Item(SoftDeleteKind.Section, ObjectId, self.Name, self.Path, services.ReadAccess.Protection().IsProtected(self), parentId!, binned);
+        return new Item(SoftDeleteKind.Section, ObjectId, self.Name, self.Path, services.ReadAccess.Protection().IsProtected(self), self.EncryptedMarker, parentId!, binned);
     }
 
     /// <summary>The item's soft-delete entry (AD-8; Q1, Q5, Q10): <c>entryId</c> when given, else the match; several are refused, listed.</summary>
@@ -532,22 +538,26 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             var shortcut = entry?.ParentId is { Length: > 0 } parent
                 ? string.Equals(parent, notebook.Id, StringComparison.Ordinal) ? notebook.Path : liveGroups.FirstOrDefault(g => string.Equals(g.Id, parent, StringComparison.Ordinal))?.Path
                 : null;
+            // Backlog 19: worded by the reason it counts as protected, its marker or its path (AD-21).
+            var phrase = Protection.Phrase(item.Marked);
             if (own is null || (shortcut is not null && !GrantKeys.SameLocation(shortcut, folder)))
             {
                 throw new OneNoteException(
                     ErrorCode.ObjectNotFound,
                     entry is null
-                        ? $"Password-protected section {ObjectId} has no journal entry, so the place it was deleted from is unknown, and nothing was restored."
+                        ? $"Section {ObjectId} {phrase}, and it has no journal entry, so the place it was deleted from is unknown, and nothing was restored."
+                        : folder is null
+                            ? $"Section {ObjectId} {phrase}, and its journal entry {entry.EntryId:D} records no SectionKey (it wasn't protected when it was deleted), so the place it was deleted from can't be proven, and nothing was restored."
                         : own is null
-                            ? $"The place password-protected section {ObjectId} was deleted from (journal entry {entry.EntryId:D}) is gone, so nothing was restored."
-                            : $"Journal entry {entry.EntryId:D} of password-protected section {ObjectId} names a parent ({entry.ParentId}) that isn't the place its SectionKey records, so where it was deleted from is uncertain, and nothing was restored.",
+                            ? $"Section {ObjectId} {phrase}, and the place it was deleted from (journal entry {entry.EntryId:D}) is gone, so nothing was restored."
+                            : $"Section {ObjectId} {phrase}, and its journal entry {entry.EntryId:D} names a parent ({entry.ParentId}) that isn't the place its SectionKey records, so where it was deleted from is uncertain, and nothing was restored.",
                     userAction: ProtectedOrphanUserAction,
                     retryable: false);
             }
 
             if (parentArgument.Length > 0 && !string.Equals(parentArgument, own, StringComparison.Ordinal))
             {
-                throw HierarchyWriteSteps.Invalid($"Section {ObjectId} is password-protected and goes back only to {own}, the place it was deleted from, not {parentArgument}, so nothing was restored.", ProtectedElsewhereUserAction);
+                throw HierarchyWriteSteps.Invalid($"Section {ObjectId} {phrase}, and it goes back only to {own}, the place it was deleted from, not {parentArgument}, so nothing was restored.", ProtectedElsewhereUserAction);
             }
 
             return own;
@@ -633,7 +643,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
                 throw new OneNoteException(
                     ErrorCode.ReadNotGranted,
                     $"Section {target.Id} {Protection.Phrase(target.EncryptedMarker)}, and placing a page at a position in it needs a read grant for it held when the call starts, so nothing was restored.",
-                    userAction: MovePageWrite.ProtectedPositionUserAction);
+                    userAction: MoveWrites.ProtectedPositionUserAction);
             }
 
             // As a move (3.4 Q2): 1-based among the target's live pages, before a top-level page; omitted, last. No page count in a message.
@@ -738,48 +748,7 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
             : null;
     }
 
-    /// <summary>After <c>0x80042004</c>: what a best-effort re-read of the target finds (as a move, AD-7 Moves).</summary>
-    private async Task<string> PartialCopyFindingsAsync(Plan now, CancellationToken ct)
-    {
-        var target = now.State.Target;
-        string found;
-        try
-        {
-            var after = await HierarchyWriteSteps.ReadChildrenAsync(services.Gateway, target.Id, ct).ConfigureAwait(false);
-            if (now.State.Item.Kind == SoftDeleteKind.Section)
-            {
-                found = after.Children.Any(c => string.Equals(c.Id, ObjectId, StringComparison.Ordinal))
-                    ? $"{ObjectId} is in {target.Id}"
-                    : $"{ObjectId} isn't in {target.Id}";
-            }
-            else
-            {
-                var before = target.Children.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
-                var copies = after.Children
-                    .Where(c => !before.Contains(c.Id) && string.Equals(c.Name, now.State.Item.Name, StringComparison.Ordinal))
-                    .Select(c => c.Id)
-                    .ToList();
-                found = copies.Count == 0
-                    ? $"section {target.Id} has no new page with its name"
-                    : services.ReadAccess.Protection().IsProtected(target)
-                        ? string.Create(CultureInfo.InvariantCulture, $"section {target.Id} has {copies.Count} new page(s) with its name")
-                        : string.Create(CultureInfo.InvariantCulture, $"section {target.Id} has {copies.Count} new page(s) with its name ({string.Join(", ", copies)})");
-            }
-        }
-#pragma warning disable CA1031 // Best effort: the original failure is what the caller gets; the re-read only adds to its message.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            found = $"{target.Id} couldn't be re-read ({MoveReadBack.Why(ex)})";
-        }
-
-        return $"The restore may have left a partial copy. Re-read straight after the failure: {found}; a copy in a cloud notebook can land later.";
-    }
-
-    private ToolWarning SettledWarning() => new(
-        ToolWarnings.Settled,
-        string.Create(CultureInfo.InvariantCulture, $"The restore of {ObjectId} touched a cloud notebook, so the server waited {CloudSettle.Time.TotalSeconds:0} s before re-reading it, as OneNote can fail or block on a write straight after such a move."),
-        SettledUserAction);
+    private ToolWarning SettledWarning() => CloudSettle.SettledWarning($"The restore of {ObjectId}");
 
     private ToolWarning Differs(string message) => new(ToolWarnings.ReadBackDiffers, message, ReadBackUserAction());
 
@@ -798,8 +767,8 @@ public sealed class RestoreFromRecycleBinWrite : WriteOperation<MoveResult>
 
     private static string Capitalized(HierarchyKind kind) => HierarchyBasis.Capitalized(HierarchyRules.Noun(kind));
 
-    /// <summary>The recycled item: its kind, ID, name, path (a section's, in the bin), protection, the bin node it is under (the recycle bin), and the IDs of every item of its kind in the bin.</summary>
-    private sealed record Item(SoftDeleteKind Kind, string Id, string Name, string Path, bool Encrypted, string BinId, IReadOnlyList<string> Binned);
+    /// <summary>The recycled item: its kind, ID, name, path (a section's, in the bin), protection (AD-21's test, marker or path) and whether it carries the <c>encrypted</c> marker (backlog 19: the refusals word it by reason), the bin node it is under (the recycle bin), and the IDs of every item of its kind in the bin.</summary>
+    private sealed record Item(SoftDeleteKind Kind, string Id, string Name, string Path, bool Encrypted, bool Marked, string BinId, IReadOnlyList<string> Binned);
 
     /// <summary>What step 3 read: the item, its notebook's path, its entry and whether it matched by name, and the target with its XML and notebook path.</summary>
     private sealed record State(

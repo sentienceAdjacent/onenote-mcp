@@ -646,3 +646,6 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/backlog/bug-find-results-go-over-the-inline-size-cap-with-many-protected-sections-plan.md`
   summary: meta.withheld (one section ID per withheld section, about 50 characters each) still stays in the header; with thousands of withheld sections a header can still exceed results.inlineMaxChars.
   evidence: Backlog 15 moved only meta.filtered (Phill's Q1/Q3); Fable review of the spine sync, finding 3. Inferred threshold about 2,000 withheld sections at the default cap; ToolRunner logs it if it happens.
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/backlog/story-one-shared-recovery-path-for-the-move-and-restore-writes-plan.md`
+  summary: A `WriteOperation` hook that `WritePipeline` calls on a partial copy (`0x80042004`) in step 7, so the pipeline owns the re-read and the rethrow with `outcomeUnknown` instead of each move and restore write.
+  evidence: Backlog 17 Q3 (Phill, 2026-11-21, Inbox) chose a shared helper each write calls, with `WritePipeline` unchanged, because a hook changes the pipeline for every write.

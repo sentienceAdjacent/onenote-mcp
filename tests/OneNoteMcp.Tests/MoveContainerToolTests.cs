@@ -201,7 +201,7 @@ public sealed class MoveContainerToolTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(10), CloudSettle.Time);
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.Settled, warning.GetProperty("code").GetString());
-        Assert.Equal(MoveContainerWrite.SettledUserAction, warning.GetProperty("userAction").GetString());
+        Assert.Equal(CloudSettle.SettledUserAction, warning.GetProperty("userAction").GetString());
         Assert.Equal(objectId, root.GetProperty("meta").GetProperty("objectId").GetString());
         await AssertLockFreeAsync();
     }
@@ -542,7 +542,7 @@ public sealed class MoveContainerToolTests : IDisposable
         Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
         Assert.Equal("0x80042004", error.GetProperty("hresult").GetString());
         var message = error.GetProperty("message").GetString()!;
-        Assert.Contains($"{IdeasId} is still under {AId}", message, StringComparison.Ordinal);
+        Assert.Contains($"section {IdeasId} is still in notebook {AId}", message, StringComparison.Ordinal);
         Assert.Contains($"1 new section(s) with its name ({CopyId})", message, StringComparison.Ordinal);
         Assert.Contains("journal entries", message, StringComparison.Ordinal);
         Assert.DoesNotContain(IdeasName, error.GetRawText(), StringComparison.Ordinal);
