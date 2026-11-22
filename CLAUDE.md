@@ -33,7 +33,7 @@ This project uses BMAD (core-tools + method 6.13.0-next, set up in `_bmad/`). Af
 - **API shape:** read with `GetHierarchy` and `GetPageContent`, which return XML in the 2013 schema. Write with `UpdateHierarchy`, `UpdatePageContent`, `CreateNewPage` and `DeleteHierarchy`. Objects are addressed by ID. A child's ID doesn't contain its parent's, and a soft-deleted page gets a new ID.
 - **Write concurrency:** `dateExpectedLastModified` only protects pages that are open in OneNote. For a page that isn't open, `lastModifiedTime` doesn't advance after COM edits, so a stale write goes through. Pass UTC dates and add a content read-compare-write. Even then, the check is best-effort.
 - **Threading:** one STA thread owns every COM call and serialises tool calls, so every call needs a timeout. Reconnect once on `RPC_S_SERVER_UNAVAILABLE` or `RPC_E_DISCONNECTED`. Release the COM reference when idle. Never kill or close OneNote.
-- **Calls the user sees:** `NavigateTo` takes keyboard focus. Call it only when the user explicitly asks.
+- **Calls the user sees:** `NavigateTo` changes what OneNote shows. Call it only when the user explicitly asks. It didn't take keyboard focus in 4.12's probes (10 calls with another app in front), and with OneNote's window closed it reopened one in front, so a tool must not promise either way (spine AD-11).
 - **Process context:** run at OneNote's integrity level, and refuse to run on a mismatch. A mismatch hangs for about 30 s and then fails with `0x80080005`, so detect elevation at startup.
 - **Errors to map:**
   - `0x80042030`: a modal dialog is open in OneNote. Retryable once the user closes it.
