@@ -82,10 +82,6 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
     public const string StaleUserAction =
         "Re-read the source section with get_hierarchy, check the merge still makes sense, and retry with its current lastModifiedTime. Straight after another hierarchy write a date can move about a second late, so if nothing else changed, re-read and retry once.";
 
-    /// <summary>What to do after the warning <c>settled</c>.</summary>
-    public const string SettledUserAction =
-        "The merge touched a cloud notebook (OneDrive or SharePoint). Before relying on it, ask the user to check in OneNote that it synced (no sync error on either notebook).";
-
     private readonly HierarchyWriteServices services;
     private readonly Func<TimeSpan, CancellationToken, Task> settle;
     private readonly string correlationId;
@@ -470,10 +466,7 @@ public sealed class MergeSectionsWrite : WriteOperation<MergeResult>
         return [.. after.Children.Where(c => c.Kind == HierarchyKind.Page && !known.Contains(c.Id)).Select(c => c.Id)];
     }
 
-    private ToolWarning SettledWarning() => new(
-        ToolWarnings.Settled,
-        string.Create(CultureInfo.InvariantCulture, $"The merge of section {SourceId} into section {DestinationId} touched a cloud notebook, so the server waited {CloudSettle.Time.TotalSeconds:0} s before re-reading them, as OneNote can fail or block on a write straight after one."),
-        SettledUserAction);
+    private ToolWarning SettledWarning() => CloudSettle.SettledWarning($"The merge of section {SourceId} into section {DestinationId}");
 
     private string ReadBackUserAction() =>
         $"Read section {DestinationId} with get_hierarchy (scope children) to see the copies and their current IDs.";

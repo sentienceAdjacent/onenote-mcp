@@ -1,14 +1,31 @@
+using System.Globalization;
+using OneNoteMcp.Core.Results;
+
 namespace OneNoteMcp.Core.Writes;
 
 /// <summary>
 /// The settle a hierarchy write holds under the write lock when it touches a cloud notebook (AD-7 Moves, J5; 3.12 Q4),
 /// shared by the section move (<see cref="MoveContainerWrite"/>), the restore (<see cref="RestoreFromRecycleBinWrite"/>)
-/// and the merge (<see cref="MergeSectionsWrite"/>). Extracted unchanged from the first two (story 3.6).
+/// and the merge (<see cref="MergeSectionsWrite"/>). Extracted unchanged from the first two (story 3.6); the warning
+/// <c>settled</c> and its advice are one text for all three (backlog 17 Q2).
 /// </summary>
 internal static class CloudSettle
 {
     /// <summary>The settle after a write that touches a cloud notebook: 10 s (AD-7 Moves, J5).</summary>
     internal static readonly TimeSpan Time = TimeSpan.FromSeconds(10);
+
+    /// <summary>What to do after the warning <c>settled</c>, for a section move, a restore or a merge.</summary>
+    internal const string SettledUserAction =
+        "The write touched a cloud notebook (OneDrive or SharePoint). Before relying on it, ask the user to check in OneNote that it synced (no sync error on any notebook it touched).";
+
+    /// <summary>
+    /// The warning <c>settled</c>: <paramref name="subject"/> (such as "The move of X", "The restore of X" or "The merge of
+    /// section S into section D") touched a cloud notebook, so the server waited <see cref="Time"/> before its read-back.
+    /// </summary>
+    internal static ToolWarning SettledWarning(string subject) => new(
+        ToolWarnings.Settled,
+        string.Create(CultureInfo.InvariantCulture, $"{subject} touched a cloud notebook, so the server waited {Time.TotalSeconds:0} s before reading back what it did, as OneNote can fail or block on a write straight after one."),
+        SettledUserAction);
 
     /// <summary>
     /// The settle before a failed cloud write's re-read (3.12 Q4): waits <see cref="Time"/> through

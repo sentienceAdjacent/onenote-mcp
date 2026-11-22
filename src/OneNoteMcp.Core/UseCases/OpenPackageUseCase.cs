@@ -35,7 +35,8 @@ namespace OneNoteMcp.Core.UseCases;
 /// </list>
 /// The result is <c>meta.outputPath</c> (the folder) and <c>meta.objectId</c> (the copy's notebook ID). No write grant is
 /// given; every section of the copy is protected by its path (entry 15), so reading it needs the user's read grant. The
-/// user closes the copy in OneNote (Q13). Messages name IDs and the caller's own paths, never names from the package.
+/// user closes the copy in OneNote (Q13). Messages name IDs and paths (the caller's, or the resolved folder, as
+/// <c>meta.outputPath</c> does; backlog 19), never names from the package.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class OpenPackageUseCase : IUseCase
