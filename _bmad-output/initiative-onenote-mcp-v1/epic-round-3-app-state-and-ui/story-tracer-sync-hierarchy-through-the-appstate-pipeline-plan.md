@@ -3,7 +3,7 @@ title: 'Tracer: sync_hierarchy through the AppState pipeline'
 type: 'feature'
 ticket: '3'
 created: '2026-11-21'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -39,7 +39,7 @@ context:
 
 | Scenario | Input / State | Expected | Error Handling |
 |---|---|---|---|
-| Sync ok | open notebook, section or page ID | `ok`, the requested-not-finished note | — |
+| Sync ok | open notebook, section or page ID | `ok`, warning `syncRequested` | — |
 | Unknown or stale ID | `0x80042014` | — | `ObjectNotFound`, re-read userAction |
 | Empty ID | `""` | no COM call | `InvalidArgument` |
 | Abandoned write outstanding | FakeGateway `AbandonedWrites` pending | no COM call | `ComBusy`, retryable |
@@ -48,6 +48,12 @@ context:
 | Deadline or client cancel in step 7 | — | — | `Timeout` / `Cancelled`, `outcomeUnknown` |
 | Deadline before step 7 | — | no COM call | `Timeout`, retryable |
 | (all rows also for `navigate_to`) | | | |
+
+## Decisions (Phill, 2026-11-22, Inbox plan approval)
+
+- **Q1 (a):** every `ok` from `sync_hierarchy` carries the warning `syncRequested` (this story names it, AD-9): OneNote accepted the request; it doesn't say when or whether the sync finishes.
+- **Q2 (a):** `NavigateToToolTests.cs:64` is updated to the new `0x80042014` userAction ("re-read the hierarchy and use a current ID"; no "wait two seconds").
+- **Q3:** the plan is kept whole (about 2,000 tokens).
 
 </frozen-after-approval>
 
@@ -85,12 +91,7 @@ context:
 ## Design Notes
 
 - A separate `AppStatePipeline`, not flags on `WritePipeline`: that one is built around grants, the cache and the lock, none of which these tools use, and the spine says "beside". 4.4 and 4.5 add the lock path to it; building it now would ship untested code.
-- Considered the description alone saying "requested"; going with a result warning because the spine says the result says so (see Open Questions 1).
-
-## Open Questions
-
-1. **How the result says "requested, not finished".** (a) A warning on every `ok`, code `syncRequested`, named here as AD-9 lets a story name its own; (b) a sentence in the description only. (a) puts it in the result as the spine asks; (b) adds no contract item but the result says nothing. Recommended: (a).
-2. **`navigate_to`'s repeat-userAction test.** The ticket's Verify says its existing tests still pass, but the spine (AD-9, 4.12 R1) drops the "wait two seconds" text that `NavigateToToolTests.cs:64` asserts. (a) Update that test to the new text; (b) keep the old text. Recommended: (a).
+- The result's "requested" note is the warning `syncRequested` (Decision Q1), as `settled` is a warning that informs.
 
 ## Live sitting (Phill, about 10 minutes; hitl)
 
