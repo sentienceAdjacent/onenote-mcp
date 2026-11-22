@@ -244,6 +244,29 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             CallKind.AppState,
             ct);
 
+    public Task SyncHierarchyAsync(string hierarchyId, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.SyncHierarchy);
+        if (string.IsNullOrEmpty(hierarchyId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no hierarchy ID was given.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.SyncHierarchy(hierarchyId);
+                return true;
+            },
+            // AppState (story 4.3): never repeated after a disconnect, and never an abandoned write (AD-3, AD-7).
+            CallKind.AppState,
+            ct);
+    }
+
     public Task<string> CreateNewPageAsync(string sectionId, CoreNewPageStyle style, CancellationToken ct)
     {
         var interopStyle = MapNewPageStyle(style);
@@ -1088,7 +1111,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>
     /// AD-3: while an abandoned write may still be running in OneNote, only reads are sent. Anything else (a write,
-    /// <c>NavigateTo</c>) fails <see cref="ErrorCode.ComBusy"/> without touching COM.
+    /// <c>NavigateTo</c>, <c>SyncHierarchy</c>) fails <see cref="ErrorCode.ComBusy"/> without touching COM.
     /// </summary>
     private void ThrowIfWriteOutstanding(string method, CallKind kind)
     {

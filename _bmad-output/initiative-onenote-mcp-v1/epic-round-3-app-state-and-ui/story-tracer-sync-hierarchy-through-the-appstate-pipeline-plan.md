@@ -3,12 +3,13 @@ title: 'Tracer: sync_hierarchy through the AppState pipeline'
 type: 'feature'
 ticket: '3'
 created: '2026-11-21'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '8df0c015e9d967e14a0f5d07ef33d1a2bff81336'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -115,6 +116,13 @@ Before: OneNote open in a window with MCP Test and MCP Test Cloud, online. The b
 
 ## Implementation Notes
 
+- Implemented by a context-free subagent from this plan (2026-11-22); verified by the build session: `dotnet build OneNoteMcp.slnx -warnaserror` 0 warnings, 0 errors; `dotnet test tests/OneNoteMcp.Tests` 3870 passed, 3 skipped (the existing `ProtectedByPathToolTests` skips), 0 failed. The integration tests and the pack/validate check weren't run by the build session (the live sitting runs the integration filter `SyncHierarchy`).
+- `navigate_to` refuses an empty `hierarchyId` before COM, as the I/O matrix's empty-ID row applies to both tools.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-22, quick lens (one reviewer, same model), pass 1: 2 findings; verdicts 0 high, 0 medium, 2 low, 0 false, 0 maybe-false. Both rejected; no patch, no loopback.
+  - low, rejected -- `NavigateToUseCase.Navigate.Validate`: `navigate_to` now refuses an empty `hierarchyId` with `InvalidArgument` before COM, where it used to send it. The frozen I/O matrix applies every row, the empty-ID row included, to `navigate_to`, so the code follows the approved intent; an empty ID could never show anything, and `InvalidArgument` is AD-9's generic refusal. Unlikely to be met in use.
+  - low, rejected -- `AppStatePipeline` step 7: a call that times out or is cancelled while still queued in `ComGateway` (`ComGateway.cs:978`, `1000-1014`) never reached OneNote but is reported `outcomeUnknown`. `WritePipeline` does the same, and the spine's step-7 rule names `Timeout` and `Cancelled` without that distinction; the error is conservative (it asks the caller to check rather than claiming nothing happened). Telling queued from started apart would add a gateway signal and branches for a rare case.

@@ -172,4 +172,11 @@ public static class ToolWarnings
     /// Gives the move's error code and message (IDs only); its userAction says to move it with <c>move_hierarchy_object</c>.
     /// </summary>
     public const string RestoredNotMoved = "restoredNotMoved";
+
+    /// <summary>
+    /// <c>sync_hierarchy</c> (story 4.3, 4.3 plan Q1): OneNote accepted the sync request. It returns before any sync is done
+    /// (spike 4.1 S1) and offers no way to see one complete, so the warning says the sync was requested, not that it ran or
+    /// finished. Every ok from <c>sync_hierarchy</c> carries it. Names no ID.
+    /// </summary>
+    public const string SyncRequested = "syncRequested";
 }
