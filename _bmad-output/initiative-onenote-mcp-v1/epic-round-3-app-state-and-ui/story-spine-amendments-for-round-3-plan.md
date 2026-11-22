@@ -134,6 +134,7 @@ The plan's questions are referred to below as OQ1–OQ7.
   - low, patch -- AD-7 class rule (and AD-5) called `open_package`'s `OpenHierarchy` `AppState`, while it runs inside its `ExternalWrite` pipeline and `ComGateway` sends it as a write (l.398–407). Fixed both to match the shipped code.
   - low, patch -- 4.12 Implication 11 ("the result says which window moved") landed nowhere. Fixed with a memlog line: naming the window is a result field (AD-14), left to stories 4.6 and 4.7.
 - Verification after the patches: `lint_spine.py` only the known `{pid}` false positive.
+- 2026-11-22, the intent_gap above resolved by Phill (Inbox, review finding 3): the server lets go of a picker when the call's wait ends (300 s or the client's cancel); idle release applies again, a new picker is allowed, a late answer is still ignored. Applied to epic A8, spine AD-3 Idle, AD-7 `AppState`, AD-9 `ComBusy` and the table row; the Deferred row resolved; one memlog decision line by Phill.
 
 ## Design Notes
 
