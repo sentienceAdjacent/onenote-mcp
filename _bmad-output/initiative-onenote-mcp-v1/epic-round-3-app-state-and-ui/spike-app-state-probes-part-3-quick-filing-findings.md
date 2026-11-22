@@ -2,7 +2,7 @@
 title: 'Findings: app-state probes, part 3: quick filing'
 type: 'spike-findings'
 findings_for: '13'
-status: 'draft'
+status: 'final'
 created: '2026-11-22'
 machine: 'Windows 11 Pro 10.0.26300, OneNote desktop (M365), not elevated; the OneNote build was not recorded by this run'
 evidence: '%LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state-filing-20261122-024248.jsonl (outside the repo; one run, 2026-11-22 02:42–03:09 UTC, test run successful); Phill''s reports and screenshots per pause, in the coordinator''s sitting notes and the 4.13 Inbox thread (the screenshots show notebooks outside the test set and stay out of the repo)'
@@ -106,7 +106,7 @@ Yes (F6). A wait of our own, with the STA queue free, ended cleanly, and the gat
 
 ## Open before final
 
-- Phill's sign-off on the findings.
+- Phill's sign-off on the findings: approved 2026-11-22 (Inbox).
 - The OneNote build wasn't recorded by this run.
 - Entry 2's spine amendments (A8's wording per Implication 1, AD-7/AD-18 for `quick_filing`) are entry 2's, not this spike's.
 - Spine memlog: constraint lines and Phill's A8 decision added 2026-11-22.

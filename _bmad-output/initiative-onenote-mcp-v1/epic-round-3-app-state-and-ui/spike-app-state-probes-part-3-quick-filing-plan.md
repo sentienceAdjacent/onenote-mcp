@@ -3,7 +3,7 @@ title: 'App-state probes, part 3: quick filing'
 type: 'chore'
 ticket: '13'
 created: '2026-11-17'
-status: in-progress
+status: built
 baseline_revision: '55fd04930b009bb6bc7ae4d536fc77585b924de3'
 route: 'full'
 route_source: 'auto'
