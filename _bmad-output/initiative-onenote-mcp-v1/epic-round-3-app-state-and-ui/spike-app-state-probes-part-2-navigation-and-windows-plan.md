@@ -3,7 +3,7 @@ title: 'App-state probes, part 2: navigation and windows'
 type: 'chore'
 ticket: '12'
 created: '2026-11-16'
-status: built
+status: done
 baseline_revision: '23b4da658946d863809fec5747ad41f8f8a336e6'
 route: 'full'
 route_source: 'auto'
