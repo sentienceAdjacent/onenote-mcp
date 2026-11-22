@@ -2,7 +2,7 @@
 title: 'Findings: app-state probes, part 2: navigation and windows'
 type: 'spike-findings'
 findings_for: '12'
-status: 'draft'
+status: 'final'
 created: '2026-11-21'
 machine: 'Windows 11 Pro 10.0.26300, OneNote desktop (M365), not elevated; the OneNote build was not recorded by these runs'
 evidence: '%LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state-nav-20261121-025922.jsonl, -031737.jsonl, -032533.jsonl and -034016.jsonl (first sitting, outside the repo; -034016 is the complete link run); %LOCALAPPDATA%\OneNoteMcp-Test\probes\app-state-nav-20261122-021935.jsonl (second sitting, window rows; its W2 front reads are void) and -023822.jsonl (windows-read rerun, the valid W2 front reads); Phill''s reports and screenshots per pause: first sitting in the coordinator session''s transcript of 2026-11-21 (session 77de5441…) and the 4.12 Inbox thread; second sitting in the coordinator''s sitting notes and the same thread'
@@ -131,7 +131,7 @@ No. Nine valid full reads (W2) and every other window read that recorded focus a
 
 ## Open before final
 
-- Phill's sign-off on the findings.
+- Phill's sign-off on the findings: approved 2026-11-22 (Inbox).
 - The OneNote build wasn't recorded by these runs.
 - Entry 2's spine amendments (AD-9's `0x80042014` for `NavigateToUrl`, AD-11's user-visible list, the `navigate_to` description) are entry 2's, not this spike's.
 - Spine memlog constraint lines for these findings: added 2026-11-22.
