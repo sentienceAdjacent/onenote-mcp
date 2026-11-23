@@ -3,7 +3,7 @@ title: 'Skill, README, harness and coverage check for round 3'
 type: 'feature'
 ticket: '10'
 created: '2026-11-23'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -50,6 +50,13 @@ What an agent does when it follows the skill: the sitting's script.
 | Close and reopen local | "close b, then open it again" | `close_notebook`, `open_notebook` with `meta.path`; new ID | `alreadyExisted`: reports the current ID |
 | Close cloud | "close Cloud" | `close_notebook`; relays the reopen-in-OneNote `userAction` | "open it by URL": refuses, says why |
 | Unasked | a write task, nothing about windows | no app-state call | — |
+
+## Decisions (Phill, 2026-11-23, Inbox plan approval)
+
+- **OQ1 (a):** a unit test parses the spine's coverage table, the `IApplication` slots (by reflection, as `InteropLayoutTests`) and `tool-contract.json`, and fails on any gap; it keeps holding at the release tag and after.
+- **OQ2 (a):** the recipes go in a new `references/app-state.md`, with a "read before an app-state call" pointer in `SKILL.md`, as 3.10 did for exports.
+- **OQ3 (a):** `navigate_to`'s description is fixed here (drop "takes keyboard focus" and the windowless sentence per AD-11), with the skill and README; the snapshot's description changes. 4.11 no longer carries it.
+- **OQ4 (a):** the plan is kept whole.
 
 </frozen-after-approval>
 
@@ -109,32 +116,6 @@ Before: 4.7 and 4.9 merged, CI green. OneNote open on an MCP Test page, VS Code 
 
 **Manual checks:**
 - The live sitting above.
-
-## Open Questions
-
-**OQ1. How is the coverage table checked?**
-- (a) A unit test parses the spine's table, the `IApplication` slots (by reflection, as `InteropLayoutTests`) and `tool-contract.json`, and fails on any gap; it keeps holding at the release tag and after. Couples CI to one spine section.
-- (b) A one-off check by hand, recorded as a dated line under the table and in the memlog. No new test; nothing catches later drift.
-
-Recommended: (a)
-
-**OQ2. Where do the app-state recipes go?**
-- (a) A new `references/app-state.md`, with a "read before an app-state call" pointer in `SKILL.md`, as 3.10 did for exports.
-- (b) Inline in `SKILL.md`'s Recipes, always loaded; the file grows past 72 KB.
-
-Recommended: (a)
-
-**OQ3. `navigate_to`'s description (deferred-work l.653)?**
-- (a) Fixed here: drop "takes keyboard focus" and the windowless sentence per AD-11, with the skill and README; the snapshot's description changes.
-- (b) Left to the refactor sweep (4.11); the docs here keep matching today's description.
-
-Recommended: (a)
-
-**OQ4. Keep the plan whole?** It is about 3,300 tokens, over bmad-build's 1,600 target, for one goal.
-- (a) Keep it whole.
-- (b) Split the coverage test into its own story before 4.11.
-
-Recommended: (a)
 
 ## Implementation Notes
 
