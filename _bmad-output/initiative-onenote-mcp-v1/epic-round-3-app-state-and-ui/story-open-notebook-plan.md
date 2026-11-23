@@ -3,13 +3,14 @@ title: 'open_notebook'
 type: 'feature'
 ticket: '5'
 created: '2026-11-21'
-status: 'ready-for-dev'
+status: 'built'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
+baseline_revision: '21f83baf357b7a861d9c23c162a32ac9684a7ccb'
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/story-tracer-sync-hierarchy-through-the-appstate-pipeline-plan.md'
@@ -71,12 +72,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `Core/UseCases/OpenNotebookUseCase.cs` -- the operation (`TakesWriteLock`): step 1, steps 3–4, step 7, the post-open read; injectable file-system probe (exists, `.onetoc2` lookup up the ancestors) for unit tests.
-- [ ] `Server/Tools/OpenNotebookTool.cs`, `ServerSetup.cs` -- the tool and wiring (`OneDriveAccounts`).
-- [ ] `ToolWarnings.cs` -- `NotebookListMayLag`.
-- [ ] Unit tests `OpenNotebookToolTests` -- every matrix row; the junction case through `ILinkReader`; no `OpenHierarchy` and no file written on every refusal; already-open matched by `NotebookKey` and by a `\\localhost\X$` path.
-- [ ] Contract snapshot, tool list, binding count; skill, README and stress-harness rows.
-- [ ] `tests/OneNoteMcp.Integration/OpenNotebookIntegrationTests.cs` over a `GuardedGateway` (`CheckOpen`, `CheckClose`): close throwaway b, open it by path (new ID; `list_grants` shows its test grant `active`), close it, open it through a junction made in the run's probe folder; an open notebook returns its ID; a URL, missing path, `.onepkg`, a OneDrive folder, a section group's folder of a closed run notebook and a folder with no `.onetoc2` are refused and nothing appears in them; with the run's probe folder set as the test export root, a notebook made there (waiting up to 5 min for its `.onetoc2`), closed and opened reads `ReadNotGranted` until granted; closed and deleted at the end.
+- [x] `Core/UseCases/OpenNotebookUseCase.cs` -- the operation (`TakesWriteLock`): step 1, steps 3–4, step 7, the post-open read; injectable file-system probe (exists, `.onetoc2` lookup up the ancestors) for unit tests.
+- [x] `Server/Tools/OpenNotebookTool.cs`, `ServerSetup.cs` -- the tool and wiring (`OneDriveAccounts`).
+- [x] `ToolWarnings.cs` -- `NotebookListMayLag`.
+- [x] Unit tests `OpenNotebookToolTests` -- every matrix row; the junction case through `ILinkReader`; no `OpenHierarchy` and no file written on every refusal; already-open matched by `NotebookKey` and by a `\\localhost\X$` path.
+- [x] Contract snapshot, tool list, binding count; skill, README and stress-harness rows.
+- [x] `tests/OneNoteMcp.Integration/OpenNotebookIntegrationTests.cs` over a `GuardedGateway` (`CheckOpen`, `CheckClose`): close throwaway b, open it by path (new ID; `list_grants` shows its test grant `active`), close it, open it through a junction made in the run's probe folder; an open notebook returns its ID; a URL, missing path, `.onepkg`, a OneDrive folder, a section group's folder of a closed run notebook and a folder with no `.onetoc2` are refused and nothing appears in them; with the run's probe folder set as the test export root, a notebook made there (waiting up to 5 min for its `.onetoc2`), closed and opened reads `ReadNotGranted` until granted; closed and deleted at the end.
 
 **Acceptance Criteria:**
 - Given a folder with no `.onetoc2`, when `open_notebook` is called, then the folder's file list is unchanged afterwards.
@@ -99,6 +100,22 @@ context:
 
 ## Implementation Notes
 
+- `CloseNotebookUseCase.ReopenLocalUserAction` (story 4.4) named `open_notebook` only "if this server lists that tool", because this story hadn't shipped it. Now that it does, the advice names `open_notebook` with `meta.path` plainly, with File > Open in OneNote as the alternative. Done before the build, so the build needn't touch it.
+- Build (2026-11-22): the already-open match also reads an open notebook's `\\localhost\X$\…` path as `X:\…` before comparing (as `TestNotebookGuard.MapLocalhostAdminShare` does), because `FilePathGate.Canonical` refuses UNC paths and so can't make that form canonical; it is a comparison only, nothing is sent. `FilePathGate` is unchanged.
+- Build: step 1 also refuses a `.onetoc2` file and any other existing file (the folder test needs a folder), each `InvalidArgument` with its own userAction; and an empty path.
+- Build: the result's `xml` is left out when the read after the open fails or doesn't list the notebook yet (the open stands); the already-open answer carries the element read at step 3.
+- Build: the AD-13 log line comes from a callback the use case is given (`OpenNotebookLogEntry`: correlationId, path kind `url`/`localPath`, rule, outcome), logged by `Server/Logging/OpenNotebookLog.cs`; Core has no logger. Error messages never echo the path either.
+- Build: `NotebookFolders.HoldsANotebookToc` became public for the real probe; the injectable probe is `INotebookFolderProbe`, the link seam `FilePathGate.ILinkReader` (internal ctor).
+- Build: `contractVersion` in the snapshot was not bumped (4.4 didn't bump it for `close_notebook` either); bump per AD-14 at release if wanted.
+- Build: the integration test is written and compiles but has not been run (no live session in the build).
+- Review patch: the `.one`/`.onepkg`/`.onetoc2` refusals now apply only when the path is a file; a folder with such a name goes on to the folder checks (Review Triage Log 1).
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+| # | Lens | Finding | Verdict | Evidence | Route |
+|---|---|---|---|---|---|
+| 1 | quick | `Validate` refused a notebook *folder* named like `Q3.one`/`X.onepkg`/`X.onetoc2` as a section, package or TOC file, before checking what is at the path | low | `Validate` tested the extension before `CheckFolderExists`; the plan refuses a `.one`/`.onepkg` *file*. The fix reuses the one existing probe read, so no new branch | patch: the file-type rules apply only when the path is a file (one `Entry` read shared with the folder check); test `ANotebookFolder_NamedLikeAOneNoteFile_IsOpened_TheFileRulesNameFilesOnly` |
+| 2 | quick | `ExecuteAsync` writes no `OpenNotebookLogEntry` for an exception other than `OneNoteException`/`OperationCanceledException` | low | Real, but the gateway maps COM failures to `OneNoteException`, so only an unmapped fault reaches it, and `ToolRunner` still logs that call generically; the fix adds a catch-all branch | rejected (low, rare, adds a branch) |
+| 3 | quick | "no file written on every refusal" is asserted by a real-folder test for one refusal only | false | The use case's only write path is `OpenHierarchy`; every refusal test asserts `OpenHierarchyCalls` empty, and the probe and `FilePathGate` only read. The acceptance criterion's real-folder test also passes | rejected |

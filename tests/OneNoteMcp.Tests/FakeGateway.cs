@@ -361,10 +361,23 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>The ID <c>OpenHierarchy</c> returns.</summary>
     public string OpenedId { get; set; } = "{CPY00000-0000-4000-8000-000000000001}{1}{B0}";
 
-    public Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
+    /// <summary>When set, runs inside <c>OpenHierarchy</c> before it answers, with the path and the call's token (story 4.5: a hook to observe, hang or list the opened notebook).</summary>
+    public Func<string, CancellationToken, Task>? OnOpenHierarchyCall { get; set; }
+
+    public async Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
     {
         OpenHierarchyCalls.Add(path);
-        return (Failure ?? OpenHierarchyFailure) is { } failure ? Task.FromException<string>(failure) : Task.FromResult(OpenedId);
+        if (OnOpenHierarchyCall is { } hook)
+        {
+            await hook(path, ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? OpenHierarchyFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        return OpenedId;
     }
 
     /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>
