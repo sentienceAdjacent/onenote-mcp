@@ -132,8 +132,19 @@ internal sealed class FakeGateway : IOneNoteGateway
     public Task<string> FindMetaAsync(string startNodeId, string name, bool includeUnindexed, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.FindMetaAsync), startNodeId, name, Bool(includeUnindexed));
 
+    /// <summary>
+    /// <c>GetHyperlinkToObject</c> answers that win over the manifest, by hierarchy ID, for an empty object ID (story 4.7:
+    /// <c>navigate_to_url</c>'s landing check). <see cref="HyperlinkFailure"/>, when set, is thrown instead.
+    /// </summary>
+    public Dictionary<string, string> Hyperlinks { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>When set, <c>GetHyperlinkToObject</c> alone throws it (story 4.7).</summary>
+    public Exception? HyperlinkFailure { get; set; }
+
     public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
-        Serve(nameof(IOneNoteGateway.GetHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);
+        HyperlinkFailure is { } failure ? Task.FromException<string>(failure)
+            : Failure is null && pageContentObjectId.Length == 0 && Hyperlinks.TryGetValue(hierarchyId, out var link) ? Task.FromResult(link)
+            : Serve(nameof(IOneNoteGateway.GetHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);
 
     public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.GetWebHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);
@@ -171,6 +182,32 @@ internal sealed class FakeGateway : IOneNoteGateway
         }
 
         if ((Failure ?? NavigateFailure) is { } failure)
+        {
+            throw failure;
+        }
+    }
+
+    /// <summary>
+    /// Every <c>NavigateToUrl</c> call's link, in order (story 4.7). It returns no content, so it has no fixture: it records
+    /// and succeeds.
+    /// </summary>
+    public List<string> NavigateUrlCalls { get; } = [];
+
+    /// <summary>When set, <c>NavigateToUrl</c> alone throws it (story 4.7).</summary>
+    public Exception? NavigateUrlFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>NavigateToUrl</c> before it answers, with the call's token (a hook to hang, observe, cancel or move a window).</summary>
+    public Func<CancellationToken, Task>? OnNavigateUrlCall { get; set; }
+
+    public async Task NavigateToUrlAsync(string url, CancellationToken ct)
+    {
+        NavigateUrlCalls.Add(url);
+        if (OnNavigateUrlCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? NavigateUrlFailure) is { } failure)
         {
             throw failure;
         }

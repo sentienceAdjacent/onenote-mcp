@@ -61,6 +61,16 @@ public interface IOneNoteGateway
             : Task.FromException(new OneNoteException(ErrorCode.NotSupported, "Window.NavigateTo isn't available on this gateway.", retryable: false));
 
     /// <summary>
+    /// User-visible (AD-11; story 4.7): <c>NavigateToUrl</c> of the <c>onenote:</c> link <paramref name="url"/>, with
+    /// <c>fNewWindow</c> false. <c>AppState</c> (AD-7): never retried after a disconnect (AD-3), and never an abandoned write.
+    /// Only <c>NavigateToUrlUseCase</c> calls it, after its step-1 and step-3 checks; an empty link is
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. A gateway that doesn't implement it refuses with
+    /// <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task NavigateToUrlAsync(string url, CancellationToken ct) =>
+        Task.FromException(new OneNoteException(ErrorCode.NotSupported, "NavigateToUrl isn't available on this gateway.", retryable: false));
+
+    /// <summary>
     /// <c>AppState</c> (AD-7; story 4.6), a read for AD-3: OneNote's open windows, in <c>Item</c> order, from one STA call that
     /// reads <c>Windows</c>, <c>Count</c>, <c>CurrentWindow</c> and each window's getters, walking <c>Item(0)</c> …
     /// <c>Item(Count - 1)</c> (spike 4.12 W1) and releasing every wrapper before it returns. No window open: an empty list

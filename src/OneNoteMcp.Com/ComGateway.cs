@@ -257,6 +257,27 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             CallKind.AppState,
             ct);
 
+    public Task NavigateToUrlAsync(string url, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.NavigateToUrl);
+        if (string.IsNullOrEmpty(url))
+        {
+            return Task.FromException(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: no link was given.", retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // fNewWindow is always false: never open a window the user didn't ask for (AD-11; epic 4 Q7 a).
+                app.NavigateToUrl(url, fNewWindow: false);
+                return true;
+            },
+            // AppState (story 4.7): never repeated after a disconnect, and never an abandoned write (AD-3, AD-7).
+            CallKind.AppState,
+            ct);
+    }
+
     public Task<IReadOnlyList<OneNoteWindow>> GetWindowsAsync(CancellationToken ct) =>
         RunAsync(
             nameof(IApplication.Windows),

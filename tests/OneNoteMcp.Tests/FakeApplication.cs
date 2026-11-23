@@ -116,7 +116,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
     public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID, bool fNewWindow) =>
         Answer(nameof(NavigateTo), [bstrHierarchyObjectID, bstrObjectID, fNewWindow]);
 
-    public void NavigateToUrl(string bstrUrl, bool fNewWindow) => throw new NotSupportedException();
+    // Recorded and scripted like the reads (story 4.7), so fNewWindow false can be checked.
+    public void NavigateToUrl(string bstrUrl, bool fNewWindow) =>
+        Answer(nameof(NavigateToUrl), [bstrUrl, fNewWindow]);
 
     // Recorded and scripted like the reads (story 5.6); a test's OnCall writes the file when it wants one to land.
     public void Publish(string bstrHierarchyID, string bstrTargetFilePath, PublishFormat pfPublishFormat, string bstrCLSIDofExporter) =>
