@@ -141,10 +141,16 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>When set, <c>GetHyperlinkToObject</c> alone throws it (story 4.7).</summary>
     public Exception? HyperlinkFailure { get; set; }
 
-    public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
-        HyperlinkFailure is { } failure ? Task.FromException<string>(failure)
+    /// <summary>Every <c>GetHyperlinkToObject</c> call's hierarchy ID, in order, failing ones included (story 4.7).</summary>
+    public List<string> HyperlinkCalls { get; } = [];
+
+    public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct)
+    {
+        HyperlinkCalls.Add(hierarchyId);
+        return HyperlinkFailure is { } failure ? Task.FromException<string>(failure)
             : Failure is null && pageContentObjectId.Length == 0 && Hyperlinks.TryGetValue(hierarchyId, out var link) ? Task.FromResult(link)
             : Serve(nameof(IOneNoteGateway.GetHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);
+    }
 
     public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.GetWebHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);

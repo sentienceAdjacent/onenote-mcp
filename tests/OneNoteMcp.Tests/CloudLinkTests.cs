@@ -144,6 +144,26 @@ public sealed class CloudLinkTests
     }
 
     [Fact]
+    public void AnHttpsLink_KeepsItsScheme_AndMatches_InAnyCase()
+    {
+        Assert.Null(CloudLinks.Parse(K.PageLink(), out var link));
+        Assert.Equal(("https", "https"), (link!.Scheme, link.BasePathScheme));
+
+        var upper = "onenote:HTTPS://" + K.PageLink()["onenote:https://".Length..];
+        Assert.Equal(K.SectionId, Match(upper).SectionId);
+    }
+
+    [Fact]
+    public void AnHttpLink_ToAnHttpNotebook_Matches()
+    {
+        // The rule is "the notebook's own scheme", not "https only": a notebook OneNote reports at http:// still matches.
+        var hierarchy = K.Hierarchy().Replace("https://d.docs.live.net/", "http://d.docs.live.net/", StringComparison.Ordinal);
+        var http = "onenote:http://" + K.PageLink(basePath: "http://" + K.EncodedNotebook["https://".Length..])["onenote:https://".Length..];
+
+        Assert.Equal(K.SectionId, Match(http, hierarchy).SectionId);
+    }
+
+    [Fact]
     public void ANotebookReportedPercentEncoded_StillMatches()
     {
         var target = Match(K.PageLink(), K.Hierarchy(cloudPath: K.EncodedNotebook + "/"));
@@ -211,6 +231,11 @@ public sealed class CloudLinkTests
 
     public static TheoryData<string, string> Unmatched() => new()
     {
+        // 2026-11-23 security review: the scheme must be the open notebook's (https), for the body and the base-path.
+        { "onenote:http://" + K.PageLink()["onenote:https://".Length..], R.NotInOpenNotebook },
+        { "onenote:http://" + K.SectionLink["onenote:https://".Length..], R.NotInOpenNotebook },
+        { "onenote:http://" + K.NotebookLink["onenote:https://".Length..], R.NotInOpenNotebook },
+        { K.PageLink(basePath: "http://" + K.EncodedNotebook["https://".Length..]), R.BasePath },
         { "onenote:https://evil.example/0123456789abcdef/Documents/MCP%20Test%20Cloud/Probes.one#section-id=%7B11111111-2222-3333-4444-555555555555%7D", R.NotInOpenNotebook },
         { "onenote:" + K.Root + "Closed%20Notebook/Probes.one#section-id=%7B11111111-2222-3333-4444-555555555555%7D", R.NotInOpenNotebook },
         { "onenote:" + K.Root, R.NotInOpenNotebook },

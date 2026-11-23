@@ -166,6 +166,9 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
         {
             CloudLinkKind.Notebook => string.Equals(window.NotebookId, target.NotebookId, StringComparison.Ordinal),
             CloudLinkKind.Section => string.Equals(window.SectionId, target.SectionId, StringComparison.Ordinal),
+            // Under AD-21 a withheld page's link is never read: comparing it would tell the caller whether the protected
+            // page is the one the link names (2026-11-23 security review), so the landing stays unconfirmed.
+            _ when withheld => null,
             _ => await SamePageAsync(window, target, ct).ConfigureAwait(false),
         };
 
@@ -174,7 +177,10 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
         if (same is null)
         {
             code = ToolWarnings.LandingUnconfirmed;
-            warnings.Add(new ToolWarning(code, "OneNote took the link, but whether it reached the page couldn't be checked: the page's link couldn't be read. " + current + RepaintNote, UnconfirmedUserAction));
+            var why = withheld
+                ? "the window's page is in a protected section with no read grant, so its link isn't read."
+                : "the page's link couldn't be read.";
+            warnings.Add(new ToolWarning(code, "OneNote took the link, but whether it reached the page couldn't be checked: " + why + " " + current + RepaintNote, UnconfirmedUserAction));
         }
         else if (same.Value)
         {

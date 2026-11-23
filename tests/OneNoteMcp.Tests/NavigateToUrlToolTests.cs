@@ -159,21 +159,55 @@ public sealed class NavigateToUrlToolTests : IDisposable
     }
 
     [Fact]
-    public async Task AProtectedPage_WithoutAReadGrant_IsLeftOut_WithReadNotGranted_AndStillLands()
+    public async Task AProtectedPage_WithoutAReadGrant_IsLeftOut_WithReadNotGranted_AndLandingUnconfirmed()
     {
+        // 2026-11-23 security review: the withheld page's link is never read, so the result says nothing about whether
+        // the protected page is the one the link names.
         var gateway = Gateway();
         OnPage(gateway, K.PageId, K.PageLink());
         gateway.Hierarchies[(K.SectionId, HierarchyScope.Self)] = K.SectionSelf(K.SectionId, "Probes", encrypted: true);
 
         var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
+        Assert.Empty(gateway.HyperlinkCalls);
         var warnings = root.GetProperty("warnings").EnumerateArray().ToList();
-        Assert.Equal([ToolWarnings.Landed, ToolWarnings.ReadNotGranted], warnings.Select(w => w.GetProperty("code").GetString()));
+        Assert.Equal([ToolWarnings.LandingUnconfirmed, ToolWarnings.ReadNotGranted], warnings.Select(w => w.GetProperty("code").GetString()));
+        Assert.Contains("protected section", warnings[0].GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal(ToolWarnings.LandingUnconfirmed, Assert.Single(logged).Outcome);
         Assert.DoesNotContain(K.PageId, warnings[0].GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Contains("its ID is left out", warnings[0].GetProperty("message").GetString(), StringComparison.Ordinal);
         var window = Assert.Single(root.GetProperty("meta").GetProperty("windows").EnumerateArray());
         Assert.False(window.TryGetProperty("pageId", out _));
         Assert.Equal(K.SectionId, window.GetProperty("sectionId").GetString());
+    }
+
+    [Fact]
+    public async Task AProtectedPage_ElsewhereThanTheLink_IsStillLandingUnconfirmed_NotLandedElsewhere()
+    {
+        var gateway = Gateway();
+        OnPage(gateway, K.OtherPageId, K.PageLink(pageGuid: K.OtherPageGuid));
+        gateway.Hierarchies[(K.SectionId, HierarchyScope.Self)] = K.SectionSelf(K.SectionId, "Probes", encrypted: true);
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
+
+        Assert.Empty(gateway.HyperlinkCalls);
+        Assert.Equal(
+            [ToolWarnings.LandingUnconfirmed, ToolWarnings.ReadNotGranted],
+            root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()));
+    }
+
+    [Fact]
+    public async Task AnHttpLink_ToAnOpenHttpsNotebook_IsInvalidArgument_AndNothingIsSent()
+    {
+        var gateway = Gateway();
+        OnPage(gateway, K.PageId, K.PageLink());
+        var http = "onenote:http://" + K.PageLink()["onenote:https://".Length..];
+
+        var error = Error(await Tool(gateway).NavigateToUrl(http, cancellationToken: Ct), "InvalidArgument");
+
+        Assert.Equal(CloudLinks.NotInOpenNotebookUserAction, error.GetProperty("userAction").GetString());
+        Assert.Empty(gateway.NavigateUrlCalls);
+        Assert.Equal((CloudLinks.Rules.NotInOpenNotebook, "refused"), (logged[0].Rule, logged[0].Outcome));
     }
 
     [Fact]

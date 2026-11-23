@@ -19,15 +19,17 @@ public enum CloudLinkKind
 }
 
 /// <summary>
-/// A <c>onenote:</c> link to a notebook stored online, as step 1 read it: the web address's host and its path segments,
-/// each percent-decoded once, what it names, the <c>page-id</c> GUID of a page link, and the <c>base-path</c> address if it
-/// carries one.
+/// A <c>onenote:</c> link to a notebook stored online, as step 1 read it: the web address's scheme (<c>http</c> or
+/// <c>https</c>, lower case), host and path segments, each percent-decoded once, what it names, the <c>page-id</c> GUID of a
+/// page link, and the <c>base-path</c> address (scheme, host and segments) if it carries one.
 /// </summary>
 public sealed record CloudLink(
+    string Scheme,
     string Host,
     IReadOnlyList<string> Segments,
     CloudLinkKind Kind,
     Guid? PageGuid,
+    string? BasePathScheme,
     string? BasePathHost,
     IReadOnlyList<string>? BasePathSegments);
 
@@ -53,7 +55,8 @@ public sealed record CloudLinkRefusal(string Rule, string Message, string UserAc
 /// of percent-decoding or changing again after one, and a title that decodes to <c>=</c> or <c>#</c> (as <c>HtmlStopgap</c> checks links; the discipline, not the class,
 /// which refuses the <c>base-path</c> cloud page links carry).</item>
 /// <item><see cref="Match"/> (step 3): the link must lie inside an open notebook's <c>NotebookKey</c> at a segment
-/// boundary (host and leading segments equal, ignoring case), the notebook's <c>path</c> read both as reported
+/// boundary (scheme equal, so an <c>http://</c> link never matches an <c>https://</c> notebook; host and leading segments
+/// equal, ignoring case), the notebook's <c>path</c> read both as reported
 /// (unencoded) and as <see cref="UrlPath"/> reads it (AD-21 Web addresses); a <c>base-path</c> must be that same notebook;
 /// a <c>….one</c> must be the <c>path</c> of a section in it; a folder must be the notebook itself. A section group's
 /// folder is refused with a userAction to call <c>navigate_to</c> with the group's ID (Decision OQ3).</item>
@@ -201,6 +204,7 @@ public static class CloudLinks
 
         Guid? pageGuid = null;
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string? basePathScheme = null;
         string? basePathHost = null;
         IReadOnlyList<string>? basePathSegments = null;
         var pieces = fragment.Length == 0 ? [] : fragment.Split('&');
@@ -251,6 +255,7 @@ public static class CloudLinks
                     return baseRefusal;
                 }
 
+                basePathScheme = SchemeOf(value);
                 basePathHost = baseHost;
                 basePathSegments = baseSegments;
                 continue;
@@ -298,7 +303,7 @@ public static class CloudLinks
             kind = CloudLinkKind.Notebook;
         }
 
-        link = new CloudLink(host, segments, kind, pageGuid, basePathHost, basePathSegments);
+        link = new CloudLink(SchemeOf(target), host, segments, kind, pageGuid, basePathScheme, basePathHost, basePathSegments);
         return null;
     }
 
@@ -320,7 +325,7 @@ public static class CloudLinks
         {
             foreach (var form in Forms(tree.Notebook.Path))
             {
-                if (form.Segments.Count > depth && Inside(link.Host, link.Segments, form))
+                if (form.Segments.Count > depth && Inside(link.Scheme, link.Host, link.Segments, form))
                 {
                     notebook = tree;
                     depth = form.Segments.Count;
@@ -334,7 +339,7 @@ public static class CloudLinks
         }
 
         if (link.BasePathHost is { } baseHost
-            && !Forms(notebook.Notebook.Path).Any(f => SameAddress(baseHost, link.BasePathSegments!, f)))
+            && !Forms(notebook.Notebook.Path).Any(f => SameAddress(link.BasePathScheme!, baseHost, link.BasePathSegments!, f)))
         {
             return new(Rules.BasePath, "url's base-path isn't the notebook its address leads into, so nothing was shown.", MalformedUserAction);
         }
@@ -347,13 +352,13 @@ public static class CloudLinks
                 return null;
             }
 
-            var group = notebook.SectionGroups.FirstOrDefault(g => Forms(g.Path).Any(f => SameAddress(link.Host, link.Segments, f)));
+            var group = notebook.SectionGroups.FirstOrDefault(g => Forms(g.Path).Any(f => SameAddress(link.Scheme, link.Host, link.Segments, f)));
             return group is not null
                 ? new(Rules.SectionGroupFolder, $"url names the folder of the section group {group.Id}, not a notebook, section or page, so nothing was shown.", SectionGroupFolderUserAction)
                 : new(Rules.NotTheNotebook, "url names a folder inside an open notebook that isn't the notebook itself, so nothing was shown.", NotTheNotebookUserAction);
         }
 
-        var section = notebook.Sections.FirstOrDefault(s => Forms(s.Path).Any(f => SameAddress(link.Host, link.Segments, f)));
+        var section = notebook.Sections.FirstOrDefault(s => Forms(s.Path).Any(f => SameAddress(link.Scheme, link.Host, link.Segments, f)));
         if (section is null)
         {
             return new(Rules.NotASection, "url names a .one that isn't a section of the open notebook its address leads into, so nothing was shown.", NotASectionUserAction);
@@ -487,6 +492,10 @@ public static class CloudLinks
     private static bool IsNumber(string piece) =>
         piece.Length is > 0 and <= 8 && piece.All(char.IsAsciiHexDigit);
 
+    /// <summary>The scheme of an <c>http(s)://</c> address, lower case: <c>https</c> or <c>http</c>.</summary>
+    private static string SchemeOf(string address) =>
+        address.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? "https" : "http";
+
     private static bool IsHttp(string text) =>
         text.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
 
@@ -498,10 +507,10 @@ public static class CloudLinks
 
     /// <summary>
     /// The ways a <c>path</c> OneNote reports for a notebook, section or section group stored online can be read (AD-21 Web
-    /// addresses): its host with each of <see cref="UrlPath.Readings"/>, the as-reported (unencoded) and the decoded
-    /// segments among them. None for a local path.
+    /// addresses): its scheme and host with each of <see cref="UrlPath.Readings"/>, the as-reported (unencoded) and the
+    /// decoded segments among them. None for a local path.
     /// </summary>
-    private static IEnumerable<(string Host, IReadOnlyList<string> Segments)> Forms(string path)
+    private static IEnumerable<(string Scheme, string Host, IReadOnlyList<string> Segments)> Forms(string path)
     {
         var key = GrantKeys.NotebookKey(path);
         if (!UrlPath.TryParse(key, out var host, out _))
@@ -511,16 +520,19 @@ public static class CloudLinks
 
         foreach (var reading in UrlPath.Readings(key))
         {
-            yield return (host, reading);
+            yield return (SchemeOf(key), host, reading);
         }
     }
 
-    private static bool Inside(string host, IReadOnlyList<string> segments, (string Host, IReadOnlyList<string> Segments) form) =>
+    // The scheme must match too (2026-11-23 security review): an http:// link to an https:// notebook would send OneNote
+    // to an unencrypted address that only looks like the open notebook's.
+    private static bool Inside(string scheme, string host, IReadOnlyList<string> segments, (string Scheme, string Host, IReadOnlyList<string> Segments) form) =>
         form.Segments.Count > 0
+        && string.Equals(scheme, form.Scheme, StringComparison.Ordinal)
         && string.Equals(host, form.Host, StringComparison.OrdinalIgnoreCase)
         && segments.Count >= form.Segments.Count
         && form.Segments.Select((s, i) => string.Equals(s, segments[i], StringComparison.OrdinalIgnoreCase)).All(same => same);
 
-    private static bool SameAddress(string host, IReadOnlyList<string> segments, (string Host, IReadOnlyList<string> Segments) form) =>
-        segments.Count == form.Segments.Count && Inside(host, segments, form);
+    private static bool SameAddress(string scheme, string host, IReadOnlyList<string> segments, (string Scheme, string Host, IReadOnlyList<string> Segments) form) =>
+        segments.Count == form.Segments.Count && Inside(scheme, host, segments, form);
 }
