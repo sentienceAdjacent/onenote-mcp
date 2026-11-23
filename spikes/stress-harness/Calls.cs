@@ -66,6 +66,9 @@ internal sealed class ToolClient(McpClient client)
     /// <summary>The user-visible tool (story 1.21, AD-11). The harness never calls it: every call path refuses it.</summary>
     public const string NavigateTo = "navigate_to";
 
+    /// <summary>The AppState tool that asks OneNote to sync (story 4.3, AD-7). Not read-only; the harness never calls it either, like <see cref="NavigateTo"/>.</summary>
+    public const string SyncHierarchy = "sync_hierarchy";
+
     /// <summary>The write tools (story 2.4 on; epic 5's hierarchy writes since story 5.7; round 2's since story 3.10). The harness never calls them either: it only reads.</summary>
     public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -75,8 +78,12 @@ internal sealed class ToolClient(McpClient client)
         "publish", "open_package", "move_hierarchy_object", "merge_sections", "restore_from_recycle_bin", "set_page_level",
     };
 
-    /// <summary>The tools that may lack readOnlyHint: the user-visible one and the writes. Every other contract tool must be read-only.</summary>
-    public static bool MayWrite(string tool) => string.Equals(tool, NavigateTo, StringComparison.Ordinal) || WriteTools.Contains(tool);
+    /// <summary>The tools that may lack readOnlyHint: the AppState ones and the writes. Every other contract tool must be read-only.</summary>
+    public static bool MayWrite(string tool) => IsAppState(tool) || WriteTools.Contains(tool);
+
+    /// <summary>The AppState tools the harness refuses: <see cref="NavigateTo"/> and <see cref="SyncHierarchy"/>.</summary>
+    public static bool IsAppState(string tool) =>
+        string.Equals(tool, NavigateTo, StringComparison.Ordinal) || string.Equals(tool, SyncHierarchy, StringComparison.Ordinal);
 
     /// <summary>The unreduced result, for the diag modes; null on a protocol failure.</summary>
     public async Task<CallToolResult?> CallRawAsync(string tool, Dictionary<string, object?> args)
@@ -323,6 +330,11 @@ internal sealed class ToolClient(McpClient client)
         if (string.Equals(tool, NavigateTo, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("the harness never calls navigate_to (AD-11)");
+        }
+
+        if (string.Equals(tool, SyncHierarchy, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("the harness never calls sync_hierarchy (AD-7, AD-11)");
         }
 
         if (WriteTools.Contains(tool))

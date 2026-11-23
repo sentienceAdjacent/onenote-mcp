@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using OneNoteMcp.Core;
+using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.UseCases;
 using OneNoteMcp.Server;
 using OneNoteMcp.Server.Tools;
@@ -61,9 +62,9 @@ public sealed class NavigateToToolTests
     }
 
     [Fact]
-    public async Task ObjectDoesNotExist_GetsTheRepeatNavigateUserAction_AndKeepsCodeAndMessage()
+    public async Task ObjectDoesNotExist_GetsTheReReadUserAction_AndKeepsCodeAndMessage()
     {
-        // OneMore row 14: a navigate repeated within about 2 s can fail with 0x80042014 (inferred for NavigateTo).
+        // Story 4.3 (spike 4.12 R1): no navigate repeated within 2 s failed, so the "wait two seconds" advice is gone (AD-9).
         var gateway = new FakeGateway { Failure = new OneNoteException(ErrorCode.ObjectNotFound, "NavigateTo failed: hrObjectDoesNotExist (0x80042014).", unchecked((int)0x80042014)) };
 
         var result = await Tool(gateway).NavigateTo(PageContentToolTests.CloudPageId, cancellationToken: Ct);
@@ -74,7 +75,8 @@ public sealed class NavigateToToolTests
         Assert.Equal("0x80042014", error.GetProperty("hresult").GetString());
         Assert.Equal("NavigateTo failed: hrObjectDoesNotExist (0x80042014).", error.GetProperty("message").GetString());
         Assert.Equal(NavigateToUseCase.ObjectNotFoundUserAction, error.GetProperty("userAction").GetString());
-        Assert.Contains("wait two seconds and try once more", NavigateToUseCase.ObjectNotFoundUserAction, StringComparison.Ordinal);
+        Assert.Equal("Re-read the hierarchy and use a current ID.", NavigateToUseCase.ObjectNotFoundUserAction);
+        Assert.DoesNotContain("wait two seconds", NavigateToUseCase.ObjectNotFoundUserAction, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -92,13 +94,14 @@ public sealed class NavigateToToolTests
     [Fact]
     public void UseCase_IsAppState()
     {
-        Assert.Equal(OperationClass.AppState, new NavigateToUseCase(new FakeGateway()).Class);
+        var gateway = new FakeGateway();
+        Assert.Equal(OperationClass.AppState, new NavigateToUseCase(gateway, new AppStatePipeline(gateway)).Class);
     }
 
     [Fact]
-    public void Tool_SaysItIsUserVisible_AndIsTheOnlyNonWriteToolThatIsNotReadOnly()
+    public void Tool_SaysItIsUserVisible_AndIsTheOnlyUserVisibleToolThatIsNotReadOnly()
     {
-        // The write tools (story 2.4 on) aren't read-only either; every other tool is.
+        // The write tools (story 2.4 on) and sync_hierarchy (story 4.3) aren't read-only either; every other tool is.
         using var services = BuildServer();
         var tools = services.GetServices<McpServerTool>().Select(t => t.ProtocolTool).ToList();
 
@@ -112,8 +115,34 @@ public sealed class NavigateToToolTests
         Assert.True(navigate.Annotations.IdempotentHint);
         Assert.False(navigate.Annotations.OpenWorldHint);
 
-        Assert.All(tools.Where(t => t.Name != NavigateToTool.Name && !WriteTools.Contains(t.Name)), t => Assert.True(t.Annotations!.ReadOnlyHint, t.Name));
-        Assert.All(WriteTools, name => Assert.False(Assert.Single(tools, t => t.Name == name).Annotations!.ReadOnlyHint, name));
+        Assert.All(tools.Where(t => t.Name != NavigateToTool.Name && !WriteTools.Contains(t.Name) && !AppStateTools.Contains(t.Name)), t => Assert.True(t.Annotations!.ReadOnlyHint, t.Name));
+        Assert.All(WriteTools.Concat(AppStateTools), name => Assert.False(Assert.Single(tools, t => t.Name == name).Annotations!.ReadOnlyHint, name));
+    }
+
+    /// <summary>The AppState tools other than navigate_to (story 4.3 on): not read-only, and not user-visible (spike 4.1 S1).</summary>
+    internal static readonly string[] AppStateTools = [SyncHierarchyTool.Name];
+
+    [Fact]
+    public void SyncHierarchy_IsNotUserVisible_ButOnlyOnTheUsersRequest_AndIdempotent()
+    {
+        using var services = BuildServer();
+        var sync = Assert.Single(services.GetServices<McpServerTool>().Select(t => t.ProtocolTool), t => t.Name == SyncHierarchyTool.Name);
+
+        Assert.DoesNotContain("User-visible", sync.Description, StringComparison.Ordinal);
+        Assert.Contains("Call only when the user asks for a sync; never on your own, after a write or otherwise.", sync.Description, StringComparison.Ordinal);
+        Assert.False(sync.Annotations!.ReadOnlyHint);
+        Assert.False(sync.Annotations.DestructiveHint);
+        Assert.True(sync.Annotations.IdempotentHint);
+    }
+
+    [Fact]
+    public void Tool_DescribesTheDeadline_AndOutcomeUnknown()
+    {
+        using var services = BuildServer();
+        var navigate = Assert.Single(services.GetServices<McpServerTool>().Select(t => t.ProtocolTool), t => t.Name == NavigateToTool.Name);
+
+        Assert.Contains("120 s deadline", navigate.Description, StringComparison.Ordinal);
+        Assert.Contains("outcomeUnknown", navigate.Description, StringComparison.Ordinal);
     }
 
     /// <summary>The write tools: not read-only, and not user-visible either (they don't take focus).</summary>
@@ -129,7 +158,7 @@ public sealed class NavigateToToolTests
         }
     }
 
-    private static NavigateToTool Tool(IOneNoteGateway gateway) => new(new ToolRunner(NullLogger<ToolRunner>.Instance), new NavigateToUseCase(gateway));
+    private static NavigateToTool Tool(IOneNoteGateway gateway) => new(new ToolRunner(NullLogger<ToolRunner>.Instance), new NavigateToUseCase(gateway, new AppStatePipeline(gateway)));
 
     private static ServiceProvider BuildServer()
     {
