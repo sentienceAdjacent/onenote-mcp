@@ -72,6 +72,9 @@ internal sealed class ToolClient(McpClient client)
     /// <summary>The user-visible AppState tool that closes a notebook (story 4.4, AD-7, AD-11). The harness never calls it either.</summary>
     public const string CloseNotebook = "close_notebook";
 
+    /// <summary>The user-visible AppState tool that opens an existing local notebook (story 4.5, AD-7, AD-11). The harness never calls it either.</summary>
+    public const string OpenNotebook = "open_notebook";
+
     /// <summary>The write tools (story 2.4 on; epic 5's hierarchy writes since story 5.7; round 2's since story 3.10). The harness never calls them either: it only reads.</summary>
     public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -84,11 +87,12 @@ internal sealed class ToolClient(McpClient client)
     /// <summary>The tools that may lack readOnlyHint: the AppState ones and the writes. Every other contract tool must be read-only.</summary>
     public static bool MayWrite(string tool) => IsAppState(tool) || WriteTools.Contains(tool);
 
-    /// <summary>The AppState tools the harness refuses: <see cref="NavigateTo"/>, <see cref="SyncHierarchy"/> and <see cref="CloseNotebook"/>.</summary>
+    /// <summary>The AppState tools the harness refuses: <see cref="NavigateTo"/>, <see cref="SyncHierarchy"/>, <see cref="CloseNotebook"/> and <see cref="OpenNotebook"/>.</summary>
     public static bool IsAppState(string tool) =>
         string.Equals(tool, NavigateTo, StringComparison.Ordinal)
         || string.Equals(tool, SyncHierarchy, StringComparison.Ordinal)
-        || string.Equals(tool, CloseNotebook, StringComparison.Ordinal);
+        || string.Equals(tool, CloseNotebook, StringComparison.Ordinal)
+        || string.Equals(tool, OpenNotebook, StringComparison.Ordinal);
 
     /// <summary>The unreduced result, for the diag modes; null on a protocol failure.</summary>
     public async Task<CallToolResult?> CallRawAsync(string tool, Dictionary<string, object?> args)
@@ -345,6 +349,11 @@ internal sealed class ToolClient(McpClient client)
         if (string.Equals(tool, CloseNotebook, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("the harness never calls close_notebook (AD-7, AD-11)");
+        }
+
+        if (string.Equals(tool, OpenNotebook, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("the harness never calls open_notebook (AD-7, AD-11)");
         }
 
         if (WriteTools.Contains(tool))

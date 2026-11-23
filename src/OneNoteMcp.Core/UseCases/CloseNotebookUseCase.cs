@@ -50,7 +50,7 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
 
     /// <summary>How to reopen a local notebook.</summary>
     public const string ReopenLocalUserAction =
-        "To reopen it, use open_notebook with meta.path if this server lists that tool; otherwise the user opens it in OneNote (File > Open > Browse, then the notebook's folder). Then re-read the hierarchy for its new IDs.";
+        "To reopen it, use open_notebook with meta.path, or the user opens it in OneNote (File > Open > Browse, then the notebook's folder). Then re-read the hierarchy for its new IDs.";
 
     /// <summary>How to reopen a cloud notebook: the server refuses URLs (AD-7 <c>AppState</c>).</summary>
     public const string ReopenCloudUserAction =

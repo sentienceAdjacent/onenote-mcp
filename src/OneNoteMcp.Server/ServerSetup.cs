@@ -101,7 +101,7 @@ public static class ServerSetup
         services.AddSingleton<FindMetaUseCase>();
         services.AddSingleton<ReadResultUseCase>();
         // AD-7's AppState pipeline (stories 4.3, 4.4): no grant, the 120 s deadline, outcomeUnknown on an ambiguous step 7,
-        // and the write lock (AD-18) for close_notebook only, waiting up to timeouts.callSeconds.
+        // and the write lock (AD-18) for close_notebook and open_notebook only, waiting up to timeouts.callSeconds.
         services.AddSingleton(sp => new AppStatePipeline(
             sp.GetRequiredService<IOneNoteGateway>(),
             TimeProvider.System,
@@ -110,6 +110,16 @@ public static class ServerSetup
         services.AddSingleton<NavigateToUseCase>();
         services.AddSingleton<SyncHierarchyUseCase>();
         services.AddSingleton<CloseNotebookUseCase>();
+        // Story 4.5: open_notebook, refusing a OneDrive folder at step 1 and under the lock; its log line never has the path (AD-13).
+        services.AddSingleton(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("OneNoteMcp.Server.OpenNotebook");
+            return new OpenNotebookUseCase(
+                sp.GetRequiredService<IOneNoteGateway>(),
+                sp.GetRequiredService<AppStatePipeline>(),
+                sp.GetRequiredService<OneDriveAccounts>().Current,
+                entry => OpenNotebookLog.Called(logger, entry));
+        });
         services.AddSingleton(sp => new ListGrantsUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System, sp.GetRequiredService<ReadAccess>()));
 
         // Writes (AD-7): the machine-wide write lock (AD-18), logging each hold with IDs and timings only (AD-13); the
@@ -264,6 +274,7 @@ public static class ServerSetup
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
             .WithTools<SyncHierarchyTool>(EnvelopeJson.Options)
             .WithTools<CloseNotebookTool>(EnvelopeJson.Options)
+            .WithTools<OpenNotebookTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
             .WithTools<CreatePageTool>(EnvelopeJson.Options)
             .WithTools<UpdatePageContentTool>(EnvelopeJson.Options)

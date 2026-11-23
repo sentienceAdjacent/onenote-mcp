@@ -101,7 +101,7 @@ public sealed class NavigateToToolTests
     [Fact]
     public void Tool_SaysItIsUserVisible_AndOnlyTheAppStateAndWriteToolsAreNotReadOnly()
     {
-        // The write tools (story 2.4 on), sync_hierarchy (story 4.3) and close_notebook (story 4.4, user-visible too) aren't read-only either; every other tool is.
+        // The write tools (story 2.4 on), sync_hierarchy (story 4.3), close_notebook (story 4.4) and open_notebook (story 4.5), both user-visible too, aren't read-only either; every other tool is.
         using var services = BuildServer();
         var tools = services.GetServices<McpServerTool>().Select(t => t.ProtocolTool).ToList();
 
@@ -121,9 +121,9 @@ public sealed class NavigateToToolTests
 
     /// <summary>
     /// The AppState tools other than navigate_to (story 4.3 on): not read-only. sync_hierarchy isn't user-visible (spike 4.1
-    /// S1); close_notebook is (AD-11; story 4.4), and its own tests check its description says so.
+    /// S1); close_notebook (AD-11; story 4.4) and open_notebook (story 4.5) are, and their own tests check their descriptions say so.
     /// </summary>
-    internal static readonly string[] AppStateTools = [SyncHierarchyTool.Name, CloseNotebookTool.Name];
+    internal static readonly string[] AppStateTools = [SyncHierarchyTool.Name, CloseNotebookTool.Name, OpenNotebookTool.Name];
 
     [Fact]
     public void SyncHierarchy_IsNotUserVisible_ButOnlyOnTheUsersRequest_AndIdempotent()
