@@ -3,12 +3,13 @@ title: 'close_notebook'
 type: 'feature'
 ticket: '4'
 created: '2026-11-21'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: 'a585a4d1cea1f83b3ae3115f24339e4a36a16dc3'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -74,13 +75,13 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `Core/AppState/AppStatePipeline.cs`, `AppStateOperation.cs` -- `TakesWriteLock` (false by default) with an injected `WriteLock`; for those, the `ComBusy` check moves after step 2; step 8 as `WritePipeline`'s. A way for an operation to mark when its state-changing call is sent, so failures before it are never `outcomeUnknown` (also the deadline's).
-- [ ] Port, `ComGateway`, `FakeGateway`, `FakeApplication` -- `CloseNotebookAsync`, `CallKind.Write`, `force: false`.
-- [ ] `Core/UseCases/CloseNotebookUseCase.cs`, `Server/Tools/CloseNotebookTool.cs`, `ServerSetup.cs` -- the tool, its settle (injectable), its result (Decision Q1: the `one:Notebook` XML, `meta.objectId`/`meta.path`, warning `notebookClosed`); `ToolWarnings.NotebookClosed`.
-- [ ] Unit tests: `AppStatePipelineTests` (lock taken, released, kept while an abandoned close settles, `ComBusy` after step 2); `CloseNotebookToolTests` for every matrix row; `ComGatewayLifecycleTests` (`CloseNotebook` tracked as an abandoned write, never retried).
-- [ ] Contract snapshot, tool list, binding count.
-- [ ] `tests/OneNoteMcp.Integration/CloseNotebookIntegrationTests.cs` -- through the use case over a `GuardedGateway` (`CheckClose`): give throwaway b a test write grant in the run's own settings store, close b (not on screen), reopen with `ReopenThrowawayNotebookAsync`, `list_grants` shows the grant `active`; the guard refuses MCP Test.
-- [ ] `plugin/skills/guide/SKILL.md`, `README.md`, `spikes/stress-harness/Calls.cs` -- a `close_notebook` row (only when the user asks); the harness refuses it.
+- [x] `Core/AppState/AppStatePipeline.cs`, `AppStateOperation.cs` -- `TakesWriteLock` (false by default) with an injected `WriteLock`; for those, the `ComBusy` check moves after step 2; step 8 as `WritePipeline`'s. A way for an operation to mark when its state-changing call is sent, so failures before it are never `outcomeUnknown` (also the deadline's).
+- [x] Port, `ComGateway`, `FakeGateway`, `FakeApplication` -- `CloseNotebookAsync`, `CallKind.Write`, `force: false`.
+- [x] `Core/UseCases/CloseNotebookUseCase.cs`, `Server/Tools/CloseNotebookTool.cs`, `ServerSetup.cs` -- the tool, its settle (injectable), its result (Decision Q1: the `one:Notebook` XML, `meta.objectId`/`meta.path`, warning `notebookClosed`); `ToolWarnings.NotebookClosed`.
+- [x] Unit tests: `AppStatePipelineTests` (lock taken, released, kept while an abandoned close settles, `ComBusy` after step 2); `CloseNotebookToolTests` for every matrix row; `ComGatewayLifecycleTests` (`CloseNotebook` tracked as an abandoned write, never retried).
+- [x] Contract snapshot, tool list, binding count.
+- [x] `tests/OneNoteMcp.Integration/CloseNotebookIntegrationTests.cs` -- through the use case over a `GuardedGateway` (`CheckClose`): give throwaway b a test write grant in the run's own settings store, close b (not on screen), reopen with `ReopenThrowawayNotebookAsync`, `list_grants` shows the grant `active`; the guard refuses MCP Test.
+- [x] `plugin/skills/guide/SKILL.md`, `README.md`, `spikes/stress-harness/Calls.cs` -- a `close_notebook` row (only when the user asks); the harness refuses it.
 
 **Acceptance Criteria:**
 - Given a close whose `CloseNotebook` timed out, when a write follows inside the deadline, then the write waits on the lock, and once the close settles it runs.
@@ -122,6 +123,22 @@ Before: OneNote open in one window on an MCP Test page, online, with MCP Test, M
 
 ## Implementation Notes
 
+- Pipeline (`AppStatePipeline`, `AppStateOperation`): `TakesWriteLock` (false by default) with a `WriteLock` and a lock wait (`timeouts.callSeconds`, read per call) given to the constructor; `RunAsync` takes the correlation ID for the lock's log line. For a lock taker the order is step 1, step 2 (wait capped by the deadline; a wait the deadline ended is `Timeout`), the `ComBusy` check, steps 3–4, step 7, step 8 (`ReleaseWhenSettledAsync`, as `WritePipeline`'s). The marked send is `MarksStateChange` + `MarkStateChangeSent()`; `OutcomeMayBeUnknown` decides `outcomeUnknown` for an ambiguous failure, the client's cancel and the deadline. `WritePipeline` is unchanged.
+- Gateway: `IOneNoteGateway.CloseNotebookAsync` (default `NotSupported`); `ComGateway` sends `CloseNotebook(id, force: false)` as `CallKind.Write`, refusing an empty ID before COM.
+- Use case: a sync failure keeps its code and message with "wasn't closed" added; a `Timeout`/`ComUnavailable`/`Cancelled` from the sync is marked retryable (nothing closed). An ambiguous close failure's advice ("let it sync, or close it in OneNote") goes in the message, since AD-9's envelope fixes `userAction` for `outcomeUnknown`; any other close failure gets `CloseUserAction`. The `notebookClosed` userAction names `open_notebook` "if this server lists that tool" (story 4.5 hasn't shipped it), else File > Open.
+- Result XML: `HierarchyNode.NotebookElement` copies the matching `one:Notebook`'s attributes from the notebooks-scope read, with `xmlns:one` on it and no children.
+- Integration test: the reopen uses `TestNotebook.OpenExistingAsync` (`cftNone`, b's recorded path), not `ReopenThrowawayNotebookAsync`, which refuses a notebook that isn't open (it reopens an open notebook's path, story 5.1). It skips when anything of b is on screen. Its guard refuses `SyncHierarchy` as well as `CloseNotebook` unless `CheckClose` passes, so the MCP Test case sends nothing.
+- Contract: `close_notebook` only added to the snapshot (577 lines, no other change); no version bump, as 0.10.0-rc.1 isn't tagged (`git tag`: v0.9.0-rc.1 is the latest).
+- Not run: the integration tests against real OneNote (the sitting's step 1).
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Quick lens, iteration 0 (2026-11-22).
+
+| # | Finding | Verdict | Route | Evidence |
+|---|---|---|---|---|
+| 1 | A client cancel in the sync or settle came back `Cancelled` with `retryable: false` | medium | patch (fixed) | `ToolErrors.IsRetryable(Cancelled, AppState)` is false and the pipeline's client-cancel branch set no `retryable`; spine AD-9's `Cancelled` row exempts a cancel before `CloseNotebook`. The branch now sets `retryable: true` when the call changes state but its outcome isn't unknown; the settle-cancel test asserts it. |
+| 2 | On `outcomeUnknown` the close advice is in the message, not `userAction`; a deadline or client cancel during `CloseNotebook` gets only the pipeline's generic message | false (userAction) / low (cancel, deadline) | reject | AD-9 fixes `userAction` for every `outcomeUnknown` error ("re-read, then retry if the change is absent"), and AD-7 Merges already puts such advice in the message; the ambiguous `OneNoteException` path does. A client cancel or the 120 s deadline landing inside the sub-second `CloseNotebook` is rare, its `userAction` still says to re-read, and carrying the advice would add a pipeline hook. |
+| 3 | The guide skill's trigger description names no close request | low | patch (fixed) | `plugin/skills/guide/SKILL.md` frontmatter lacked a close example; added "close that notebook" and "closing notebooks". |

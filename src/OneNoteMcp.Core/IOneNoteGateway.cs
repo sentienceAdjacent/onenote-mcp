@@ -3,7 +3,7 @@ namespace OneNoteMcp.Core;
 /// <summary>
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
-/// <see cref="NavigateToAsync"/> and <see cref="SyncHierarchyAsync"/>, <c>AppState</c> calls (AD-7, AD-11), and the writes only the write pipeline makes (AD-7):
+/// <see cref="NavigateToAsync"/>, <see cref="SyncHierarchyAsync"/> and <see cref="CloseNotebookAsync"/>, <c>AppState</c> calls (AD-7, AD-11), and the writes only the write pipeline makes (AD-7):
 /// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
 /// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
 /// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>), and
@@ -57,6 +57,17 @@ public interface IOneNoteGateway
     /// </summary>
     Task SyncHierarchyAsync(string hierarchyId, CancellationToken ct) =>
         Task.FromException(new OneNoteException(ErrorCode.NotSupported, "SyncHierarchy isn't available on this gateway.", retryable: false));
+
+    /// <summary>
+    /// <c>AppState</c> (AD-7; story 4.4): <c>CloseNotebook</c> of the open notebook <paramref name="notebookId"/>, always with
+    /// <c>force: false</c> (Phill, 2026-11-12, epic 4 Q1 a). Sent as a write for AD-3: never retried after a disconnect, and
+    /// tracked as an abandoned write when its caller stops waiting while it runs, so the write lock is kept until it
+    /// settles (AD-18). An empty ID is refused with <see cref="ErrorCode.InvalidArgument"/> before COM. Only
+    /// <c>CloseNotebookUseCase</c> calls it, through the <c>AppState</c> pipeline under the write lock, on the user's request.
+    /// A gateway that doesn't implement it refuses with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task CloseNotebookAsync(string notebookId, CancellationToken ct) =>
+        Task.FromException(new OneNoteException(ErrorCode.NotSupported, "CloseNotebook isn't available on this gateway.", retryable: false));
 
     /// <summary>
     /// A write (<c>Create</c>, AD-7): adds a page of <paramref name="style"/> to the section <paramref name="sectionId"/>
