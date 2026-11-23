@@ -3,7 +3,7 @@ title: 'close_notebook'
 type: 'feature'
 ticket: '4'
 created: '2026-11-21'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -48,6 +48,12 @@ context:
 | Close times out | `CloseNotebook` `Timeout` | — | `outcomeUnknown`, lock held until settled |
 | Close refused | other HRESULT, e.g. `0x8004201D` | — | its AD-9 code, close userAction |
 
+## Decisions (Phill, 2026-11-22, Inbox plan approval)
+
+- **Q1 (a):** an `ok` result's `xml` is the closed notebook's `one:Notebook` element as read under the lock (name, path, ID), with `meta.objectId` and `meta.path`, plus the warning `notebookClosed` (this story names it, AD-9): it synced and waited ~10 s first, every ID changes on reopen, OneNote's view may go blank, and its grants survive; its userAction gives the reopen route (`open_notebook` for a local path, OneNote for a cloud one). No new meta field.
+- **Q2 (a):** if the live sitting shows the edit made just before the close was lost, the build stops at `built` with a failed sitting and comes back to Phill (the settle length or a different save step is a spine Deferred row to reopen). It is a sitting rule, nothing to code.
+- **Q3:** the plan is kept whole.
+
 </frozen-after-approval>
 
 ## Code Map
@@ -70,7 +76,7 @@ context:
 **Execution:**
 - [ ] `Core/AppState/AppStatePipeline.cs`, `AppStateOperation.cs` -- `TakesWriteLock` (false by default) with an injected `WriteLock`; for those, the `ComBusy` check moves after step 2; step 8 as `WritePipeline`'s. A way for an operation to mark when its state-changing call is sent, so failures before it are never `outcomeUnknown` (also the deadline's).
 - [ ] Port, `ComGateway`, `FakeGateway`, `FakeApplication` -- `CloseNotebookAsync`, `CallKind.Write`, `force: false`.
-- [ ] `Core/UseCases/CloseNotebookUseCase.cs`, `Server/Tools/CloseNotebookTool.cs`, `ServerSetup.cs` -- the tool, its settle (injectable), its result (Open Question 1).
+- [ ] `Core/UseCases/CloseNotebookUseCase.cs`, `Server/Tools/CloseNotebookTool.cs`, `ServerSetup.cs` -- the tool, its settle (injectable), its result (Decision Q1: the `one:Notebook` XML, `meta.objectId`/`meta.path`, warning `notebookClosed`); `ToolWarnings.NotebookClosed`.
 - [ ] Unit tests: `AppStatePipelineTests` (lock taken, released, kept while an abandoned close settles, `ComBusy` after step 2); `CloseNotebookToolTests` for every matrix row; `ComGatewayLifecycleTests` (`CloseNotebook` tracked as an abandoned write, never retried).
 - [ ] Contract snapshot, tool list, binding count.
 - [ ] `tests/OneNoteMcp.Integration/CloseNotebookIntegrationTests.cs` -- through the use case over a `GuardedGateway` (`CheckClose`): give throwaway b a test write grant in the run's own settings store, close b (not on screen), reopen with `ReopenThrowawayNotebookAsync`, `list_grants` shows the grant `active`; the guard refuses MCP Test.
@@ -85,11 +91,7 @@ context:
 - The lock goes into `AppStatePipeline`, not `WritePipeline`: the spine puts both tools on the `AppState` pipeline, and 4.3's plan reserved the lock path for 4.4 and 4.5. 4.5 reuses it.
 - A non-notebook ID's kind needs one `GetHierarchy(id, self)` read; IDs don't encode kind reliably.
 - Local vs cloud for the reopen hint: the notebook's `path` is an `https` URL for a cloud notebook.
-
-## Open Questions
-
-1. **What the result carries.** (a) `xml` is the notebook's `one:Notebook` element as read under the lock (name, path, ID), `meta.objectId` and `meta.path`, plus a warning `notebookClosed` (named here, AD-9) whose message says it synced and waited ~10 s first, every ID changes on reopen, OneNote's view may go blank and its grants survive, with a userAction giving the reopen route (`open_notebook` for a local path, OneNote for a cloud one); (b) a new `meta.name` field and the notes in the description only. (a) follows 4.3's `syncRequested` precedent and adds no meta field; (b) changes `ToolMeta` and the result says nothing. Recommended: (a).
-2. **If the sitting's local edit is lost.** The ticket says the check must hold before the story ships. (a) The build stops at `built` with a failed sitting and comes back to Phill (settle length, or a different save step, is a spine Deferred row to reopen); (b) the build lengthens the settle and re-runs the check itself. (b) changes a value Phill set (OQ2 b) without him. Recommended: (a).
+- The result's notes are the warning `notebookClosed` (Decision Q1), as 4.3's `syncRequested` is a warning that informs; `ToolMeta` is unchanged.
 
 ## Live sitting (Phill, about 15 minutes; hitl)
 
@@ -97,7 +99,7 @@ Before: OneNote open in one window on an MCP Test page, online, with MCP Test, M
 
 1. Phill runs `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter CloseNotebook`. It passes. Throwaway b may vanish from OneNote's list and come back (the list can lag about a minute).
 2. In Claude Code he asks to add the line "settle check" to a page in Throwaway b, then straight away to close Throwaway b. He sees `ok` with b's name and path and the notes; b leaves the list.
-3. He reopens b in OneNote: File > Open > Browse, then, in b's folder (tree below), `Open Notebook.onetoc2`. He opens that page: **expect the line there.** If it isn't, he says so and the story stops (Open Question 2).
+3. He reopens b in OneNote: File > Open > Browse, then, in b's folder (tree below), `Open Notebook.onetoc2`. He opens that page: **expect the line there.** If it isn't, he says so and the story stops (Decision Q2).
    ```
    <throwaway root>
    └── MCP Test Throwaway … b      <- open this folder
