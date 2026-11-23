@@ -3,7 +3,7 @@ title: 'get_windows, and navigate_to in a chosen window'
 type: 'feature'
 ticket: '6'
 created: '2026-11-21'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -28,9 +28,9 @@ context:
 **Always:**
 - One STA call reads `Windows`, `Count`, `CurrentWindow` and each window's getters, walking `Item(0)`…`Item(Count - 1)`, never `Item(Count)` (W1); every `Window` wrapper, `CurrentWindow` and the collection released with `Marshal.ReleaseComObject` in a `finally` inside the STA delegate (OneMore row 10). `CallKind.Read`: retried once on a disconnect; `Timeout` retryable; never `outcomeUnknown`. `ComBusy` at the pipeline's start while an abandoned write is outstanding.
 - Each window reports: `handle` (`WindowHandle`, the inner pane), `current` (it is `CurrentWindow`, matched by handle), `active`, `notebookId`, `sectionGroupId`, `sectionId`, `pageId`, `fullPageView`, `dockedLocation`, `sideNote` (a quick note, W3). An empty ID is reported as absent, never as an ID (W5). No window: an empty list, `ok` (W6).
-- AD-21: a window on a page of a protected section without a read grant at the call's start (`ReadAccess.HoldsReadGrant`; a stored grant or a live `once` window, never prompted) reports the section and omits `pageId` (Open Question 2).
+- AD-21: a window on a page of a protected section without a read grant at the call's start (`ReadAccess.HoldsReadGrant`; a stored grant or a live `once` window, never prompted) reports the section and omits `pageId`, with the `readNotGranted` warning (Decision Q2).
 - `get_windows` is not user-visible (AD-11, W2); its description says the skill calls it only when the user asks or refers to what they're looking at (Q5). Annotations: read-only, idempotent.
-- `navigate_to(hierarchyId, pageContentObjectId?, window?)`: without `window`, unchanged (first window). With it, the same STA call finds the window by handle and calls its `NavigateTo`; a handle no window has → `InvalidArgument`, nothing navigated. No window setters (Q4); `fNewWindow` stays false.
+- `navigate_to(hierarchyId, pageContentObjectId?, window?)`, `window` an integer handle as `get_windows` returns it (Decision Q1): without `window`, unchanged (first window). With it, the same STA call finds the window by handle and calls its `NavigateTo`; a handle no window has → `InvalidArgument`, nothing navigated. No window setters (Q4); `fNewWindow` stays false.
 - Logs carry IDs and handles only (AD-13). Contract snapshot checked (AD-14).
 
 **Never:** `Active`, `DockedLocation`, `FullPageView`, `SideNote` setters or `SetDockedLocation`; `Window.NavigateToUrl` (4.7); a frame handle; the write lock; any spine change; setting the integration env var in the build session.
@@ -43,11 +43,17 @@ context:
 | Two windows | main + Ctrl+M or quick note | two entries in `Item` order, one `current` | — |
 | No window | `Count` 0 | empty list | — |
 | Locked section | `CurrentPageId` `""` | section reported, no `pageId` | — |
-| Protected page, no grant | unlocked protected section | section reported, no `pageId` | warning per Open Question 2 |
+| Protected page, no grant | unlocked protected section | section reported, no `pageId` | warning `readNotGranted`, once per call with the count |
 | Protected page, grant held | stored or `once` grant | `pageId` reported | — |
 | Abandoned write outstanding | — | no COM | `ComBusy` |
 | navigate_to with `window` | a listed handle | only that window moves | — |
 | navigate_to, unknown `window` | handle no window has | nothing moves | `InvalidArgument` |
+
+## Decisions (Phill, 2026-11-22, Inbox plan approval)
+
+- **Q1 (a):** `navigate_to`'s `window` argument is an integer: the `handle` `get_windows` returns (window handles fit in 32 bits, so JSON numbers are exact). It is a public contract (AD-14).
+- **Q2 (a):** a page withheld under AD-21 is reported with the existing `readNotGranted` warning, once per call with the count of withheld windows, as broad reads and searches give it (backlog 15); its userAction says how to grant.
+- **Q3:** the plan is kept whole.
 
 </frozen-after-approval>
 
@@ -80,11 +86,7 @@ context:
 
 - The list goes in `meta`, not `xml`: it isn't OneNote XML (AD-4), and `list_grants` set the pattern.
 - Finding the window and navigating it in one STA delegate keeps the handle check and the call together, so a window closed in between fails as `InvalidArgument` rather than a stale wrapper.
-
-## Open Questions
-
-1. **The `window` argument's type.** (a) An integer: the `handle` `get_windows` returns (HWND values fit in 32 bits, so JSON numbers are exact); (b) a string of digits, safe past 2^53 but an odd shape for a number. Either is a public contract (AD-14). Recommended: (a).
-2. **A withheld page.** (a) The existing `readNotGranted` warning, once per call with the count, as broad reads give it (backlog 15), userAction how to grant; (b) a per-window `pageWithheld: true`; (c) silent omission. (a) reuses a code and matches searches; (b) adds a field; (c) reads as "no page shown". Recommended: (a).
+- Considered a string of digits for `window` (safe past 2^53); going with an integer (Decision Q1) because window handles fit in 32 bits and a number is the natural shape.
 
 ## Live sitting (Phill, about 10 minutes; hitl)
 
