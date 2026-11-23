@@ -196,4 +196,17 @@ public static class ToolWarnings
     /// minute late). Every ok from an open that sent <c>OpenHierarchy</c> carries it. Names no ID or path.
     /// </summary>
     public const string NotebookListMayLag = "notebookListMayLag";
+
+    /// <summary>
+    /// <c>quick_filing</c> (story 4.9; 4.9 plan OQ1 a): the user closed the picker with Cancel or Esc, so nothing was chosen
+    /// (spike 4.13 F5: no item, <c>PressedButton</c> <c>0xFFFFFFFF</c>). The call is ok. Names no ID.
+    /// </summary>
+    public const string PickerCancelled = "pickerCancelled";
+
+    /// <summary>
+    /// <c>quick_filing</c> (story 4.9; AD-7 <c>AppState</c>, 4.9 plan OQ1 a): the user didn't answer within the fixed 300 s, so
+    /// nothing was chosen. The picker may still be on screen (nothing on the server's side closes it, spike 4.13 F6-F8), and a
+    /// choice made in it now is ignored. The call is ok. Its userAction says to ask the user to close it and call again.
+    /// </summary>
+    public const string PickerLeftOpen = "pickerLeftOpen";
 }

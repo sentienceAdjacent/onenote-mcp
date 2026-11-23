@@ -25,8 +25,9 @@
 
   <ItemGroup>
     <!-- The image-download probe calls SyncHierarchy, which ComGateway doesn't expose: a private compiled-in copy of the
-         hand-declared interop (internal to this assembly; src/ is unchanged). -->
-    <Compile Include="..\..\src\OneNoteMcp.Com\Interop\*.cs" Link="Interop\%(Filename)%(Extension)" />
+         hand-declared interop (internal to this assembly; src/ is unchanged). The QuickFiling pair (story 4.9) stays out: its
+         callback interface is public in OneNoteMcp.Com (AD-2's exception), so a second copy would clash, and the harness never shows a picker. -->
+    <Compile Include="..\..\src\OneNoteMcp.Com\Interop\*.cs" Exclude="..\..\src\OneNoteMcp.Com\Interop\IQuickFiling*.cs" Link="Interop\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

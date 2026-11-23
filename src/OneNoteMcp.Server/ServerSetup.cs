@@ -111,6 +111,16 @@ public static class ServerSetup
         services.AddSingleton<SyncHierarchyUseCase>();
         services.AddSingleton<GetWindowsUseCase>();
         services.AddSingleton<CloseNotebookUseCase>();
+        // Story 4.9: quick_filing, one waiting call per process (the use case is the slot); its log line has lengths, never text (AD-13).
+        services.AddSingleton(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("OneNoteMcp.Server.QuickFiling");
+            return new QuickFilingUseCase(
+                sp.GetRequiredService<IOneNoteGateway>(),
+                sp.GetRequiredService<AppStatePipeline>(),
+                TimeProvider.System,
+                log: entry => QuickFilingLog.Called(logger, entry));
+        });
         // Story 4.5: open_notebook, refusing a OneDrive folder at step 1 and under the lock; its log line never has the path (AD-13).
         services.AddSingleton(sp =>
         {
@@ -277,6 +287,7 @@ public static class ServerSetup
             .WithTools<GetWindowsTool>(EnvelopeJson.Options)
             .WithTools<CloseNotebookTool>(EnvelopeJson.Options)
             .WithTools<OpenNotebookTool>(EnvelopeJson.Options)
+            .WithTools<QuickFilingTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
             .WithTools<CreatePageTool>(EnvelopeJson.Options)
             .WithTools<UpdatePageContentTool>(EnvelopeJson.Options)

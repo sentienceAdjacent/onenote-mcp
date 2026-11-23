@@ -9,7 +9,7 @@ internal sealed record FakeCall(string Method, object?[] Args, int ThreadId);
 /// Managed stand-in for the OneNote COM object. The read methods are programmable: <see cref="OnCall"/>, when set,
 /// answers every one of them (hang on a gate, throw a sequence, return a value); otherwise GetHierarchy answers from
 /// <see cref="OnGetHierarchy"/> and the rest throw. Every read call is recorded. <see cref="Factory"/> counts activations.
-/// <c>Windows</c> answers from <see cref="OnWindows"/> (story 4.6). Write and app-state methods always throw, except <c>NavigateTo</c>, <c>SyncHierarchy</c> (story 4.3), <c>CloseNotebook</c> (story 4.4), <c>CreateNewPage</c>, <c>OpenHierarchy</c>, <c>UpdatePageContent</c>,
+/// <c>Windows</c> answers from <see cref="OnWindows"/> (story 4.6), <c>QuickFiling</c> from <see cref="OnQuickFiling"/> (story 4.9). Write and app-state methods always throw, except <c>NavigateTo</c>, <c>SyncHierarchy</c> (story 4.3), <c>CloseNotebook</c> (story 4.4), <c>CreateNewPage</c>, <c>OpenHierarchy</c>, <c>UpdatePageContent</c>,
 /// <c>DeletePageContent</c>, <c>UpdateHierarchy</c>, <c>DeleteHierarchy</c> and <c>Publish</c> (story 5.6), which are recorded and scripted like a read.
 /// </summary>
 internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IApplication
@@ -128,7 +128,22 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
 
     public void MergeFiles(string bstrBaseFile, string bstrClientFile, string bstrServerFile, string bstrTargetFile) => throw new NotSupportedException();
 
-    public object QuickFiling() => throw new NotSupportedException();
+    /// <summary>
+    /// Story 4.9: what <c>QuickFiling</c> returns, recorded as a <c>QuickFiling</c> call; when null it throws, as before. A test
+    /// returns a <see cref="FakeQuickFilingDialog"/>, or throws from it.
+    /// </summary>
+    public Func<object>? OnQuickFiling { get; set; }
+
+    public object QuickFiling()
+    {
+        var call = new FakeCall(nameof(QuickFiling), [], Environment.CurrentManagedThreadId);
+        lock (gate)
+        {
+            calls.Add(call);
+        }
+
+        return OnQuickFiling is { } onQuickFiling ? onQuickFiling() : throw new NotSupportedException();
+    }
 
     // Recorded and scripted like the reads (story 4.3), so the gateway's argument mapping and no-retry rule can be checked.
     public void SyncHierarchy(string bstrHierarchyID) =>
@@ -273,4 +288,121 @@ internal sealed class FakeWindow(ulong handle) : IWindow
     void IWindow.NavigateToUrlPlaceholder() => throw new NotSupportedException();
 
     void IWindow.SetDockedLocationMethodPlaceholder() => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Story 4.9: a managed <c>IQuickFilingDialog</c>. Every member call is recorded in order with its thread; <see cref="OnRun"/>
+/// runs inside <c>Run</c> (to throw, or hang), and <see cref="Callback"/> keeps what <c>Run</c> was given so a test can answer
+/// for the user, on any thread. The getters answer from <see cref="Selected"/> and <see cref="Pressed"/>, or throw
+/// <see cref="GetterFailure"/>.
+/// </summary>
+internal sealed class FakeQuickFilingDialog : IQuickFilingDialog
+{
+    private readonly Lock gate = new();
+    private readonly List<(string Member, int ThreadId)> members = [];
+    private string title = string.Empty;
+    private string description = string.Empty;
+    private HierarchyElement treeDepth;
+
+    public IReadOnlyList<(string Member, int ThreadId)> Members
+    {
+        get
+        {
+            lock (gate)
+            {
+                return [.. members];
+            }
+        }
+    }
+
+    public List<(string Text, HierarchyElement Allowed, HierarchyElement ReadOnly, bool Default)> Buttons { get; } = [];
+
+    public IQuickFilingDialogCallback? Callback { get; private set; }
+
+    public Action? OnRun { get; set; }
+
+    public string Selected { get; set; } = string.Empty;
+
+    public uint Pressed { get; set; } = 0xFFFFFFFF;
+
+    public Exception? GetterFailure { get; set; }
+
+    public string Title
+    {
+        get => Record("get_Title", title);
+        set => title = Record("put_Title", value);
+    }
+
+    public string Description
+    {
+        get => Record("get_Description", description);
+        set => description = Record("put_Description", value);
+    }
+
+    public HierarchyElement TreeDepth
+    {
+        get => Record("get_TreeDepth", treeDepth);
+        set => treeDepth = Record("put_TreeDepth", value);
+    }
+
+    public string SelectedItem => GetterFailure is { } failure ? throw failure : Record("get_SelectedItem", Selected);
+
+    public uint PressedButton => GetterFailure is { } failure ? throw failure : Record("get_PressedButton", Pressed);
+
+    public void AddButton(string bstrText, HierarchyElement allowedElements, HierarchyElement allowedReadOnlyElements, bool fDefault)
+    {
+        Record("AddButton", 0);
+        Buttons.Add((bstrText, allowedElements, allowedReadOnlyElements, fDefault));
+    }
+
+    public void Run(IQuickFilingDialogCallback piCallback)
+    {
+        Record("Run", 0);
+        Callback = piCallback;
+        OnRun?.Invoke();
+    }
+
+    /// <summary>Answers for the user: OneNote's call to <c>OnDialogClosed</c>, on the calling thread.</summary>
+    public void Answer(string selected, uint pressed)
+    {
+        Selected = selected;
+        Pressed = pressed;
+        (Callback ?? throw new InvalidOperationException("Run wasn't called.")).OnDialogClosed(this);
+    }
+
+    private T Record<T>(string member, T value)
+    {
+        lock (gate)
+        {
+            members.Add((member, Environment.CurrentManagedThreadId));
+        }
+
+        return value;
+    }
+
+    void IQuickFilingDialog.GetCheckboxTextPlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.SetCheckboxTextPlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.GetCheckboxStatePlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.SetCheckboxStatePlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.GetWindowHandlePlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.GetParentWindowHandlePlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.SetParentWindowHandlePlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.GetPositionPlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.SetPositionPlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.SetRecentResultsPlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.SetTreeCollapsedStatePlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.SetNotebookFilterOutPlaceholder() => throw new NotSupportedException();
+
+    void IQuickFilingDialog.AddInitialEditorPlaceholder() => throw new NotSupportedException();
 }
