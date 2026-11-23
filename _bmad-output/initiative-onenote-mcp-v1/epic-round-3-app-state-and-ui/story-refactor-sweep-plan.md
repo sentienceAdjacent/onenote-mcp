@@ -3,7 +3,7 @@ title: 'Refactor sweep (round 3)'
 type: 'refactor'
 ticket: '11'
 created: '2026-11-23'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'pinned'
 review: ''
@@ -45,6 +45,11 @@ context:
 | Close reopen advice | path `https://…`, `HTTP://…`, `C:\…` | cloud, cloud, local userAction | — |
 | Escaped link | `navigate_to_url` with `%`-escapes, an invalid escape | same parse and refusal | `CloudLinkTests` unchanged |
 | Withheld page | `get_windows`, landing check | same `readNotGranted` text, same `dockedLocation` names | — |
+
+## Decisions (Phill, 2026-11-23, Inbox plan approval)
+
+- **Q1 (b):** `navigate_to`'s description is fixed in entry 10 (Phill chose that there, 4.10 OQ3 (a)); this sweep marks the deferred entry resolved and keeps its "no contract change" rule.
+- **Q2 (b):** the 10-minute live sitting below: the harness on MCP Test, the round-3 integration filters that take no focus, and one sync and one navigate through Claude.
 
 </frozen-after-approval>
 
@@ -97,18 +102,3 @@ Before: OneNote open in a window with MCP Test and throwaway b; nothing else on 
 - `pwsh -File scripts/pack-plugin.ps1`, then `claude plugin validate --strict dist/stage/onenote` -- passes.
 
 **Not in this sweep:** test-helper consolidation; `OpenNotebookUseCase.IsUrl`; the log wiring; `TestNotebookGuard.MapLocalhostAdminShare` (the integration guard keeps its own copy of `OpenNotebookUseCase`'s, so it doesn't depend on the code it guards); 4.7's note that a page title holding `=` can't be followed.
-
-## Open Questions
-
-**Q1. `navigate_to`'s description (deferred from 4.6).** It still says it "takes keyboard focus" and that windowless it "shows and downloads nothing", both of which the spine's AD-11 says to drop (spike 4.12's focus finding, W6). Its window sentence also lacks a space before "It only works" (`NavigateToTool.cs:26-27`). Fixing any of it changes the contract snapshot's text, though not behaviour.
-- (a) Fix it in this sweep: description only, snapshot updated, deferred entry resolved.
-- (b) Fix it in entry 10, whose live run checks that each user-visible tool behaves as its description says; this sweep marks the entry resolved there.
-- (c) Leave it deferred.
-
-Recommended: (b), because entry 10 already edits the docs and checks descriptions live, and the sweep then keeps its "no contract change" rule. If entry 10 has already shipped without it, (a).
-
-**Q2. A live sitting for a no-behaviour story (`hitl = false`).** The ticket's Verify asks for "the harness shows 0 mismatches", which only the live harness run reports; epics 2 and 5's sweeps left that run to Phill and didn't do it in the build.
-- (a) No sitting: unit and integration suites (unset), the harness's contract check and plugin validation, as 3.11 did.
-- (b) The 10-minute sitting above: the harness on MCP Test, the round-3 integration filters that take no focus, and one sync and one navigate through Claude.
-
-Recommended: (b), because items 2 and 3 sit on `navigate_to`, `navigate_to_url` and `close_notebook`'s paths, and (b) is the only way the ticket's Verify is met as written.
