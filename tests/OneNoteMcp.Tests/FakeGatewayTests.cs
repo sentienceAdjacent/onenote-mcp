@@ -44,7 +44,7 @@ public sealed class FakeGatewayTests
     [Fact]
     public void Manifest_CoversAllNineContentPortMethods_WithASuccess()
     {
-        // NavigateTo (story 1.21) and SyncHierarchy (story 4.3) return no content, and CreateNewPage (story 2.4), CreateSection (story 2.11), the
+        // NavigateTo (story 1.21), SyncHierarchy (story 4.3) and CloseNotebook (story 4.4) return no content, and CreateNewPage (story 2.4), CreateSection (story 2.11), the
         // section-group and notebook creates (story 5.3), the page writes (story 2.7) UpdateHierarchy (story 5.4), DeleteHierarchy (5.5) and Publish (5.6) are writes, so none has a fixture;
         // FakeGateway records them instead.
         string[] writes =
@@ -61,7 +61,7 @@ public sealed class FakeGatewayTests
             .Select(m => m.Name[..^"Async".Length])
             .ToHashSet();
         Assert.Equal(9, methods.Count);
-        Assert.Equal(26, typeof(IOneNoteGateway).GetMethods().Length); // + UpdateHierarchy (story 5.4), DeleteHierarchy (story 5.5) and MergeSections (story 3.6), Tasks with no content; OpenPackage and OpenHierarchy (story 3.8); SyncHierarchy (story 4.3), a Task with no content; GetWindows and NavigateTo's window overload (story 4.6), which return no fixture content
+        Assert.Equal(27, typeof(IOneNoteGateway).GetMethods().Length); // + UpdateHierarchy (story 5.4), DeleteHierarchy (story 5.5) and MergeSections (story 3.6), Tasks with no content; OpenPackage and OpenHierarchy (story 3.8); SyncHierarchy (story 4.3) and CloseNotebook (story 4.4), Tasks with no content; GetWindows and NavigateTo's window overload (story 4.6), which return no fixture content
 
         var served = FakeGateway.Manifest.Entries.Where(e => e.Error is null).Select(e => e.Method).ToHashSet();
 

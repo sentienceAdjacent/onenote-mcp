@@ -97,7 +97,9 @@ public static class ToolWarnings
 
     /// <summary>
     /// A create found a live section or section group of the same kind and name (ignoring case) already under the parent,
-    /// so it made nothing and returned that object's ID in <c>meta.objectId</c> (AD-7 <c>Create</c>). Names the ID only.
+    /// so it made nothing and returned that object's ID in <c>meta.objectId</c> (AD-7 <c>Create</c>). From
+    /// <c>open_notebook</c> (story 4.5, plan Q1 a): the notebook at that path is already open, so nothing was opened, and
+    /// <c>meta.objectId</c> is its current ID. Names the ID only.
     /// </summary>
     public const string AlreadyExisted = "alreadyExisted";
 
@@ -179,4 +181,19 @@ public static class ToolWarnings
     /// finished. Every ok from <c>sync_hierarchy</c> carries it. Names no ID.
     /// </summary>
     public const string SyncRequested = "syncRequested";
+
+    /// <summary>
+    /// <c>close_notebook</c> (story 4.4; Phill, 2026-11-22, 4.4 plan Q1 a): OneNote closed the notebook. Every ok from
+    /// <c>close_notebook</c> carries it. It says the server asked OneNote to sync the notebook and waited about 10 s first,
+    /// that every ID in the notebook changes when it reopens, that OneNote's view may go blank, and that its grants
+    /// survive; its userAction gives the reopen route (a local notebook by its path, a cloud one in OneNote). Names no ID.
+    /// </summary>
+    public const string NotebookClosed = "notebookClosed";
+
+    /// <summary>
+    /// <c>open_notebook</c> (story 4.5; AD-7 <c>AppState</c>, AD-9): OneNote opened the notebook, but its contents and
+    /// OneNote's own notebook list may lag (spike 4.1: a cloud notebook of 11 sections listed in 16 s, OneNote's list about a
+    /// minute late). Every ok from an open that sent <c>OpenHierarchy</c> carries it. Names no ID or path.
+    /// </summary>
+    public const string NotebookListMayLag = "notebookListMayLag";
 }

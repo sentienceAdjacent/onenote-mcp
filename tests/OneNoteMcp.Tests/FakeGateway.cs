@@ -12,7 +12,7 @@ namespace OneNoteMcp.Tests;
 /// <remarks>
 /// The story-3 scripting stays: <see cref="HierarchyXml"/>, when set, answers every <c>GetHierarchy</c>;
 /// <see cref="Failure"/>, when set, is thrown by every method; <see cref="Calls"/> records <c>GetHierarchy</c> calls.
-/// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21) and <see cref="SyncCalls"/> <c>SyncHierarchy</c> calls (story 4.3), and <see cref="CreateCalls"/> records
+/// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21) and <see cref="SyncCalls"/> <c>SyncHierarchy</c> calls (story 4.3), <see cref="CloseCalls"/> <c>CloseNotebook</c> calls (story 4.4), and <see cref="CreateCalls"/> records
 /// <c>CreateNewPage</c> calls (story 2.4) and <see cref="CreateSectionCalls"/> section creates (story 2.11); <see cref="UpdateCalls"/> and <see cref="DeleteCalls"/> record the page
 /// writes (story 2.7), and <see cref="AbandonedWrites"/> scripts an outstanding abandoned write. None has a fixture.
 /// <para>
@@ -216,12 +216,43 @@ internal sealed class FakeGateway : IOneNoteGateway
     public async Task SyncHierarchyAsync(string hierarchyId, CancellationToken ct)
     {
         SyncCalls.Add(hierarchyId);
+        AppStateLog.Add("sync " + hierarchyId);
         if (OnSyncCall is { } hook)
         {
             await hook(ct).ConfigureAwait(false);
         }
 
         if ((Failure ?? SyncFailure) is { } failure)
+        {
+            throw failure;
+        }
+    }
+
+    /// <summary>
+    /// The <c>SyncHierarchy</c> and <c>CloseNotebook</c> calls in the order they were made, as <c>"sync &lt;id&gt;"</c> and
+    /// <c>"close &lt;id&gt;"</c> (story 4.4). A test's settle can add its own line, to check the sync, settle, close order.
+    /// </summary>
+    public List<string> AppStateLog { get; } = [];
+
+    /// <summary>Every <c>CloseNotebook</c> call's ID, in order (story 4.4). It returns nothing, so it has no fixture: it records and succeeds.</summary>
+    public List<string> CloseCalls { get; } = [];
+
+    /// <summary>When set, <c>CloseNotebook</c> alone throws it (story 4.4).</summary>
+    public Exception? CloseFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>CloseNotebook</c> before it answers, with the call's token (a hook to hang, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnCloseCall { get; set; }
+
+    public async Task CloseNotebookAsync(string notebookId, CancellationToken ct)
+    {
+        CloseCalls.Add(notebookId);
+        AppStateLog.Add("close " + notebookId);
+        if (OnCloseCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? CloseFailure) is { } failure)
         {
             throw failure;
         }
@@ -370,10 +401,23 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>The ID <c>OpenHierarchy</c> returns.</summary>
     public string OpenedId { get; set; } = "{CPY00000-0000-4000-8000-000000000001}{1}{B0}";
 
-    public Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
+    /// <summary>When set, runs inside <c>OpenHierarchy</c> before it answers, with the path and the call's token (story 4.5: a hook to observe, hang or list the opened notebook).</summary>
+    public Func<string, CancellationToken, Task>? OnOpenHierarchyCall { get; set; }
+
+    public async Task<string> OpenHierarchyAsync(string path, CancellationToken ct)
     {
         OpenHierarchyCalls.Add(path);
-        return (Failure ?? OpenHierarchyFailure) is { } failure ? Task.FromException<string>(failure) : Task.FromResult(OpenedId);
+        if (OnOpenHierarchyCall is { } hook)
+        {
+            await hook(path, ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? OpenHierarchyFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        return OpenedId;
     }
 
     /// <summary>Every <c>UpdatePageContent</c> call, in order (story 2.7). It has no fixture: it records and succeeds.</summary>

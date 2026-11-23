@@ -5,6 +5,7 @@ using OneNoteMcp.Core;
 using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.UseCases;
+using OneNoteMcp.Core.Writes;
 using OneNoteMcp.Server;
 using OneNoteMcp.Server.Tools;
 using Xunit;
@@ -208,6 +209,142 @@ public sealed class AppStatePipelineTests
         Assert.True(deadline.Retryable);
     }
 
+    // --- Story 4.4: the write-lock path and the marked send -------------------------------------------------------
+
+    [Fact]
+    public async Task ALockTaker_HoldsTheLockThroughSteps3To7_AndReleasesItAfter()
+    {
+        var writeLock = TestLock();
+        var heldDuringRead = false;
+        var heldDuringCall = false;
+        var operation = new Scripted
+        {
+            TakesWriteLockValue = true,
+            Read = async ct => heldDuringRead = !await CanTakeAsync(writeLock),
+        };
+        operation.Call = async ct =>
+        {
+            heldDuringCall = !await CanTakeAsync(writeLock);
+            return true;
+        };
+
+        Assert.True(await LockPipeline(new FakeGateway(), writeLock).RunAsync(operation, Ct, "c"));
+
+        Assert.True(heldDuringRead);
+        Assert.True(heldDuringCall);
+        Assert.True(await CanTakeAsync(writeLock));
+    }
+
+    [Fact]
+    public async Task ALockTaker_WithAWriteOutstanding_IsComBusy_RightAfterStep2_NothingRead_AndTheLockIsReleased()
+    {
+        var writeLock = TestLock();
+        var gateway = new FakeGateway { AbandonedWrites = new TaskCompletionSource() };
+        var order = new List<string>();
+        var operation = new Scripted { TakesWriteLockValue = true, OnValidate = () => order.Add("validate"), Read = _ => { order.Add("read"); return Task.CompletedTask; } };
+
+        var busy = await Assert.ThrowsAsync<OneNoteException>(() => LockPipeline(gateway, writeLock).RunAsync(operation, Ct, "c"));
+
+        Assert.Equal(ErrorCode.ComBusy, busy.Code);
+        Assert.True(busy.Retryable);
+        Assert.Equal(["validate"], order); // step 1 ran, then the lock, then the check; nothing read
+        Assert.Equal(0, operation.Calls);
+        Assert.True(await CanTakeAsync(writeLock));
+
+        // Step 1 comes first for a lock taker: an invalid call is refused as such even with a write outstanding.
+        var invalid = new Scripted { TakesWriteLockValue = true, OnValidate = () => throw new OneNoteException(ErrorCode.InvalidArgument, "m") };
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<OneNoteException>(() => LockPipeline(gateway, writeLock).RunAsync(invalid, Ct, "c"))).Code);
+    }
+
+    [Fact]
+    public async Task ALockTaker_WhoseCallIsAbandoned_KeepsTheLockUntilItSettles()
+    {
+        var writeLock = TestLock();
+        var gateway = new FakeGateway();
+        var abandoned = new TaskCompletionSource();
+        var operation = new Scripted { TakesWriteLockValue = true };
+        operation.Call = _ =>
+        {
+            // What ComGateway does for a CloseNotebook that times out: it tracks it as an abandoned write.
+            gateway.AbandonedWrites = abandoned;
+            throw new OneNoteException(ErrorCode.Timeout, "CloseNotebook did not return within 30 s.");
+        };
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => LockPipeline(gateway, writeLock).RunAsync(operation, Ct, "c"));
+
+        Assert.True(ex.OutcomeUnknown);
+        Assert.False(await CanTakeAsync(writeLock));
+
+        abandoned.SetResult();
+        Assert.True(await CanTakeAsync(writeLock, TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task ALockTaker_WaitsForTheLock_AndIsComBusyWhenTheWaitExpires()
+    {
+        var writeLock = TestLock();
+        using var other = await writeLock.AcquireAsync("other", TimeSpan.Zero, Ct);
+        var pipeline = new AppStatePipeline(new FakeGateway(), writeLock: writeLock, lockWait: () => TimeSpan.FromMilliseconds(150));
+        var operation = new Scripted { TakesWriteLockValue = true };
+
+        var busy = await Assert.ThrowsAsync<OneNoteException>(() => pipeline.RunAsync(operation, Ct, "c"));
+
+        Assert.Equal(ErrorCode.ComBusy, busy.Code);
+        Assert.Equal(0, operation.Calls);
+    }
+
+    [Fact]
+    public async Task ALockTaker_OnAPipelineWithoutALock_IsInternal_AndNothingIsSent()
+    {
+        var operation = new Scripted { TakesWriteLockValue = true };
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => new AppStatePipeline(new FakeGateway()).RunAsync(operation, Ct));
+
+        Assert.Equal(ErrorCode.Internal, ex.Code);
+        Assert.Equal(0, operation.Calls);
+    }
+
+    [Fact]
+    public async Task AMarkingOperation_IsOutcomeUnknown_OnlyAfterItsMark()
+    {
+        var pipeline = new AppStatePipeline(new FakeGateway());
+        var before = new Scripted { MarksValue = true, Call = _ => throw new OneNoteException(ErrorCode.Timeout, "m") };
+        var after = new Scripted { MarksValue = true };
+        after.Call = _ =>
+        {
+            after.Mark();
+            throw new OneNoteException(ErrorCode.Timeout, "m");
+        };
+
+        Assert.False((await Assert.ThrowsAsync<OneNoteException>(() => pipeline.RunAsync(before, Ct))).OutcomeUnknown);
+        Assert.True((await Assert.ThrowsAsync<OneNoteException>(() => pipeline.RunAsync(after, Ct))).OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task AMarkingOperation_DeadlineOrCancelBeforeItsMark_IsNotOutcomeUnknown()
+    {
+        var hung = new Scripted { MarksValue = true, Call = async ct => { await Task.Delay(Timeout.Infinite, ct); return true; } };
+        var deadline = await Assert.ThrowsAsync<OneNoteException>(() => new AppStatePipeline(new FakeGateway(), deadline: TimeSpan.FromMilliseconds(200)).RunAsync(hung, Ct));
+        Assert.Equal(ErrorCode.Timeout, deadline.Code);
+        Assert.False(deadline.OutcomeUnknown);
+        Assert.True(deadline.Retryable);
+
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var cancelled = new Scripted
+        {
+            MarksValue = true,
+            Call = async ct =>
+            {
+                await cancel.CancelAsync();
+                await Task.Delay(Timeout.Infinite, ct);
+                return true;
+            },
+        };
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => new AppStatePipeline(new FakeGateway()).RunAsync(cancelled, cancel.Token));
+        Assert.Equal(ErrorCode.Cancelled, ex.Code);
+        Assert.False(ex.OutcomeUnknown);
+    }
+
     [Fact]
     public void Deadline_Is120Seconds_ByDefault()
     {
@@ -215,6 +352,25 @@ public sealed class AppStatePipelineTests
     }
 
     // --- Helpers ----------------------------------------------------------------------------------------------------
+
+    /// <summary>A write lock of its own per test, so parallel tests never share the machine-wide mutex.</summary>
+    internal static WriteLock TestLock() => new(@"Local\OneNoteMcp.Test." + Guid.NewGuid().ToString("N"));
+
+    /// <summary>True when the lock can be taken within <paramref name="wait"/> (none by default); it is released at once.</summary>
+    internal static async Task<bool> CanTakeAsync(WriteLock writeLock, TimeSpan? wait = null)
+    {
+        try
+        {
+            using var hold = await writeLock.AcquireAsync("probe", wait ?? TimeSpan.Zero, CancellationToken.None);
+            return true;
+        }
+        catch (OneNoteException ex) when (ex.Code == ErrorCode.ComBusy)
+        {
+            return false;
+        }
+    }
+
+    private static AppStatePipeline LockPipeline(FakeGateway gateway, WriteLock writeLock) => new(gateway, writeLock: writeLock);
 
     private static TheoryData<string, ErrorCode, int?> Ambiguous()
     {
@@ -297,9 +453,20 @@ public sealed class AppStatePipelineTests
 
         public bool ChangesStateValue { get; init; } = true;
 
+        public bool TakesWriteLockValue { get; init; }
+
+        public bool MarksValue { get; init; }
+
         public int Calls { get; private set; }
 
         public override bool ChangesState => ChangesStateValue;
+
+        public override bool TakesWriteLock => TakesWriteLockValue;
+
+        public override bool MarksStateChange => MarksValue;
+
+        /// <summary>Marks the state-changing call as sent, as close_notebook does before CloseNotebook.</summary>
+        public void Mark() => MarkStateChangeSent();
 
         public override void Validate() => OnValidate?.Invoke();
 

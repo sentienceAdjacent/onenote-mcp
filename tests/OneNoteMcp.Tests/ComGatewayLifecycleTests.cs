@@ -865,6 +865,73 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task CloseNotebook_PassesItsId_WithForceFalse_AndRefusesAnEmptyOneBeforeCom()
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.CloseNotebookAsync("{n}", Ct);
+        var empty = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CloseNotebookAsync(string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, empty.Code);
+        // Never force (epic 4 Q1 a).
+        Assert.Equal([["{n}", false]], app.Calls.Where(c => c.Method == "CloseNotebook").Select(c => c.Args));
+    }
+
+    [Fact]
+    public async Task CloseNotebook_IsNotRetriedAfterADisconnect_AndFailuresMapLikeAnyCall()
+    {
+        // Sent as a write (story 4.4): a disconnect that reached COM isn't repeated (AD-3).
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CloseNotebookAsync("{n}", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        app.OnCall = _ => throw new COMException("not synced", NotYetSynchronized);
+        Assert.Equal(ErrorCode.ComBusy, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.CloseNotebookAsync("{n}", Ct))).Code);
+        app.OnCall = _ => throw new COMException("gone", RpcCallFailed);
+        var crashed = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CloseNotebookAsync("{n}", Ct));
+        Assert.Equal(RpcCallFailed, crashed.ComHResult);
+        Assert.Equal(3, app.Calls.Count(c => c.Method == "CloseNotebook"));
+    }
+
+    [Fact]
+    public async Task ATimedOutCloseNotebook_IsAnAbandonedWrite_UntilItReturns()
+    {
+        // Story 4.4 (AD-3, AD-7 AppState): a close that may still finish holds back every other non-read call.
+        using var gate = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c => c.Method == "CloseNotebook" && !gate.IsSet ? Hang(gate) : "<ok/>";
+        using var gateway = Gateway(app, Settings(callMs: 300));
+
+        try
+        {
+            var timeout = await Assert.ThrowsAsync<OneNoteException>(() => gateway.CloseNotebookAsync("{n}", Ct));
+            Assert.Equal(ErrorCode.Timeout, timeout.Code);
+            Assert.Equal(1, gateway.OutstandingWrites);
+            Assert.Equal(1, gateway.AbandonedWritesTracked);
+            var settled = gateway.WaitForAbandonedWritesAsync(Ct);
+            Assert.False(settled.IsCompleted);
+
+            var busy = await Assert.ThrowsAsync<OneNoteException>(() => gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct));
+            Assert.Equal(ErrorCode.ComBusy, busy.Code);
+            Assert.Equal(ErrorCode.ComBusy, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.CloseNotebookAsync("{n}", Ct))).Code);
+            Assert.Single(app.Calls, c => c.Method == "CloseNotebook");
+
+            gate.Set();
+            await settled.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            Assert.Equal(0, gateway.OutstandingWrites);
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [Fact]
     public async Task GetWindows_WalksItem0ToCountMinus1_MarksTheCurrentByHandle_AndReleasesEveryWrapperOnTheSta()
     {
         // Story 4.6 (spike 4.12 W1): Item(Count) is E_INVALIDARG, so the walk never asks for it; every wrapper is released

@@ -130,7 +130,11 @@ public static class NotebookFolders
         return false;
     }
 
-    private static bool HoldsANotebookToc(string folder)
+    /// <summary>
+    /// True when <paramref name="folder"/> itself (not below it) holds a <c>*.onetoc2</c> file, hidden and system files
+    /// included, matched ignoring case; false when it doesn't exist or can't be listed (story 4.5's notebook test too).
+    /// </summary>
+    public static bool HoldsANotebookToc(string folder)
     {
         try
         {

@@ -36,6 +36,28 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
         [.. OneNoteXml.Parse(hierarchyXml).Descendants(OneNoteXml.One + "Notebook").Select(From)];
 
     /// <summary>
+    /// The <c>one:Notebook</c> element whose <c>ID</c> is <paramref name="notebookId"/> (compared exactly) in
+    /// <paramref name="hierarchyXml"/>, as XML: its attributes exactly as OneNote wrote them, without children, with the 2013
+    /// namespace declared on it (story 4.4: <c>close_notebook</c>'s result). Null when there is none. Throws
+    /// <see cref="OneNoteXmlException"/> when the XML isn't well-formed.
+    /// </summary>
+    public static string? NotebookElement(string hierarchyXml, string notebookId)
+    {
+        var element = OneNoteXml.Parse(hierarchyXml).Descendants(OneNoteXml.One + "Notebook")
+            .FirstOrDefault(e => string.Equals((string?)e.Attribute("ID"), notebookId, StringComparison.Ordinal));
+        if (element is null)
+        {
+            return null;
+        }
+
+        var copy = new XElement(
+            element.Name,
+            new XAttribute(XNamespace.Xmlns + "one", OneNoteXml.Namespace2013),
+            element.Attributes().Where(a => !a.IsNamespaceDeclaration).Select(a => new XAttribute(a)));
+        return copy.ToString(SaveOptions.DisableFormatting);
+    }
+
+    /// <summary>
     /// Every <c>one:Section</c> in <paramref name="hierarchyXml"/>, at any depth (inside section groups too), in document
     /// order. Throws <see cref="OneNoteXmlException"/> when the XML isn't well-formed.
     /// </summary>

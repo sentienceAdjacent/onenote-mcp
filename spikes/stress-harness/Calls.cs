@@ -72,6 +72,12 @@ internal sealed class ToolClient(McpClient client)
     /// <summary>The AppState tool that lists OneNote's windows (story 4.6, AD-7). Read-only, but it reads what the user has open, so only on the user's request: the harness never calls it either.</summary>
     public const string GetWindows = "get_windows";
 
+    /// <summary>The user-visible AppState tool that closes a notebook (story 4.4, AD-7, AD-11). The harness never calls it either.</summary>
+    public const string CloseNotebook = "close_notebook";
+
+    /// <summary>The user-visible AppState tool that opens an existing local notebook (story 4.5, AD-7, AD-11). The harness never calls it either.</summary>
+    public const string OpenNotebook = "open_notebook";
+
     /// <summary>The write tools (story 2.4 on; epic 5's hierarchy writes since story 5.7; round 2's since story 3.10). The harness never calls them either: it only reads.</summary>
     public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -85,11 +91,13 @@ internal sealed class ToolClient(McpClient client)
     public static bool MayWrite(string tool) =>
         (IsAppState(tool) && !string.Equals(tool, GetWindows, StringComparison.Ordinal)) || WriteTools.Contains(tool);
 
-    /// <summary>The AppState tools the harness refuses: <see cref="NavigateTo"/>, <see cref="SyncHierarchy"/> and <see cref="GetWindows"/>.</summary>
+    /// <summary>The AppState tools the harness refuses: <see cref="NavigateTo"/>, <see cref="SyncHierarchy"/>, <see cref="GetWindows"/>, <see cref="CloseNotebook"/> and <see cref="OpenNotebook"/>.</summary>
     public static bool IsAppState(string tool) =>
         string.Equals(tool, NavigateTo, StringComparison.Ordinal)
         || string.Equals(tool, SyncHierarchy, StringComparison.Ordinal)
-        || string.Equals(tool, GetWindows, StringComparison.Ordinal);
+        || string.Equals(tool, GetWindows, StringComparison.Ordinal)
+        || string.Equals(tool, CloseNotebook, StringComparison.Ordinal)
+        || string.Equals(tool, OpenNotebook, StringComparison.Ordinal);
 
     /// <summary>The unreduced result, for the diag modes; null on a protocol failure.</summary>
     public async Task<CallToolResult?> CallRawAsync(string tool, Dictionary<string, object?> args)
@@ -346,6 +354,16 @@ internal sealed class ToolClient(McpClient client)
         if (string.Equals(tool, GetWindows, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("the harness never calls get_windows (AD-7, AD-11: only on the user's request)");
+        }
+
+        if (string.Equals(tool, CloseNotebook, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("the harness never calls close_notebook (AD-7, AD-11)");
+        }
+
+        if (string.Equals(tool, OpenNotebook, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("the harness never calls open_notebook (AD-7, AD-11)");
         }
 
         if (WriteTools.Contains(tool))
