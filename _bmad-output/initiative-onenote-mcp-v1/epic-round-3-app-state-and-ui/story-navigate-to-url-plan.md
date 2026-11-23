@@ -3,13 +3,14 @@ title: 'navigate_to_url'
 type: 'feature'
 ticket: '7'
 created: '2026-11-22'
-status: 'ready-for-dev'
+status: 'built'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
-review_loop_iteration: 0
+review: 'full'
+baseline_revision: 'f9608a6b6abf7982558eb0f34778cafa3917b09a'
+review_source: 'auto'
+lenses_ran: ['adversarial', 'edge-cases', 'verification-gaps', 'structure']
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/story-get-windows-and-navigate-to-in-a-chosen-window-plan.md'
@@ -77,12 +78,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `Core/AppState/CloudLink.cs` (new) -- parse and classify a link; match it to the open notebooks and sections from one hierarchy XML; pure, so unit-tested on strings.
-- [ ] Port, `ComGateway` (one STA delegate per path, wrappers released in `finally`), `IWindow`, `FakeGateway`, `FakeApplication` -- `NavigateToUrlAsync`. The window path is its own commit, so it can come out if the sitting's gate fails.
-- [ ] `Core/UseCases/NavigateToUrlUseCase.cs` -- step 1 parse; step 3 the open-notebooks read (`GetHierarchy("", Sections)`) and match; step 7 the call; then the landing check outside the pipeline (Design Notes); log entry; warnings.
-- [ ] `Server/Tools/NavigateToUrlTool.cs`, `ServerSetup.cs` -- `navigate_to_url(url, window?)`; annotations as `navigate_to`.
-- [ ] Unit tests (`CloudLinkTests`, `NavigateToUrlToolTests`, `ComGatewayLifecycleTests`) -- every matrix row, plus: percent-encoded and plain notebook paths, a segment-boundary near miss (`MCP Test Cloud 2`), a section in a section group, a `base-path` into another notebook, double-encoded parts, no COM call on any refusal (FakeGateway records none), wrappers released, `fNewWindow` false.
-- [ ] Contract snapshot, tool list, binding count; skill recipe (follow a pasted link only when the user asks; local links go through `navigate_to`), README, stress-harness rows, research note row 24.
+- [x] `Core/AppState/CloudLink.cs` (new) -- parse and classify a link; match it to the open notebooks and sections from one hierarchy XML; pure, so unit-tested on strings.
+- [x] Port, `ComGateway` (one STA delegate per path, wrappers released in `finally`), `IWindow`, `FakeGateway`, `FakeApplication` -- `NavigateToUrlAsync`. The window path is its own commit, so it can come out if the sitting's gate fails.
+- [x] `Core/UseCases/NavigateToUrlUseCase.cs` -- step 1 parse; step 3 the open-notebooks read (`GetHierarchy("", Sections)`) and match; step 7 the call; then the landing check outside the pipeline (Design Notes); log entry; warnings.
+- [x] `Server/Tools/NavigateToUrlTool.cs`, `ServerSetup.cs` -- `navigate_to_url(url, window?)`; annotations as `navigate_to`.
+- [x] Unit tests (`CloudLinkTests`, `NavigateToUrlToolTests`, `ComGatewayLifecycleTests`) -- every matrix row, plus: percent-encoded and plain notebook paths, a segment-boundary near miss (`MCP Test Cloud 2`), a section in a section group, a `base-path` into another notebook, double-encoded parts, no COM call on any refusal (FakeGateway records none), wrappers released, `fNewWindow` false.
+- [x] Contract snapshot, tool list, binding count; skill recipe (follow a pasted link only when the user asks; local links go through `navigate_to`), README, stress-harness rows, research note row 24.
 
 **Acceptance Criteria:**
 - Given a link refused in step 1, when the tool returns, then the log line holds the kind and rule and no part of the link.
@@ -119,6 +120,21 @@ Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build sess
 
 ## Implementation Notes
 
+- Commits: 5f6384e (the tool: `CloudLinks` parse and match, `NavigateToUrlUseCase`, app-level `NavigateToUrl`, landing check, docs, contract); e6ddbf7 (the window path alone, Decision OQ4: `IWindow` slot 21 `NavigateToUrl(bstr)`, `NavigateInWindow` taking the per-window call, `window` argument; revert that commit if the sitting's gate fails); a third with the review fixes and this plan.
+- Port: `NavigateToUrlAsync(url, ct)` and `NavigateToUrlAsync(url, int? window, ct)` as default interface methods (`NotSupported`), as 4.6 did. `ComGateway` refuses an empty link before COM; app-level always passes `fNewWindow: false`; the window path finds the window by `HandleOf` and calls it in one STA delegate, wrappers released in `finally`. Both `CallKind.AppState`.
+- `WindowPages` (new, internal) holds 4.6's AD-21 page withholding, now shared by `get_windows` and the landing check; `get_windows`' behaviour is unchanged. `HierarchyNode.NotebookTrees` gives each open notebook with its sections and section groups at any depth for step 3.
+- The landing check runs after the pipeline returns, with plain gateway reads; any failure (or a cancel) there is `landingUnconfirmed` and the call stays ok. A page link compares the `page-id` GUID of `GetHyperlinkToObject` of the window's page; the GUID is compared, never returned, so a withheld page leaks nothing beyond the link the caller gave.
+- Log line `navigate_to_url correlationId linkKind rule outcome`; refusals log `outcome=refused`.
+- Contract version unchanged; the snapshot gains `navigate_to_url` (with `window`). Unit tests 4124 passed, 3 skipped (2026-11-23).
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-23, lenses adversarial, edge cases, verification gaps and structure, run by the build session itself (one reviewer, same model, no subagents) on the whole story diff against origin/main: 6 findings; 0 high, 1 medium, 5 low. 2 patched, 2 noted for the live sitting, 1 noted for Phill, 1 rejected; no loopback. Verification re-run after the patches (build, unit tests, stress harness, pack, plugin validate).
+  - medium, patch -- step 1 decoded the title (the fragment's first part) and checked it only for control characters and backslashes, so `#Text%26base-path%3Dfile:%2F%2F%2FC:%2FUsers&page-id=…` passed: its title decodes to `&base-path=file:///C:/Users`. If OneNote decodes the fragment before splitting it, that names a local notebook, the case step 1 exists to refuse (spike 4.12 N1, N4). HtmlStopgap refuses a decoded title holding `&`, `=` or `#` for this reason. Fixed: a decoded title holding `=` or `#` is `fragmentParameter`; `&` alone stays allowed, since a parameter needs its `=` and titles such as "Q&A" are common. Tests: three new refused rows, `ATitleWithAnEncodedAmpersand_IsStillAPageLink`.
+  - low, patch -- `NavigateToUrlUseCase.KindNoun` duplicated `CloudLinks.KindName`; removed.
+  - low, noted (sitting step 1) -- `IWindow` slot 21's signature `NavigateToUrl(bstr)` comes from OneMore (research row 25) and the type-library order, not from a call; only the gate shows it moves the right window. The window path is in its own commit (e6ddbf7) for that reason.
+  - low, noted (sitting step 2) -- without `window` the landing check reads `CurrentWindow`; if app-level `NavigateToUrl` moves another window, the result is a false `landedElsewhere`. The step records which window moved.
+  - low, noted for Phill -- a page whose title holds `=` (encoded or not) can't be followed: step 1 refuses it as `fragmentParameter`, as HtmlStopgap refuses such links. It fails safe (nothing shown, `userAction` says to call `navigate_to` with the ID). Whether OneNote encodes `=` in a title is unmeasured.
+  - low, rejected -- a cancel during the landing check returns ok with `landingUnconfirmed` rather than `Cancelled`. The Design Notes put the check after the navigation's outcome is known, so the call's outcome is ok; the warning says the check didn't run.

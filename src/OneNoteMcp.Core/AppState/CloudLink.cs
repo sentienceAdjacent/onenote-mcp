@@ -50,7 +50,7 @@ public sealed record CloudLinkRefusal(string Rule, string Message, string UserAc
 /// unseen, spike 4.12 N1), whose userAction is to call <c>navigate_to</c> with the object's ID; control or format
 /// characters, a backslash, a query, a fragment parameter outside OneNote's own set (a title, <c>section-id</c>,
 /// <c>page-id</c>, <c>object-id</c>, <c>base-path</c>, <c>end</c>, a number), and any part still changing after four rounds
-/// of percent-decoding or changing again after one (as <c>HtmlStopgap</c> checks links; the discipline, not the class,
+/// of percent-decoding or changing again after one, and a title that decodes to <c>=</c> or <c>#</c> (as <c>HtmlStopgap</c> checks links; the discipline, not the class,
 /// which refuses the <c>base-path</c> cloud page links carry).</item>
 /// <item><see cref="Match"/> (step 3): the link must lie inside an open notebook's <c>NotebookKey</c> at a segment
 /// boundary (host and leading segments equal, ignoring case), the notebook's <c>path</c> read both as reported
@@ -218,6 +218,14 @@ public static class CloudLinks
                 if (HasControlCharacters(plain) || plain.Contains('\\', StringComparison.Ordinal))
                 {
                     return Malformed(plain.Contains('\\', StringComparison.Ordinal) ? Rules.Backslash : Rules.ControlCharacters, "has a part that decodes to a backslash or a control character");
+                }
+
+                // No parameter may hide in the decoded title (HtmlStopgap's rule, less its "&"): OneNote may decode the
+                // fragment before it splits it, so a title decoding to "&base-path=file:…" could name a local notebook. "&"
+                // alone is allowed, since a parameter needs its "=" (a title such as "Q&A").
+                if (plain.IndexOfAny(['=', '#']) >= 0)
+                {
+                    return Malformed(Rules.FragmentParameter, "has a title that decodes to = or #, where a parameter could hide");
                 }
 
                 // The title comes first; after it only "end" and a number (a paragraph index) carry no "=".

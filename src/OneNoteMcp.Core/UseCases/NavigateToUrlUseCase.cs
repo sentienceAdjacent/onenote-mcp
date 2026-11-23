@@ -187,7 +187,7 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
             var locked = target.SectionLocked && window.PageId.Length == 0;
             warnings.Add(new ToolWarning(
                 code,
-                "OneNote took the link, but its current " + KindNoun(target.Kind) + " isn't the one the link names. " + current
+                "OneNote took the link, but its current " + CloudLinks.KindName(target.Kind) + " isn't the one the link names. " + current
                     + (locked ? " The link's section is locked: a locked section shows no page, and following a link unlocks nothing." : string.Empty)
                     + RepaintNote,
                 locked ? LockedUserAction : LandedElsewhereUserAction));
@@ -228,13 +228,6 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
             ToolWarnings.LandingUnconfirmed,
             windows,
             [new ToolWarning(ToolWarnings.LandingUnconfirmed, "OneNote took the link, but whether it reached what the link names couldn't be checked: " + why, UnconfirmedUserAction)]);
-
-    private static string KindNoun(CloudLinkKind kind) => kind switch
-    {
-        CloudLinkKind.Page => "page",
-        CloudLinkKind.Section => "section",
-        _ => "notebook",
-    };
 
     /// <summary>"OneNote's current page is …", with IDs only (AD-9), and the page left out under AD-21.</summary>
     internal static string Describe(WindowListing window, bool withheld)

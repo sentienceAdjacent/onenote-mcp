@@ -78,6 +78,9 @@ public sealed class CloudLinkTests
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text&page-id=66666666-7777-8888-9999-AAAAAAAAAAAA", R.FragmentParameter },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text&object-id=" + K.PageGuid, R.FragmentParameter },
         { "onenote:" + K.EncodedNotebook + "/#page-id=" + K.PageGuid, R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#Text%26base-path%3Dfile:%2F%2F%2FC:%2FUsers&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#a%3Db&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#a%23b&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
         { "onenote:" + K.Root + "MCP%2520Test%2520Cloud/Probes.one#Text&page-id=" + K.PageGuid, R.Encoding },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text&page-id=%257B66666666-7777-8888-9999-AAAAAAAAAAAA%257D", R.Encoding },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text%2523&end", R.Encoding },
@@ -102,6 +105,15 @@ public sealed class CloudLinkTests
         Assert.DoesNotContain("Probes", refusal.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("docs.live.net", refusal.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("MCP Test", refusal.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ATitleWithAnEncodedAmpersand_IsStillAPageLink()
+    {
+        var link = "onenote:" + K.EncodedNotebook + "/Probes.one#Q%26A&page-id=" + K.PageGuid + "&end";
+
+        Assert.Null(CloudLinks.Parse(link, out var read));
+        Assert.Equal(CloudLinkKind.Page, read!.Kind);
     }
 
     [Fact]
