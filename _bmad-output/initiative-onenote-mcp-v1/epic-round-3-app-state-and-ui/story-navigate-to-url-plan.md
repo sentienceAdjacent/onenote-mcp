@@ -3,7 +3,7 @@ title: 'navigate_to_url'
 type: 'feature'
 ticket: '7'
 created: '2026-11-22'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -27,10 +27,10 @@ context:
 
 **Always:**
 - Step 1, before COM, every refusal `InvalidArgument` with a `userAction`: not `onenote:` (web links included); `onenote:` whose target isn't `http(s)://` (local, UNC, `///`, fragment-only), its `userAction` "call navigate_to with the object's ID"; control characters, a backslash, a query, a fragment parameter outside OneNote's own set (title, `section-id`, `page-id`, `object-id`, `base-path`, `end`, a number), or a part still changing after four rounds of percent-decoding (as `HtmlStopgap` checks links); an address not inside an open notebook's `NotebookKey` at a segment boundary (host and leading segments equal, case-insensitive, read with `UrlPath`); a `base-path` that isn't that same notebook; a `….one` that isn't the `path` of a section in that notebook; a folder that isn't the notebook itself.
-- Link kinds: page (`.one` with `page-id`, `object-id` allowed), section (`.one`, no `page-id`), notebook (the notebook's own folder).
+- Link kinds: page (`.one` with `page-id`, `object-id` allowed), section (`.one`, no `page-id`), notebook (the notebook's own folder). A section group's folder is refused, its `userAction` "call navigate_to with the group's ID" (Decision OQ3).
 - Step 7: `NavigateToUrl(url, fNewWindow: false)`, or with `window` the window found by handle and its `NavigateToUrl(url)` in one STA call (unknown handle: `InvalidArgument`, nothing sent, as 4.6). `CallKind.AppState`: never retried; a timeout, disconnect, cancel or `0x800706BE` is `outcomeUnknown`. `ComBusy` at the start while an abandoned write is outstanding.
 - `0x80042014` stays `ObjectNotFound` with the spine's `userAction` (AD-9): the link may name something gone; if `navigate_to_url` was just called, wait a second and try once more; otherwise ask the user whether OneNote showed a message.
-- Landing check, after an ok call, no settle: one windows read; the `window` argument's window, else `CurrentWindow`. Page link: `GetHyperlinkToObject` of that window's page, its `page-id` GUID against the link's; section link: `CurrentSectionId` against the matched section's ID; notebook link: `CurrentNotebookId`. A mismatch, or no current page for a page link: warning `landedElsewhere`. The reads failing, no window, or the `window` gone: the can't-confirm warning; the call stays ok.
+- Landing check, after an ok call, no settle: one windows read; the `window` argument's window, else `CurrentWindow`. Page link: `GetHyperlinkToObject` of that window's page, its `page-id` GUID against the link's; section link: `CurrentSectionId` against the matched section's ID; notebook link: `CurrentNotebookId`. A mismatch, or no current page for a page link: warning `landedElsewhere`. The reads failing, no window, or the `window` gone: warning `landingUnconfirmed`; the call stays ok. A match: warning `landed` (Decision OQ1).
 - The result: `meta.windows` holds the one window read (4.6's `WindowListing`, `pageId` withheld under AD-21 as `get_windows` does) and the message says "OneNote's current page is …", never "OneNote shows …".
 - User-visible (AD-11): the description says so, promises no focus behaviour and may bring OneNote forward; the skill calls it only when the user asks. Logs carry the link's kind, the refusing rule and the outcome, never the link (AD-13). Contract snapshot checked (AD-14).
 
@@ -50,6 +50,14 @@ context:
 | Unknown `window` | handle no window has | nothing moves | `InvalidArgument` |
 | Repeat inside a second | `0x80042014` | — | `ObjectNotFound`, the repeat `userAction` |
 | Abandoned write outstanding | — | no COM | `ComBusy` |
+
+## Decisions (Phill, 2026-11-23, Inbox plan approval)
+
+- **OQ1 (a):** the can't-confirm warning is `landingUnconfirmed`; every matched ok carries an informational `landed` warning whose message says "OneNote's current page is …", as `syncRequested` and `notebookClosed` carry their result text.
+- **OQ2 (a):** follow the spine: a link into any open cloud notebook's host is accepted (personal OneDrive, business OneDrive, SharePoint).
+- **OQ3 (a):** a link to a section group's folder is refused with `InvalidArgument` and a `userAction` to call `navigate_to` with the group's ID.
+- **OQ4 (a):** the `Window.NavigateToUrl` gate is step 1 of the story's one live sitting; the window path is built in its own commit so it can be dropped. If the gate fails in the sitting, the build stops and comes back to Phill.
+- **OQ5 (a):** the plan is kept whole.
 
 </frozen-after-approval>
 
@@ -84,6 +92,7 @@ context:
 
 - The landing check runs after the pipeline returns ok, not inside step 7: the navigation's outcome is known by then, so a read that times out must not turn the call into `outcomeUnknown`. Its reads are `CallKind.Read` with the call timeout; any failure gives the can't-confirm warning.
 - Matching reads the link once, decoded once, and requires the four-round decode to agree; the notebook's `path` is compared in both its reported (unencoded) and `UrlPath` forms, as AD-21's Web addresses rule reads it.
+- The window path (`window` argument, `IWindow.NavigateToUrl`) is its own commit (Decision OQ4).
 - Considered combining the call and the landing read in one STA delegate (no gap for the user to move); going with two calls because a failed read would otherwise be indistinguishable from a failed navigation.
 
 ## Live sitting (Phill, about 15 minutes; hitl)
@@ -107,39 +116,6 @@ Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build sess
 
 **Manual checks:**
 - The live sitting above.
-
-## Open Questions
-
-**OQ1. The warning codes (public contract, AD-9, AD-14).** The ticket leaves the can't-confirm code to this story; the matched landing needs a carrier for "OneNote's current page is …".
-- (a) `landingUnconfirmed` for can't-confirm, and an informational `landed` warning on every matched ok, as `syncRequested` and `notebookClosed` carry their result text.
-- (b) `landingUnconfirmed`, and the matched case with no warning: the text goes in the description and `meta.windows` alone.
-- (c) Other names Phill prefers.
-
-Recommended: (a)
-
-**OQ2. Business OneDrive and SharePoint links.** The spine's rule accepts any cloud link inside an open notebook, but only personal OneDrive links were probed for the Security Notice (spike 4.12; AD-3 Modal dialogs). A notice hidden behind other windows would hold the STA thread until the 120 s deadline (N1), then `outcomeUnknown`.
-- (a) Follow the spine: any open cloud notebook's host.
-- (b) Accept `d.docs.live.net` only until a probe covers business links; a narrowing that needs a spine Deferred note in a chore.
-
-Recommended: (a)
-
-**OQ3. Section-group links.** A link to a section group's folder inside an open notebook isn't one of the spine's three link kinds, and `CurrentSectionGroupId` was never seen non-empty (W1), so its landing can't be checked.
-- (a) Refuse it with `InvalidArgument` and a `userAction` to use `navigate_to` with the group's ID.
-- (b) Accept it and always give the can't-confirm warning.
-
-Recommended: (a)
-
-**OQ4. When the Window.NavigateToUrl gate runs.**
-- (a) In the story's one sitting, as step 1, with the window path built as its own commit so it can come out if the gate fails.
-- (b) A short sitting of its own before the window path is built (about 5 minutes more of Phill's time, a second setup).
-
-Recommended: (a)
-
-**OQ5. Plan size.** About 3,700 tokens (estimated from 14,200 characters), above bmad-build's 900-1,600 target, as 4.4-4.6 were. The window path could split into its own story, but it is one argument on the same call and the ticket keeps it.
-- (a) Keep the plan whole.
-- (b) Split the `window` argument into a follow-up story.
-
-Recommended: (a)
 
 ## Implementation Notes
 
