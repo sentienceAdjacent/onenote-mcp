@@ -98,7 +98,7 @@ context:
 
 ## Live sitting (Phill, about 15 minutes; hitl)
 
-Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build session stops any old `OneNoteMcp.exe` and re-points `onenote-dev` at the new build. Claude makes one MCP Test Cloud page for step 4 beforehand and checks it with Sync Now.
+Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build session stops any old `OneNoteMcp.exe` and re-points `onenote-dev` at the new build. Claude makes the MCP Test Cloud pages for steps 4 and 7 beforehand and checks it with Sync Now.
 
 1. **The gate (Window.NavigateToUrl).** Phill opens a second window (Ctrl+M) on another page. Claude lists the windows, then follows a cloud page link in the second window. Phill confirms only that window moved (pointing at OneNote if it hasn't repainted, N1 C). If it fails or moves the wrong window, the build stops and comes back to Phill before going on (ticket, Phill 2026-11-22).
 2. With both windows open, Claude follows another link with no `window`. Phill says which window moved; the result should name that one (checks the spine's Deferred row on app-level `NavigateToUrl`). He closes the second window.
@@ -106,7 +106,8 @@ Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build sess
 4. Claude soft-deletes the page made beforehand and follows its link: `landedElsewhere`.
 5. Claude tries a web link (`get_web_hyperlink_to_object`) and a local MCP Test link: both refused; Phill confirms OneNote didn't move and no dialog appeared.
 6. Claude makes two `navigate_to_url` calls back to back: the second gets the wait-a-second `userAction`. If it goes through instead, that is recorded and the unit test covers the mapping.
-7. Phill runs Sync Now on MCP Test Cloud and reports any sync error.
+7. **Titles with "=" (Phill 2026-11-23: measure, then relax if safe).** Claude makes an MCP Test Cloud page titled `a=b test` beforehand, reads its `get_hyperlink_to_object` link and records whether OneNote writes the "=" as-is or encoded (`%3D`). Then it follows the link. If OneNote encodes it, the "=" refusal only blocks links OneNote never makes, and the build relaxes the rule (a unit test for an encoded title, the HTML link check left as is); if it writes "=" raw, the refusal stays and the result is recorded here.
+8. Phill runs Sync Now on MCP Test Cloud and reports any sync error.
 
 ## Verification
 
