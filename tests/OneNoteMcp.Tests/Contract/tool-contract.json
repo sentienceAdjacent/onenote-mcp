@@ -13739,6 +13739,13 @@
         "properties": {
           "url": {
             "type": "string"
+          },
+          "window": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
           }
         },
         "required": [

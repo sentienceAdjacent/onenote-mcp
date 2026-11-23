@@ -24,15 +24,18 @@ public sealed record NavigateToUrlLogEntry(string CorrelationId, string LinkKind
 /// <item>Step 3: one <c>GetHierarchy</c> of the open notebooks at <c>Sections</c>, and <see cref="CloudLinks.Match"/>: a link
 /// outside every open notebook, a <c>base-path</c> into another notebook, a <c>.one</c> that isn't an open section, or a
 /// folder that isn't the notebook itself is refused the same way, and nothing is shown.</item>
-/// <item>Step 7: <c>NavigateToUrl</c> with <c>fNewWindow</c> false, never retried; a timeout, disconnect, cancel or
+/// <item>Step 7: <c>NavigateToUrl</c> with <c>fNewWindow</c> false, or with a <c>window</c> handle that window's
+/// <c>Window.NavigateToUrl</c> (found and called in one STA call; an unknown handle is <see cref="ErrorCode.InvalidArgument"/>
+/// and nothing is sent, as story 4.6's), never retried; a timeout, disconnect, cancel or
 /// <c>0x800706BE</c> is <c>outcomeUnknown</c>. <c>0x80042014</c> stays <see cref="ErrorCode.ObjectNotFound"/> with
 /// <see cref="ObjectNotFoundUserAction"/> (AD-9).</item>
 /// <item>Then, outside the pipeline, the landing check (Design Notes): the navigation's outcome is known, so its reads
-/// (<c>CallKind.Read</c>, the call timeout) never turn the call into <c>outcomeUnknown</c>. One windows read; OneNote's
-/// current window; then by kind, a page link's <c>page-id</c> against <c>GetHyperlinkToObject</c> of the window's page, a
+/// (<c>CallKind.Read</c>, the call timeout) never turn the call into <c>outcomeUnknown</c>. One windows read; the
+/// <c>window</c> argument's window, else OneNote's current window; then by kind, a page link's <c>page-id</c> against <c>GetHyperlinkToObject</c> of the window's page, a
 /// section link's section ID against <c>CurrentSectionId</c>, a notebook link's against <c>CurrentNotebookId</c>. A match
 /// gives <see cref="ToolWarnings.Landed"/>; a mismatch, or no page where the link names one,
-/// <see cref="ToolWarnings.LandedElsewhere"/>; reads that fail or no window, <see cref="ToolWarnings.LandingUnconfirmed"/>.
+/// <see cref="ToolWarnings.LandedElsewhere"/>; reads that fail, no window, or the <c>window</c> argument's window gone,
+/// <see cref="ToolWarnings.LandingUnconfirmed"/>.
 /// The call stays ok in every case.</item>
 /// </list>
 /// The result's <c>meta.windows</c> holds the window the check read, its page's ID withheld under AD-21 as
@@ -70,8 +73,16 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
 
     public OperationClass Class => OperationClass.AppState;
 
-    /// <summary>Follows <paramref name="url"/> in OneNote's current window.</summary>
-    public async Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string url, CancellationToken ct)
+    /// <summary>Follows <paramref name="url"/> without a window argument: app-level <c>NavigateToUrl</c>.</summary>
+    public Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string url, CancellationToken ct) =>
+        ExecuteAsync(context, url, window: null, ct);
+
+    /// <summary>Follows <paramref name="url"/>.</summary>
+    /// <param name="window">
+    /// Story 4.7: a window's handle as <c>get_windows</c> returns it, so only that window moves (<c>Window.NavigateToUrl</c>); or
+    /// null for app-level <c>NavigateToUrl</c>, whose landing is read from OneNote's current window.
+    /// </param>
+    public async Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string url, int? window, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pipeline);
@@ -79,7 +90,7 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
 
         // AD-21: the grant must be held when the call starts.
         var callStart = access.Now();
-        var follow = new Follow(gateway, url ?? string.Empty);
+        var follow = new Follow(gateway, url ?? string.Empty, window);
         CloudLinkTarget target;
         try
         {
@@ -101,7 +112,7 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
             throw;
         }
 
-        var landing = await LandingAsync(target, callStart, ct).ConfigureAwait(false);
+        var landing = await LandingAsync(target, window, callStart, ct).ConfigureAwait(false);
         Log(context, follow, landing.Code);
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId, Windows: landing.Windows), landing.Warnings);
     }
@@ -113,7 +124,7 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
     private sealed record Landing(string Code, IReadOnlyList<WindowListing>? Windows, IReadOnlyList<ToolWarning> Warnings);
 
     /// <summary>The landing check (Decision OQ1; spine AD-7 <c>AppState</c>, The landing check): never throws, never a settle.</summary>
-    private async Task<Landing> LandingAsync(CloudLinkTarget target, DateTimeOffset callStart, CancellationToken ct)
+    private async Task<Landing> LandingAsync(CloudLinkTarget target, int? handle, DateTimeOffset callStart, CancellationToken ct)
     {
         IReadOnlyList<OneNoteWindow> windows;
         try
@@ -125,10 +136,16 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
             return Unconfirmed(null, "OneNote's windows couldn't be read after it took the link.");
         }
 
-        var window = windows.FirstOrDefault(w => w.Current);
+        var window = handle is { } h
+            ? windows.FirstOrDefault(w => OneNoteWindow.HandleOf(w.Handle) == h)
+            : windows.FirstOrDefault(w => w.Current);
         if (window is null)
         {
-            return Unconfirmed([], "no OneNote window was open after it took the link.");
+            return Unconfirmed(
+                [],
+                handle is { } gone
+                    ? string.Create(CultureInfo.InvariantCulture, $"the window it was sent to (handle {gone}) was no longer open after it took the link.")
+                    : "no OneNote window was open after it took the link.");
         }
 
         WindowListing listing;
@@ -236,7 +253,7 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
             : $"OneNote's current page is none: the window is on {where}, with no page.";
     }
 
-    private sealed class Follow(IOneNoteGateway gateway, string url) : AppStateOperation<CloudLinkTarget>
+    private sealed class Follow(IOneNoteGateway gateway, string url, int? window) : AppStateOperation<CloudLinkTarget>
     {
         private CloudLink? link;
         private CloudLinkTarget? target;
@@ -265,8 +282,15 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
         {
             var matched = target ?? throw new InvalidOperationException("Step 3 didn't run.");
 
-            // Step 7: the link as given (trimmed), never retried.
-            await gateway.NavigateToUrlAsync(url.Trim(), ct).ConfigureAwait(false);
+            // Step 7: the link as given (trimmed), never retried; with a window, only that window moves.
+            if (window is { } handle)
+            {
+                await gateway.NavigateToUrlAsync(url.Trim(), handle, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await gateway.NavigateToUrlAsync(url.Trim(), ct).ConfigureAwait(false);
+            }
             return matched;
         }
 

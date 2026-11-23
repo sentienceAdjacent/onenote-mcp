@@ -28,7 +28,7 @@ public sealed class GetWindowsTool(ToolRunner runner, GetWindowsUseCase useCase)
         + "It doesn't take focus or change what OneNote shows. "
         + "Each window: {handle, current, active, fullPageView, dockedLocation (default, none, left, right, top or bottom), sideNote, notebookId?, sectionGroupId?, sectionId?, pageId?}. current marks OneNote's current window; sideNote a quick note, which can be on a page of a notebook the user never named. "
         + "An ID OneNote doesn't report is left out: no pageId in a locked section. A window on a page of a password-protected section the user hasn't granted you reads reports the section without its pageId, with the warning readNotGranted, whose userAction says how the user grants it. "
-        + "Pass a window's handle as navigate_to's window to show something in that window. With no OneNote window open, meta.windows is empty. "
+        + "Pass a window's handle as navigate_to's window (or navigate_to_url's) to show something in that window. With no OneNote window open, meta.windows is empty. "
         + "Success: {ok:true, meta:{correlationId, windows}, warnings:[]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> GetWindows(CancellationToken cancellationToken = default) =>

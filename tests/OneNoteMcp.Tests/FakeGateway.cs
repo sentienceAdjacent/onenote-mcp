@@ -193,15 +193,31 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// </summary>
     public List<string> NavigateUrlCalls { get; } = [];
 
+    /// <summary>The window handle of each <see cref="NavigateUrlCalls"/> entry, in order (null for app-level <c>NavigateToUrl</c>).</summary>
+    public List<int?> NavigateUrlWindows { get; } = [];
+
     /// <summary>When set, <c>NavigateToUrl</c> alone throws it (story 4.7).</summary>
     public Exception? NavigateUrlFailure { get; set; }
 
     /// <summary>When set, runs inside <c>NavigateToUrl</c> before it answers, with the call's token (a hook to hang, observe, cancel or move a window).</summary>
     public Func<CancellationToken, Task>? OnNavigateUrlCall { get; set; }
 
-    public async Task NavigateToUrlAsync(string url, CancellationToken ct)
+    public Task NavigateToUrlAsync(string url, CancellationToken ct) =>
+        NavigateToUrlAsync(url, window: null, ct);
+
+    /// <summary>
+    /// A handle none of <see cref="Windows"/> has is refused with <see cref="ErrorCode.InvalidArgument"/> and not recorded, as
+    /// the real gateway sends nothing (story 4.7, as 4.6's <c>NavigateTo</c>).
+    /// </summary>
+    public async Task NavigateToUrlAsync(string url, int? window, CancellationToken ct)
     {
+        if (Failure is null && window is { } handle && !Windows.Any(w => OneNoteWindow.HandleOf(w.Handle) == handle))
+        {
+            throw new OneNoteException(ErrorCode.InvalidArgument, OneNoteWindow.UnknownHandleMessage(handle), userAction: OneNoteWindow.UnknownHandleUserAction, retryable: false);
+        }
+
         NavigateUrlCalls.Add(url);
+        NavigateUrlWindows.Add(window);
         if (OnNavigateUrlCall is { } hook)
         {
             await hook(ct).ConfigureAwait(false);

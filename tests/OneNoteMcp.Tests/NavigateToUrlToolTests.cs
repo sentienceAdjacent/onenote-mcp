@@ -38,7 +38,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         OnPage(gateway, K.PageId, K.PageLink());
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         Assert.Equal([K.PageLink()], gateway.NavigateUrlCalls);
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
@@ -61,7 +61,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         OnPage(gateway, K.PageId, K.PageLink());
 
-        Ok(await Tool(gateway).NavigateToUrl("  " + K.PageLink() + "\n", Ct));
+        Ok(await Tool(gateway).NavigateToUrl("  " + K.PageLink() + "\n", cancellationToken: Ct));
 
         Assert.Equal([K.PageLink()], gateway.NavigateUrlCalls);
         Assert.Equal(1, gateway.Calls.Count(c => c == (string.Empty, HierarchyScope.Sections)));
@@ -74,7 +74,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         OnPage(gateway, K.OtherPageId, K.PageLink(pageGuid: K.OtherPageGuid));
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.LandedElsewhere, warning.GetProperty("code").GetString());
@@ -90,7 +90,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, string.Empty, K.LockedSectionId, string.Empty, false, -1, false));
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink("Vault.one"), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink("Vault.one"), cancellationToken: Ct));
 
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.LandedElsewhere, warning.GetProperty("code").GetString());
@@ -109,7 +109,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, string.Empty, K.SectionId, string.Empty, false, -1, false));
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.LandedElsewhere, warning.GetProperty("code").GetString());
@@ -124,7 +124,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, string.Empty, currentSection, string.Empty, false, -1, false));
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.SectionLink, Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.SectionLink, cancellationToken: Ct));
 
         Assert.Equal(code, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
         Assert.Equal("section", Assert.Single(logged).LinkKind);
@@ -139,7 +139,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.Windows.Add(new OneNoteWindow(0x10, true, true, currentNotebook, string.Empty, string.Empty, string.Empty, false, -1, false));
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.NotebookLink, Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.NotebookLink, cancellationToken: Ct));
 
         Assert.Equal(code, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
         Assert.Equal("notebook", Assert.Single(logged).LinkKind);
@@ -152,7 +152,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         gateway.Windows.Add(new OneNoteWindow(0x20, false, false, K.Notebook2Id, string.Empty, K.OtherSectionId, string.Empty, false, -1, false));
         OnPage(gateway, K.PageId, K.PageLink());
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         Assert.Equal(0x10, Assert.Single(root.GetProperty("meta").GetProperty("windows").EnumerateArray()).GetProperty("handle").GetInt32());
         Assert.Equal(ToolWarnings.Landed, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
@@ -165,7 +165,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         OnPage(gateway, K.PageId, K.PageLink());
         gateway.Hierarchies[(K.SectionId, HierarchyScope.Self)] = K.SectionSelf(K.SectionId, "Probes", encrypted: true);
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         var warnings = root.GetProperty("warnings").EnumerateArray().ToList();
         Assert.Equal([ToolWarnings.Landed, ToolWarnings.ReadNotGranted], warnings.Select(w => w.GetProperty("code").GetString()));
@@ -182,7 +182,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.WindowsFailure = new OneNoteException(ErrorCode.Timeout, "Windows timed out.");
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.LandingUnconfirmed, warning.GetProperty("code").GetString());
@@ -198,7 +198,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         // Spike 4.12 W6: Count 0 and CurrentWindow null.
         var gateway = Gateway();
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         Assert.Equal(ToolWarnings.LandingUnconfirmed, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
         Assert.Equal(0, root.GetProperty("meta").GetProperty("windows").GetArrayLength());
@@ -211,7 +211,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         OnPage(gateway, K.PageId, K.PageLink());
         gateway.HyperlinkFailure = new OneNoteException(ErrorCode.ComUnavailable, "gone");
 
-        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct));
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
 
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
         Assert.Equal(ToolWarnings.LandingUnconfirmed, warning.GetProperty("code").GetString());
@@ -237,7 +237,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
     {
         var gateway = Gateway();
 
-        var error = Error(await Tool(gateway).NavigateToUrl(url, Ct), "InvalidArgument");
+        var error = Error(await Tool(gateway).NavigateToUrl(url, cancellationToken: Ct), "InvalidArgument");
 
         Assert.False(error.GetProperty("retryable").GetBoolean());
         Assert.False(error.TryGetProperty("outcomeUnknown", out _));
@@ -264,7 +264,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
     {
         var gateway = Gateway();
 
-        Error(await Tool(gateway).NavigateToUrl(url, Ct), "InvalidArgument");
+        Error(await Tool(gateway).NavigateToUrl(url, cancellationToken: Ct), "InvalidArgument");
 
         Assert.Equal([(string.Empty, HierarchyScope.Sections)], gateway.Calls);
         Assert.Empty(gateway.NavigateUrlCalls);
@@ -281,7 +281,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.AbandonedWrites = new TaskCompletionSource();
 
-        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct), "ComBusy");
+        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct), "ComBusy");
 
         Assert.True(error.GetProperty("retryable").GetBoolean());
         Assert.Empty(gateway.Calls);
@@ -297,7 +297,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.NavigateUrlFailure = new OneNoteException(ErrorCode.ObjectNotFound, "NavigateToUrl failed: hrObjectDoesNotExist (0x80042014).", unchecked((int)0x80042014));
 
-        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct), "ObjectNotFound");
+        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct), "ObjectNotFound");
 
         Assert.Equal("0x80042014", error.GetProperty("hresult").GetString());
         Assert.Equal(NavigateToUrlUseCase.ObjectNotFoundUserAction, error.GetProperty("userAction").GetString());
@@ -317,7 +317,7 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.NavigateUrlFailure = new OneNoteException(code, "m", hresult is { } h ? unchecked((int)h) : null);
 
-        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct), code.ToString());
+        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct), code.ToString());
 
         Assert.True(error.GetProperty("outcomeUnknown").GetBoolean());
         Assert.False(error.GetProperty("retryable").GetBoolean());
@@ -331,10 +331,102 @@ public sealed class NavigateToUrlToolTests : IDisposable
         var gateway = Gateway();
         gateway.NavigateUrlFailure = new OneNoteException(ErrorCode.ModalDialogOpen, "m", unchecked((int)0x80042030));
 
-        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), Ct), "ModalDialogOpen");
+        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct), "ModalDialogOpen");
 
         Assert.True(error.GetProperty("retryable").GetBoolean());
         Assert.False(error.TryGetProperty("outcomeUnknown", out _));
+    }
+
+    // --- The window argument (Decision OQ4: its own commit) -------------------------------------------------------
+
+    [Fact]
+    public async Task WithAWindow_OnlyThatWindowMoves_AndItsLandingIsChecked()
+    {
+        var gateway = Gateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.Notebook2Id, string.Empty, K.OtherSectionId, string.Empty, false, -1, false));
+        gateway.Windows.Add(new OneNoteWindow(0x20, false, false, K.NotebookId, string.Empty, K.SectionId, K.PageId, false, -1, false));
+        gateway.Hyperlinks[K.PageId] = K.PageLink();
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), window: 0x20, cancellationToken: Ct));
+
+        Assert.Equal([K.PageLink()], gateway.NavigateUrlCalls);
+        Assert.Equal([(int?)0x20], gateway.NavigateUrlWindows);
+        Assert.Equal(ToolWarnings.Landed, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        var window = Assert.Single(root.GetProperty("meta").GetProperty("windows").EnumerateArray());
+        Assert.Equal(0x20, window.GetProperty("handle").GetInt32());
+        Assert.False(window.GetProperty("current").GetBoolean());
+    }
+
+    [Fact]
+    public async Task WithoutAWindow_TheCallIsAppLevel()
+    {
+        var gateway = Gateway();
+        OnPage(gateway, K.PageId, K.PageLink());
+
+        Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
+
+        Assert.Equal([(int?)null], gateway.NavigateUrlWindows);
+    }
+
+    [Fact]
+    public async Task WithAHandleNoWindowHas_IsInvalidArgument_AndNothingIsSent()
+    {
+        var gateway = Gateway();
+        OnPage(gateway, K.PageId, K.PageLink());
+
+        var error = Error(await Tool(gateway).NavigateToUrl(K.PageLink(), window: 0x99, cancellationToken: Ct), "InvalidArgument");
+
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+        Assert.False(error.TryGetProperty("outcomeUnknown", out _));
+        Assert.Equal(OneNoteWindow.UnknownHandleUserAction, error.GetProperty("userAction").GetString());
+        Assert.Equal(OneNoteWindow.UnknownHandleMessage(0x99), error.GetProperty("message").GetString());
+        Assert.Empty(gateway.NavigateUrlCalls);
+        Assert.Equal(0, gateway.WindowsCalls);
+        Assert.Equal((CloudLinks.Rules.None, "InvalidArgument"), (logged[0].Rule, logged[0].Outcome));
+    }
+
+    [Fact]
+    public async Task TheWindowGoneAfterTheCall_IsLandingUnconfirmed()
+    {
+        var gateway = Gateway();
+        gateway.Windows.Add(new OneNoteWindow(0x20, true, true, K.NotebookId, string.Empty, K.SectionId, K.PageId, false, -1, false));
+        gateway.OnNavigateUrlCall = _ =>
+        {
+            gateway.Windows.Clear();
+            gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, string.Empty, K.SectionId, K.PageId, false, -1, false));
+            return Task.CompletedTask;
+        };
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), window: 0x20, cancellationToken: Ct));
+
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal(ToolWarnings.LandingUnconfirmed, warning.GetProperty("code").GetString());
+        Assert.Contains("handle 32", warning.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal(0, root.GetProperty("meta").GetProperty("windows").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task WithAWindow_WhileAnAbandonedWriteIsOutstanding_IsComBusy_AndNothingMoves()
+    {
+        var gateway = Gateway();
+        gateway.AbandonedWrites = new TaskCompletionSource();
+        OnPage(gateway, K.PageId, K.PageLink());
+
+        Error(await Tool(gateway).NavigateToUrl(K.PageLink(), window: 0x10, cancellationToken: Ct), "ComBusy");
+
+        Assert.Empty(gateway.NavigateUrlCalls);
+    }
+
+    [Fact]
+    public void Tool_TakesAnOptionalIntegerWindow_AndDescribesIt()
+    {
+        using var services = BuildServer();
+        var tool = Assert.Single(services.GetServices<McpServerTool>().Select(t => t.ProtocolTool), t => t.Name == NavigateToUrlTool.Name);
+
+        var window = tool.InputSchema.GetProperty("properties").GetProperty("window");
+        Assert.Equal(["integer", "null"], window.GetProperty("type").EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal(["url"], tool.InputSchema.GetProperty("required").EnumerateArray().Select(r => r.GetString()));
+        Assert.Contains("With window, a handle from get_windows, only that window moves", tool.Description, StringComparison.Ordinal);
     }
 
     // --- The tool -----------------------------------------------------------------------------------------------

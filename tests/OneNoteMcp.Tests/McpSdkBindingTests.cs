@@ -441,9 +441,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants and get_windows, which take no arguments; 78 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6; open_package's two, story 3.8; sync_hierarchy's one, story 4.3; close_notebook's one, story 4.4; open_notebook's one, story 4.5; navigate_to's window, story 4.6; navigate_to_url's url, story 4.7).
+        // Every tool but list_grants and get_windows, which take no arguments; 79 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6; open_package's two, story 3.8; sync_hierarchy's one, story 4.3; close_notebook's one, story 4.4; open_notebook's one, story 4.5; navigate_to's window, story 4.6; navigate_to_url's url and window, story 4.7).
         Assert.Equal(32, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(78, SnapshotToolProperties().Count);
+        Assert.Equal(79, SnapshotToolProperties().Count);
     }
 
     [Theory]
