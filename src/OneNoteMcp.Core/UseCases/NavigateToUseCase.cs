@@ -1,3 +1,4 @@
+using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Results;
 
 namespace OneNoteMcp.Core.UseCases;
@@ -7,26 +8,29 @@ namespace OneNoteMcp.Core.UseCases;
 /// user-visible, since it takes keyboard focus and changes what OneNote shows, so it is an <c>AppState</c> call (AD-7) that
 /// the skill makes only when the user explicitly asks (AD-11). Showing a page makes OneNote download its images that
 /// aren't on this PC (story 1.21's probe, 2026-11-07), which is how a user gets a <c>binaryUnavailable</c> image.
+/// Since story 4.3 it runs through the <see cref="AppStatePipeline"/>: <c>ComBusy</c> at the start while an abandoned write
+/// is outstanding, the 120 s deadline, and <c>outcomeUnknown</c> on an ambiguous step-7 failure. An empty
+/// <c>hierarchyId</c> is <see cref="ErrorCode.InvalidArgument"/> before COM.
 /// Returns no content: <c>ok: true</c> and no body. Errors map as for every other call.
 /// </summary>
-public sealed class NavigateToUseCase(IOneNoteGateway gateway) : IUseCase
+public sealed class NavigateToUseCase(IOneNoteGateway gateway, AppStatePipeline pipeline) : IUseCase
 {
     /// <summary>
-    /// The userAction for <c>0x80042014</c>. OneMore's Defects page (research note row 14) reports a navigate repeated
-    /// within about 2 s failing with this code; applied to <c>NavigateTo</c> by inference, not measured here.
+    /// The userAction for <c>0x80042014</c>. Spike 4.12 R1 found no failure from a navigate repeated within 2 s, so the
+    /// "wait two seconds and try once more" OneMore's Defects page suggested (research note row 14) is gone (AD-9).
     /// </summary>
-    public const string ObjectNotFoundUserAction =
-        "If navigate_to was just called, wait two seconds and try once more. Otherwise re-read the hierarchy and use a current ID.";
+    public const string ObjectNotFoundUserAction = "Re-read the hierarchy and use a current ID.";
 
     public OperationClass Class => OperationClass.AppState;
 
     public async Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string hierarchyId, string objectId, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(pipeline);
 
         try
         {
-            await gateway.NavigateToAsync(hierarchyId ?? string.Empty, objectId ?? string.Empty, ct).ConfigureAwait(false);
+            await pipeline.RunAsync(new Navigate(gateway, hierarchyId ?? string.Empty, objectId ?? string.Empty), ct).ConfigureAwait(false);
         }
         catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound && ex.ComHResult == OneNoteHResults.ObjectDoesNotExist)
         {
@@ -34,5 +38,22 @@ public sealed class NavigateToUseCase(IOneNoteGateway gateway) : IUseCase
         }
 
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId), []);
+    }
+
+    private sealed class Navigate(IOneNoteGateway gateway, string hierarchyId, string objectId) : AppStateOperation<bool>
+    {
+        public override void Validate()
+        {
+            if (hierarchyId.Length == 0)
+            {
+                throw new OneNoteException(ErrorCode.InvalidArgument, "hierarchyId is empty: pass the ID of a notebook, section group, section or page.");
+            }
+        }
+
+        public override async Task<bool> CallAsync(CancellationToken ct)
+        {
+            await gateway.NavigateToAsync(hierarchyId, objectId, ct).ConfigureAwait(false);
+            return true;
+        }
     }
 }

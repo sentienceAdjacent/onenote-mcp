@@ -8,6 +8,7 @@ using ModelContextProtocol.Server;
 using OneNoteMcp.Com;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
+using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Journal;
 using OneNoteMcp.Core.LargeResults;
 using OneNoteMcp.Core.Settings;
@@ -99,7 +100,10 @@ public static class ServerSetup
         services.AddSingleton(sp => new FindPagesUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<PageTextCache>(), sp.GetRequiredService<ReadAccess>()));
         services.AddSingleton<FindMetaUseCase>();
         services.AddSingleton<ReadResultUseCase>();
+        // AD-7's AppState pipeline (story 4.3): no grant, no lock, the 120 s deadline, outcomeUnknown on an ambiguous step 7.
+        services.AddSingleton(sp => new AppStatePipeline(sp.GetRequiredService<IOneNoteGateway>(), TimeProvider.System));
         services.AddSingleton<NavigateToUseCase>();
+        services.AddSingleton<SyncHierarchyUseCase>();
         services.AddSingleton(sp => new ListGrantsUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System, sp.GetRequiredService<ReadAccess>()));
 
         // Writes (AD-7): the machine-wide write lock (AD-18), logging each hold with IDs and timings only (AD-13); the
@@ -252,6 +256,7 @@ public static class ServerSetup
             .WithTools<FindMetaTool>(EnvelopeJson.Options)
             .WithTools<ReadResultTool>(EnvelopeJson.Options)
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
+            .WithTools<SyncHierarchyTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
             .WithTools<CreatePageTool>(EnvelopeJson.Options)
             .WithTools<UpdatePageContentTool>(EnvelopeJson.Options)
