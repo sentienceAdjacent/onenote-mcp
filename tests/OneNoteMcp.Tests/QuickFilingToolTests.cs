@@ -79,6 +79,33 @@ public sealed class QuickFilingToolTests
     }
 
     [Fact]
+    public async Task CancelWithAnItemStillNamed_IsPickerCancelled_NeverAPick()
+    {
+        // Review hardening: PressedButton 0xFFFFFFFF is a cancel even if OneNote names the highlighted item (unprobed).
+        var gateway = new FakeGateway { QuickFilingAnswer = new QuickFilingAnswer(FakeGateway.SyntheticSectionId, NoButton) };
+        var logs = new List<QuickFilingLogEntry>();
+
+        var root = Ok(await Tool(gateway, logs: logs).QuickFiling(null, null, Ct));
+
+        Assert.Equal(["correlationId"], root.GetProperty("meta").EnumerateObject().Select(p => p.Name));
+        Assert.Equal("pickerCancelled", Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        Assert.Empty(gateway.Calls);
+        Assert.Equal("cancelled", Assert.Single(logs).Outcome);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ABlankTitle_ShowsTheDefaultTitle(string title)
+    {
+        var gateway = new FakeGateway { QuickFilingAnswer = new QuickFilingAnswer(string.Empty, NoButton) };
+
+        Ok(await Tool(gateway).QuickFiling(title, null, Ct));
+
+        Assert.Equal([(QuickFilingUseCase.DefaultTitle, string.Empty)], gateway.QuickFilingCalls);
+    }
+
+    [Fact]
     public async Task WaitEnds_IsOk_WithPickerLeftOpen_TheHoldAndSlotAreFreed_AndALateAnswerIsDroppedAndLogged()
     {
         var gateway = new FakeGateway();

@@ -10,8 +10,12 @@ public sealed record QuickFilingAnswer(string SelectedItem, uint PressedButton)
     /// <summary><c>PressedButton</c> for Cancel and Esc (spike 4.13 F5).</summary>
     public const uint NoButton = 0xFFFFFFFF;
 
-    /// <summary>True when the user chose something: <see cref="SelectedItem"/> isn't empty.</summary>
-    public bool Picked => !string.IsNullOrEmpty(SelectedItem);
+    /// <summary>
+    /// True when the user chose something: <see cref="SelectedItem"/> isn't empty and a button was pressed. A
+    /// <see cref="NoButton"/> answer is a cancel even if OneNote still names the item that was highlighted (unprobed: spike
+    /// 4.13 cancelled only with nothing selected), so a section the user cancelled is never reported as chosen.
+    /// </summary>
+    public bool Picked => !string.IsNullOrEmpty(SelectedItem) && PressedButton != NoButton;
 }
 
 /// <summary>

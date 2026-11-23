@@ -2292,6 +2292,50 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task QuickFiling_ACallThatTimesOutBeforeRun_NeverRuns_AndReleasesTheDialog()
+    {
+        // Review: the caller let go (its deadline) while the STA call was still in QuickFiling: Run is skipped there.
+        using var gate = new ManualResetEventSlim(false);
+        var dialog = new FakeQuickFilingDialog();
+        var app = new FakeApplication
+        {
+            OnQuickFiling = () =>
+            {
+                gate.Wait();
+                return dialog;
+            },
+        };
+        using var gateway = Gateway(app, Settings(callMs: 300));
+        var released = new List<object>();
+        gateway.ReleaseWrapper = w =>
+        {
+            lock (released)
+            {
+                released.Add(w);
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.ShowQuickFilingAsync("t", string.Empty, Ct));
+        Assert.Equal(ErrorCode.Timeout, ex.Code);
+        gate.Set();
+
+        await WaitUntil(() =>
+        {
+            lock (released)
+            {
+                return released.Count == 1;
+            }
+        });
+        Assert.DoesNotContain(dialog.Members, m => m.Member == "Run");
+        Assert.Null(dialog.Callback);
+        Assert.Equal(0, gateway.PickerHolds);
+        lock (released)
+        {
+            Assert.Same(dialog, released[0]);
+        }
+    }
+
+    [Fact]
     public void QuickFilingCallback_IsExposedToComThroughTheCallbackInterface()
     {
         // In-process only (a CCW of our own object): OneNote can QI the callback for its IID and IDispatch (spike 4.13).

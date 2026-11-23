@@ -105,7 +105,7 @@ public sealed class QuickFilingUseCase : IUseCase
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var shownTitle = string.IsNullOrEmpty(title) ? DefaultTitle : title;
+        var shownTitle = string.IsNullOrWhiteSpace(title) ? DefaultTitle : title;
         var shownDescription = description ?? string.Empty;
         void Log(string outcome, string? chosen = null, long? runMs = null, long? waitMs = null, uint? pressed = null) =>
             log?.Invoke(new QuickFilingLogEntry(

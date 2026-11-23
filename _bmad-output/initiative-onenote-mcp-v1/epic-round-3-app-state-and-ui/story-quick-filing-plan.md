@@ -3,13 +3,14 @@ title: 'quick_filing'
 type: 'feature'
 ticket: '9'
 created: '2026-11-23'
-status: 'ready-for-dev'
+status: 'built'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
-review_loop_iteration: 0
+review: 'full'
+review_source: 'auto'
+lenses_ran: ['adversarial', 'edge-cases', 'verification-gaps']
+baseline_revision: '3080ff0bb2e895b9d77b14d33dc29f0be7152d7f'
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/spike-app-state-probes-part-3-quick-filing-findings.md'
@@ -81,13 +82,13 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `Com/Interop/IQuickFilingDialog.cs`, `IQuickFilingDialogCallback.cs`, `HierarchyElement` enum, `InteropLayoutTests.cs` -- early-bound declarations, visibility per Decision OQ2; layout, GUID and CCW QI tests.
-- [ ] `Core`: `QuickFilingPicker`/`QuickFilingAnswer` types and the port method; `ComGateway` (one STA delegate, the callback class, the picker hold, release on let-go); `FakeGateway`, `FakeApplication`.
-- [ ] `Core/UseCases/QuickFilingUseCase.cs` -- argument checks, the one-waiting-call slot, the pipeline call, the 300 s wait on an injected `TimeProvider` (a test override for the limit, as the pipeline's deadline), outcomes, and the read per Decision OQ1; `ToolWarnings`.
-- [ ] `Server/Tools/QuickFilingTool.cs`, `ServerSetup.cs` -- thin tool, user-visible description.
-- [ ] Unit tests: `QuickFilingToolTests` for every matrix row on `FakeGateway`; `ComGatewayLifecycleTests`: the call order, no idle release while held, idle release after let-go, a late answer is a no-op, the callback on a non-STA thread completes the answer.
-- [ ] `tests/OneNoteMcp.Integration/QuickFilingIntegrationTests.cs` -- opt-in, for the sitting (Decision OQ3).
-- [ ] Contract snapshot, tool list, binding count; skill, README, stress-harness rows.
+- [x] `Com/Interop/IQuickFilingDialog.cs`, `IQuickFilingDialogCallback.cs`, `HierarchyElement` enum, `InteropLayoutTests.cs` -- early-bound declarations, visibility per Decision OQ2; layout, GUID and CCW QI tests.
+- [x] `Core`: `QuickFilingPicker`/`QuickFilingAnswer` types and the port method; `ComGateway` (one STA delegate, the callback class, the picker hold, release on let-go); `FakeGateway`, `FakeApplication`.
+- [x] `Core/UseCases/QuickFilingUseCase.cs` -- argument checks, the one-waiting-call slot, the pipeline call, the 300 s wait on an injected `TimeProvider` (a test override for the limit, as the pipeline's deadline), outcomes, and the read per Decision OQ1; `ToolWarnings`.
+- [x] `Server/Tools/QuickFilingTool.cs`, `ServerSetup.cs` -- thin tool, user-visible description.
+- [x] Unit tests: `QuickFilingToolTests` for every matrix row on `FakeGateway`; `ComGatewayLifecycleTests`: the call order, no idle release while held, idle release after let-go, a late answer is a no-op, the callback on a non-STA thread completes the answer.
+- [x] `tests/OneNoteMcp.Integration/QuickFilingIntegrationTests.cs` -- opt-in, for the sitting (Decision OQ3).
+- [x] Contract snapshot, tool list, binding count; skill, README, stress-harness rows.
 
 **Acceptance Criteria:**
 - Given a picker waiting, when idle time passes, then the COM reference is not released; given the wait ended, when idle time passes, then it is.
@@ -122,6 +123,24 @@ Before: OneNote open on an MCP Test page with VS Code in front. The build sessio
 
 ## Implementation Notes
 
+- The spine amendment (AD-2's one public interop type, Decision OQ2) and its memlog line are their own commit, before the code.
+- `QuickFilingCallback` lives in `OneNoteMcp.Com` (not `Interop`); `IQuickFilingDialog` declares `WindowHandle` and `ParentWindowHandle` as uncallable placeholders, so the one STA delegate can't touch them. The button text is "Choose".
+- The gateway's hold (`PickerHold`) begins on the STA just before `Run`; if the caller already let go (a deadline or cancel while the delegate was still queued or setting up), `Run` is skipped and the dialog released there. A failed, timed-out or cancelled `ShowQuickFilingAsync` lets go itself. The answer ends the hold through a thread-pool continuation, so the callback takes no gateway lock and queues no STA work; `Release` posts the dialog's release to its STA only when that worker is still the live one.
+- A pick whose self read returns a page (not expected with `heSections`) is reported with the ID only, so no page element leaves AD-21's checks.
+- `spikes/stress-harness/StressHarness.csproj` compiles `Com/Interop/*.cs` into itself; it now excludes `IQuickFiling*.cs`, since the public callback interface would clash with the referenced assembly's (CS0436).
+- Not done in the build session: the integration test (needs `ONENOTE_MCP_INTEGRATION=1` and Phill; sitting steps 3-4) and the live sitting. The callback's cast of OneNote's dialog (`object` → `IQuickFilingDialog`, a QI on the proxy OneNote passes) is untested against real OneNote: the spike passed the dialog typed, so step 1 of the sitting is its first proof.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Iteration 1 (2026-11-23, build session, lenses run inline: adversarial, edge cases, verification gaps; diff against origin/main).
+
+- **patch** -- A cancel was told apart from a pick only by an empty `SelectedItem`. Spike 4.13 cancelled only with nothing selected, so whether OneNote names a highlighted section on Cancel or Esc is unprobed; if it does, a cancelled choice would have come back as a pick. `QuickFilingAnswer.Picked` now also needs `PressedButton` other than `0xFFFFFFFF`. Test `CancelWithAnItemStillNamed_IsPickerCancelled_NeverAPick`.
+- **patch** -- A title of only spaces was shown as a blank title; it now gets the default, as an omitted one does. Test `ABlankTitle_ShowsTheDefaultTitle`.
+- **patch** (verification gap) -- The let-go-before-`Run` path (the call's deadline ends while the STA call is still in `QuickFiling` or the setters) had no test. Added `QuickFiling_ACallThatTimesOutBeforeRun_NeverRuns_AndReleasesTheDialog`: `Run` is never called, the dialog is released, no hold is left.
+- **dismissed** -- `ReadChosenAsync` swallows a client cancel during the self read and returns ok with the ID only. The pick already happened; per OQ1 a failed read is ok with the ID only, and a cancel there is that case.
+- **dismissed** -- The dialog RCW OneNote passes to the callback (on its MTA thread) isn't released explicitly; it is dropped to the finalizer. Releasing it would be a COM call off the STA beyond the two getters AD-2 allows.
+- **dismissed** -- Lock order: `PickerHold.sync` is taken before the gateway's `gate`, never the reverse (`ReleaseDialog` and `RestartIdleTimer` run outside `sync`). No deadlock path.
+- **dismissed** -- The pipeline returns the picker straight from step 7 with nothing after it that can throw, and the use case's `finally` releases it, so no path leaves a hold the caller can't release.
+- **defer (sitting)** -- The callback's cast of OneNote's own dialog proxy (`object` to `IQuickFilingDialog`) and the Cancel-with-highlight case are only provable live: sitting steps 1 and 2.
