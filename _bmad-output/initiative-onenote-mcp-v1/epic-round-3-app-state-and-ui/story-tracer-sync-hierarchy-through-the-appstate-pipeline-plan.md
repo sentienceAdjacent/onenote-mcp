@@ -3,7 +3,7 @@ title: 'Tracer: sync_hierarchy through the AppState pipeline'
 type: 'feature'
 ticket: '3'
 created: '2026-11-21'
-status: 'built'
+status: 'done'
 baseline_revision: '8df0c015e9d967e14a0f5d07ef33d1a2bff81336'
 route: 'full'
 route_source: 'auto'
@@ -128,3 +128,4 @@ Before: OneNote open in a window with MCP Test and MCP Test Cloud, online. The b
 - 2026-11-22, quick lens (one reviewer, same model), pass 1: 2 findings; verdicts 0 high, 0 medium, 2 low, 0 false, 0 maybe-false. Both rejected; no patch, no loopback.
   - low, rejected -- `NavigateToUseCase.Navigate.Validate`: `navigate_to` now refuses an empty `hierarchyId` with `InvalidArgument` before COM, where it used to send it. The frozen I/O matrix applies every row, the empty-ID row included, to `navigate_to`, so the code follows the approved intent; an empty ID could never show anything, and `InvalidArgument` is AD-9's generic refusal. Unlikely to be met in use.
   - low, rejected -- `AppStatePipeline` step 7: a call that times out or is cancelled while still queued in `ComGateway` (`ComGateway.cs:978`, `1000-1014`) never reached OneNote but is reported `outcomeUnknown`. `WritePipeline` does the same, and the spine's step-7 rule names `Timeout` and `Cancelled` without that distinction; the error is conservative (it asks the caller to check rather than claiming nothing happened). Telling queued from started apart would add a gateway signal and branches for a rare case.
+- Live sitting (Phill, 2026-11-23): passed all 5 steps. Integration filter SyncHierarchy 2 passed; sync_hierarchy on MCP Test Cloud returned ok with syncRequested in 290 ms; Sync This Notebook Now afterwards left every notebook up to date (no 0xE0000644, no Incomplete sync); navigate_to to an MCP Test page returned ok in 372 ms and OneNote showed it.
