@@ -12,7 +12,7 @@ namespace OneNoteMcp.Tests;
 /// <remarks>
 /// The story-3 scripting stays: <see cref="HierarchyXml"/>, when set, answers every <c>GetHierarchy</c>;
 /// <see cref="Failure"/>, when set, is thrown by every method; <see cref="Calls"/> records <c>GetHierarchy</c> calls.
-/// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21), and <see cref="CreateCalls"/> records
+/// <see cref="NavigateCalls"/> records <c>NavigateTo</c> calls (story 1.21) and <see cref="SyncCalls"/> <c>SyncHierarchy</c> calls (story 4.3), <see cref="CloseCalls"/> <c>CloseNotebook</c> calls (story 4.4), and <see cref="CreateCalls"/> records
 /// <c>CreateNewPage</c> calls (story 2.4) and <see cref="CreateSectionCalls"/> section creates (story 2.11); <see cref="UpdateCalls"/> and <see cref="DeleteCalls"/> record the page
 /// writes (story 2.7), and <see cref="AbandonedWrites"/> scripts an outstanding abandoned write. None has a fixture.
 /// <para>
@@ -144,10 +144,78 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>Every <c>NavigateTo</c> call, in order. It returns no content, so it has no fixture: it records and succeeds.</summary>
     public List<(string HierarchyId, string ObjectId)> NavigateCalls { get; } = [];
 
-    public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct)
+    /// <summary>When set, <c>NavigateTo</c> alone throws it (story 4.3).</summary>
+    public Exception? NavigateFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>NavigateTo</c> before it answers, with the call's token (story 4.3: a hook to hang, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnNavigateCall { get; set; }
+
+    public async Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct)
     {
         NavigateCalls.Add((hierarchyId, objectId));
-        return Failure is not null ? Task.FromException(Failure) : Task.CompletedTask;
+        if (OnNavigateCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? NavigateFailure) is { } failure)
+        {
+            throw failure;
+        }
+    }
+
+    /// <summary>Every <c>SyncHierarchy</c> call's ID, in order (story 4.3). It returns nothing, so it has no fixture: it records and succeeds.</summary>
+    public List<string> SyncCalls { get; } = [];
+
+    /// <summary>When set, <c>SyncHierarchy</c> alone throws it (story 4.3).</summary>
+    public Exception? SyncFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>SyncHierarchy</c> before it answers, with the call's token (a hook to hang, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnSyncCall { get; set; }
+
+    public async Task SyncHierarchyAsync(string hierarchyId, CancellationToken ct)
+    {
+        SyncCalls.Add(hierarchyId);
+        AppStateLog.Add("sync " + hierarchyId);
+        if (OnSyncCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? SyncFailure) is { } failure)
+        {
+            throw failure;
+        }
+    }
+
+    /// <summary>
+    /// The <c>SyncHierarchy</c> and <c>CloseNotebook</c> calls in the order they were made, as <c>"sync &lt;id&gt;"</c> and
+    /// <c>"close &lt;id&gt;"</c> (story 4.4). A test's settle can add its own line, to check the sync, settle, close order.
+    /// </summary>
+    public List<string> AppStateLog { get; } = [];
+
+    /// <summary>Every <c>CloseNotebook</c> call's ID, in order (story 4.4). It returns nothing, so it has no fixture: it records and succeeds.</summary>
+    public List<string> CloseCalls { get; } = [];
+
+    /// <summary>When set, <c>CloseNotebook</c> alone throws it (story 4.4).</summary>
+    public Exception? CloseFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>CloseNotebook</c> before it answers, with the call's token (a hook to hang, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnCloseCall { get; set; }
+
+    public async Task CloseNotebookAsync(string notebookId, CancellationToken ct)
+    {
+        CloseCalls.Add(notebookId);
+        AppStateLog.Add("close " + notebookId);
+        if (OnCloseCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? CloseFailure) is { } failure)
+        {
+            throw failure;
+        }
     }
 
     /// <summary>Every <c>CreateNewPage</c> call, in order (story 2.4). It has no fixture: it records and returns <see cref="CreatedPageId"/>.</summary>

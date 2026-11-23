@@ -24,7 +24,7 @@ namespace OneNoteMcp.Com;
 /// fail <see cref="ErrorCode.ComBusy"/>, and the next call gets a fresh worker. A poisoned worker releases its COM
 /// reference and exits if its call ever returns. While <see cref="MaxAbandonedWorkers"/> are outstanding, every call
 /// returns <see cref="ErrorCode.ComUnavailable"/> without touching COM.</item>
-/// <item>A write (<c>CreateNewPage</c>, <c>UpdatePageContent</c>, <c>DeletePageContent</c>, or the raw seam without the
+/// <item>A write (<c>CreateNewPage</c>, <c>UpdatePageContent</c>, <c>DeletePageContent</c>, <c>CloseNotebook</c>, or the raw seam without the
 /// disconnect retry) that started in OneNote and was then left, by its deadline or its caller's cancel, is outstanding
 /// until it returns. Meanwhile every call but a read (writes, <c>NavigateTo</c>) returns <see cref="ErrorCode.ComBusy"/>
 /// without touching COM, and <see cref="WaitForAbandonedWritesAsync"/> stays pending. A write abandoned while still
@@ -243,6 +243,54 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             // AppState, not a read: a call that reached COM and then lost the connection isn't repeated (AD-3).
             CallKind.AppState,
             ct);
+
+    public Task SyncHierarchyAsync(string hierarchyId, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.SyncHierarchy);
+        if (string.IsNullOrEmpty(hierarchyId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no hierarchy ID was given.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                app.SyncHierarchy(hierarchyId);
+                return true;
+            },
+            // AppState (story 4.3): never repeated after a disconnect, and never an abandoned write (AD-3, AD-7).
+            CallKind.AppState,
+            ct);
+    }
+
+    public Task CloseNotebookAsync(string notebookId, CancellationToken ct)
+    {
+        const string method = nameof(IApplication.CloseNotebook);
+        if (string.IsNullOrEmpty(notebookId))
+        {
+            return Task.FromException(new OneNoteException(
+                ErrorCode.InvalidArgument,
+                $"{method} wasn't sent: no notebook ID was given.",
+                retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                // Never force (Phill, 2026-11-12, epic 4 Q1 a).
+                app.CloseNotebook(notebookId, force: false);
+                return true;
+            },
+            // AppState sent as a write (story 4.4; AD-3, AD-7): never repeated after a disconnect, and tracked as an
+            // abandoned write if its caller stops waiting while it runs, so the write lock is kept until it settles (AD-18).
+            CallKind.Write,
+            ct);
+    }
 
     public Task<string> CreateNewPageAsync(string sectionId, CoreNewPageStyle style, CancellationToken ct)
     {
@@ -1088,7 +1136,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>
     /// AD-3: while an abandoned write may still be running in OneNote, only reads are sent. Anything else (a write,
-    /// <c>NavigateTo</c>) fails <see cref="ErrorCode.ComBusy"/> without touching COM.
+    /// <c>NavigateTo</c>, <c>SyncHierarchy</c>) fails <see cref="ErrorCode.ComBusy"/> without touching COM.
     /// </summary>
     private void ThrowIfWriteOutstanding(string method, CallKind kind)
     {

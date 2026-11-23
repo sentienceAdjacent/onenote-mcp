@@ -25,7 +25,14 @@ A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and
 
 | Tool | What it does |
 |---|---|
+| `close_notebook` | closes an open notebook in OneNote, by its ID, which removes it from OneNote's notebook list. It needs no write grant and changes no content, and it never forces the close: it first asks OneNote to sync the notebook and waits about 10 s, so an edit Claude just made isn't lost. If OneNote was showing the notebook, its view may go blank, and a notebook stored online may show a "syncing changes" box until it is done. Every ID in the notebook changes when you reopen it; your grants for it are kept |
 | `navigate_to` | shows a notebook, section group, section or page in OneNote, optionally selecting one object on it. It takes keyboard focus and changes what OneNote shows, so the plugin's `guide` skill tells Claude to call it only when you explicitly ask, for example to download a page's missing images. It changes no content |
+
+**App state, only when you ask:**
+
+| Tool | What it does |
+|---|---|
+| `sync_hierarchy` | asks OneNote to sync a notebook, section group, section or page. It changes nothing on screen, but the `guide` skill tells Claude to call it only when you ask for a sync, never on its own after a write. A success means OneNote accepted the request, not that the sync ran or finished: OneNote doesn't report that, so the result carries a `syncRequested` warning. Check File > Info > View Sync Status in OneNote to see how it went |
 
 **Writes, only in notebooks you grant (first preview):**
 

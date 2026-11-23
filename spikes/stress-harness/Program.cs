@@ -93,9 +93,9 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (twenty-nine since round 2: story 3.10 lists its six
-    // write tools), each readOnlyHint: true except navigate_to, the one user-visible tool, and the
-    // write tools, none of which the harness ever calls (ToolClient refuses them).
+    // Startup check, before any read: exactly the contract tools (thirty since story 4.3 added sync_hierarchy; story 3.10
+    // listed round 2's six write tools), each readOnlyHint: true except the AppState tools navigate_to and sync_hierarchy
+    // and the write tools, none of which the harness ever calls (ToolClient refuses them).
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();
     var unexpected = names.Count(n => !contract.Contains(n, StringComparer.Ordinal));
@@ -103,7 +103,7 @@ static async Task<int> MainAsync(string[] args)
     var notReadOnly = listed.Count(t => !ToolClient.MayWrite(t.Name) && t.ProtocolTool.Annotations?.ReadOnlyHint != true);
     if (unexpected > 0 || missing > 0 || notReadOnly > 0 || names.Count != contract.Count)
     {
-        Console.Error.WriteLine($"refused: tools/list is not exactly the {contract.Count} contract tools, each with readOnlyHint but {ToolClient.NavigateTo} and the write tools (listed {names.Count}, unexpected {unexpected}, missing {missing}, not read-only {notReadOnly})");
+        Console.Error.WriteLine($"refused: tools/list is not exactly the {contract.Count} contract tools, each with readOnlyHint but {ToolClient.NavigateTo}, {ToolClient.SyncHierarchy} and the write tools (listed {names.Count}, unexpected {unexpected}, missing {missing}, not read-only {notReadOnly})");
         DeleteSettingsDir(settingsDir);
         return Exit.UnexpectedTools;
     }

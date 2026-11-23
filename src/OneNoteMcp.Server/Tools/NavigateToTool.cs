@@ -25,6 +25,7 @@ public sealed class NavigateToTool(ToolRunner runner, NavigateToUseCase useCase)
         + "Shows a notebook, section group, section or page in OneNote's first open window and, with pageContentObjectId, selects that object on the page. It changes no content and returns none. "
         + "It only works with OneNote open in a window: when OneNote runs without one, it still returns ok but shows and downloads nothing. "
         + "Showing a page makes OneNote download the page's images that aren't on this PC, so after the user agrees, a get_binary_page_content that gave binaryUnavailable can be retried. "
+        + "It has a 120 s deadline. A timeout, a lost connection or a cancel while OneNote is handling the call returns outcomeUnknown: OneNote may or may not show the object, so ask the user what OneNote shows before calling it again. "
         + "Success: {ok:true, meta:{correlationId}, warnings:[]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> NavigateTo(

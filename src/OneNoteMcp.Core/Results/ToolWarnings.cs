@@ -172,4 +172,19 @@ public static class ToolWarnings
     /// Gives the move's error code and message (IDs only); its userAction says to move it with <c>move_hierarchy_object</c>.
     /// </summary>
     public const string RestoredNotMoved = "restoredNotMoved";
+
+    /// <summary>
+    /// <c>sync_hierarchy</c> (story 4.3, 4.3 plan Q1): OneNote accepted the sync request. It returns before any sync is done
+    /// (spike 4.1 S1) and offers no way to see one complete, so the warning says the sync was requested, not that it ran or
+    /// finished. Every ok from <c>sync_hierarchy</c> carries it. Names no ID.
+    /// </summary>
+    public const string SyncRequested = "syncRequested";
+
+    /// <summary>
+    /// <c>close_notebook</c> (story 4.4; Phill, 2026-11-22, 4.4 plan Q1 a): OneNote closed the notebook. Every ok from
+    /// <c>close_notebook</c> carries it. It says the server asked OneNote to sync the notebook and waited about 10 s first,
+    /// that every ID in the notebook changes when it reopens, that OneNote's view may go blank, and that its grants
+    /// survive; its userAction gives the reopen route (a local notebook by its path, a cloud one in OneNote). Names no ID.
+    /// </summary>
+    public const string NotebookClosed = "notebookClosed";
 }

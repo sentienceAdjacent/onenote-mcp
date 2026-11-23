@@ -9,7 +9,7 @@ internal sealed record FakeCall(string Method, object?[] Args, int ThreadId);
 /// Managed stand-in for the OneNote COM object. The read methods are programmable: <see cref="OnCall"/>, when set,
 /// answers every one of them (hang on a gate, throw a sequence, return a value); otherwise GetHierarchy answers from
 /// <see cref="OnGetHierarchy"/> and the rest throw. Every read call is recorded. <see cref="Factory"/> counts activations.
-/// Write and app-state methods always throw, except <c>NavigateTo</c>, <c>CreateNewPage</c>, <c>OpenHierarchy</c>, <c>UpdatePageContent</c>,
+/// Write and app-state methods always throw, except <c>NavigateTo</c>, <c>SyncHierarchy</c> (story 4.3), <c>CloseNotebook</c> (story 4.4), <c>CreateNewPage</c>, <c>OpenHierarchy</c>, <c>UpdatePageContent</c>,
 /// <c>DeletePageContent</c>, <c>UpdateHierarchy</c>, <c>DeleteHierarchy</c> and <c>Publish</c> (story 5.6), which are recorded and scripted like a read.
 /// </summary>
 internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IApplication
@@ -101,7 +101,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
     public void CreateNewPage(string bstrSectionID, out string pbstrPageID, NewPageStyle npsNewPageStyle) =>
         pbstrPageID = Answer(nameof(CreateNewPage), [bstrSectionID, npsNewPageStyle]);
 
-    public void CloseNotebook(string bstrNotebookID, bool force) => throw new NotSupportedException();
+    // Recorded and scripted like a read (story 4.4), so the gateway's force: false, no-retry and abandoned-write rules can be checked.
+    public void CloseNotebook(string bstrNotebookID, bool force) =>
+        Answer(nameof(CloseNotebook), [bstrNotebookID, force]);
 
     // Recorded and scripted like the reads (story 2.7), so the gateway's argument mapping, UTC date and no-retry rule can be checked.
     public void UpdatePageContent(string bstrPageChangesXmlIn, DateTime dateExpectedLastModified, XMLSchema xsSchema, bool force) =>
@@ -128,7 +130,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
 
     public object QuickFiling() => throw new NotSupportedException();
 
-    public void SyncHierarchy(string bstrHierarchyID) => throw new NotSupportedException();
+    // Recorded and scripted like the reads (story 4.3), so the gateway's argument mapping and no-retry rule can be checked.
+    public void SyncHierarchy(string bstrHierarchyID) =>
+        Answer(nameof(SyncHierarchy), [bstrHierarchyID]);
 
     public void SetFilingLocation(FilingLocation flToSet, FilingLocationType fltToSet, string bstrFilingSectionID) => throw new NotSupportedException();
 
