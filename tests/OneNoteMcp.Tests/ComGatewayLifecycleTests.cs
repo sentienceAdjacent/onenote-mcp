@@ -805,6 +805,64 @@ public sealed class ComGatewayLifecycleTests
         Assert.Equal(ErrorCode.ModalDialogOpen, modal.Code);
     }
 
+    [Fact]
+    public async Task SyncHierarchy_PassesItsId_AndRefusesAnEmptyOneBeforeCom()
+    {
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.SyncHierarchyAsync("{n}", Ct);
+        var empty = await Assert.ThrowsAsync<OneNoteException>(() => gateway.SyncHierarchyAsync(string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, empty.Code);
+        Assert.Equal([["{n}"]], app.Calls.Where(c => c.Method == "SyncHierarchy").Select(c => c.Args));
+    }
+
+    [Fact]
+    public async Task SyncHierarchy_IsNotRetriedAfterADisconnect_AndFailuresMapLikeAnyCall()
+    {
+        // AppState, not a read: a disconnect that reached COM isn't repeated (AD-3).
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.SyncHierarchyAsync("{n}", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        app.OnCall = _ => throw new COMException("gone", unchecked((int)0x80042014));
+        Assert.Equal(ErrorCode.ObjectNotFound, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.SyncHierarchyAsync("{gone}", Ct))).Code);
+        app.OnCall = _ => throw new COMException("modal", unchecked((int)0x80042030));
+        Assert.Equal(ErrorCode.ModalDialogOpen, (await Assert.ThrowsAsync<OneNoteException>(() => gateway.SyncHierarchyAsync("{n}", Ct))).Code);
+    }
+
+    [Fact]
+    public async Task ATimedOutSyncHierarchy_IsNotAnAbandonedWrite_SoAWriteAfterItIsNotComBusy()
+    {
+        // Story 4.3 acceptance: an AppState call abandoned at step 7 doesn't hold back the writes after it (AD-3, AD-7).
+        using var gate = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c => c.Method == "SyncHierarchy" && !gate.IsSet ? Hang(gate) : "<ok/>";
+        using var gateway = Gateway(app, Settings(callMs: 300));
+
+        try
+        {
+            var timeout = await Assert.ThrowsAsync<OneNoteException>(() => gateway.SyncHierarchyAsync("{n}", Ct));
+            Assert.Equal(ErrorCode.Timeout, timeout.Code);
+            Assert.Equal(0, gateway.OutstandingWrites);
+            Assert.Equal(0, gateway.AbandonedWritesTracked);
+            Assert.True(gateway.WaitForAbandonedWritesAsync(Ct).IsCompleted);
+
+            // The write runs, on a fresh worker, while the sync is still hung.
+            await gateway.UpdatePageContentAsync("<one:Page/>", "2026-11-11T10:20:30.000Z", Ct);
+            Assert.Contains(app.Calls, c => c.Method == "UpdatePageContent");
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
     [Theory]
     [InlineData(NewPageStyle.Default, 0)] // npsDefault
     [InlineData(NewPageStyle.BlankPageWithTitle, 1)] // npsBlankPageWithTitle
@@ -1456,6 +1514,7 @@ public sealed class ComGatewayLifecycleTests
             () => gateway.DeletePageContentAsync("{p}", "{oe}", "2026-11-11T10:20:30.000Z", Ct),
             () => gateway.CreateNewPageAsync("{s}", NewPageStyle.Default, Ct),
             () => gateway.NavigateToAsync("{p}", string.Empty, Ct),
+            () => gateway.SyncHierarchyAsync("{n}", Ct),
             () => gateway.InvokeAsync(_ => true, Ct, retryOnDisconnect: false),
         })
         {
