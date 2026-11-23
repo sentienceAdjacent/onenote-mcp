@@ -25,12 +25,13 @@ A local [MCP](https://modelcontextprotocol.io) server that lets Claude Code, and
 
 | Tool | What it does |
 |---|---|
-| `navigate_to` | shows a notebook, section group, section or page in OneNote, optionally selecting one object on it. It takes keyboard focus and changes what OneNote shows, so the plugin's `guide` skill tells Claude to call it only when you explicitly ask, for example to download a page's missing images. It changes no content |
+| `navigate_to` | shows a notebook, section group, section or page in OneNote, optionally selecting one object on it. It takes keyboard focus and changes what OneNote shows, so the plugin's `guide` skill tells Claude to call it only when you explicitly ask, for example to download a page's missing images. It uses OneNote's first window, or the window you mean when Claude passes one of `get_windows`' handles. It changes no content |
 
 **App state, only when you ask:**
 
 | Tool | What it does |
 |---|---|
+| `get_windows` | lists OneNote's open windows and what each shows (notebook, section group, section and page), which one you're in, and whether it's a quick note, so Claude can tell which page you're looking at. It changes nothing on screen, but the `guide` skill tells Claude to call it only when you ask, or refer to what you're looking at ("this page"). A window on a page of a password-protected section you haven't granted reads names the section without the page |
 | `sync_hierarchy` | asks OneNote to sync a notebook, section group, section or page. It changes nothing on screen, but the `guide` skill tells Claude to call it only when you ask for a sync, never on its own after a write. A success means OneNote accepted the request, not that the sync ran or finished: OneNote doesn't report that, so the result carries a `syncRequested` warning. Check File > Info > View Sync Status in OneNote to see how it went |
 
 **Writes, only in notebooks you grant (first preview):**

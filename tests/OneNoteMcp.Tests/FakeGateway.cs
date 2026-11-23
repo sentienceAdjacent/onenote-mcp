@@ -141,8 +141,12 @@ internal sealed class FakeGateway : IOneNoteGateway
     public Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.GetSpecialLocationAsync), location.ToString());
 
-    /// <summary>Every <c>NavigateTo</c> call, in order. It returns no content, so it has no fixture: it records and succeeds.</summary>
-    public List<(string HierarchyId, string ObjectId)> NavigateCalls { get; } = [];
+    /// <summary>
+    /// Every <c>NavigateTo</c> call, in order, with its window handle (story 4.6; null for OneNote's first window). It returns
+    /// no content, so it has no fixture: it records and succeeds. A handle none of <see cref="Windows"/> has is refused with
+    /// <see cref="ErrorCode.InvalidArgument"/> and not recorded, as the real gateway navigates nothing.
+    /// </summary>
+    public List<(string HierarchyId, string ObjectId, int? Window)> NavigateCalls { get; } = [];
 
     /// <summary>When set, <c>NavigateTo</c> alone throws it (story 4.3).</summary>
     public Exception? NavigateFailure { get; set; }
@@ -150,9 +154,17 @@ internal sealed class FakeGateway : IOneNoteGateway
     /// <summary>When set, runs inside <c>NavigateTo</c> before it answers, with the call's token (story 4.3: a hook to hang, observe or cancel).</summary>
     public Func<CancellationToken, Task>? OnNavigateCall { get; set; }
 
-    public async Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct)
+    public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) =>
+        NavigateToAsync(hierarchyId, objectId, window: null, ct);
+
+    public async Task NavigateToAsync(string hierarchyId, string objectId, int? window, CancellationToken ct)
     {
-        NavigateCalls.Add((hierarchyId, objectId));
+        if (Failure is null && window is { } handle && !Windows.Any(w => OneNoteWindow.HandleOf(w.Handle) == handle))
+        {
+            throw new OneNoteException(ErrorCode.InvalidArgument, OneNoteWindow.UnknownHandleMessage(handle), userAction: OneNoteWindow.UnknownHandleUserAction, retryable: false);
+        }
+
+        NavigateCalls.Add((hierarchyId, objectId, window));
         if (OnNavigateCall is { } hook)
         {
             await hook(ct).ConfigureAwait(false);
@@ -162,6 +174,34 @@ internal sealed class FakeGateway : IOneNoteGateway
         {
             throw failure;
         }
+    }
+
+    /// <summary>The windows <c>GetWindows</c> returns (story 4.6), in order; none by default.</summary>
+    public List<OneNoteWindow> Windows { get; } = [];
+
+    /// <summary>How many <c>GetWindows</c> calls reached the gateway (story 4.6).</summary>
+    public int WindowsCalls { get; private set; }
+
+    /// <summary>When set, <c>GetWindows</c> alone throws it (story 4.6).</summary>
+    public Exception? WindowsFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>GetWindows</c> before it answers, with the call's token (a hook to hang, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnWindowsCall { get; set; }
+
+    public async Task<IReadOnlyList<OneNoteWindow>> GetWindowsAsync(CancellationToken ct)
+    {
+        WindowsCalls++;
+        if (OnWindowsCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? WindowsFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        return [.. Windows];
     }
 
     /// <summary>Every <c>SyncHierarchy</c> call's ID, in order (story 4.3). It returns nothing, so it has no fixture: it records and succeeds.</summary>

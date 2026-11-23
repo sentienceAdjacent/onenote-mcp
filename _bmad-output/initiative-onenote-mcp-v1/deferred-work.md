@@ -649,3 +649,6 @@ Closes the "epic 2 first refactor" group above (D1–D5, P2, P3, S2, S3, A3). R4
 - source_plan: `_bmad-output/initiative-onenote-mcp-v1/backlog/story-one-shared-recovery-path-for-the-move-and-restore-writes-plan.md`
   summary: A `WriteOperation` hook that `WritePipeline` calls on a partial copy (`0x80042004`) in step 7, so the pipeline owns the re-read and the rethrow with `outcomeUnknown` instead of each move and restore write.
   evidence: Backlog 17 Q3 (Phill, 2026-11-21, Inbox) chose a shared helper each write calls, with `WritePipeline` unchanged, because a hook changes the pipeline for every write.
+- source_plan: `_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/story-get-windows-and-navigate-to-in-a-chosen-window-plan.md`
+  summary: navigate_to's description still says it takes keyboard focus and that with OneNote running windowless it returns ok but shows and downloads nothing; the spine says descriptions promise no focus behaviour and drop the windowless sentence (W6: NavigateTo opened a window in front).
+  evidence: NavigateToTool.cs description, first and fourth sentences, against the spine's AD-11 bullets on focus (spike 4.12 Focus finding) and on navigate_to without a window (W6); 4.6 quick review pass 1. Pre-existing, not changed by 4.6.

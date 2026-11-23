@@ -3,12 +3,13 @@ title: 'get_windows, and navigate_to in a chosen window'
 type: 'feature'
 ticket: '6'
 created: '2026-11-21'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '4eb460e5daec0e0bc934f86aca511aeb9dd1c0a9'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -72,12 +73,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `Com/Interop/IWindows.cs`, new `IWindow.cs`, `InteropLayoutTests.cs` -- early-bound declarations.
-- [ ] Port (`GetWindowsAsync`, `NavigateToAsync` with an optional window), `ComGateway` (one STA delegate each, releases in `finally`), `FakeGateway`, `FakeApplication`.
-- [ ] `Core/UseCases/GetWindowsUseCase.cs`, `Server/Tools/GetWindowsTool.cs`, `ServerSetup.cs`; `ToolMeta.Windows`.
-- [ ] `NavigateToUseCase.cs`, `NavigateToTool.cs` -- `window` argument and description.
-- [ ] Unit tests: `GetWindowsToolTests` and `NavigateToToolTests` for every matrix row; `ComGatewayLifecycleTests`: the walk stops at `Count - 1`, every wrapper released, an unknown handle navigates nothing.
-- [ ] Contract snapshot, tool list, binding count; skill (`get_windows` when the user says "this page"), README, stress-harness rows.
+- [x] `Com/Interop/IWindows.cs`, new `IWindow.cs`, `InteropLayoutTests.cs` -- early-bound declarations.
+- [x] Port (`GetWindowsAsync`, `NavigateToAsync` with an optional window), `ComGateway` (one STA delegate each, releases in `finally`), `FakeGateway`, `FakeApplication`.
+- [x] `Core/UseCases/GetWindowsUseCase.cs`, `Server/Tools/GetWindowsTool.cs`, `ServerSetup.cs`; `ToolMeta.Windows`.
+- [x] `NavigateToUseCase.cs`, `NavigateToTool.cs` -- `window` argument and description.
+- [x] Unit tests: `GetWindowsToolTests` and `NavigateToToolTests` for every matrix row; `ComGatewayLifecycleTests`: the walk stops at `Count - 1`, every wrapper released, an unknown handle navigates nothing.
+- [x] Contract snapshot, tool list, binding count; skill (`get_windows` when the user says "this page"), README, stress-harness rows.
 
 **Acceptance Criteria:**
 - Given an abandoned write outstanding, when `get_windows` is called, then it is `ComBusy` and no window is read.
@@ -110,6 +111,24 @@ Before: OneNote open in one window on an MCP Test page, with another app (VS Cod
 
 ## Implementation Notes
 
+- Port: `GetWindowsAsync` and a `NavigateToAsync(hierarchyId, objectId, ulong? window, ct)` overload, both default interface methods (`NotSupported` for a window; null window falls back to the 3-argument call), so the many test doubles needed no change. The port carries `OneNoteWindow` (Core); the wire carries `ToolMeta.Windows`, a list of `WindowListing` whose IDs default to null so the output schema doesn't require them (nulls are omitted on the wire).
+- `ComGateway`: one STA delegate each (`ReadWindows`, `NavigateInWindow`), wrappers released in `finally` through an internal `ReleaseWrapper` seam (`Marshal.ReleaseComObject` for COM objects) so the lifecycle tests can count releases. `GetWindows` is `CallKind.Read`; the window navigate stays `CallKind.AppState` with method name `Window.NavigateTo`.
+- `GetWindowsUseCase.Class` is `AppState`; since `ToolErrors` makes `Timeout`/`ComUnavailable`/`Cancelled` non-retryable for that class, the use case re-throws them with `retryable: true` (spine: retryable as a read's). The AD-21 section reads run inside step 7 (under the pipeline's deadline), one `GetHierarchy(sectionId, self)` per distinct section on a page; a page with no section ID, or a section OneNote can't find, is withheld too (fail closed) and counted in the one `readNotGranted` warning.
+- `dockedLocation` is reported as a name (`default`, `none`, `left`, `right`, `top`, `bottom`), or the number for any other value.
+- `window` binds as `int?` (schema `integer`/`null`). The argument check (story 2.14) accepts only signed 32-bit integers, so a handle is `WindowHandle`'s 32 significant bits as a signed number (`OneNoteWindow.HandleOf`), negative when bit 31 is set; the gateway matches on those bits (review pass 1).
+- Contract version stays `0.10` (as story 4.3 did); the snapshot gains `get_windows`, `navigate_to.window` and `meta.windows` on every tool's output schema.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- 2026-11-22, quick lens (one reviewer, same model), pass 1: 8 findings; verdicts 0 high, 1 medium, 7 low, 0 false, 0 maybe-false. 4 patched, 1 deferred, 3 rejected; no loopback. Verification re-run after the patches.
+  - medium, patch -- the `window` handle round trip: `get_windows` reported `unchecked((long)WindowHandle)` and `navigate_to` took a `long` refusing negatives, but the argument check (`ArgumentCheck.cs`, `TryGetInt32`) accepts only signed 32-bit integers, so a handle with bit 31 set (zero- or sign-extended) couldn't be passed back. Fixed: `OneNoteWindow.HandleOf` gives `WindowHandle`'s 32 significant bits as a signed `int`; `meta.windows[].handle` and `window` are `int`, the gateway matches on those bits, and the negative-window refusal is gone (tests: `AHandleWithBit31Set_MakesTheRoundTrip_AsANegativeNumber`, `NavigateTo_MatchesTheHandleOnItsLow32Bits_SoASignExtendedHandleIsFound`). Schema unchanged (`integer`).
+  - low, patch -- `NavigateToTool` description (and README, port doc): the new "It never opens a new window" contradicts spike 4.12 W6 (with the last window closed, `NavigateTo` opened one) and the spine's no-focus-promise rule. Removed; the port doc now says `fNewWindow` stays false.
+  - low, patch -- `spikes/stress-harness/Calls.cs`: adding `get_windows` to `IsAppState` also put it in `MayWrite`, so the startup check stopped requiring its `readOnlyHint`. `MayWrite` now excludes it.
+  - low, patch -- `GetWindowsUseCase.WithheldMessage`: the count also covers fail-closed pages (no section ID, section not found), which the message described as "in a protected section ... the section is reported". Reworded to cover both.
+  - low, defer -- `navigate_to`'s pre-existing "when OneNote runs without one, it still returns ok but shows and downloads nothing" and "takes keyboard focus" wording, which the spine (AD-11, W6 and the focus finding) says the description drops. Not caused by this change; recorded in `deferred-work.md`.
+  - low, rejected -- a window closed during the `Item` walk makes `Item(i)` `E_INVALIDARG`, mapped to `Internal`. The race is a sub-second window inside one STA call; guarding it adds a branch for a case unlikely to be met.
+  - low, rejected -- a timeout or disconnect while the windowed `navigate_to` is still finding its window is `outcomeUnknown` though nothing was sent. The frozen intent puts the lookup and the call in one STA call; the error is conservative. The spine's "`InvalidArgument` before COM" for an unknown `window` is met in the sense that nothing is shown and `Window.NavigateTo` isn't called, but the check runs inside the COM call: noted for Phill.
+  - low, rejected -- a non-`ObjectNotFound` failure of the AD-21 section read fails the whole `get_windows` call. Those failures (a modal dialog, a lost connection) fail the `Windows` read itself too; widening the catch would hide retryable errors.
+  - low, rejected -- the `get_windows` description and skill say "password-protected" while the check also withholds path-protected sections. Every existing tool description uses the same wording, and the warning's `userAction` (`ReadAccess.WithheldUserAction`) names all kinds.

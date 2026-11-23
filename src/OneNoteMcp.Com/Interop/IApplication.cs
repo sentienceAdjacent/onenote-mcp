@@ -156,7 +156,7 @@ internal interface IApplication
         FilingLocationType fltToSet,
         [MarshalAs(UnmanagedType.BStr)] string bstrFilingSectionID);
 
-    // slot 30. Returns the Windows collection, kept as IDispatch; cast to IWindows for its members.
+    // slot 30. Returns the Windows collection, kept as IDispatch; cast to IWindows for its members (story 4.6).
     object Windows { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
 
     // slot 31

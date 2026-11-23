@@ -104,6 +104,7 @@ public static class ServerSetup
         services.AddSingleton(sp => new AppStatePipeline(sp.GetRequiredService<IOneNoteGateway>(), TimeProvider.System));
         services.AddSingleton<NavigateToUseCase>();
         services.AddSingleton<SyncHierarchyUseCase>();
+        services.AddSingleton<GetWindowsUseCase>();
         services.AddSingleton(sp => new ListGrantsUseCase(sp.GetRequiredService<IOneNoteGateway>(), sp.GetRequiredService<SettingsStore>().Read, TimeProvider.System, sp.GetRequiredService<ReadAccess>()));
 
         // Writes (AD-7): the machine-wide write lock (AD-18), logging each hold with IDs and timings only (AD-13); the
@@ -257,6 +258,7 @@ public static class ServerSetup
             .WithTools<ReadResultTool>(EnvelopeJson.Options)
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
             .WithTools<SyncHierarchyTool>(EnvelopeJson.Options)
+            .WithTools<GetWindowsTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)
             .WithTools<CreatePageTool>(EnvelopeJson.Options)
             .WithTools<UpdatePageContentTool>(EnvelopeJson.Options)

@@ -11,6 +11,8 @@ namespace OneNoteMcp.Core.UseCases;
 /// Since story 4.3 it runs through the <see cref="AppStatePipeline"/>: <c>ComBusy</c> at the start while an abandoned write
 /// is outstanding, the 120 s deadline, and <c>outcomeUnknown</c> on an ambiguous step-7 failure. An empty
 /// <c>hierarchyId</c> is <see cref="ErrorCode.InvalidArgument"/> before COM.
+/// Story 4.6: with a <c>window</c> handle, only that window moves (<c>Window.NavigateTo</c>); without one, OneNote's first
+/// window, as before.
 /// Returns no content: <c>ok: true</c> and no body. Errors map as for every other call.
 /// </summary>
 public sealed class NavigateToUseCase(IOneNoteGateway gateway, AppStatePipeline pipeline) : IUseCase
@@ -23,14 +25,21 @@ public sealed class NavigateToUseCase(IOneNoteGateway gateway, AppStatePipeline 
 
     public OperationClass Class => OperationClass.AppState;
 
-    public async Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string hierarchyId, string objectId, CancellationToken ct)
+    public Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string hierarchyId, string objectId, CancellationToken ct) =>
+        ExecuteAsync(context, hierarchyId, objectId, window: null, ct);
+
+    /// <param name="window">
+    /// Story 4.6: a window's handle as <c>get_windows</c> returns it, or null for OneNote's first window. One no open window has
+    /// is <see cref="ErrorCode.InvalidArgument"/> from the gateway, and nothing is shown.
+    /// </param>
+    public async Task<ToolSuccess> ExecuteAsync(ToolCallContext context, string hierarchyId, string objectId, int? window, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(pipeline);
 
         try
         {
-            await pipeline.RunAsync(new Navigate(gateway, hierarchyId ?? string.Empty, objectId ?? string.Empty), ct).ConfigureAwait(false);
+            await pipeline.RunAsync(new Navigate(gateway, hierarchyId ?? string.Empty, objectId ?? string.Empty, window), ct).ConfigureAwait(false);
         }
         catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound && ex.ComHResult == OneNoteHResults.ObjectDoesNotExist)
         {
@@ -40,7 +49,7 @@ public sealed class NavigateToUseCase(IOneNoteGateway gateway, AppStatePipeline 
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId), []);
     }
 
-    private sealed class Navigate(IOneNoteGateway gateway, string hierarchyId, string objectId) : AppStateOperation<bool>
+    private sealed class Navigate(IOneNoteGateway gateway, string hierarchyId, string objectId, int? window) : AppStateOperation<bool>
     {
         public override void Validate()
         {
@@ -52,7 +61,15 @@ public sealed class NavigateToUseCase(IOneNoteGateway gateway, AppStatePipeline 
 
         public override async Task<bool> CallAsync(CancellationToken ct)
         {
-            await gateway.NavigateToAsync(hierarchyId, objectId, ct).ConfigureAwait(false);
+            if (window is { } handle)
+            {
+                await gateway.NavigateToAsync(hierarchyId, objectId, handle, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await gateway.NavigateToAsync(hierarchyId, objectId, ct).ConfigureAwait(false);
+            }
+
             return true;
         }
     }

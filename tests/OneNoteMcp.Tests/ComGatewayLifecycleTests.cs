@@ -5,6 +5,7 @@ using OneNoteMcp.Core;
 using OneNoteMcp.Core.Settings;
 using Xunit;
 using InteropPageInfo = OneNoteMcp.Com.Interop.PageInfo;
+using IWindow = OneNoteMcp.Com.Interop.IWindow;
 using PublishFormat = OneNoteMcp.Com.Interop.PublishFormat;
 using InteropSpecialLocation = OneNoteMcp.Com.Interop.SpecialLocation;
 using XMLSchema = OneNoteMcp.Com.Interop.XMLSchema;
@@ -861,6 +862,209 @@ public sealed class ComGatewayLifecycleTests
         {
             gate.Set();
         }
+    }
+
+    [Fact]
+    public async Task GetWindows_WalksItem0ToCountMinus1_MarksTheCurrentByHandle_AndReleasesEveryWrapperOnTheSta()
+    {
+        // Story 4.6 (spike 4.12 W1): Item(Count) is E_INVALIDARG, so the walk never asks for it; every wrapper is released
+        // in the STA delegate's finally (OneMore, research row 10).
+        var first = new FakeWindow(0x1A2B) { CurrentNotebookId = "{n}", CurrentSectionId = "{s}", CurrentPageId = "{p}", Active = false, DockedLocation = 0 };
+        var second = new FakeWindow(0x3C4D) { CurrentNotebookId = "{n2}", CurrentSectionGroupId = "{g}", CurrentSectionId = "{s2}", CurrentPageId = string.Empty, Active = true, FullPageView = true, DockedLocation = 2, SideNote = true };
+        var collection = new FakeWindows(first, second) { Current = second };
+        var app = new FakeApplication { OnWindows = () => collection };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<(object Wrapper, int ThreadId)>();
+        gateway.ReleaseWrapper = w => released.Add((w, Environment.CurrentManagedThreadId));
+
+        var windows = await gateway.GetWindowsAsync(Ct);
+
+        Assert.Equal([0u, 1u], collection.Indices);
+        Assert.Equal(
+            [
+                new OneNoteWindow(0x1A2B, false, false, "{n}", string.Empty, "{s}", "{p}", false, 0, false),
+                new OneNoteWindow(0x3C4D, true, true, "{n2}", "{g}", "{s2}", string.Empty, true, 2, true),
+            ],
+            windows);
+        var sta = Assert.Single(app.Calls, c => c.Method == "Windows").ThreadId;
+        Assert.Equal(4, released.Count); // the collection, CurrentWindow, and each Item
+        Assert.All(released, r => Assert.Equal(sta, r.ThreadId));
+        Assert.Single(released, r => ReferenceEquals(r.Wrapper, collection));
+        Assert.Equal(2, released.Count(r => ReferenceEquals(r.Wrapper, second))); // once as CurrentWindow, once as Item(1)
+        Assert.Single(released, r => ReferenceEquals(r.Wrapper, first));
+    }
+
+    [Fact]
+    public async Task GetWindows_NoWindowOpen_IsAnEmptyList_AndTheCollectionIsReleased()
+    {
+        // Spike 4.12 W6: Count 0 and CurrentWindow null.
+        var collection = new FakeWindows();
+        var app = new FakeApplication { OnWindows = () => collection };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = released.Add;
+
+        Assert.Empty(await gateway.GetWindowsAsync(Ct));
+        Assert.Empty(collection.Indices);
+        Assert.Same(collection, Assert.Single(released));
+    }
+
+    [Fact]
+    public async Task GetWindows_AGetterThatFails_StillReleasesWhatWasObtained_AndMapsTheFailure()
+    {
+        var bad = new ThrowingWindow(0x2);
+        var good = new FakeWindow(0x1);
+        var collection = new FakeWindows(good, bad) { Current = good };
+        var app = new FakeApplication { OnWindows = () => collection };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = released.Add;
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.GetWindowsAsync(Ct));
+
+        Assert.Equal(ErrorCode.ModalDialogOpen, ex.Code);
+        Assert.Equal(4, released.Count);
+        Assert.Contains(released, w => ReferenceEquals(w, bad));
+    }
+
+    [Fact]
+    public async Task GetWindows_IsAReadForTheDisconnectRule_RetriedOnce()
+    {
+        // Spine AD-7 AppState: get_windows' calls are reads for AD-3's disconnect rule (retried once).
+        var collection = new FakeWindows(new FakeWindow(0x1)) { Current = null };
+        var failures = 1;
+        var app = new FakeApplication { OnWindows = () => failures-- > 0 ? throw new COMException("gone", RpcServerUnavailable) : collection };
+        using var gateway = Gateway(app, Settings());
+        gateway.ReleaseWrapper = _ => { };
+
+        var windows = await gateway.GetWindowsAsync(Ct);
+
+        Assert.Single(windows);
+        Assert.False(windows[0].Current);
+        Assert.Equal(2, app.Calls.Count(c => c.Method == "Windows"));
+        Assert.Equal(2, app.Activations);
+    }
+
+    [Fact]
+    public async Task NavigateTo_WithAWindow_CallsThatWindowsNavigateToOnly_AndReleasesEveryWrapper()
+    {
+        var first = new FakeWindow(0x10);
+        var second = new FakeWindow(0x20);
+        var third = new FakeWindow(0x30);
+        var collection = new FakeWindows(first, second, third) { Current = first };
+        var app = new FakeApplication { OnWindows = () => collection, OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = released.Add;
+
+        await gateway.NavigateToAsync("{p}", "{oe}", 0x20, Ct);
+
+        Assert.Equal([("{p}", "{oe}")], second.Navigations);
+        Assert.Empty(first.Navigations);
+        Assert.Empty(third.Navigations);
+        Assert.DoesNotContain(app.Calls, c => c.Method == "NavigateTo"); // Application.NavigateTo isn't called
+        Assert.Equal([0u, 1u], collection.Indices); // stops at the match
+        Assert.Equal(3, released.Count); // the collection, Item(0) and Item(1)
+    }
+
+    [Fact]
+    public async Task NavigateTo_WithAHandleNoWindowHas_IsInvalidArgument_AndNavigatesNothing()
+    {
+        var first = new FakeWindow(0x10);
+        var second = new FakeWindow(0x20);
+        var collection = new FakeWindows(first, second);
+        var app = new FakeApplication { OnWindows = () => collection, OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = released.Add;
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToAsync("{p}", string.Empty, 0x99, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Equal(OneNoteWindow.UnknownHandleUserAction, ex.UserAction);
+        Assert.Equal(OneNoteWindow.UnknownHandleMessage(0x99), ex.Message);
+        Assert.False(ex.OutcomeUnknown);
+        Assert.Empty(first.Navigations);
+        Assert.Empty(second.Navigations);
+        Assert.DoesNotContain(app.Calls, c => c.Method == "NavigateTo");
+        Assert.Equal([0u, 1u], collection.Indices); // never Item(Count)
+        Assert.Equal(3, released.Count);
+    }
+
+    [Fact]
+    public async Task NavigateTo_MatchesTheHandleOnItsLow32Bits_SoASignExtendedHandleIsFound()
+    {
+        var first = new FakeWindow(0x10);
+        var second = new FakeWindow(0xFFFF_FFFF_8000_0020);
+        var collection = new FakeWindows(first, second);
+        var app = new FakeApplication { OnWindows = () => collection, OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        gateway.ReleaseWrapper = _ => { };
+
+        await gateway.NavigateToAsync("{p}", string.Empty, OneNoteWindow.HandleOf(0x8000_0020), Ct);
+
+        Assert.Equal([("{p}", string.Empty)], second.Navigations);
+        Assert.Empty(first.Navigations);
+    }
+
+    [Fact]
+    public async Task NavigateTo_WithAWindow_IsNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnWindows = () => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToAsync("{p}", string.Empty, 0x10, Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls, c => c.Method == "Windows");
+    }
+
+    [Fact]
+    public async Task NavigateTo_WithoutAWindow_IsUnchanged_AndReadsNoWindow()
+    {
+        var app = new FakeApplication { OnWindows = () => throw new InvalidOperationException("not read"), OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.NavigateToAsync("{p}", string.Empty, window: null, Ct);
+
+        Assert.Equal([["{p}", string.Empty, false]], app.Calls.Where(c => c.Method == "NavigateTo").Select(c => c.Args));
+        Assert.DoesNotContain(app.Calls, c => c.Method == "Windows");
+    }
+
+    /// <summary>A window whose <c>Active</c> getter fails as OneNote does while a modal dialog is open.</summary>
+    private sealed class ThrowingWindow(ulong handle) : IWindow
+    {
+        public ulong WindowHandle { get; } = handle;
+
+        public string CurrentPageId => string.Empty;
+
+        public string CurrentSectionId => string.Empty;
+
+        public string CurrentSectionGroupId => string.Empty;
+
+        public string CurrentNotebookId => string.Empty;
+
+        public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID) => throw new NotSupportedException();
+
+        public bool GetFullPageView() => false;
+
+        public bool GetActive() => throw new COMException("modal", unchecked((int)0x80042030));
+
+        public int GetDockedLocation() => -1;
+
+        public bool GetSideNote() => false;
+
+        void IWindow.SetFullPageViewPlaceholder() => throw new NotSupportedException();
+
+        void IWindow.SetActivePlaceholder() => throw new NotSupportedException();
+
+        void IWindow.SetDockedLocationPlaceholder() => throw new NotSupportedException();
+
+        void IWindow.ApplicationPlaceholder() => throw new NotSupportedException();
+
+        void IWindow.NavigateToUrlPlaceholder() => throw new NotSupportedException();
+
+        void IWindow.SetDockedLocationMethodPlaceholder() => throw new NotSupportedException();
     }
 
     [Theory]
