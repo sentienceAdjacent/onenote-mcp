@@ -3,7 +3,7 @@ title: 'open_notebook'
 type: 'feature'
 ticket: '5'
 created: '2026-11-21'
-status: 'draft'
+status: 'ready-for-dev'
 route: 'full'
 route_source: 'auto'
 review: ''
@@ -49,6 +49,11 @@ context:
 | Abandoned write outstanding | — | nothing read under the lock | `ComBusy` |
 | Open times out | `OpenHierarchy` `Timeout` | — | `outcomeUnknown`, lock held until settled |
 
+## Decisions (Phill, 2026-11-22, Inbox plan approval)
+
+- **Q1 (a):** opening an already-open notebook returns `ok` with its current ID and the existing warning `alreadyExisted` (nothing was opened); that warning's description is widened to cover `open_notebook`.
+- **Q2:** the plan is kept whole.
+
 </frozen-after-approval>
 
 ## Code Map
@@ -80,10 +85,7 @@ context:
 
 - The test export root is the run's own probe folder, so `CheckOpen` and `CheckClose` already allow its notebooks; no guard change.
 - Considered refusing a OneDrive folder with `ExportPathNotAllowed` as `open_package` does; going with `InvalidArgument` because the spine names it.
-
-## Open Questions
-
-1. **The already-open answer.** (a) `ok` with the ID and the existing warning `alreadyExisted` (made nothing, returned the found object's ID); (b) a new warning `alreadyOpen`; (c) no warning. (a) adds no contract item, though its doc today names creates only; (b) is clearer but one more code; (c) hides that nothing was opened. Recommended: (a), widening its doc to `open_notebook`.
+- The already-open answer carries `alreadyExisted` (Decision Q1), with its description widened to `open_notebook`.
 
 ## Verification
 
