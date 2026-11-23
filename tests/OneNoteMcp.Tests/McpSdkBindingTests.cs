@@ -89,7 +89,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
         var expected = snapshot["tools"]!.AsArray();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        Assert.Equal(32, actual.Count);
+        Assert.Equal(33, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < actual.Count; i++)
         {
@@ -278,7 +278,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     {
         var tools = await Client.ListToolsAsync(cancellationToken: Ct);
 
-        Assert.Equal(32, tools.Count);
+        Assert.Equal(33, tools.Count);
         foreach (var tool in tools)
         {
             Assert.True(
@@ -362,9 +362,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SnapshotToolNames_AreAllThirtyTwoTools()
+    public void SnapshotToolNames_AreAllThirtyThreeTools()
     {
-        Assert.Equal(32, SnapshotToolNames().Count);
+        Assert.Equal(33, SnapshotToolNames().Count);
     }
 
     [Theory]
@@ -395,6 +395,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.CreateNotebookCalls);
         Assert.Empty(gateway.NavigateCalls);
         Assert.Empty(gateway.SyncCalls);
+        Assert.Equal(0, gateway.WindowsCalls);
         Assert.Empty(gateway.CloseCalls);
         Assert.Empty(gateway.OpenHierarchyCalls);
         Assert.Empty(gateway.UpdateCalls);
@@ -439,9 +440,9 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
     [Fact]
     public void SnapshotToolProperties_CoverEveryToolWithArguments()
     {
-        // Every tool but list_grants, which takes no arguments; 76 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6; open_package's two, story 3.8; sync_hierarchy's one, story 4.3; close_notebook's one, story 4.4; open_notebook's one, story 4.5).
+        // Every tool but list_grants and get_windows, which take no arguments; 77 properties in all (publish's three added, story 3.3; move_hierarchy_object's four, story 3.4; set_page_level's three and create_page's parentPageId, story 3.14; restore_from_recycle_bin's four, story 3.5; merge_sections' three, story 3.6; open_package's two, story 3.8; sync_hierarchy's one, story 4.3; close_notebook's one, story 4.4; open_notebook's one, story 4.5; navigate_to's window, story 4.6).
         Assert.Equal(31, SnapshotToolProperties().Select(row => row.Data.Item1).Distinct().Count());
-        Assert.Equal(76, SnapshotToolProperties().Count);
+        Assert.Equal(77, SnapshotToolProperties().Count);
     }
 
     [Theory]
@@ -472,6 +473,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         Assert.Empty(gateway.CreateNotebookCalls);
         Assert.Empty(gateway.NavigateCalls);
         Assert.Empty(gateway.SyncCalls);
+        Assert.Equal(0, gateway.WindowsCalls);
         Assert.Empty(gateway.OpenHierarchyCalls);
         Assert.Empty(gateway.UpdateCalls);
         Assert.Empty(gateway.DeleteCalls);

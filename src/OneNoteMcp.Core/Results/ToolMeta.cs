@@ -33,6 +33,7 @@ namespace OneNoteMcp.Core.Results;
 /// A stored result whose first index wouldn't fit with its <see cref="Filtered"/> list (backlog 15; Phill, 2026-11-19, Q1 a)
 /// carries <see cref="FilteredCount"/> and <see cref="FilteredResultId"/> instead: the list is a second stored result,
 /// JSON text read with <c>read_result</c> (AD-20).
+/// <c>get_windows</c> (story 4.6) reports OneNote's open windows in <see cref="Windows"/>, an empty list when none is open.
 /// They are null, and so omitted on the wire, on every other result.
 /// </summary>
 public sealed record ToolMeta(
@@ -58,7 +59,8 @@ public sealed record ToolMeta(
     IReadOnlyList<string>? JournalEntryIds = null,
     IReadOnlyList<string>? PageIds = null,
     int? FilteredCount = null,
-    string? FilteredResultId = null);
+    string? FilteredResultId = null,
+    IReadOnlyList<WindowListing>? Windows = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read
@@ -80,3 +82,24 @@ public sealed record GrantListing(
     string Lifetime,
     string Status,
     string? ExpiresAt = null);
+
+/// <summary>
+/// One OneNote window as <c>get_windows</c> shows it (story 4.6; spike 4.12), in OneNote's <c>Item</c> order.
+/// <see cref="Handle"/> names it for <c>navigate_to</c>'s <c>window</c> argument (an inner pane's handle, not the frame's;
+/// W1), as <see cref="OneNoteMcp.Core.OneNoteWindow.HandleOf"/> gives it. <see cref="Current"/> is true for OneNote's current window. An ID OneNote returned empty is null, so omitted on the
+/// wire, never an empty ID (W5): <see cref="PageId"/> is also omitted for a page in a protected section without a read grant
+/// at the call's start (AD-21). <see cref="DockedLocation"/> is <c>default</c>, <c>none</c>, <c>left</c>, <c>right</c>,
+/// <c>top</c> or <c>bottom</c>, or OneNote's number for any other value. <see cref="SideNote"/> is true for a quick note
+/// (W3).
+/// </summary>
+public sealed record WindowListing(
+    int Handle,
+    bool Current,
+    bool Active,
+    bool FullPageView,
+    string DockedLocation,
+    bool SideNote,
+    string? NotebookId = null,
+    string? SectionGroupId = null,
+    string? SectionId = null,
+    string? PageId = null);

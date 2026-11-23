@@ -3,7 +3,7 @@ namespace OneNoteMcp.Core;
 /// <summary>
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
-/// <see cref="NavigateToAsync"/>, <see cref="SyncHierarchyAsync"/> and <see cref="CloseNotebookAsync"/>, <c>AppState</c> calls (AD-7, AD-11), and the writes only the write pipeline makes (AD-7):
+/// <see cref="NavigateToAsync(string, string, CancellationToken)"/>, <see cref="GetWindowsAsync"/>, <see cref="SyncHierarchyAsync"/> and <see cref="CloseNotebookAsync"/>, <c>AppState</c> calls (AD-7, AD-11), and the writes only the write pipeline makes (AD-7):
 /// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
 /// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
 /// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>), and
@@ -45,6 +45,30 @@ public interface IOneNoteGateway
     /// it, on the user's explicit request; no read use case does.
     /// </summary>
     Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct);
+
+    /// <summary>
+    /// User-visible (AD-11; story 4.6): <see cref="NavigateToAsync(string, string, CancellationToken)"/> when
+    /// <paramref name="window"/> is null; otherwise, in one STA call, finds the open window whose <c>WindowHandle</c> is
+    /// <paramref name="window"/> and calls its <c>Window.NavigateTo</c>, so only that window moves. A handle no open window
+    /// has is <see cref="ErrorCode.InvalidArgument"/> with <see cref="OneNoteWindow.UnknownHandleUserAction"/>, and nothing is
+    /// shown. Never asks for a new window (<c>fNewWindow</c> stays false). The handle is <c>WindowHandle</c>'s 32 significant
+    /// bits as a signed number, as <c>get_windows</c> reports it (Decision Q1). A gateway that doesn't implement the window path refuses
+    /// it with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task NavigateToAsync(string hierarchyId, string objectId, int? window, CancellationToken ct) =>
+        window is null
+            ? NavigateToAsync(hierarchyId, objectId, ct)
+            : Task.FromException(new OneNoteException(ErrorCode.NotSupported, "Window.NavigateTo isn't available on this gateway.", retryable: false));
+
+    /// <summary>
+    /// <c>AppState</c> (AD-7; story 4.6), a read for AD-3: OneNote's open windows, in <c>Item</c> order, from one STA call that
+    /// reads <c>Windows</c>, <c>Count</c>, <c>CurrentWindow</c> and each window's getters, walking <c>Item(0)</c> …
+    /// <c>Item(Count - 1)</c> (spike 4.12 W1) and releasing every wrapper before it returns. No window open: an empty list
+    /// (W6). Not user-visible (W2). Retried once after a disconnect, like a read. Only <c>GetWindowsUseCase</c> calls it,
+    /// through the <c>AppState</c> pipeline. A gateway that doesn't implement it refuses with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task<IReadOnlyList<OneNoteWindow>> GetWindowsAsync(CancellationToken ct) =>
+        Task.FromException<IReadOnlyList<OneNoteWindow>>(new OneNoteException(ErrorCode.NotSupported, "Windows isn't available on this gateway.", retryable: false));
 
     /// <summary>
     /// <c>AppState</c> (AD-7; story 4.3): <c>SyncHierarchy</c> of the notebook, section group, section or page

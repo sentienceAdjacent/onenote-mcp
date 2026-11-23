@@ -232,17 +232,164 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     }
 
     public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) =>
+        NavigateToAsync(hierarchyId, objectId, window: null, ct);
+
+    public Task NavigateToAsync(string hierarchyId, string objectId, int? window, CancellationToken ct) =>
         RunAsync(
-            nameof(IApplication.NavigateTo),
+            window is null ? nameof(IApplication.NavigateTo) : WindowNavigateToMethod,
             app =>
             {
-                // fNewWindow is always false: never open a window the user didn't ask for (AD-11).
-                app.NavigateTo(hierarchyId ?? string.Empty, objectId ?? string.Empty, fNewWindow: false);
+                if (window is { } handle)
+                {
+                    // Story 4.6: the handle check and the call in one STA delegate, so a window closed in between is
+                    // InvalidArgument rather than a stale wrapper.
+                    NavigateInWindow(app, handle, hierarchyId ?? string.Empty, objectId ?? string.Empty);
+                }
+                else
+                {
+                    // fNewWindow is always false: never open a window the user didn't ask for (AD-11).
+                    app.NavigateTo(hierarchyId ?? string.Empty, objectId ?? string.Empty, fNewWindow: false);
+                }
+
                 return true;
             },
             // AppState, not a read: a call that reached COM and then lost the connection isn't repeated (AD-3).
             CallKind.AppState,
             ct);
+
+    public Task<IReadOnlyList<OneNoteWindow>> GetWindowsAsync(CancellationToken ct) =>
+        RunAsync(
+            nameof(IApplication.Windows),
+            ReadWindows,
+            // A read for AD-3 (spine AD-7 AppState): retried once after a disconnect; it changes nothing (spike 4.12 W2).
+            CallKind.Read,
+            ct);
+
+    /// <summary>The method name failures of <c>navigate_to</c>'s window path carry.</summary>
+    internal const string WindowNavigateToMethod = "Window.NavigateTo";
+
+    /// <summary>
+    /// Test seam (story 4.6): releases one wrapper the window calls obtained, on the STA thread. By default
+    /// <see cref="Marshal.ReleaseComObject"/> for a COM object, nothing for a managed test double.
+    /// </summary>
+    internal Action<object> ReleaseWrapper { get; set; } = ReleaseComWrapper;
+
+    private static void ReleaseComWrapper(object wrapper)
+    {
+        if (Marshal.IsComObject(wrapper))
+        {
+            Marshal.ReleaseComObject(wrapper);
+        }
+    }
+
+    /// <summary>Releases every wrapper in <paramref name="wrappers"/>, once per time it was obtained (OneMore, research row 10).</summary>
+    private void ReleaseAll(List<object> wrappers)
+    {
+        foreach (var wrapper in wrappers)
+        {
+            ReleaseWrapper(wrapper);
+        }
+    }
+
+    /// <summary>
+    /// Story 4.6, on the STA thread: <c>Windows</c>, <c>Count</c>, <c>CurrentWindow</c>, then <c>Item(0)</c> …
+    /// <c>Item(Count - 1)</c> and each window's getters, never <c>Item(Count)</c> (spike 4.12 W1). A window is current when its
+    /// handle is <c>CurrentWindow</c>'s. Every wrapper is released in the <c>finally</c>.
+    /// </summary>
+    private IReadOnlyList<OneNoteWindow> ReadWindows(IApplication app)
+    {
+        var wrappers = new List<object>();
+        try
+        {
+            if (app.Windows is not { } raw)
+            {
+                return [];
+            }
+
+            // Before the cast, so a failed cast still releases it.
+            wrappers.Add(raw);
+            var windows = (IWindows)raw;
+            var count = windows.Count;
+            ulong? currentHandle = null;
+            if (windows.CurrentWindow is { } current)
+            {
+                wrappers.Add(current);
+                currentHandle = current.WindowHandle;
+            }
+
+            var listed = new List<OneNoteWindow>();
+            for (uint i = 0; i < count; i++)
+            {
+                if (windows.GetItem(i) is not { } window)
+                {
+                    continue;
+                }
+
+                wrappers.Add(window);
+                var handle = window.WindowHandle;
+                listed.Add(new OneNoteWindow(
+                    handle,
+                    handle == currentHandle,
+                    window.GetActive(),
+                    window.CurrentNotebookId ?? string.Empty,
+                    window.CurrentSectionGroupId ?? string.Empty,
+                    window.CurrentSectionId ?? string.Empty,
+                    window.CurrentPageId ?? string.Empty,
+                    window.GetFullPageView(),
+                    window.GetDockedLocation(),
+                    window.GetSideNote()));
+            }
+
+            return listed;
+        }
+        finally
+        {
+            ReleaseAll(wrappers);
+        }
+    }
+
+    /// <summary>
+    /// Story 4.6, on the STA thread: walks <c>Item(0)</c> … <c>Item(Count - 1)</c> for the window whose handle is
+    /// <paramref name="handle"/> and calls its <c>NavigateTo</c>. None has it: <see cref="ErrorCode.InvalidArgument"/>, and
+    /// nothing is shown. Every wrapper is released in the <c>finally</c>.
+    /// </summary>
+    private void NavigateInWindow(IApplication app, int handle, string hierarchyId, string objectId)
+    {
+        var wrappers = new List<object>();
+        try
+        {
+            if (app.Windows is { } raw)
+            {
+                wrappers.Add(raw);
+                var windows = (IWindows)raw;
+                var count = windows.Count;
+                for (uint i = 0; i < count; i++)
+                {
+                    if (windows.GetItem(i) is not { } window)
+                    {
+                        continue;
+                    }
+
+                    wrappers.Add(window);
+                    if (OneNoteWindow.HandleOf(window.WindowHandle) == handle)
+                    {
+                        window.NavigateTo(hierarchyId, objectId);
+                        return;
+                    }
+                }
+            }
+
+            throw new OneNoteException(
+                ErrorCode.InvalidArgument,
+                OneNoteWindow.UnknownHandleMessage(handle),
+                userAction: OneNoteWindow.UnknownHandleUserAction,
+                retryable: false);
+        }
+        finally
+        {
+            ReleaseAll(wrappers);
+        }
+    }
 
     public Task SyncHierarchyAsync(string hierarchyId, CancellationToken ct)
     {

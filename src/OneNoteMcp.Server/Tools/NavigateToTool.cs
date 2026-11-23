@@ -22,7 +22,8 @@ public sealed class NavigateToTool(ToolRunner runner, NavigateToUseCase useCase)
     [McpMeta(ToolMetaKeys.MaxResultSizeChars, ToolMetaKeys.MaxResultSizeCharsValue)]
     [Description(
         "User-visible: takes keyboard focus and changes what OneNote shows. Call only when the user explicitly asks. "
-        + "Shows a notebook, section group, section or page in OneNote's first open window and, with pageContentObjectId, selects that object on the page. It changes no content and returns none. "
+        + "Shows a notebook, section group, section or page in OneNote and, with pageContentObjectId, selects that object on the page. It changes no content and returns none. "
+        + "Without window it uses OneNote's first open window. With window, a handle from get_windows, only that window moves; a handle no open window has fails with InvalidArgument and nothing is shown."
         + "It only works with OneNote open in a window: when OneNote runs without one, it still returns ok but shows and downloads nothing. "
         + "Showing a page makes OneNote download the page's images that aren't on this PC, so after the user agrees, a get_binary_page_content that gave binaryUnavailable can be retried. "
         + "It has a 120 s deadline. A timeout, a lost connection or a cancel while OneNote is handling the call returns outcomeUnknown: OneNote may or may not show the object, so ask the user what OneNote shows before calling it again. "
@@ -32,10 +33,12 @@ public sealed class NavigateToTool(ToolRunner runner, NavigateToUseCase useCase)
         [Description("OneNote ID of the notebook, section group, section or page to show.")] string hierarchyId,
         [Description("objectID of an element on that page to select, such as an outline, paragraph or image. Omit or leave empty to show the hierarchy object itself.")]
         string pageContentObjectId = "",
+        [Description("Handle of the OneNote window to show it in, exactly as get_windows returns it. Omit to use OneNote's first window.")]
+        int? window = null,
         CancellationToken cancellationToken = default) =>
         runner.RunAsync(
             Name,
             useCase,
-            (context, ct) => useCase.ExecuteAsync(context, hierarchyId ?? string.Empty, pageContentObjectId ?? string.Empty, ct),
+            (context, ct) => useCase.ExecuteAsync(context, hierarchyId ?? string.Empty, pageContentObjectId ?? string.Empty, window, ct),
             cancellationToken);
 }

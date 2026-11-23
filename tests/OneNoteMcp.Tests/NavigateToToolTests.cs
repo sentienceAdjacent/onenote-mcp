@@ -27,7 +27,7 @@ public sealed class NavigateToToolTests
 
         var root = Ok(await Tool(gateway).NavigateTo(PageContentToolTests.CloudPageId, cancellationToken: Ct));
 
-        Assert.Equal([(PageContentToolTests.CloudPageId, string.Empty)], gateway.NavigateCalls);
+        Assert.Equal([(PageContentToolTests.CloudPageId, string.Empty, (int?)null)], gateway.NavigateCalls);
         Assert.False(root.TryGetProperty("xml", out _));
         Assert.False(root.TryGetProperty("index", out _));
         Assert.Equal(["correlationId"], root.GetProperty("meta").EnumerateObject().Select(p => p.Name));
@@ -39,9 +39,80 @@ public sealed class NavigateToToolTests
     {
         var gateway = new FakeGateway();
 
-        Ok(await Tool(gateway).NavigateTo(" {p} ", " {oe} ", Ct));
+        Ok(await Tool(gateway).NavigateTo(" {p} ", " {oe} ", cancellationToken: Ct));
 
-        Assert.Equal([(" {p} ", " {oe} ")], gateway.NavigateCalls);
+        Assert.Equal([(" {p} ", " {oe} ", (int?)null)], gateway.NavigateCalls);
+    }
+
+    [Fact]
+    public async Task WithAWindow_PassesItsHandle_SoOnlyThatWindowMoves()
+    {
+        // Story 4.6 (Decision Q1): window is the integer handle get_windows returns.
+        var gateway = new FakeGateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, false, false, "{n}", string.Empty, "{s}", "{p}", false, -1, false));
+        gateway.Windows.Add(new OneNoteWindow(0x20, true, true, "{n}", string.Empty, "{s}", "{p2}", false, -1, false));
+
+        var root = Ok(await Tool(gateway).NavigateTo(PageContentToolTests.CloudPageId, window: 0x20, cancellationToken: Ct));
+
+        Assert.Equal([(PageContentToolTests.CloudPageId, string.Empty, (int?)0x20)], gateway.NavigateCalls);
+        Assert.Equal(["correlationId"], root.GetProperty("meta").EnumerateObject().Select(p => p.Name));
+    }
+
+    [Fact]
+    public async Task WithAHandleNoWindowHas_IsInvalidArgument_AndNothingMoves()
+    {
+        var gateway = new FakeGateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, "{n}", string.Empty, "{s}", "{p}", false, -1, false));
+
+        var result = await Tool(gateway).NavigateTo(PageContentToolTests.CloudPageId, window: 0x99, cancellationToken: Ct);
+
+        Assert.True(result.IsError);
+        var error = result.StructuredContent!.Value.GetProperty("error");
+        Assert.Equal("InvalidArgument", error.GetProperty("code").GetString());
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+        Assert.False(error.TryGetProperty("outcomeUnknown", out _));
+        Assert.Equal(OneNoteWindow.UnknownHandleUserAction, error.GetProperty("userAction").GetString());
+        Assert.Equal(OneNoteWindow.UnknownHandleMessage(0x99), error.GetProperty("message").GetString());
+        Assert.Empty(gateway.NavigateCalls);
+    }
+
+    [Fact]
+    public async Task AHandleWithBit31Set_MakesTheRoundTrip_AsANegativeNumber()
+    {
+        // Decision Q1: window handles fit in 32 bits; get_windows reports them signed, so the 32-bit argument check takes any.
+        var gateway = new FakeGateway();
+        gateway.Windows.Add(new OneNoteWindow(0xFFFF_FFFF_8000_0010, true, true, "{n}", string.Empty, "{s}", "{p}", false, -1, false));
+        var handle = OneNoteWindow.HandleOf(0xFFFF_FFFF_8000_0010);
+        Assert.True(handle < 0);
+
+        Ok(await Tool(gateway).NavigateTo(PageContentToolTests.CloudPageId, window: handle, cancellationToken: Ct));
+
+        Assert.Equal([(PageContentToolTests.CloudPageId, string.Empty, (int?)handle)], gateway.NavigateCalls);
+    }
+
+    [Fact]
+    public async Task WithAWindow_WhileAnAbandonedWriteIsOutstanding_IsComBusy_AndNothingMoves()
+    {
+        var gateway = new FakeGateway { AbandonedWrites = new TaskCompletionSource() };
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, "{n}", string.Empty, "{s}", "{p}", false, -1, false));
+
+        var result = await Tool(gateway).NavigateTo(PageContentToolTests.CloudPageId, window: 0x10, cancellationToken: Ct);
+
+        Assert.Equal("ComBusy", result.StructuredContent!.Value.GetProperty("error").GetProperty("code").GetString());
+        Assert.Empty(gateway.NavigateCalls);
+    }
+
+    [Fact]
+    public void Tool_TakesAnOptionalIntegerWindow_AndDescribesIt()
+    {
+        using var services = BuildServer();
+        var navigate = Assert.Single(services.GetServices<McpServerTool>().Select(t => t.ProtocolTool), t => t.Name == NavigateToTool.Name);
+
+        var window = navigate.InputSchema.GetProperty("properties").GetProperty("window");
+        Assert.Equal(["integer", "null"], window.GetProperty("type").EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal(["hierarchyId"], navigate.InputSchema.GetProperty("required").EnumerateArray().Select(r => r.GetString()));
+        Assert.Contains("Without window it uses OneNote's first open window.", navigate.Description, StringComparison.Ordinal);
+        Assert.Contains("a handle no open window has fails with InvalidArgument", navigate.Description, StringComparison.Ordinal);
     }
 
     [Theory]

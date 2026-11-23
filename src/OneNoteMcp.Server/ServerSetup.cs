@@ -109,6 +109,7 @@ public static class ServerSetup
             lockWait: () => sp.GetRequiredService<SettingsStore>().Read().Timeouts.Call));
         services.AddSingleton<NavigateToUseCase>();
         services.AddSingleton<SyncHierarchyUseCase>();
+        services.AddSingleton<GetWindowsUseCase>();
         services.AddSingleton<CloseNotebookUseCase>();
         // Story 4.5: open_notebook, refusing a OneDrive folder at step 1 and under the lock; its log line never has the path (AD-13).
         services.AddSingleton(sp =>
@@ -273,6 +274,7 @@ public static class ServerSetup
             .WithTools<ReadResultTool>(EnvelopeJson.Options)
             .WithTools<NavigateToTool>(EnvelopeJson.Options)
             .WithTools<SyncHierarchyTool>(EnvelopeJson.Options)
+            .WithTools<GetWindowsTool>(EnvelopeJson.Options)
             .WithTools<CloseNotebookTool>(EnvelopeJson.Options)
             .WithTools<OpenNotebookTool>(EnvelopeJson.Options)
             .WithTools<ListGrantsTool>(EnvelopeJson.Options)

@@ -178,6 +178,15 @@ internal sealed class VaultGateway : IOneNoteGateway
 
     public Task NavigateToAsync(string hierarchyId, string objectId, CancellationToken ct) => throw new NotSupportedException();
 
+    /// <summary>The windows <c>GetWindows</c> returns (story 4.6); none by default.</summary>
+    public List<OneNoteWindow> Windows { get; } = [];
+
+    public Task<IReadOnlyList<OneNoteWindow>> GetWindowsAsync(CancellationToken ct)
+    {
+        Calls.Add("GetWindows");
+        return Task.FromResult<IReadOnlyList<OneNoteWindow>>([.. Windows]);
+    }
+
     public Task<string> CreateNewPageAsync(string sectionId, NewPageStyle style, CancellationToken ct) => throw new NotSupportedException();
 
     public Task<string> CreateSectionAsync(string parentId, string sectionFileName, CancellationToken ct) => throw new NotSupportedException();

@@ -9,7 +9,7 @@ internal sealed record FakeCall(string Method, object?[] Args, int ThreadId);
 /// Managed stand-in for the OneNote COM object. The read methods are programmable: <see cref="OnCall"/>, when set,
 /// answers every one of them (hang on a gate, throw a sequence, return a value); otherwise GetHierarchy answers from
 /// <see cref="OnGetHierarchy"/> and the rest throw. Every read call is recorded. <see cref="Factory"/> counts activations.
-/// Write and app-state methods always throw, except <c>NavigateTo</c>, <c>SyncHierarchy</c> (story 4.3), <c>CloseNotebook</c> (story 4.4), <c>CreateNewPage</c>, <c>OpenHierarchy</c>, <c>UpdatePageContent</c>,
+/// <c>Windows</c> answers from <see cref="OnWindows"/> (story 4.6). Write and app-state methods always throw, except <c>NavigateTo</c>, <c>SyncHierarchy</c> (story 4.3), <c>CloseNotebook</c> (story 4.4), <c>CreateNewPage</c>, <c>OpenHierarchy</c>, <c>UpdatePageContent</c>,
 /// <c>DeletePageContent</c>, <c>UpdateHierarchy</c>, <c>DeleteHierarchy</c> and <c>Publish</c> (story 5.6), which are recorded and scripted like a read.
 /// </summary>
 internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IApplication
@@ -136,7 +136,25 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
 
     public void SetFilingLocation(FilingLocation flToSet, FilingLocationType fltToSet, string bstrFilingSectionID) => throw new NotSupportedException();
 
-    public object Windows => throw new NotSupportedException();
+    /// <summary>
+    /// Story 4.6: what <c>Windows</c> returns, recorded as a <c>Windows</c> call; when null it throws, as before. A test can
+    /// throw from it (a disconnect) or return a <see cref="FakeWindows"/>.
+    /// </summary>
+    public Func<object>? OnWindows { get; set; }
+
+    public object Windows
+    {
+        get
+        {
+            var call = new FakeCall(nameof(Windows), [], Environment.CurrentManagedThreadId);
+            lock (gate)
+            {
+                calls.Add(call);
+            }
+
+            return OnWindows is { } onWindows ? onWindows() : throw new NotSupportedException();
+        }
+    }
 
     public bool Dummy1 => throw new NotSupportedException();
 
@@ -147,4 +165,112 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
     public object COMAddIns => throw new NotSupportedException();
 
     public object LanguageSettings => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Story 4.6: a managed <c>Windows</c> collection. <see cref="GetItem"/> past the end throws <see cref="ArgumentException"/>,
+/// as OneNote's <c>E_INVALIDARG</c> does (spike 4.12 W1), and every index asked for is recorded.
+/// </summary>
+internal sealed class FakeWindows(params IWindow[] windows) : IWindows
+{
+    private readonly Lock gate = new();
+    private readonly List<uint> indices = [];
+
+    public IReadOnlyList<IWindow> Items { get; } = windows;
+
+    /// <summary>What <c>CurrentWindow</c> returns; null for none, as with no window open (W6).</summary>
+    public IWindow? Current { get; set; }
+
+    /// <summary>Every index <see cref="GetItem"/> was called with, in order.</summary>
+    public IReadOnlyList<uint> Indices
+    {
+        get
+        {
+            lock (gate)
+            {
+                return [.. indices];
+            }
+        }
+    }
+
+    public uint Count => (uint)Items.Count;
+
+    public IWindow? CurrentWindow => Current;
+
+    public IWindow GetItem(uint index)
+    {
+        lock (gate)
+        {
+            indices.Add(index);
+        }
+
+        return index < Items.Count ? Items[(int)index] : throw new ArgumentException("E_INVALIDARG", nameof(index));
+    }
+
+    void IWindows.NewEnumPlaceholder() => throw new NotSupportedException();
+}
+
+/// <summary>Story 4.6: a managed <c>Window</c> whose getters answer from its properties and whose <c>NavigateTo</c> is recorded.</summary>
+internal sealed class FakeWindow(ulong handle) : IWindow
+{
+    private readonly Lock gate = new();
+    private readonly List<(string HierarchyId, string ObjectId)> navigations = [];
+
+    public ulong WindowHandle { get; } = handle;
+
+    public string CurrentPageId { get; set; } = string.Empty;
+
+    public string CurrentSectionId { get; set; } = string.Empty;
+
+    public string CurrentSectionGroupId { get; set; } = string.Empty;
+
+    public string CurrentNotebookId { get; set; } = string.Empty;
+
+    public bool FullPageView { get; set; }
+
+    public bool Active { get; set; }
+
+    public int DockedLocation { get; set; } = -1;
+
+    public bool SideNote { get; set; }
+
+    /// <summary>Every <c>NavigateTo</c> this window received, in order.</summary>
+    public IReadOnlyList<(string HierarchyId, string ObjectId)> Navigations
+    {
+        get
+        {
+            lock (gate)
+            {
+                return [.. navigations];
+            }
+        }
+    }
+
+    public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID)
+    {
+        lock (gate)
+        {
+            navigations.Add((bstrHierarchyObjectID, bstrObjectID));
+        }
+    }
+
+    public bool GetFullPageView() => FullPageView;
+
+    public bool GetActive() => Active;
+
+    public int GetDockedLocation() => DockedLocation;
+
+    public bool GetSideNote() => SideNote;
+
+    void IWindow.SetFullPageViewPlaceholder() => throw new NotSupportedException();
+
+    void IWindow.SetActivePlaceholder() => throw new NotSupportedException();
+
+    void IWindow.SetDockedLocationPlaceholder() => throw new NotSupportedException();
+
+    void IWindow.ApplicationPlaceholder() => throw new NotSupportedException();
+
+    void IWindow.NavigateToUrlPlaceholder() => throw new NotSupportedException();
+
+    void IWindow.SetDockedLocationMethodPlaceholder() => throw new NotSupportedException();
 }
