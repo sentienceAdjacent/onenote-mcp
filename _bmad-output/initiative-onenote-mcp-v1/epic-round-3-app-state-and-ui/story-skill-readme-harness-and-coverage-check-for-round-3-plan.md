@@ -133,6 +133,7 @@ Before: 4.7 and 4.9 merged, CI green. OneNote open on an MCP Test page, VS Code 
 
 ## Plan Change Log
 
+- 2026-11-25 (Phill, Inbox): put "open this .onepkg" back in the skill's description, since nothing else there names packages. To stay within 1,024 characters, three examples were shortened ("find my Trip plan page", "restore my deleted page", "reopen that notebook"). The description is now 1,023 characters.
 ## Review Triage Log
 
 | # | Lens | Finding | Verdict | Route | Evidence |
