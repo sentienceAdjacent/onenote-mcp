@@ -44,7 +44,7 @@ Read this before an export (`mcp__plugin_onenote_desktop__publish`) or before op
 
 - where the copy is (`meta.outputPath`) and that it is open in OneNote as a separate notebook (`meta.objectId`);
 - that every section of the copy counts as password-protected, because it sits in the opened-copies folder, so reading it needs their read grant (reading a page with `mcp__plugin_onenote_desktop__get_page_content` asks them); and that the copy has no write grant;
-- that they close the copy in OneNote when they're done (no tool closes a notebook); once it is closed and nothing in it has changed for more than 7 days, OneNoteMcp deletes its folder the next time it starts while OneNote is running, and `OneNoteMcp uninstall --purge` deletes the closed ones too.
+- that they close the copy when they're done, in OneNote or by asking you (`mcp__plugin_onenote_desktop__close_notebook`, recipe 6 in `references/app-state.md`); once it is closed and nothing in it has changed for more than 7 days, OneNoteMcp deletes its folder the next time it starts while OneNote is running, and `OneNoteMcp uninstall --purge` deletes the closed ones too.
 
 With the warning `pagesNotListed`, no page was listed within 5 s. That is expected when every section is empty, locked or protected; otherwise read the notebook again in a few seconds.
 

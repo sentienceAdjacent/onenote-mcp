@@ -40,7 +40,7 @@ public interface IOneNoteGateway
     Task<string> GetSpecialLocationAsync(SpecialLocation location, CancellationToken ct);
 
     /// <summary>
-    /// User-visible (AD-11): shows <paramref name="hierarchyId"/> in OneNote's first open window and takes keyboard focus.
+    /// User-visible (AD-11): shows <paramref name="hierarchyId"/> in OneNote's first open window, and may bring OneNote forward.
     /// A non-empty <paramref name="objectId"/> also selects that object on the page. Only <c>NavigateToUseCase</c> calls
     /// it, on the user's explicit request; no read use case does.
     /// </summary>

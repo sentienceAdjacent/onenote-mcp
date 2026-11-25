@@ -3,12 +3,13 @@ title: 'Skill, README, harness and coverage check for round 3'
 type: 'feature'
 ticket: '10'
 created: '2026-11-23'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: '35bccae581ec848ebc377684579afa632b72201d'
 route: 'full'
 route_source: 'auto'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md'
@@ -74,14 +75,14 @@ What an agent does when it follows the skill: the sitting's script.
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `plugin/skills/guide/references/app-state.md` (new) and `SKILL.md` -- the six recipes; a "read before" pointer; description ≤1,024; intro; User-visible bullets.
-- [ ] `tests/OneNoteMcp.Tests/PluginPackagingTests.cs` -- `GuideSkill_DescriptionFitsTheLimit` (≤1,024 chars), red first.
-- [ ] `README.md` -- per Boundaries.
-- [ ] `NavigateToTool.cs`, `tool-contract.json` -- description per Decision OQ3; `NavigateToToolTests` if it asserts the text.
-- [ ] `spikes/stress-harness/{Program.cs,README.md}` -- wording and counts.
-- [ ] `tests/OneNoteMcp.Tests/CoverageTableTests.cs` (new, Decision OQ1) -- red against a table with a row removed, then green.
-- [ ] Spine: the sentence "Story 4.10 checks this table" names the test; memlog line. Own commit.
-- [ ] `deferred-work.md` -- close l.653.
+- [x] `plugin/skills/guide/references/app-state.md` (new) and `SKILL.md` -- the six recipes; a "read before" pointer; description ≤1,024; intro; User-visible bullets.
+- [x] `tests/OneNoteMcp.Tests/PluginPackagingTests.cs` -- `GuideSkill_DescriptionFitsTheLimit` (≤1,024 chars), red first.
+- [x] `README.md` -- per Boundaries.
+- [x] `NavigateToTool.cs`, `tool-contract.json` -- description per Decision OQ3; `NavigateToToolTests` if it asserts the text.
+- [x] `spikes/stress-harness/{Program.cs,README.md}` -- wording and counts.
+- [x] `tests/OneNoteMcp.Tests/CoverageTableTests.cs` (new, Decision OQ1) -- red against a table with a row removed, then green.
+- [x] Spine: the sentence "Story 4.10 checks this table" names the test; memlog line. Own commit.
+- [x] `deferred-work.md` -- close l.653.
 
 **Acceptance Criteria:**
 - Given the branch, when `dotnet test tests/OneNoteMcp.Tests` runs, then every `IApplication` slot 7–35 has a table row with a contract tool or a dated "Not exposed" Decision, every tool a row names is in the contract, and every contract tool except `list_grants` and `read_result` is named in some row.
@@ -119,6 +120,23 @@ Before: 4.7 and 4.9 merged, CI green. OneNote open on an MCP Test page, VS Code 
 
 ## Implementation Notes
 
+- 2026-11-25, built in worktree s410 on `35bccae` (4.7 and 4.9 merged). Their merge resolution checked: 35 contract tools, the skill intro's five user-visible tools, the harness's `Calls.cs` lists `quick_filing`.
+  - Test-first: `GuideSkill_DescriptionFitsTheLimit` went red at 1,129 characters, green at 1,019 after the rewrite (app-state triggers added; "show my To Do items", "sort my sections", "permanently delete that section", "rename that section" and "open this .onepkg" dropped to fit). `CoverageTableTests` (new): the real table passes; its red cases are permanent tests (slot 27's row removed gives "slot 27" and "quick_filing" gaps; a renamed tool and an undated Decision each give a gap). Every backticked lowercase name in a Tool cell counts as a tool except the argument names `window` and `force` (a one-word name such as `export` replacing `publish` is a gap, tested); the declared getters drop `get_` to match the table (`Windows`, `Dummy1`).
+  - `navigate_to`: description's first sentence now "changes what OneNote shows, and may bring OneNote forward"; the windowless sentence dropped (it was also missing its leading space). `NavigateToToolTests` checks the new sentence and that neither old claim returns. Premise correction: `tool-contract.json` holds no descriptions (`ToolContractTests` strips them), so the snapshot didn't change, and contract version stays `0.10`. The same focus claim fixed in the `binaryUnavailable` advice of `GetPageContentUseCase` and `GetBinaryPageContentUseCase`, and in comments (`NavigateToUseCase`, `IOneNoteGateway.NavigateTo`, `IApplication` slot 18). The README's Focus row also says a create (such as `create_notebook`) may bring OneNote forward (AD-11, spike 5.1 constraint 14).
+  - Skill: new `references/app-state.md` (six recipes plus the shared rules); `SKILL.md` description, intro, When to use, the "read before" pointer, `navigate_to`'s row, Missing images (the windowless advice reworded), User-visible bullets (focus per AD-11, a `quick_filing` bullet); `exports-and-packages.md` now points to `close_notebook` for closing an opened copy.
+  - README: status line, `navigate_to` row, Safety "Focus" row (five tools), Missing images, "What writes can't do" and `create_notebook`'s close advice, opened-package closing, the guide paragraph, a new "Opening, closing and syncing notebooks" section, and a How it works bullet on app-state calls.
+  - Harness: `Program.cs` comment and refusal message; `README.md` exit 3 and never-calls lists gain `quick_filing`, counts 12 read-only and 23 not, and the probe's focus wording.
+  - Spine: the Coverage sentence names `CoverageTableTests`; memlog line added. Not committed (the plan wants it in its own commit).
+  - `deferred-work.md`: a Resolved entry for the `navigate_to` description item.
+- Not run in the build session: the pack and `claude plugin validate`, and the live sitting. The I/O & Edge-Case Matrix rows are agent behaviour against real OneNote (the sitting's script); no unit test can exercise them, so the sitting covers them all.
+- 2026-11-25, quick review: three findings, all patched (see the triage log). Final verification: build 0 warnings; `dotnet test tests/OneNoteMcp.Tests` 4201 passed, 3 skipped, 0 failed; harness `--contract-only` against `contract-ok` exited 0 with "contract ok: 35 tools".
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+| # | Lens | Finding | Verdict | Route | Evidence |
+|---|---|---|---|---|---|
+| 1 | quick | `binaryUnavailable` advice in `GetPageContentUseCase`/`GetBinaryPageContentUseCase` (and the `IApplication` slot 18 comment) still said `navigate_to` takes focus | medium | patch | Strings are model-facing at run time; AD-11 and Decision OQ3 drop the claim. Reworded; no test asserted the old text. |
+| 2 | quick | README Safety "Focus" row said only the five user-visible tools can bring OneNote forward | low | patch | Spine AD-11: an `OpenHierarchy` create took focus three times (spike 5.1 constraint 14). Row now says a create may too. |
+| 3 | quick | `CoverageTableTests` ignored a one-word backticked tool name not in the contract | low | patch | Filter kept only underscored names or contract names, so `publish` → `export` drift passed. Now every backticked name except `window`/`force` counts; new test covers it. The aside-mention part (`close_notebook`'s sync on row 28) is not a defect: `close_notebook` does call `SyncHierarchy`. |
