@@ -84,6 +84,13 @@ public sealed class CloudLinkTests
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Q%26A&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#a#b&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#a%23b&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#a%3Db&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#a%3db&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#%62ase-path=file:///C:/Users&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#base-path%3Dfile:///C:/Users&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#%20base-path=file:///C:/Users&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#BASE-PATH%20=file:///C:/Users&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#Page-Id=x&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
         { "onenote:" + K.Root + "MCP%2520Test%2520Cloud/Probes.one#Text&page-id=" + K.PageGuid, R.Encoding },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text&page-id=%257B66666666-7777-8888-9999-AAAAAAAAAAAA%257D", R.Encoding },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text%2523&end", R.Encoding },
@@ -112,10 +119,8 @@ public sealed class CloudLinkTests
 
     [Theory]
     [InlineData("a=b%20test")] // as OneNote writes it (2026-11-25 live check)
-    [InlineData("a%3Db%20test")]
-    [InlineData("a%3db")]
     [InlineData("x=y=z")]
-    public void ATitleWithAnEquals_RawOrEncoded_IsStillAPageLink(string title)
+    public void ATitleWithARawEquals_IsStillAPageLink(string title)
     {
         var link = "onenote:" + K.EncodedNotebook + "/Probes.one#" + title + "&section-id=%7B11111111-2222-3333-4444-555555555555%7D&page-id=" + K.PageGuid + "&end";
 

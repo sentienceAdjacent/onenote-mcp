@@ -215,7 +215,8 @@ public static class CloudLinks
 
             // The title comes first and may hold a raw "=" (OneNote's own links write it so, 2026-11-25 live check): the first
             // part is a parameter only when its key is one of OneNote's.
-            var keyed = equals >= 0 && (i > 0 || IsParameterKey(piece[..equals]));
+            // The key is read decoded, so an encoded key ("%62ase-path") is a parameter here and is refused below as unknown.
+            var keyed = equals >= 0 && (i > 0 || IsParameterKey((Once(piece[..equals]) ?? piece[..equals]).Trim()));
             if (!keyed)
             {
                 if (Once(piece) is not { } plain)
@@ -235,6 +236,15 @@ public static class CloudLinks
                 if (plain.IndexOfAny(['&', '#']) >= 0)
                 {
                     return Malformed(Rules.FragmentParameter, "has a title that holds & or #, which OneNote's own links never carry and where a parameter could hide");
+                }
+
+                // OneNote writes "=" raw, never "%3D" (2026-11-25 live check), and a title that decodes to one of OneNote's
+                // parameter keys before its "=" could be read as that parameter once decoded (2026-11-25 security review).
+                var titleEquals = plain.IndexOf('=', StringComparison.Ordinal);
+                if (piece.Contains("%3D", StringComparison.OrdinalIgnoreCase)
+                    || (titleEquals >= 0 && IsParameterKey(plain[..titleEquals].Trim())))
+                {
+                    return Malformed(Rules.FragmentParameter, "has a title with an encoded = or one that reads as a parameter, which OneNote's own links never carry");
                 }
 
                 // The title comes first; after it only "end" and a number (a paragraph index) carry no "=".
