@@ -838,6 +838,118 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task NavigateToUrl_PassesTheLink_WithFNewWindowFalse_AndRefusesAnEmptyOneBeforeCom()
+    {
+        // Story 4.7: fNewWindow is always false (AD-11; epic 4 Q7 a).
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x/Probes.one", Ct);
+        var empty = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync(string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, empty.Code);
+        Assert.Equal([["onenote:https://d.docs.live.net/x/Probes.one", false]], app.Calls.Where(c => c.Method == "NavigateToUrl").Select(c => c.Args));
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_IsNotRetriedAfterADisconnect_AndFailuresMapLikeAnyCall()
+    {
+        // AppState, not a read: a disconnect that reached COM isn't repeated (AD-3).
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        app.OnCall = _ => throw new COMException("gone", unchecked((int)0x80042014));
+        var missing = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", Ct));
+        Assert.Equal((ErrorCode.ObjectNotFound, (int?)unchecked((int)0x80042014)), (missing.Code, missing.ComHResult));
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_WithAWindow_CallsThatWindowsNavigateToUrlOnly_AndReleasesEveryWrapper()
+    {
+        // Story 4.7: Window.NavigateToUrl on the window found by handle, in one STA call, as story 4.6's Window.NavigateTo.
+        var first = new FakeWindow(0x10);
+        var second = new FakeWindow(0x20);
+        var third = new FakeWindow(0x30);
+        var collection = new FakeWindows(first, second, third) { Current = first };
+        var app = new FakeApplication { OnWindows = () => collection, OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<(object Wrapper, int ThreadId)>();
+        gateway.ReleaseWrapper = w => released.Add((w, Environment.CurrentManagedThreadId));
+
+        await gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x/Probes.one", 0x20, Ct);
+
+        Assert.Equal(["onenote:https://d.docs.live.net/x/Probes.one"], second.UrlNavigations);
+        Assert.Empty(first.UrlNavigations);
+        Assert.Empty(third.UrlNavigations);
+        Assert.Empty(second.Navigations);
+        Assert.DoesNotContain(app.Calls, c => c.Method == "NavigateToUrl"); // Application.NavigateToUrl isn't called
+        Assert.Equal([0u, 1u], collection.Indices); // stops at the match
+        var sta = Assert.Single(app.Calls, c => c.Method == "Windows").ThreadId;
+        Assert.Equal(3, released.Count); // the collection, Item(0) and Item(1)
+        Assert.All(released, r => Assert.Equal(sta, r.ThreadId));
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_WithAHandleNoWindowHas_IsInvalidArgument_AndSendsNothing()
+    {
+        var first = new FakeWindow(0x10);
+        var collection = new FakeWindows(first);
+        var app = new FakeApplication { OnWindows = () => collection, OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = released.Add;
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", 0x99, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Equal(OneNoteWindow.UnknownHandleUserAction, ex.UserAction);
+        Assert.False(ex.OutcomeUnknown);
+        Assert.Empty(first.UrlNavigations);
+        Assert.DoesNotContain(app.Calls, c => c.Method == "NavigateToUrl");
+        Assert.Equal([0u], collection.Indices); // never Item(Count)
+        Assert.Equal(2, released.Count);
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_WithAWindow_RefusesAnEmptyLinkBeforeCom()
+    {
+        var app = new FakeApplication { OnWindows = () => new FakeWindows(new FakeWindow(0x10)), OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync(string.Empty, 0x10, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Contains("Window.NavigateToUrl", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task ATimedOutNavigateToUrl_IsNotAnAbandonedWrite()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c => c.Method == "NavigateToUrl" && !gate.IsSet ? Hang(gate) : "<ok/>";
+        using var gateway = Gateway(app, Settings(callMs: 300));
+
+        try
+        {
+            var timeout = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", Ct));
+            Assert.Equal(ErrorCode.Timeout, timeout.Code);
+            Assert.Equal(0, gateway.AbandonedWritesTracked);
+            Assert.True(gateway.WaitForAbandonedWritesAsync(Ct).IsCompleted);
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [Fact]
     public async Task ATimedOutSyncHierarchy_IsNotAnAbandonedWrite_SoAWriteAfterItIsNotComBusy()
     {
         // Story 4.3 acceptance: an AppState call abandoned at step 7 doesn't hold back the writes after it (AD-3, AD-7).
@@ -1113,6 +1225,8 @@ public sealed class ComGatewayLifecycleTests
 
         public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID) => throw new NotSupportedException();
 
+        public void NavigateToUrl(string bstrUrl) => throw new NotSupportedException();
+
         public bool GetFullPageView() => false;
 
         public bool GetActive() => throw new COMException("modal", unchecked((int)0x80042030));
@@ -1128,8 +1242,6 @@ public sealed class ComGatewayLifecycleTests
         void IWindow.SetDockedLocationPlaceholder() => throw new NotSupportedException();
 
         void IWindow.ApplicationPlaceholder() => throw new NotSupportedException();
-
-        void IWindow.NavigateToUrlPlaceholder() => throw new NotSupportedException();
 
         void IWindow.SetDockedLocationMethodPlaceholder() => throw new NotSupportedException();
     }

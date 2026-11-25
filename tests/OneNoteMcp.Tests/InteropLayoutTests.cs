@@ -72,7 +72,7 @@ public sealed class InteropLayoutTests
     [
         "get_WindowHandle", "get_CurrentPageId", "get_CurrentSectionId", "get_CurrentSectionGroupId", "get_CurrentNotebookId",
         "NavigateTo", "GetFullPageView", "SetFullPageViewPlaceholder", "GetActive", "SetActivePlaceholder", "GetDockedLocation",
-        "SetDockedLocationPlaceholder", "ApplicationPlaceholder", "GetSideNote", "NavigateToUrlPlaceholder",
+        "SetDockedLocationPlaceholder", "ApplicationPlaceholder", "GetSideNote", "NavigateToUrl",
         "SetDockedLocationMethodPlaceholder",
     ];
 
@@ -100,13 +100,13 @@ public sealed class InteropLayoutTests
     }
 
     [Fact]
-    public void WindowInterfaces_TypeTheirMarshalling_AndOnlyTheGettersAndNavigateToAreCallable()
+    public void WindowInterfaces_TypeTheirMarshalling_AndOnlyTheGettersNavigateToAndNavigateToUrlAreCallable()
     {
         foreach (var method in DeclaredMethods(typeof(IWindows)).Concat(DeclaredMethods(typeof(IWindow))))
         {
             if (method.Name.EndsWith("Placeholder", StringComparison.Ordinal))
             {
-                // The setters, _NewEnum, Application, NavigateToUrl and SetDockedLocation can't be called: a call doesn't compile.
+                // The setters, _NewEnum, Application and SetDockedLocation can't be called: a call doesn't compile (story 4.7 made NavigateToUrl callable).
                 Assert.True(method.GetCustomAttribute<ObsoleteAttribute>()?.IsError, method.Name);
                 continue;
             }

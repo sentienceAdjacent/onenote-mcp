@@ -61,7 +61,7 @@ public sealed class FakeGatewayTests
             .Select(m => m.Name[..^"Async".Length])
             .ToHashSet();
         Assert.Equal(9, methods.Count);
-        Assert.Equal(28, typeof(IOneNoteGateway).GetMethods().Length); // + ShowQuickFiling (story 4.9), a picker, no fixture content; UpdateHierarchy (story 5.4), DeleteHierarchy (story 5.5) and MergeSections (story 3.6), Tasks with no content; OpenPackage and OpenHierarchy (story 3.8); SyncHierarchy (story 4.3) and CloseNotebook (story 4.4), Tasks with no content; GetWindows and NavigateTo's window overload (story 4.6), which return no fixture content
+        Assert.Equal(30, typeof(IOneNoteGateway).GetMethods().Length); // NavigateToUrl and its window overload (story 4.7), Tasks with no content; ShowQuickFiling (story 4.9), a picker, no fixture content; + UpdateHierarchy (story 5.4), DeleteHierarchy (story 5.5) and MergeSections (story 3.6), Tasks with no content; OpenPackage and OpenHierarchy (story 3.8); SyncHierarchy (story 4.3) and CloseNotebook (story 4.4), Tasks with no content; GetWindows and NavigateTo's window overload (story 4.6), which return no fixture content
 
         var served = FakeGateway.Manifest.Entries.Where(e => e.Error is null).Select(e => e.Method).ToHashSet();
 

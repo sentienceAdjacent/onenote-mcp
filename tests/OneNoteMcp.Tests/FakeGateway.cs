@@ -132,8 +132,25 @@ internal sealed class FakeGateway : IOneNoteGateway
     public Task<string> FindMetaAsync(string startNodeId, string name, bool includeUnindexed, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.FindMetaAsync), startNodeId, name, Bool(includeUnindexed));
 
-    public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
-        Serve(nameof(IOneNoteGateway.GetHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);
+    /// <summary>
+    /// <c>GetHyperlinkToObject</c> answers that win over the manifest, by hierarchy ID, for an empty object ID (story 4.7:
+    /// <c>navigate_to_url</c>'s landing check). <see cref="HyperlinkFailure"/>, when set, is thrown instead.
+    /// </summary>
+    public Dictionary<string, string> Hyperlinks { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>When set, <c>GetHyperlinkToObject</c> alone throws it (story 4.7).</summary>
+    public Exception? HyperlinkFailure { get; set; }
+
+    /// <summary>Every <c>GetHyperlinkToObject</c> call's hierarchy ID, in order, failing ones included (story 4.7).</summary>
+    public List<string> HyperlinkCalls { get; } = [];
+
+    public Task<string> GetHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct)
+    {
+        HyperlinkCalls.Add(hierarchyId);
+        return HyperlinkFailure is { } failure ? Task.FromException<string>(failure)
+            : Failure is null && pageContentObjectId.Length == 0 && Hyperlinks.TryGetValue(hierarchyId, out var link) ? Task.FromResult(link)
+            : Serve(nameof(IOneNoteGateway.GetHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);
+    }
 
     public Task<string> GetWebHyperlinkToObjectAsync(string hierarchyId, string pageContentObjectId, CancellationToken ct) =>
         Serve(nameof(IOneNoteGateway.GetWebHyperlinkToObjectAsync), hierarchyId, pageContentObjectId);
@@ -171,6 +188,48 @@ internal sealed class FakeGateway : IOneNoteGateway
         }
 
         if ((Failure ?? NavigateFailure) is { } failure)
+        {
+            throw failure;
+        }
+    }
+
+    /// <summary>
+    /// Every <c>NavigateToUrl</c> call's link, in order (story 4.7). It returns no content, so it has no fixture: it records
+    /// and succeeds.
+    /// </summary>
+    public List<string> NavigateUrlCalls { get; } = [];
+
+    /// <summary>The window handle of each <see cref="NavigateUrlCalls"/> entry, in order (null for app-level <c>NavigateToUrl</c>).</summary>
+    public List<int?> NavigateUrlWindows { get; } = [];
+
+    /// <summary>When set, <c>NavigateToUrl</c> alone throws it (story 4.7).</summary>
+    public Exception? NavigateUrlFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>NavigateToUrl</c> before it answers, with the call's token (a hook to hang, observe, cancel or move a window).</summary>
+    public Func<CancellationToken, Task>? OnNavigateUrlCall { get; set; }
+
+    public Task NavigateToUrlAsync(string url, CancellationToken ct) =>
+        NavigateToUrlAsync(url, window: null, ct);
+
+    /// <summary>
+    /// A handle none of <see cref="Windows"/> has is refused with <see cref="ErrorCode.InvalidArgument"/> and not recorded, as
+    /// the real gateway sends nothing (story 4.7, as 4.6's <c>NavigateTo</c>).
+    /// </summary>
+    public async Task NavigateToUrlAsync(string url, int? window, CancellationToken ct)
+    {
+        if (Failure is null && window is { } handle && !Windows.Any(w => OneNoteWindow.HandleOf(w.Handle) == handle))
+        {
+            throw new OneNoteException(ErrorCode.InvalidArgument, OneNoteWindow.UnknownHandleMessage(handle), userAction: OneNoteWindow.UnknownHandleUserAction, retryable: false);
+        }
+
+        NavigateUrlCalls.Add(url);
+        NavigateUrlWindows.Add(window);
+        if (OnNavigateUrlCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? NavigateUrlFailure) is { } failure)
         {
             throw failure;
         }
