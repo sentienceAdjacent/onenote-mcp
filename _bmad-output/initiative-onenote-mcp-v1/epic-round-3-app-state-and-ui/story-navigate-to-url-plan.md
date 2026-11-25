@@ -119,6 +119,8 @@ Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build sess
 - Step 7: OneNote writes "=" raw in the title part (`Probes.one#a=b%20test&section-id={…}&page-id={…}&end`) and drops "&" and "#" from titles entirely (title `x&y=z#q delete me` became `#xy=zq delete me`). Fix 2 (Phill approved): allow "=" in a title, raw or `%3D`; keep refusing a title holding "&" or "#", raw or encoded (`%26`, `%23`).
 - Step 8: Sync Now pending.
 
+Re-test on the fixed build (8700f82), 2026-11-25: the deleted page's link gave `landed` + `landedInRecycleBin`; the **a=b test** link gave `landed`; the same link with its title replaced by `%62ase-path=file:///C:/Users` was refused (`InvalidArgument`). Step 8: Phill ran Sync Now on MCP Test Cloud, synced fine. All steps passed.
+
 ## Verification
 
 **Commands:**
