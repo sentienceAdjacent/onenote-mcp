@@ -287,6 +287,54 @@ internal sealed class FakeGateway : IOneNoteGateway
         }
     }
 
+    /// <summary>Every <c>QuickFiling</c> call's title and description, in order (story 4.9).</summary>
+    public List<(string Title, string Description)> QuickFilingCalls { get; } = [];
+
+    /// <summary>When set, <c>QuickFiling</c> alone throws it (story 4.9).</summary>
+    public Exception? QuickFilingFailure { get; set; }
+
+    /// <summary>When set, runs inside <c>QuickFiling</c> before it answers, with the call's token (a hook to hang, observe or cancel).</summary>
+    public Func<CancellationToken, Task>? OnQuickFilingCall { get; set; }
+
+    /// <summary>When set, each picker answers with it at once; otherwise a test answers through <see cref="PendingAnswers"/>.</summary>
+    public QuickFilingAnswer? QuickFilingAnswer { get; set; }
+
+    /// <summary>Each shown picker's answer source, in order: a test completes one to answer for the user (story 4.9).</summary>
+    public List<TaskCompletionSource<QuickFilingAnswer>> PendingAnswers { get; } = [];
+
+    /// <summary>Each shown picker, in order (story 4.9).</summary>
+    public List<QuickFilingPicker> Pickers { get; } = [];
+
+    /// <summary>How many times a picker's let-go ran (once per picker, however often <c>Release</c> is called).</summary>
+    public int PickerReleases => Volatile.Read(ref pickerReleases);
+
+    private int pickerReleases;
+
+    public async Task<QuickFilingPicker> ShowQuickFilingAsync(string title, string description, CancellationToken ct)
+    {
+        QuickFilingCalls.Add((title, description));
+        if (OnQuickFilingCall is { } hook)
+        {
+            await hook(ct).ConfigureAwait(false);
+        }
+
+        if ((Failure ?? QuickFilingFailure) is { } failure)
+        {
+            throw failure;
+        }
+
+        var answer = new TaskCompletionSource<QuickFilingAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (QuickFilingAnswer is { } scripted)
+        {
+            answer.SetResult(scripted);
+        }
+
+        PendingAnswers.Add(answer);
+        var picker = new QuickFilingPicker(answer.Task, () => Interlocked.Increment(ref pickerReleases));
+        Pickers.Add(picker);
+        return picker;
+    }
+
     /// <summary>
     /// The <c>SyncHierarchy</c> and <c>CloseNotebook</c> calls in the order they were made, as <c>"sync &lt;id&gt;"</c> and
     /// <c>"close &lt;id&gt;"</c> (story 4.4). A test's settle can add its own line, to check the sync, settle, close order.

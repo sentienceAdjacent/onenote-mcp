@@ -192,9 +192,9 @@ public sealed class NavigateToToolTests
 
     /// <summary>
     /// The AppState tools other than navigate_to (story 4.3 on): not read-only. sync_hierarchy isn't user-visible (spike 4.1
-    /// S1); close_notebook (AD-11; story 4.4), open_notebook (story 4.5) and navigate_to_url (story 4.7) are, and their own tests check their descriptions say so.
+    /// S1); close_notebook (AD-11; story 4.4), open_notebook (story 4.5), navigate_to_url (story 4.7) and quick_filing (story 4.9) are, and their own tests check their descriptions say so.
     /// </summary>
-    internal static readonly string[] AppStateTools = [SyncHierarchyTool.Name, CloseNotebookTool.Name, OpenNotebookTool.Name, NavigateToUrlTool.Name];
+    internal static readonly string[] AppStateTools = [SyncHierarchyTool.Name, CloseNotebookTool.Name, OpenNotebookTool.Name, NavigateToUrlTool.Name, QuickFilingTool.Name];
 
     [Fact]
     public void SyncHierarchy_IsNotUserVisible_ButOnlyOnTheUsersRequest_AndIdempotent()

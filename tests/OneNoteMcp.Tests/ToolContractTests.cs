@@ -83,7 +83,7 @@ public sealed class ToolContractTests
         using var services = BuildServer();
 
         Assert.Equal(
-            ["close_notebook", "create_notebook", "create_page", "create_section", "create_section_group", "delete_hierarchy_object", "delete_page_content", "find_meta", "find_pages", "get_binary_page_content", "get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_page_content", "get_special_location", "get_web_hyperlink_to_object", "get_windows", "list_grants", "merge_sections", "move_hierarchy_object", "navigate_to", "navigate_to_url", "open_notebook", "open_package", "permanently_delete_hierarchy_object", "publish", "read_result", "rename_hierarchy_object", "reorder_hierarchy_children", "restore_from_journal", "restore_from_recycle_bin", "set_page_level", "sync_hierarchy", "update_page_content"],
+            ["close_notebook", "create_notebook", "create_page", "create_section", "create_section_group", "delete_hierarchy_object", "delete_page_content", "find_meta", "find_pages", "get_binary_page_content", "get_hierarchy", "get_hierarchy_parent", "get_hyperlink_to_object", "get_page_content", "get_special_location", "get_web_hyperlink_to_object", "get_windows", "list_grants", "merge_sections", "move_hierarchy_object", "navigate_to", "navigate_to_url", "open_notebook", "open_package", "permanently_delete_hierarchy_object", "publish", "quick_filing", "read_result", "rename_hierarchy_object", "reorder_hierarchy_children", "restore_from_journal", "restore_from_recycle_bin", "set_page_level", "sync_hierarchy", "update_page_content"],
             services.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order(StringComparer.Ordinal));
     }
 

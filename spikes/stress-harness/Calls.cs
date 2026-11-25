@@ -81,6 +81,9 @@ internal sealed class ToolClient(McpClient client)
     /// <summary>The user-visible AppState tool that follows a onenote: link (story 4.7, AD-7, AD-11). The harness never calls it either.</summary>
     public const string NavigateToUrl = "navigate_to_url";
 
+    /// <summary>The user-visible AppState tool that shows OneNote's section picker (story 4.9, AD-7, AD-11). The harness never calls it either.</summary>
+    public const string QuickFiling = "quick_filing";
+
     /// <summary>The write tools (story 2.4 on; epic 5's hierarchy writes since story 5.7; round 2's since story 3.10). The harness never calls them either: it only reads.</summary>
     public static readonly IReadOnlySet<string> WriteTools = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -94,14 +97,15 @@ internal sealed class ToolClient(McpClient client)
     public static bool MayWrite(string tool) =>
         (IsAppState(tool) && !string.Equals(tool, GetWindows, StringComparison.Ordinal)) || WriteTools.Contains(tool);
 
-    /// <summary>The AppState tools the harness refuses: <see cref="NavigateTo"/>, <see cref="SyncHierarchy"/>, <see cref="GetWindows"/>, <see cref="CloseNotebook"/>, <see cref="OpenNotebook"/> and <see cref="NavigateToUrl"/>.</summary>
+    /// <summary>The AppState tools the harness refuses: <see cref="NavigateTo"/>, <see cref="SyncHierarchy"/>, <see cref="GetWindows"/>, <see cref="CloseNotebook"/>, <see cref="OpenNotebook"/>, <see cref="NavigateToUrl"/> and <see cref="QuickFiling"/>.</summary>
     public static bool IsAppState(string tool) =>
         string.Equals(tool, NavigateTo, StringComparison.Ordinal)
         || string.Equals(tool, SyncHierarchy, StringComparison.Ordinal)
         || string.Equals(tool, GetWindows, StringComparison.Ordinal)
         || string.Equals(tool, CloseNotebook, StringComparison.Ordinal)
         || string.Equals(tool, OpenNotebook, StringComparison.Ordinal)
-        || string.Equals(tool, NavigateToUrl, StringComparison.Ordinal);
+        || string.Equals(tool, NavigateToUrl, StringComparison.Ordinal)
+        || string.Equals(tool, QuickFiling, StringComparison.Ordinal);
 
     /// <summary>The unreduced result, for the diag modes; null on a protocol failure.</summary>
     public async Task<CallToolResult?> CallRawAsync(string tool, Dictionary<string, object?> args)
@@ -373,6 +377,11 @@ internal sealed class ToolClient(McpClient client)
         if (string.Equals(tool, NavigateToUrl, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("the harness never calls navigate_to_url (AD-7, AD-11)");
+        }
+
+        if (string.Equals(tool, QuickFiling, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("the harness never calls quick_filing (AD-7, AD-11)");
         }
 
         if (WriteTools.Contains(tool))
