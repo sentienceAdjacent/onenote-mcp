@@ -82,3 +82,13 @@ internal enum FilingLocationType
     fltCurrentPage = 2,
     fltNamedPage = 4,
 }
+
+/// <summary>Story 4.9 (spike 4.13): the picker's tree depth and button elements. Only <see cref="heSections"/> and <see cref="heNone"/> are sent.</summary>
+internal enum HierarchyElement
+{
+    heNone = 0,
+    heNotebooks = 1,
+    heSectionGroups = 2,
+    heSections = 4,
+    hePages = 8,
+}

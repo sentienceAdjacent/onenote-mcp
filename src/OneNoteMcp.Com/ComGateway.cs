@@ -39,7 +39,7 @@ namespace OneNoteMcp.Com;
 /// activation.</item>
 /// <item>The COM reference is released after <c>timeouts.idleRelease</c> with no call (5 s by default), or by the next
 /// call's check once OneNote has no open window: a held reference keeps a closed OneNote alive (backlog 3). Nothing
-/// watches the window between calls.</item>
+/// watches the window between calls. While a QuickFiling picker is held (story 4.9), the idle release waits.</item>
 /// </list>
 /// Failures map through <see cref="HResultMap"/> (AD-9). It never kills or closes OneNote.
 /// </summary>
@@ -72,6 +72,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     private bool disposed;
     private int outstandingWrites;
     private int abandonedWritesTracked;
+    private int pickerHolds;
     private TaskCompletionSource? writesSettled;
 
     public ComGateway(IProcessProbe probe, SettingsStore settings)
@@ -243,7 +244,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 {
                     // Story 4.6: the handle check and the call in one STA delegate, so a window closed in between is
                     // InvalidArgument rather than a stale wrapper.
-                    NavigateInWindow(app, handle, hierarchyId ?? string.Empty, objectId ?? string.Empty);
+                    var (id, objectInPage) = (hierarchyId ?? string.Empty, objectId ?? string.Empty);
+                    NavigateInWindow(app, handle, w => w.NavigateTo(id, objectInPage));
                 }
                 else
                 {
@@ -257,6 +259,39 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             CallKind.AppState,
             ct);
 
+    public Task NavigateToUrlAsync(string url, CancellationToken ct) =>
+        NavigateToUrlAsync(url, window: null, ct);
+
+    public Task NavigateToUrlAsync(string url, int? window, CancellationToken ct)
+    {
+        var method = window is null ? nameof(IApplication.NavigateToUrl) : WindowNavigateToUrlMethod;
+        if (string.IsNullOrEmpty(url))
+        {
+            return Task.FromException(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: no link was given.", retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                if (window is { } handle)
+                {
+                    // Story 4.7: the handle check and the call in one STA delegate, as navigate_to's (story 4.6).
+                    NavigateInWindow(app, handle, w => w.NavigateToUrl(url));
+                }
+                else
+                {
+                    // fNewWindow is always false: never open a window the user didn't ask for (AD-11; epic 4 Q7 a).
+                    app.NavigateToUrl(url, fNewWindow: false);
+                }
+
+                return true;
+            },
+            // AppState (story 4.7): never repeated after a disconnect, and never an abandoned write (AD-3, AD-7).
+            CallKind.AppState,
+            ct);
+    }
+
     public Task<IReadOnlyList<OneNoteWindow>> GetWindowsAsync(CancellationToken ct) =>
         RunAsync(
             nameof(IApplication.Windows),
@@ -267,6 +302,9 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>The method name failures of <c>navigate_to</c>'s window path carry.</summary>
     internal const string WindowNavigateToMethod = "Window.NavigateTo";
+
+    /// <summary>The method name failures of <c>navigate_to_url</c>'s window path carry (story 4.7).</summary>
+    internal const string WindowNavigateToUrlMethod = "Window.NavigateToUrl";
 
     /// <summary>
     /// Test seam (story 4.6): releases one wrapper the window calls obtained, on the STA thread. By default
@@ -350,10 +388,11 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>
     /// Story 4.6, on the STA thread: walks <c>Item(0)</c> … <c>Item(Count - 1)</c> for the window whose handle is
-    /// <paramref name="handle"/> and calls its <c>NavigateTo</c>. None has it: <see cref="ErrorCode.InvalidArgument"/>, and
-    /// nothing is shown. Every wrapper is released in the <c>finally</c>.
+    /// <paramref name="handle"/> and makes the per-window call <paramref name="navigate"/> on it (<c>NavigateTo</c>, or story
+    /// 4.7's <c>NavigateToUrl</c>). None has it: <see cref="ErrorCode.InvalidArgument"/>, and nothing is shown. Every wrapper
+    /// is released in the <c>finally</c>.
     /// </summary>
-    private void NavigateInWindow(IApplication app, int handle, string hierarchyId, string objectId)
+    private void NavigateInWindow(IApplication app, int handle, Action<IWindow> navigate)
     {
         var wrappers = new List<object>();
         try
@@ -373,7 +412,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                     wrappers.Add(window);
                     if (OneNoteWindow.HandleOf(window.WindowHandle) == handle)
                     {
-                        window.NavigateTo(hierarchyId, objectId);
+                        navigate(window);
                         return;
                     }
                 }
@@ -412,6 +451,250 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             // AppState (story 4.3): never repeated after a disconnect, and never an abandoned write (AD-3, AD-7).
             CallKind.AppState,
             ct);
+    }
+
+    /// <summary>The QuickFiling picker's one button (story 4.9): it takes a section and is the default.</summary>
+    internal const string QuickFilingButton = "Choose";
+
+    /// <summary>
+    /// Story 4.9: one STA call shows the picker (<c>QuickFiling</c>, the cast to <see cref="IQuickFilingDialog"/>, <c>Title</c>,
+    /// <c>Description</c>, <c>TreeDepth = heSections</c>, one default <c>AddButton</c> for sections, then <c>Run</c>), never
+    /// <c>ParentWindowHandle</c> or any other member. The gateway holds the picker from just before <c>Run</c> until the
+    /// answer arrives or the caller lets go (<see cref="QuickFilingPicker.Release"/>), whichever is first; while held, the
+    /// idle release keeps the COM reference (AD-3). A call that fails, times out or is cancelled lets go itself.
+    /// </summary>
+    public async Task<QuickFilingPicker> ShowQuickFilingAsync(string title, string description, CancellationToken ct)
+    {
+        var hold = new PickerHold(this);
+        try
+        {
+            await RunAsync(
+                nameof(IApplication.QuickFiling),
+                app =>
+                {
+                    ShowPicker(app, hold, title ?? string.Empty, description ?? string.Empty);
+                    return true;
+                },
+                // AppState (story 4.9): never repeated after a disconnect, and never an abandoned write (AD-3, AD-7).
+                CallKind.AppState,
+                ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Nobody will wait on this picker: let go (a picker Run already showed stays on screen; its answer is ignored).
+            hold.Release();
+            throw;
+        }
+
+        return hold.Picker;
+    }
+
+    /// <summary>Picker holds not yet ended (story 4.9): while above 0, the idle release keeps the COM reference (AD-3).</summary>
+    internal int PickerHolds
+    {
+        get
+        {
+            lock (gate)
+            {
+                return pickerHolds;
+            }
+        }
+    }
+
+    /// <summary>Story 4.9, on the STA thread: see <see cref="ShowQuickFilingAsync"/>. A wrapper not handed to the hold is released here.</summary>
+    private void ShowPicker(IApplication app, PickerHold hold, string title, string description)
+    {
+        var raw = app.QuickFiling() ?? throw new OneNoteException(ErrorCode.Internal, "QuickFiling returned no picker, so nothing was shown.");
+        var handedOver = false;
+        try
+        {
+            var dialog = (IQuickFilingDialog)raw;
+            dialog.Title = title;
+            dialog.Description = description;
+            dialog.TreeDepth = HierarchyElement.heSections;
+            dialog.AddButton(QuickFilingButton, HierarchyElement.heSections, HierarchyElement.heNone, fDefault: true);
+            if (!hold.TryBegin(CurrentWorker(), raw))
+            {
+                // The caller already stopped waiting (its deadline or cancel): show nothing nobody would wait for.
+                throw new OperationCanceledException("The quick_filing call stopped waiting before Run; nothing was shown.");
+            }
+
+            handedOver = true;
+            dialog.Run(hold.Callback);
+        }
+        finally
+        {
+            if (!handedOver)
+            {
+                ReleaseWrapper(raw);
+            }
+        }
+    }
+
+    /// <summary>The live worker when this is its STA thread; null otherwise (it was poisoned or replaced).</summary>
+    private StaThread? CurrentWorker()
+    {
+        lock (gate)
+        {
+            return worker is { } live && live.ManagedThreadId == Environment.CurrentManagedThreadId ? live : null;
+        }
+    }
+
+    private void BeginPickerHold()
+    {
+        lock (gate)
+        {
+            pickerHolds++;
+            if (!disposed)
+            {
+                idleTimer.Change(Timeout.Infinite, Timeout.Infinite);
+            }
+        }
+    }
+
+    private void EndPickerHold()
+    {
+        lock (gate)
+        {
+            pickerHolds--;
+        }
+    }
+
+    /// <summary>After a picker's hold ends or its caller lets go: restarts the idle timer when nothing else holds the reference (AD-3).</summary>
+    private void RestartIdleTimer()
+    {
+        lock (gate)
+        {
+            if (inFlight == 0 && pickerHolds == 0 && !disposed)
+            {
+                idleTimer.Change(settings.Timeouts.IdleRelease, Timeout.InfiniteTimeSpan);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Releases a picker's dialog wrapper on the STA thread that obtained it, if that worker is still the live one; otherwise
+    /// drops it, since a wrapper is touched only on its own STA thread (AD-2).
+    /// </summary>
+    private void ReleaseDialog(StaThread? owner, object dialog)
+    {
+        lock (gate)
+        {
+            if (!disposed && owner is not null && ReferenceEquals(worker, owner) && !owner.IsPoisoned)
+            {
+                owner.Post(() => ReleaseWrapper(dialog));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Story 4.9: one QuickFiling picker's hold (AD-3) and its callback. It holds from <see cref="TryBegin"/>, just before
+    /// <c>Run</c>, until the answer arrives or <see cref="Release"/>, whichever is first. <see cref="Release"/> is idempotent:
+    /// it ends the hold, restarts the idle timer and releases the dialog wrapper on its STA if that worker is still live.
+    /// The answer's continuation runs on the thread pool, never on OneNote's calling thread, so the callback itself queues
+    /// no STA work and takes no lock of the gateway's.
+    /// </summary>
+    private sealed class PickerHold
+    {
+        private readonly ComGateway owner;
+        private readonly Lock sync = new();
+
+        // Guarded by sync.
+        private StaThread? sta;
+        private object? dialog;
+        private bool holding;
+        private bool released;
+
+        public PickerHold(ComGateway owner)
+        {
+            this.owner = owner;
+            Callback = new QuickFilingCallback();
+            Picker = new QuickFilingPicker(Callback.Answer, Release);
+            _ = Callback.Answer.ContinueWith(
+                t =>
+                {
+                    // Observe a failed answer nobody waits for any more, then end the hold.
+                    _ = t.Exception;
+                    EndHold();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        public QuickFilingCallback Callback { get; }
+
+        public QuickFilingPicker Picker { get; }
+
+        /// <summary>On the STA, just before <c>Run</c>: starts the hold. False when the caller already let go.</summary>
+        public bool TryBegin(StaThread? worker, object wrapper)
+        {
+            lock (sync)
+            {
+                if (released)
+                {
+                    return false;
+                }
+
+                sta = worker;
+                dialog = wrapper;
+                holding = true;
+                owner.BeginPickerHold();
+                return true;
+            }
+        }
+
+        public void Release()
+        {
+            StaThread? worker;
+            object? wrapper;
+            lock (sync)
+            {
+                if (released)
+                {
+                    return;
+                }
+
+                released = true;
+                EndHoldLocked();
+                worker = sta;
+                wrapper = dialog;
+                sta = null;
+                dialog = null;
+            }
+
+            owner.RestartIdleTimer();
+            if (wrapper is not null)
+            {
+                owner.ReleaseDialog(worker, wrapper);
+            }
+        }
+
+        private void EndHold()
+        {
+            bool ended;
+            lock (sync)
+            {
+                ended = EndHoldLocked();
+            }
+
+            if (ended)
+            {
+                owner.RestartIdleTimer();
+            }
+        }
+
+        private bool EndHoldLocked()
+        {
+            if (!holding)
+            {
+                return false;
+            }
+
+            holding = false;
+            owner.EndPickerHold();
+            return true;
+        }
     }
 
     public Task CloseNotebookAsync(string notebookId, CancellationToken ct)
@@ -1410,7 +1693,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
         lock (gate)
         {
             inFlight--;
-            if (inFlight == 0 && !disposed)
+            if (inFlight == 0 && pickerHolds == 0 && !disposed)
             {
                 idleTimer.Change(settings.Timeouts.IdleRelease, Timeout.InfiniteTimeSpan);
             }
@@ -1421,7 +1704,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
     {
         lock (gate)
         {
-            if (disposed || inFlight > 0 || this.worker is not { HasApplication: true } worker)
+            // A picker waiting for the user holds the reference too (story 4.9; AD-3, epic 4 A8).
+            if (disposed || inFlight > 0 || pickerHolds > 0 || this.worker is not { HasApplication: true } worker)
             {
                 return;
             }

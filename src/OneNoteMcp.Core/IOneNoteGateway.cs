@@ -3,7 +3,7 @@ namespace OneNoteMcp.Core;
 /// <summary>
 /// The one driven port (hexagonal paradigm). Implementations throw only <see cref="OneNoteException"/>.
 /// Methods return tasks that run on the gateway's STA queue. These are the AD-7 <c>Read</c>-class COM methods, plus
-/// <see cref="NavigateToAsync(string, string, CancellationToken)"/>, <see cref="GetWindowsAsync"/>, <see cref="SyncHierarchyAsync"/> and <see cref="CloseNotebookAsync"/>, <c>AppState</c> calls (AD-7, AD-11), and the writes only the write pipeline makes (AD-7):
+/// <see cref="NavigateToAsync(string, string, CancellationToken)"/>, <see cref="GetWindowsAsync"/>, <see cref="SyncHierarchyAsync"/>, <see cref="ShowQuickFilingAsync"/> and <see cref="CloseNotebookAsync"/>, <c>AppState</c> calls (AD-7, AD-11), and the writes only the write pipeline makes (AD-7):
 /// <see cref="CreateNewPageAsync"/>, <see cref="CreateSectionAsync"/>, <see cref="CreateSectionGroupAsync"/> and
 /// <see cref="CreateNotebookAsync"/> (<c>Create</c>), <see cref="UpdatePageContentAsync"/> and
 /// <see cref="DeletePageContentAsync"/> (<c>PageWrite</c>), <see cref="UpdateHierarchyAsync"/> (<c>HierarchyWrite</c>), and
@@ -61,6 +61,29 @@ public interface IOneNoteGateway
             : Task.FromException(new OneNoteException(ErrorCode.NotSupported, "Window.NavigateTo isn't available on this gateway.", retryable: false));
 
     /// <summary>
+    /// User-visible (AD-11; story 4.7): <c>NavigateToUrl</c> of the <c>onenote:</c> link <paramref name="url"/>, with
+    /// <c>fNewWindow</c> false. <c>AppState</c> (AD-7): never retried after a disconnect (AD-3), and never an abandoned write.
+    /// Only <c>NavigateToUrlUseCase</c> calls it, after its step-1 and step-3 checks; an empty link is
+    /// <see cref="ErrorCode.InvalidArgument"/> before COM. A gateway that doesn't implement it refuses with
+    /// <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task NavigateToUrlAsync(string url, CancellationToken ct) =>
+        Task.FromException(new OneNoteException(ErrorCode.NotSupported, "NavigateToUrl isn't available on this gateway.", retryable: false));
+
+    /// <summary>
+    /// User-visible (AD-11; story 4.7): <see cref="NavigateToUrlAsync(string, CancellationToken)"/> when
+    /// <paramref name="window"/> is null; otherwise, in one STA call, finds the open window whose <c>WindowHandle</c> is
+    /// <paramref name="window"/> (as <c>get_windows</c> reports it) and calls its <c>Window.NavigateToUrl</c>, so only that
+    /// window moves. A handle no open window has is <see cref="ErrorCode.InvalidArgument"/> with
+    /// <see cref="OneNoteWindow.UnknownHandleUserAction"/>, and nothing is sent, as story 4.6's <c>Window.NavigateTo</c>. A
+    /// gateway that doesn't implement the window path refuses it with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task NavigateToUrlAsync(string url, int? window, CancellationToken ct) =>
+        window is null
+            ? NavigateToUrlAsync(url, ct)
+            : Task.FromException(new OneNoteException(ErrorCode.NotSupported, "Window.NavigateToUrl isn't available on this gateway.", retryable: false));
+
+    /// <summary>
     /// <c>AppState</c> (AD-7; story 4.6), a read for AD-3: OneNote's open windows, in <c>Item</c> order, from one STA call that
     /// reads <c>Windows</c>, <c>Count</c>, <c>CurrentWindow</c> and each window's getters, walking <c>Item(0)</c> …
     /// <c>Item(Count - 1)</c> (spike 4.12 W1) and releasing every wrapper before it returns. No window open: an empty list
@@ -81,6 +104,19 @@ public interface IOneNoteGateway
     /// </summary>
     Task SyncHierarchyAsync(string hierarchyId, CancellationToken ct) =>
         Task.FromException(new OneNoteException(ErrorCode.NotSupported, "SyncHierarchy isn't available on this gateway.", retryable: false));
+
+    /// <summary>
+    /// <c>AppState</c> (AD-7; story 4.9), user-visible (AD-11): shows OneNote's QuickFiling picker, unparented, with
+    /// <paramref name="title"/> and <paramref name="description"/>, a tree of sections, and one default button for a section,
+    /// in one STA call (<c>QuickFiling</c>, the cast, <c>Title</c>, <c>Description</c>, <c>TreeDepth</c>, <c>AddButton</c>,
+    /// <c>Run</c>), and returns as soon as <c>Run</c> does (spike 4.13 F2), with the pending answer. The picker doesn't block
+    /// OneNote (F4). The caller waits on <see cref="QuickFilingPicker.Answer"/> and always calls
+    /// <see cref="QuickFilingPicker.Release"/> when its wait ends. Never retried after a disconnect, and not tracked as an
+    /// abandoned write (AD-3). Only <c>QuickFilingUseCase</c> calls it, through the <c>AppState</c> pipeline, on the user's
+    /// request. A gateway that doesn't implement it refuses with <see cref="ErrorCode.NotSupported"/>.
+    /// </summary>
+    Task<QuickFilingPicker> ShowQuickFilingAsync(string title, string description, CancellationToken ct) =>
+        Task.FromException<QuickFilingPicker>(new OneNoteException(ErrorCode.NotSupported, "QuickFiling isn't available on this gateway.", retryable: false));
 
     /// <summary>
     /// <c>AppState</c> (AD-7; story 4.4): <c>CloseNotebook</c> of the open notebook <paramref name="notebookId"/>, always with

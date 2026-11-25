@@ -196,4 +196,45 @@ public static class ToolWarnings
     /// minute late). Every ok from an open that sent <c>OpenHierarchy</c> carries it. Names no ID or path.
     /// </summary>
     public const string NotebookListMayLag = "notebookListMayLag";
+
+    /// <summary>
+    /// <c>quick_filing</c> (story 4.9; 4.9 plan OQ1 a): the user closed the picker with Cancel or Esc, so nothing was chosen
+    /// (spike 4.13 F5: no item, <c>PressedButton</c> <c>0xFFFFFFFF</c>). The call is ok. Names no ID.
+    /// </summary>
+    public const string PickerCancelled = "pickerCancelled";
+
+    /// <summary>
+    /// <c>quick_filing</c> (story 4.9; AD-7 <c>AppState</c>, 4.9 plan OQ1 a): the user didn't answer within the fixed 300 s, so
+    /// nothing was chosen. The picker may still be on screen (nothing on the server's side closes it, spike 4.13 F6-F8), and a
+    /// choice made in it now is ignored. The call is ok. Its userAction says to ask the user to close it and call again.
+    /// </summary>
+    public const string PickerLeftOpen = "pickerLeftOpen";
+
+    /// <summary>
+    /// <c>navigate_to_url</c> (story 4.7; Decision OQ1 a): the landing check read the navigated window and found the link's
+    /// page, section or notebook there. Informational, as <see cref="SyncRequested"/> is: its message says "OneNote's current
+    /// page is …" with IDs only, never "OneNote shows …" (a window in the background may not have repainted, spike 4.12 N1 C).
+    /// </summary>
+    public const string Landed = "landed";
+
+    /// <summary>
+    /// <c>navigate_to_url</c> (story 4.7; Phill, 2026-11-25 live check): beside <see cref="Landed"/>, the window's section or
+    /// section group is in a notebook's recycle bin (<c>isRecycleBin</c>, <c>isInRecycleBin</c> or <c>isDeletedPages</c>): a
+    /// soft-deleted page's link opened it in Deleted Pages, keeping its page-id GUID. Informational; its userAction offers
+    /// <c>restore_from_recycle_bin</c>. A read that fails leaves it out.
+    /// </summary>
+    public const string LandedInRecycleBin = "landedInRecycleBin";
+
+    /// <summary>
+    /// <c>navigate_to_url</c> (story 4.7; spine AD-7 <c>AppState</c>): OneNote returned ok, but the navigated window's current
+    /// page, section or notebook isn't the one the link names, or the link names a page and the window has none (a missing page
+    /// lands elsewhere, spike 4.12 N3; a locked section's page lands on the section with no page, N6). IDs only.
+    /// </summary>
+    public const string LandedElsewhere = "landedElsewhere";
+
+    /// <summary>
+    /// <c>navigate_to_url</c> (story 4.7; Decision OQ1 a; epic 4 A7's fallback): OneNote returned ok, but the landing check
+    /// couldn't run: its reads failed, no window was open, or the <c>window</c> argument's window was gone. The call stays ok.
+    /// </summary>
+    public const string LandingUnconfirmed = "landingUnconfirmed";
 }

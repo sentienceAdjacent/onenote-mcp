@@ -2,7 +2,6 @@ using System.Globalization;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Results;
-using OneNoteMcp.Xml;
 
 namespace OneNoteMcp.Core.UseCases;
 
@@ -76,8 +75,6 @@ public sealed class GetWindowsUseCase(IOneNoteGateway gateway, AppStatePipeline 
     private static bool RetryableAsARead(OneNoteException ex) =>
         ex.Code is ErrorCode.Timeout or ErrorCode.ComUnavailable or ErrorCode.Cancelled && !ex.OutcomeUnknown && ex.Retryable is null;
 
-    private static string? Present(string id) => id.Length == 0 ? null : id;
-
     private sealed record Listed(IReadOnlyList<WindowListing> Windows, int Withheld);
 
     private sealed class ListWindows(IOneNoteGateway gateway, ReadAccess access, DateTimeOffset callStart) : AppStateOperation<Listed>
@@ -91,64 +88,17 @@ public sealed class GetWindowsUseCase(IOneNoteGateway gateway, AppStatePipeline 
         public override async Task<Listed> CallAsync(CancellationToken ct)
         {
             var windows = await gateway.GetWindowsAsync(ct).ConfigureAwait(false);
-            var readable = new Dictionary<string, bool>(StringComparer.Ordinal);
+            var pages = new WindowPages(gateway, access, callStart);
             var listed = new List<WindowListing>(windows.Count);
             var withheld = 0;
             foreach (var window in windows)
             {
-                var pageId = Present(window.PageId);
-                if (pageId is not null && !await PageReadableAsync(window.SectionId, readable, ct).ConfigureAwait(false))
-                {
-                    pageId = null;
-                    withheld++;
-                }
-
-                listed.Add(new WindowListing(
-                    OneNoteWindow.HandleOf(window.Handle),
-                    window.Current,
-                    window.Active,
-                    window.FullPageView,
-                    DockedLocationName(window.DockedLocation),
-                    window.SideNote,
-                    Present(window.NotebookId),
-                    Present(window.SectionGroupId),
-                    Present(window.SectionId),
-                    pageId));
+                var (listing, left) = await pages.ListAsync(window, ct).ConfigureAwait(false);
+                listed.Add(listing);
+                withheld += left ? 1 : 0;
             }
 
             return new Listed(listed, withheld);
-        }
-
-        /// <summary>
-        /// AD-21: whether a page of <paramref name="sectionId"/> may be named, from one <c>GetHierarchy</c> of the section at
-        /// <c>self</c> per call. Fails closed: no section ID, a section OneNote can't find, or a node that isn't a section.
-        /// </summary>
-        private async Task<bool> PageReadableAsync(string sectionId, Dictionary<string, bool> readable, CancellationToken ct)
-        {
-            if (sectionId.Length == 0)
-            {
-                return false;
-            }
-
-            if (readable.TryGetValue(sectionId, out var known))
-            {
-                return known;
-            }
-
-            bool allowed;
-            try
-            {
-                var xml = await gateway.GetHierarchyAsync(sectionId, HierarchyScope.Self, ct).ConfigureAwait(false);
-                var node = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
-                allowed = node.Kind == HierarchyKind.Section && access.HoldsReadGrant(node, callStart);
-            }
-            catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound)
-            {
-                allowed = false;
-            }
-
-            readable[sectionId] = allowed;
-            return allowed;
         }
     }
 }
