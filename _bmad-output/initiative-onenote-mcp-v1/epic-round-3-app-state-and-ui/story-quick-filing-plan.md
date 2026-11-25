@@ -111,6 +111,13 @@ Before: OneNote open on an MCP Test page with VS Code in front. The build sessio
 4. With that old picker still open, he waits 10 s (past the 5 s idle release), then picks a section in it. **Expect** the picker to close with no error, hang or OneNote message; the test's final read passes (spine Deferred: last reference dropped with a picker on screen).
 5. In Claude Code he asks for the picker and, while it is open, presses Esc in Claude Code to cancel the call. **Expect** the picker to stay; he closes it with Cancel. He asks for the picker once more: it opens (the slot was freed), and he cancels.
 
+**Sitting record (Phill, 2026-11-25, against the merged 4.7 + 4.9 build):**
+
+- Step 1 passed: the picker showed Claude's title; MCP Test Cloud > Probes was chosen in about 8 s and the result named that section. The callback's cast of OneNote's dialog proxy works.
+- Step 2 passed: Cancel and Esc both returned `pickerCancelled`.
+- Steps 3 and 4 passed (integration test, 20 s wait): reads with the picker open ok; the wait ended with `pickerLeftOpen`; the idle release with the picker on screen was harmless; the late answer was dropped; the final read passed.
+- Step 5 passed: after Esc in Claude Code cancelled the call, the picker stayed on screen. The next picker call was accepted (the slot was freed) and the picker appeared; it went unanswered past the 300 s wait, so the call ended with `pickerLeftOpen`, and Phill then cancelled it.
+
 ## Verification
 
 **Commands:**
