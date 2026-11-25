@@ -104,6 +104,82 @@ public sealed class NavigateToUrlToolTests : IDisposable
     }
 
     [Fact]
+    public async Task ADeletedPagesLink_ThatLandsInTheRecycleBin_IsLanded_AndLandedInRecycleBin()
+    {
+        // 2026-11-25 live check: a soft-deleted page's link opened it in OneNote_RecycleBin, keeping its page-id GUID.
+        var gateway = Gateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, BinGroupId, DeletedPagesId, K.PageId, false, -1, false));
+        gateway.Hyperlinks[K.PageId] = K.PageLink();
+        gateway.Hierarchies[(DeletedPagesId, HierarchyScope.Self)] = DeletedPagesSelf;
+        gateway.Hierarchies[(BinGroupId, HierarchyScope.Self)] = BinGroupSelf;
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
+
+        var warnings = root.GetProperty("warnings").EnumerateArray().ToList();
+        Assert.Equal([ToolWarnings.Landed, ToolWarnings.LandedInRecycleBin], warnings.Select(w => w.GetProperty("code").GetString()));
+        Assert.Contains("Recycle Bin", warnings[1].GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal(NavigateToUrlUseCase.RecycleBinUserAction, warnings[1].GetProperty("userAction").GetString());
+        Assert.Contains("restore_from_recycle_bin", NavigateToUrlUseCase.RecycleBinUserAction, StringComparison.Ordinal);
+        Assert.Equal(ToolWarnings.Landed, Assert.Single(logged).Outcome);
+    }
+
+    [Fact]
+    public async Task TheRecycleBinGroup_Alone_IsEnoughToSayLandedInRecycleBin()
+    {
+        var gateway = Gateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, BinGroupId, K.SectionId, K.PageId, false, -1, false));
+        gateway.Hyperlinks[K.PageId] = K.PageLink();
+        gateway.Hierarchies[(BinGroupId, HierarchyScope.Self)] = BinGroupSelf;
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
+
+        Assert.Equal(
+            [ToolWarnings.Landed, ToolWarnings.LandedInRecycleBin],
+            root.GetProperty("warnings").EnumerateArray().Select(w => w.GetProperty("code").GetString()));
+    }
+
+    [Fact]
+    public async Task ANormalPage_IsOnlyLanded()
+    {
+        var gateway = Gateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, K.GroupId, K.SectionId, K.PageId, false, -1, false));
+        gateway.Hyperlinks[K.PageId] = K.PageLink();
+        gateway.Hierarchies[(K.GroupId, HierarchyScope.Self)] = GroupSelf(K.GroupId, "Group", recycleBin: false);
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
+
+        Assert.Equal(ToolWarnings.Landed, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        Assert.Contains((K.GroupId, HierarchyScope.Self), gateway.Calls);
+    }
+
+    [Fact]
+    public async Task TheRecycleBinReadFailing_LeavesItLanded_AndTheCallOk()
+    {
+        // The section reads fine (so the page is named and lands); the group read fails: the fake has no hierarchy for it.
+        var gateway = Gateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, BinGroupId, K.SectionId, K.PageId, false, -1, false));
+        gateway.Hyperlinks[K.PageId] = K.PageLink();
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
+
+        Assert.Equal(ToolWarnings.Landed, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+        Assert.Contains((BinGroupId, HierarchyScope.Self), gateway.Calls);
+    }
+
+    [Fact]
+    public async Task ARecycleBinReadThatIsNotXml_LeavesItLanded()
+    {
+        var gateway = Gateway();
+        gateway.Windows.Add(new OneNoteWindow(0x10, true, true, K.NotebookId, K.GroupId, K.SectionId, K.PageId, false, -1, false));
+        gateway.Hyperlinks[K.PageId] = K.PageLink();
+        gateway.Hierarchies[(K.GroupId, HierarchyScope.Self)] = "<not xml";
+
+        var root = Ok(await Tool(gateway).NavigateToUrl(K.PageLink(), cancellationToken: Ct));
+
+        Assert.Equal(ToolWarnings.Landed, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task APageLink_WithNoCurrentPage_LandsElsewhere()
     {
         var gateway = Gateway();
@@ -128,7 +204,11 @@ public sealed class NavigateToUrlToolTests : IDisposable
 
         Assert.Equal(code, Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("code").GetString());
         Assert.Equal("section", Assert.Single(logged).LinkKind);
-        Assert.DoesNotContain(gateway.Calls, c => c.Scope == HierarchyScope.Self); // no page, so no AD-21 read
+        // No page, so no AD-21 read; a landed section is read once at self for the recycle-bin check.
+        Assert.Equal(
+            code == ToolWarnings.Landed ? [(currentSection, HierarchyScope.Self)] : [],
+            gateway.Calls.Where(c => c.Scope == HierarchyScope.Self));
+        Assert.Empty(gateway.HyperlinkCalls);
     }
 
     [Theory]
@@ -503,6 +583,18 @@ public sealed class NavigateToUrlToolTests : IDisposable
             }
         }
     }
+
+    private const string BinGroupId = "{C3000000-0000-4000-8000-0000000000B1}{1}{B0}";
+    private const string DeletedPagesId = "{C2000000-0000-4000-8000-0000000000D1}{1}{B0}";
+
+    private static string GroupSelf(string id, string name, bool recycleBin) =>
+        $"<?xml version=\"1.0\"?>\n<one:SectionGroup xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\" name=\"{name}\" ID=\"{id}\" path=\"{K.Root}MCP Test Cloud/{name}/\""
+        + (recycleBin ? " isRecycleBin=\"true\"" : string.Empty) + "/>";
+
+    private static readonly string BinGroupSelf = GroupSelf(BinGroupId, "OneNote_RecycleBin", recycleBin: true);
+
+    private static readonly string DeletedPagesSelf =
+        $"<?xml version=\"1.0\"?>\n<one:Section xmlns:one=\"http://schemas.microsoft.com/office/onenote/2013/onenote\" name=\"Deleted Pages\" ID=\"{DeletedPagesId}\" path=\"{K.Root}MCP Test Cloud/OneNote_RecycleBin/OneNote_DeletedPages.one\" isInRecycleBin=\"true\" isDeletedPages=\"true\"/>";
 
     private static FakeGateway Gateway()
     {

@@ -33,7 +33,8 @@ public sealed record NavigateToUrlLogEntry(string CorrelationId, string LinkKind
 /// (<c>CallKind.Read</c>, the call timeout) never turn the call into <c>outcomeUnknown</c>. One windows read; the
 /// <c>window</c> argument's window, else OneNote's current window; then by kind, a page link's <c>page-id</c> against <c>GetHyperlinkToObject</c> of the window's page, a
 /// section link's section ID against <c>CurrentSectionId</c>, a notebook link's against <c>CurrentNotebookId</c>. A match
-/// gives <see cref="ToolWarnings.Landed"/>; a mismatch, or no page where the link names one,
+/// gives <see cref="ToolWarnings.Landed"/>, plus <see cref="ToolWarnings.LandedInRecycleBin"/> when the window's section or
+/// section group is in a notebook's recycle bin; a mismatch, or no page where the link names one,
 /// <see cref="ToolWarnings.LandedElsewhere"/>; reads that fail, no window, or the <c>window</c> argument's window gone,
 /// <see cref="ToolWarnings.LandingUnconfirmed"/>.
 /// The call stays ok in every case.</item>
@@ -62,6 +63,10 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
     /// <summary>The <see cref="ToolWarnings.LandedElsewhere"/> userAction when the link's section is locked (spike 4.12 N6).</summary>
     public const string LockedUserAction =
         "The section is locked with a password, so OneNote shows it without its pages; following a link unlocks nothing. Ask the user to unlock it in OneNote.";
+
+    /// <summary>The <see cref="ToolWarnings.LandedInRecycleBin"/> userAction (Phill, 2026-11-25 live check).</summary>
+    public const string RecycleBinUserAction =
+        "Tell the user the page OneNote opened is in the notebook's Recycle Bin (Deleted Pages), and offer to restore it with restore_from_recycle_bin.";
 
     /// <summary>The <see cref="ToolWarnings.LandingUnconfirmed"/> userAction.</summary>
     public const string UnconfirmedUserAction =
@@ -186,6 +191,16 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
         {
             code = ToolWarnings.Landed;
             warnings.Add(new ToolWarning(code, "OneNote took the link and reached what it names. " + current + RepaintNote));
+
+            // 2026-11-25 live check: a soft-deleted page's link opened it inside the notebook's OneNote_RecycleBin group,
+            // and the page kept its page-id GUID, so it matched. Informational, beside landed.
+            if (await InRecycleBinAsync(window, ct).ConfigureAwait(false))
+            {
+                warnings.Add(new ToolWarning(
+                    ToolWarnings.LandedInRecycleBin,
+                    "What OneNote opened is in the notebook's Recycle Bin (Deleted Pages): it was deleted.",
+                    RecycleBinUserAction));
+            }
         }
         else
         {
@@ -227,6 +242,37 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Whether the window's section or section group is a notebook's recycle bin or in one (<c>isRecycleBin</c>,
+    /// <c>isInRecycleBin</c>, <c>isDeletedPages</c>), from a <c>GetHierarchy</c> at <c>self</c> of each. A read that fails
+    /// counts as not in it: this check never fails the call.
+    /// </summary>
+    private async Task<bool> InRecycleBinAsync(OneNoteWindow window, CancellationToken ct)
+    {
+        foreach (var id in new[] { window.SectionId, window.SectionGroupId })
+        {
+            if (id.Length == 0)
+            {
+                continue;
+            }
+
+            try
+            {
+                var node = HierarchyTarget.Read(await gateway.GetHierarchyAsync(id, HierarchyScope.Self, ct).ConfigureAwait(false));
+                if (node.IsRecycleBin || node.InRecycleBin)
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is OneNoteException or OperationCanceledException or OneNoteXmlException)
+            {
+                // Unknown: say nothing about the recycle bin.
+            }
+        }
+
+        return false;
     }
 
     private static Landing Unconfirmed(IReadOnlyList<WindowListing>? windows, string why) =>

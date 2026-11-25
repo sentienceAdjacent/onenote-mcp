@@ -205,6 +205,14 @@ public static class ToolWarnings
     public const string Landed = "landed";
 
     /// <summary>
+    /// <c>navigate_to_url</c> (story 4.7; Phill, 2026-11-25 live check): beside <see cref="Landed"/>, the window's section or
+    /// section group is in a notebook's recycle bin (<c>isRecycleBin</c>, <c>isInRecycleBin</c> or <c>isDeletedPages</c>): a
+    /// soft-deleted page's link opened it in Deleted Pages, keeping its page-id GUID. Informational; its userAction offers
+    /// <c>restore_from_recycle_bin</c>. A read that fails leaves it out.
+    /// </summary>
+    public const string LandedInRecycleBin = "landedInRecycleBin";
+
+    /// <summary>
     /// <c>navigate_to_url</c> (story 4.7; spine AD-7 <c>AppState</c>): OneNote returned ok, but the navigated window's current
     /// page, section or notebook isn't the one the link names, or the link names a page and the window has none (a missing page
     /// lands elsewhere, spike 4.12 N3; a locked section's page lands on the section with no page, N6). IDs only.

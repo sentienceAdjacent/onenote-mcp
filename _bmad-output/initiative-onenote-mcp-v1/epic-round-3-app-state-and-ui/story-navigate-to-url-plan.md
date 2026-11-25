@@ -109,6 +109,16 @@ Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build sess
 7. **Titles with "=" (Phill 2026-11-23: measure, then relax if safe).** Claude makes an MCP Test Cloud page titled `a=b test` beforehand, reads its `get_hyperlink_to_object` link and records whether OneNote writes the "=" as-is or encoded (`%3D`). Then it follows the link. If OneNote encodes it, the "=" refusal only blocks links OneNote never makes, and the build relaxes the rule (a unit test for an encoded title, the HTML link check left as is); if it writes "=" raw, the refusal stays and the result is recorded here.
 8. Phill runs Sync Now on MCP Test Cloud and reports any sync error.
 
+**Sitting record (2026-11-25).** Steps 1-7 passed with these results:
+- Step 1, the gate: passed. Only window 1118364 moved; Phill confirmed.
+- Step 2: the link with no `window` went to the current window, as the result said.
+- Step 3: covered by steps 1 and 2.
+- Step 4: the deleted page's link landed in the notebook's Recycle Bin, not `landedElsewhere` as planned. OneNote opened the page inside the `OneNote_RecycleBin` section group (`isRecycleBin="true"`); the page keeps its page-id GUID, so the check matched and returned only `landed`. Fix 1 (Phill): keep `landed` and add the informational warning `landedInRecycleBin`, whose userAction is to tell the user and offer `restore_from_recycle_bin`.
+- Step 5: the web link and the local link were refused before OneNote; no dialog.
+- Step 6: the second back-to-back call got ObjectNotFound `0x80042014` with the wait-a-second userAction.
+- Step 7: OneNote writes "=" raw in the title part (`Probes.one#a=b%20test&section-id={…}&page-id={…}&end`) and drops "&" and "#" from titles entirely (title `x&y=z#q delete me` became `#xy=zq delete me`). Fix 2 (Phill approved): allow "=" in a title, raw or `%3D`; keep refusing a title holding "&" or "#", raw or encoded (`%26`, `%23`).
+- Step 8: Sync Now pending.
+
 ## Verification
 
 **Commands:**
@@ -130,7 +140,11 @@ Before: OneNote open on an MCP Test Cloud page, VS Code in front. The build sess
 
 ## Plan Change Log
 
+- 2026-11-25, from the live sitting (Phill): (1) a link that lands in a notebook's Recycle Bin keeps `landed` and adds `landedInRecycleBin` (read from the window's section and section group at `self`; a failed read leaves it out and never fails the call); (2) a title may hold "=", raw or encoded, and a title holding "&" or "#", raw or encoded, is `fragmentParameter`. This replaces the 2026-11-23 rule (refuse "=" or "#", allow "&"). Tool description, guide skill and README updated; contract snapshot unchanged (descriptions are stripped, no schema change).
+
 ## Review Triage Log
+
+- 2026-11-25, live sitting findings, both decided by Phill and fixed: step 4's Recycle Bin landing (new `landedInRecycleBin` warning; tests `ADeletedPagesLink_ThatLandsInTheRecycleBin_IsLanded_AndLandedInRecycleBin`, `TheRecycleBinGroup_Alone_IsEnoughToSayLandedInRecycleBin`, `ANormalPage_IsOnlyLanded`, `TheRecycleBinReadFailing_LeavesItLanded_AndTheCallOk`, `ARecycleBinReadThatIsNotXml_LeavesItLanded`); step 7's "=" measurement (tests `ATitleWithAnEquals_RawOrEncoded_IsStillAPageLink`; refused rows for `%26base-path=…`, `a&b=c`, `Q%26A`, `a#b`, `a%23b`). The 2026-11-23 "noted for Phill" row on "=" titles is resolved by the second.
 
 - 2026-11-23, lenses adversarial, edge cases, verification gaps and structure, run by the build session itself (one reviewer, same model, no subagents) on the whole story diff against origin/main: 6 findings; 0 high, 1 medium, 5 low. 2 patched, 2 noted for the live sitting, 1 noted for Phill, 1 rejected; no loopback. Verification re-run after the patches (build, unit tests, stress harness, pack, plugin validate).
   - medium, patch -- step 1 decoded the title (the fragment's first part) and checked it only for control characters and backslashes, so `#Text%26base-path%3Dfile:%2F%2F%2FC:%2FUsers&page-id=…` passed: its title decodes to `&base-path=file:///C:/Users`. If OneNote decodes the fragment before splitting it, that names a local notebook, the case step 1 exists to refuse (spike 4.12 N1, N4). HtmlStopgap refuses a decoded title holding `&`, `=` or `#` for this reason. Fixed: a decoded title holding `=` or `#` is `fragmentParameter`; `&` alone stays allowed, since a parameter needs its `=` and titles such as "Q&A" are common. Tests: three new refused rows, `ATitleWithAnEncodedAmpersand_IsStillAPageLink`.

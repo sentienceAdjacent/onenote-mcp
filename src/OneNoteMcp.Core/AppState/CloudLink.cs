@@ -52,7 +52,7 @@ public sealed record CloudLinkRefusal(string Rule, string Message, string UserAc
 /// unseen, spike 4.12 N1), whose userAction is to call <c>navigate_to</c> with the object's ID; control or format
 /// characters, a backslash, a query, a fragment parameter outside OneNote's own set (a title, <c>section-id</c>,
 /// <c>page-id</c>, <c>object-id</c>, <c>base-path</c>, <c>end</c>, a number), and any part still changing after four rounds
-/// of percent-decoding or changing again after one, and a title that decodes to <c>=</c> or <c>#</c> (as <c>HtmlStopgap</c> checks links; the discipline, not the class,
+/// of percent-decoding or changing again after one, and a title that holds <c>&amp;</c> or <c>#</c>, raw or encoded (OneNote drops both from titles; <c>=</c> is allowed, 2026-11-25 live check; HtmlStopgap's discipline, not the class,
 /// which refuses the <c>base-path</c> cloud page links carry).</item>
 /// <item><see cref="Match"/> (step 3): the link must lie inside an open notebook's <c>NotebookKey</c> at a segment
 /// boundary (scheme equal, so an <c>http://</c> link never matches an <c>https://</c> notebook; host and leading segments
@@ -212,7 +212,11 @@ public static class CloudLinks
         {
             var piece = pieces[i];
             var equals = piece.IndexOf('=', StringComparison.Ordinal);
-            if (equals < 0)
+
+            // The title comes first and may hold a raw "=" (OneNote's own links write it so, 2026-11-25 live check): the first
+            // part is a parameter only when its key is one of OneNote's.
+            var keyed = equals >= 0 && (i > 0 || IsParameterKey(piece[..equals]));
+            if (!keyed)
             {
                 if (Once(piece) is not { } plain)
                 {
@@ -224,12 +228,13 @@ public static class CloudLinks
                     return Malformed(plain.Contains('\\', StringComparison.Ordinal) ? Rules.Backslash : Rules.ControlCharacters, "has a part that decodes to a backslash or a control character");
                 }
 
-                // No parameter may hide in the decoded title (HtmlStopgap's rule, less its "&"): OneNote may decode the
-                // fragment before it splits it, so a title decoding to "&base-path=file:…" could name a local notebook. "&"
-                // alone is allowed, since a parameter needs its "=" (a title such as "Q&A").
-                if (plain.IndexOfAny(['=', '#']) >= 0)
+                // No parameter may hide in the decoded title: OneNote may decode the fragment before it splits it, so a title
+                // decoding to "&base-path=file:…" could name a local notebook. A title holding "&" or "#" is refused, raw or
+                // encoded: OneNote's own links drop both from titles (2026-11-25 live check), so only a crafted link has one.
+                // "=" is allowed (Phill, 2026-11-25): with no "&" it can't start a parameter.
+                if (plain.IndexOfAny(['&', '#']) >= 0)
                 {
-                    return Malformed(Rules.FragmentParameter, "has a title that decodes to = or #, where a parameter could hide");
+                    return Malformed(Rules.FragmentParameter, "has a title that holds & or #, which OneNote's own links never carry and where a parameter could hide");
                 }
 
                 // The title comes first; after it only "end" and a number (a paragraph index) carry no "=".
@@ -488,6 +493,10 @@ public static class CloudLinks
     /// <summary>A <c>{GUID}</c> (braces required), or null.</summary>
     private static Guid? Braced(string value) =>
         value.Length == 38 && value[0] == '{' && value[^1] == '}' && Guid.TryParseExact(value, "B", out var guid) ? guid : null;
+
+    /// <summary>A fragment key OneNote's own links carry: <c>section-id</c>, <c>page-id</c>, <c>object-id</c> or <c>base-path</c>.</summary>
+    private static bool IsParameterKey(string key) =>
+        IdKeys.Contains(key, StringComparer.OrdinalIgnoreCase) || string.Equals(key, "base-path", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsNumber(string piece) =>
         piece.Length is > 0 and <= 8 && piece.All(char.IsAsciiHexDigit);

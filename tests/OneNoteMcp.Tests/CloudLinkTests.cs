@@ -79,7 +79,10 @@ public sealed class CloudLinkTests
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text&object-id=" + K.PageGuid, R.FragmentParameter },
         { "onenote:" + K.EncodedNotebook + "/#page-id=" + K.PageGuid, R.FragmentParameter },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text%26base-path%3Dfile:%2F%2F%2FC:%2FUsers&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
-        { "onenote:" + K.EncodedNotebook + "/Probes.one#a%3Db&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#%26base-path=file:///C:/Users&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#a&b=c&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#Q%26A&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
+        { "onenote:" + K.EncodedNotebook + "/Probes.one#a#b&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#a%23b&page-id=" + K.PageGuid + "&end", R.FragmentParameter },
         { "onenote:" + K.Root + "MCP%2520Test%2520Cloud/Probes.one#Text&page-id=" + K.PageGuid, R.Encoding },
         { "onenote:" + K.EncodedNotebook + "/Probes.one#Text&page-id=%257B66666666-7777-8888-9999-AAAAAAAAAAAA%257D", R.Encoding },
@@ -107,13 +110,18 @@ public sealed class CloudLinkTests
         Assert.DoesNotContain("MCP Test", refusal.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void ATitleWithAnEncodedAmpersand_IsStillAPageLink()
+    [Theory]
+    [InlineData("a=b%20test")] // as OneNote writes it (2026-11-25 live check)
+    [InlineData("a%3Db%20test")]
+    [InlineData("a%3db")]
+    [InlineData("x=y=z")]
+    public void ATitleWithAnEquals_RawOrEncoded_IsStillAPageLink(string title)
     {
-        var link = "onenote:" + K.EncodedNotebook + "/Probes.one#Q%26A&page-id=" + K.PageGuid + "&end";
+        var link = "onenote:" + K.EncodedNotebook + "/Probes.one#" + title + "&section-id=%7B11111111-2222-3333-4444-555555555555%7D&page-id=" + K.PageGuid + "&end";
 
         Assert.Null(CloudLinks.Parse(link, out var read));
         Assert.Equal(CloudLinkKind.Page, read!.Kind);
+        Assert.Equal(Guid.Parse(K.PageGuid), read.PageGuid);
     }
 
     [Fact]
