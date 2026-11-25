@@ -93,8 +93,8 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (thirty-one since story 4.6 added get_windows, which is
-    // read-only; story 3.10 listed round 2's six write tools), each readOnlyHint: true except the AppState tools navigate_to and sync_hierarchy
+    // Startup check, before any read: exactly the contract tools (navigate_to_url added by story 4.7, which isn't
+    // read-only; get_windows by story 4.6, which is; story 3.10 listed round 2's six write tools), each readOnlyHint: true except the AppState tools navigate_to and sync_hierarchy
     // and the write tools, none of which the harness ever calls (ToolClient refuses them).
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();

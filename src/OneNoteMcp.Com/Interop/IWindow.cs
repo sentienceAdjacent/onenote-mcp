@@ -3,9 +3,9 @@ using System.Runtime.InteropServices;
 namespace OneNoteMcp.Com.Interop;
 
 /// <summary>
-/// OneNote's <c>Window</c> (dual), slots 7-22 in type-library order, as spike 4.12 measured them. Only the getters and
-/// <see cref="NavigateTo"/> are callable. The setters (<c>FullPageView</c>, <c>Active</c>, <c>DockedLocation</c>),
-/// <c>Application</c>, <c>NavigateToUrl</c> (story 4.7) and <c>SetDockedLocation</c> are declared only as placeholders that
+/// OneNote's <c>Window</c> (dual), slots 7-22 in type-library order, as spike 4.12 measured them. Only the getters,
+/// <see cref="NavigateTo"/> and <see cref="NavigateToUrl"/> (story 4.7) are callable. The setters (<c>FullPageView</c>,
+/// <c>Active</c>, <c>DockedLocation</c>), <c>Application</c> and <c>SetDockedLocation</c> are declared only as placeholders that
 /// keep the vtable in order and can't be called: each is <see cref="ObsoleteAttribute"/> with <c>error: true</c>, so a call
 /// to one doesn't compile (spine AD-11: the window setters aren't exposed).
 /// </summary>
@@ -65,9 +65,9 @@ internal interface IWindow
     [return: MarshalAs(UnmanagedType.VariantBool)]
     bool GetSideNote();
 
-    // slot 21: NavigateToUrl(bstr). Story 4.7's.
-    [Obsolete("Window.NavigateToUrl is not used before story 4.7.", error: true)]
-    void NavigateToUrlPlaceholder();
+    // slot 21 (user-visible): NavigateToUrl(bstr), no new-window flag (OneMore research row 25). Only navigate_to_url with
+    // its window argument calls it, on the user's request (AD-11; story 4.7)
+    void NavigateToUrl([MarshalAs(UnmanagedType.BStr)] string bstrUrl);
 
     // slot 22: SetDockedLocation(DockLocation, POINT)
     [Obsolete("SetDockedLocation is never called (spine AD-11).", error: true)]

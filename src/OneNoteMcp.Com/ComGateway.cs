@@ -243,7 +243,8 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                 {
                     // Story 4.6: the handle check and the call in one STA delegate, so a window closed in between is
                     // InvalidArgument rather than a stale wrapper.
-                    NavigateInWindow(app, handle, hierarchyId ?? string.Empty, objectId ?? string.Empty);
+                    var (id, objectInPage) = (hierarchyId ?? string.Empty, objectId ?? string.Empty);
+                    NavigateInWindow(app, handle, w => w.NavigateTo(id, objectInPage));
                 }
                 else
                 {
@@ -257,6 +258,39 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
             CallKind.AppState,
             ct);
 
+    public Task NavigateToUrlAsync(string url, CancellationToken ct) =>
+        NavigateToUrlAsync(url, window: null, ct);
+
+    public Task NavigateToUrlAsync(string url, int? window, CancellationToken ct)
+    {
+        var method = window is null ? nameof(IApplication.NavigateToUrl) : WindowNavigateToUrlMethod;
+        if (string.IsNullOrEmpty(url))
+        {
+            return Task.FromException(new OneNoteException(ErrorCode.InvalidArgument, $"{method} wasn't sent: no link was given.", retryable: false));
+        }
+
+        return RunAsync(
+            method,
+            app =>
+            {
+                if (window is { } handle)
+                {
+                    // Story 4.7: the handle check and the call in one STA delegate, as navigate_to's (story 4.6).
+                    NavigateInWindow(app, handle, w => w.NavigateToUrl(url));
+                }
+                else
+                {
+                    // fNewWindow is always false: never open a window the user didn't ask for (AD-11; epic 4 Q7 a).
+                    app.NavigateToUrl(url, fNewWindow: false);
+                }
+
+                return true;
+            },
+            // AppState (story 4.7): never repeated after a disconnect, and never an abandoned write (AD-3, AD-7).
+            CallKind.AppState,
+            ct);
+    }
+
     public Task<IReadOnlyList<OneNoteWindow>> GetWindowsAsync(CancellationToken ct) =>
         RunAsync(
             nameof(IApplication.Windows),
@@ -267,6 +301,9 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>The method name failures of <c>navigate_to</c>'s window path carry.</summary>
     internal const string WindowNavigateToMethod = "Window.NavigateTo";
+
+    /// <summary>The method name failures of <c>navigate_to_url</c>'s window path carry (story 4.7).</summary>
+    internal const string WindowNavigateToUrlMethod = "Window.NavigateToUrl";
 
     /// <summary>
     /// Test seam (story 4.6): releases one wrapper the window calls obtained, on the STA thread. By default
@@ -350,10 +387,11 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
 
     /// <summary>
     /// Story 4.6, on the STA thread: walks <c>Item(0)</c> … <c>Item(Count - 1)</c> for the window whose handle is
-    /// <paramref name="handle"/> and calls its <c>NavigateTo</c>. None has it: <see cref="ErrorCode.InvalidArgument"/>, and
-    /// nothing is shown. Every wrapper is released in the <c>finally</c>.
+    /// <paramref name="handle"/> and makes the per-window call <paramref name="navigate"/> on it (<c>NavigateTo</c>, or story
+    /// 4.7's <c>NavigateToUrl</c>). None has it: <see cref="ErrorCode.InvalidArgument"/>, and nothing is shown. Every wrapper
+    /// is released in the <c>finally</c>.
     /// </summary>
-    private void NavigateInWindow(IApplication app, int handle, string hierarchyId, string objectId)
+    private void NavigateInWindow(IApplication app, int handle, Action<IWindow> navigate)
     {
         var wrappers = new List<object>();
         try
@@ -373,7 +411,7 @@ public sealed class ComGateway : IOneNoteGateway, IDisposable
                     wrappers.Add(window);
                     if (OneNoteWindow.HandleOf(window.WindowHandle) == handle)
                     {
-                        window.NavigateTo(hierarchyId, objectId);
+                        navigate(window);
                         return;
                     }
                 }

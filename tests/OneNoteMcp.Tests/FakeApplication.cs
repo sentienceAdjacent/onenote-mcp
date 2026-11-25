@@ -116,7 +116,9 @@ internal sealed class FakeApplication(Func<string>? onGetHierarchy = null) : IAp
     public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID, bool fNewWindow) =>
         Answer(nameof(NavigateTo), [bstrHierarchyObjectID, bstrObjectID, fNewWindow]);
 
-    public void NavigateToUrl(string bstrUrl, bool fNewWindow) => throw new NotSupportedException();
+    // Recorded and scripted like the reads (story 4.7), so fNewWindow false can be checked.
+    public void NavigateToUrl(string bstrUrl, bool fNewWindow) =>
+        Answer(nameof(NavigateToUrl), [bstrUrl, fNewWindow]);
 
     // Recorded and scripted like the reads (story 5.6); a test's OnCall writes the file when it wants one to land.
     public void Publish(string bstrHierarchyID, string bstrTargetFilePath, PublishFormat pfPublishFormat, string bstrCLSIDofExporter) =>
@@ -210,11 +212,12 @@ internal sealed class FakeWindows(params IWindow[] windows) : IWindows
     void IWindows.NewEnumPlaceholder() => throw new NotSupportedException();
 }
 
-/// <summary>Story 4.6: a managed <c>Window</c> whose getters answer from its properties and whose <c>NavigateTo</c> is recorded.</summary>
+/// <summary>Story 4.6: a managed <c>Window</c> whose getters answer from its properties and whose <c>NavigateTo</c> (and, story 4.7, <c>NavigateToUrl</c>) is recorded.</summary>
 internal sealed class FakeWindow(ulong handle) : IWindow
 {
     private readonly Lock gate = new();
     private readonly List<(string HierarchyId, string ObjectId)> navigations = [];
+    private readonly List<string> urlNavigations = [];
 
     public ulong WindowHandle { get; } = handle;
 
@@ -246,6 +249,26 @@ internal sealed class FakeWindow(ulong handle) : IWindow
         }
     }
 
+    /// <summary>Every <c>NavigateToUrl</c> this window received, in order (story 4.7).</summary>
+    public IReadOnlyList<string> UrlNavigations
+    {
+        get
+        {
+            lock (gate)
+            {
+                return [.. urlNavigations];
+            }
+        }
+    }
+
+    public void NavigateToUrl(string bstrUrl)
+    {
+        lock (gate)
+        {
+            urlNavigations.Add(bstrUrl);
+        }
+    }
+
     public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID)
     {
         lock (gate)
@@ -270,7 +293,6 @@ internal sealed class FakeWindow(ulong handle) : IWindow
 
     void IWindow.ApplicationPlaceholder() => throw new NotSupportedException();
 
-    void IWindow.NavigateToUrlPlaceholder() => throw new NotSupportedException();
 
     void IWindow.SetDockedLocationMethodPlaceholder() => throw new NotSupportedException();
 }

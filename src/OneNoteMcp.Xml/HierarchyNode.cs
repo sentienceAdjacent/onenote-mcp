@@ -64,6 +64,18 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
     public static IReadOnlyList<HierarchyNode> Sections(string hierarchyXml) =>
         [.. OneNoteXml.Parse(hierarchyXml).Descendants(OneNoteXml.One + "Section").Select(From)];
 
+    /// <summary>
+    /// Every <c>one:Notebook</c> in <paramref name="hierarchyXml"/> (a <c>GetHierarchy</c> of the open notebooks at
+    /// <c>Sections</c> scope or deeper), each with its <c>one:Section</c> and <c>one:SectionGroup</c> elements at any depth, in
+    /// document order (story 4.7: <c>navigate_to_url</c> matches a link against them). Throws
+    /// <see cref="OneNoteXmlException"/> when the XML isn't well-formed.
+    /// </summary>
+    public static IReadOnlyList<NotebookTree> NotebookTrees(string hierarchyXml) =>
+        [.. OneNoteXml.Parse(hierarchyXml).Descendants(OneNoteXml.One + "Notebook").Select(n => new NotebookTree(
+            From(n),
+            [.. n.Descendants(OneNoteXml.One + "Section").Select(From)],
+            [.. n.Descendants(OneNoteXml.One + "SectionGroup").Select(From)]))];
+
     private static HierarchyNode From(XElement element)
     {
         var kind = HierarchyElements.KindOf(element);
@@ -79,3 +91,6 @@ public sealed record HierarchyNode(HierarchyKind Kind, string Id, string Name, s
             (string?)element.Attribute("areAllPagesAvailable") is not ("false" or "0"));
     }
 }
+
+/// <summary>One open notebook with its sections and section groups at any depth (<see cref="HierarchyNode.NotebookTrees"/>).</summary>
+public sealed record NotebookTree(HierarchyNode Notebook, IReadOnlyList<HierarchyNode> Sections, IReadOnlyList<HierarchyNode> SectionGroups);
