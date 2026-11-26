@@ -21,6 +21,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// (guarded) and deletes both folders; if OneNote went, the run stops there and leaves both folders. Rows carry no user name,
 /// cid or page content: paths are relative to their root, and a URL is recorded only as "url".
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class OneDriveCrashProbe(ITestOutputHelper output)
 {
     public const string ScenarioName = "open-package-onedrive-15m";

@@ -14,6 +14,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// rows X1, X2, O1–O4, F1–F3, S1–S3, M1–M4, R1–R3, R5 and D. Hitl: File &gt; Options for D, then closing what the
 /// probes opened.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class Round2LocalProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-r2-local";
@@ -46,6 +47,7 @@ public sealed class Round2LocalProbes(ITestOutputHelper output)
 /// and MCP Test Cloud (Q1 a) last. Matrix rows X1, X2, F1, S1–S3, M1–M4, R1–R3 and R5. A Sync Now check follows every
 /// step, and a OneNote-for-the-web check follows M4.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class Round2CloudProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-r2-cloud";

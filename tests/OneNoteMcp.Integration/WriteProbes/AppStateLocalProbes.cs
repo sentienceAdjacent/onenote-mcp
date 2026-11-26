@@ -18,6 +18,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// <c>ONENOTE_MCP_PROBE_STAMP=&lt;that run's stamp&gt;</c> too, so it finds that run's probe folder.
 /// </para>
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class AppStateLocalProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "app-state-local";

@@ -25,6 +25,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// <c>cleanup</c> is its own step.
 /// </para>
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class AppStateNavProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "app-state-nav";

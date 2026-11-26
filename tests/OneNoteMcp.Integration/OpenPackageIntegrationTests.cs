@@ -27,6 +27,7 @@ namespace OneNoteMcp.Integration;
 /// one; the copy is closed through the guarded <see cref="TestNotebook.CloseOpenedCopyAsync"/> and the folder deleted.
 /// Output carries IDs, codes and counts only.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class OpenPackageIntegrationTests(ITestOutputHelper output) : IDisposable
 {
     private static readonly XNamespace One = OneNoteXml.Namespace2013;
