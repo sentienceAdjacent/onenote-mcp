@@ -3,7 +3,7 @@ title: 'App-state probes, part 1: open, close and sync'
 type: 'chore'
 ticket: '1'
 created: '2026-11-16'
-status: built
+status: done
 baseline_revision: '62afdfff4e3cb3bbe916f2a0d67fc42aeca737fe'
 route: 'full'
 route_source: 'auto'
