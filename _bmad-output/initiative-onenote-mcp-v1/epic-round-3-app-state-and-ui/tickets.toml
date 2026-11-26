@@ -3,6 +3,7 @@
 # Cross-epic waits: the epic file's `after` gates every entry, the spikes (1, 12, 13) included, on epic 3 being done, and so on epics 2 and 5, which epic 3 waits on (Decision, Phill 2026-11-12). Entries name other epics' stories only as what they build on, never in `after`.
 # Entries 4, 5 and 7 refined 2026-11-22 (orchestrated) from the round-3 spine amendments (PR #120), per the ticket effects in story-spine-amendments-for-round-3-plan.md; approved by Phill, 2026-11-22 (Inbox), with entry 7's Window.NavigateToUrl fallback changed to stop and ask.
 # One lane: every story after the spine amendment touches the gateway port, the tool registration and contract snapshot, and the skill.
+# Entries 15 and 16 added 2026-11-26 (orchestrated) from the round-3 retrospective's action items 4 and 5, placed in this epic by Phill (Inbox, 2026-11-26). 15 touches close, open and quick filing; 16 refactors code 15 changes and reuses its path rule, so it follows 15.
 # Entry 14 added 2026-11-26 (orchestrated) from story 4.11's live sitting: a parallel-test clash on throwaway b. Placed last; it waits only on entry 5, whose test class is one side of the clash.
 
 [[entry]]
@@ -162,3 +163,29 @@ hitl = true
 risk = "low"
 unknown = "Which classes beyond CloseNotebook and OpenNotebook change a throwaway's open state, and whether a reflection test can tell them apart from classes that only read or write pages."
 references = ["_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/story-refactor-sweep-plan.md"]
+
+[[entry]]
+id = 15
+type = "story"
+title = "Round-3 follow-up: close's reopen route, quick filing's text check, close's XML reads and its failure wording"
+description = "Fixes the four findings the round-3 retrospective marked fix now (F5 to F8). F5: close_notebook tells every non-http path to reopen through open_notebook with meta.path (CloseNotebookUseCase.cs:52-53, 67-71), but open_notebook refuses UNC paths, mapped network drives and OneDrive-synced folders before COM (FilePathGate.cs:91-94, 109; OpenNotebookUseCase.cs:302). The reopen route is worked out by the same rule open_notebook applies, kept in one place beside FilePathGate so entry 16's notebook-folder function can reuse it, so a path open_notebook would refuse is told to reopen in OneNote; the skill's reopen text (references/app-state.md, SKILL.md) says the same, and a test runs each refused path form through close's route and open's gate together. F6: quick_filing's title and description check refuses only char.IsControl (QuickFilingUseCase.cs:268); it moves to one shared screen-text check that also refuses Format, LineSeparator and ParagraphSeparator, as FilePathGate.cs:96-99 does, and both callers use it, with test rows for U+2028 and a bidi override. F7: close_notebook's two hierarchy reads (CloseNotebookUseCase.cs:98, 110) are wrapped in XmlReads.Readable, so malformed XML maps to AD-9's InvalidXml, with a test row. F8: close_notebook's 'The notebook is still open.' (CloseNotebookUseCase.cs:173-176) is sent only where the failure shows the notebook is still open; elsewhere the message does not claim it. No new tool, and no change to AD-7's pipeline."
+verify = "The unit suite passes, with new tests that fail on main: each path form open_notebook refuses gets 'reopen in OneNote' from close_notebook; U+2028 and a bidi override are refused by quick_filing; malformed XML from either close read returns InvalidXml; and an ObjectNotFound during the close does not say the notebook is still open. The contract snapshot check passes."
+covers = ["A3", "A4", "A8"]
+after = []
+hitl = false
+risk = "low"
+unknown = "Which HRESULT OneNote returns when the notebook is closed by hand during the sync or settle; not probed, so F8's wording is chosen without it."
+references = ["_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/epic-round-3-app-state-and-ui-retrospective.md", "_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/spike-app-state-probes-part-1-open-close-and-sync-findings.md"]
+
+[[entry]]
+id = 16
+type = "story"
+title = "Refactor: shared pipeline core, ComGateway split, one notebook-folder check, smaller contract snapshot"
+description = "Cleanup the round-3 retrospective deferred (F10 to F13); it covers A10 as entry 11 did, as this epic's refactor work, and Phill decides when it is built. F10: AppStatePipeline copies WritePipeline's lock wait capped by the deadline (AcquireAsync), abandoned-write tracking, ReleaseWhenSettledAsync and DeadlineExpired (AppStatePipeline.cs:157-223; WritePipeline.cs:189-198, 324-367); both pipelines move onto one shared lock-and-deadline core, with AD-7's steps unchanged. F11: ComGateway (1,749 lines) is split by concern into partial-class files (window reads, NavigateInWindow, the quick-filing picker hold, and the rest), code motion only, keeping AD-2. F12: OpenNotebookUseCase.Names (:204-228) and CreateHierarchyUseCase.cs:387-401 answer 'is this path an open notebook's folder?' differently; one shared function, with the localhost admin-share mapping, serves both, built on the path rule entry 15 puts beside FilePathGate. This is the one behaviour change: create_notebook's open-notebook-folder refusal then also catches a notebook opened through the admin share, with a test. F13: tool-contract.json repeats the same meta schema in every tool (about 363 of each tool's 640 lines); the snapshot test stores the shared envelope once and each tool's own part, still failing on any change to either. It first checks the four against main as it then stands, and drops one whose finding no longer holds."
+verify = "All unit suites pass with no test's assertions changed except the new create_notebook admin-share row and the contract test's new layout; the contract test fails when one tool's schema or the shared meta schema is edited; no ComGateway file under OneNoteMcp.Com is over 700 lines; and the AppState and Write pipeline tests pass unchanged."
+covers = ["A10"]
+after = [15]
+hitl = false
+risk = "medium"
+unknown = "Whether the snapshot can be split without hiding a per-tool change to the meta schema; and whether F12's admin-share case happens at all (inferred, not probed in 4.1)."
+references = ["_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/epic-round-3-app-state-and-ui-retrospective.md", "_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/story-refactor-sweep-plan.md"]

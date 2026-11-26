@@ -171,3 +171,4 @@ Out of scope:
   - `close_notebook` (entry 4) follows as the slice least known, and `open_notebook` (entry 5) reopens what it closed.
   - If entry 9 (`quick_filing`) is dropped because entry 13 finds no working callback, entry 10's `after` moves to entry 7.
   - bmad-ticket's draft check ran in a fresh subagent on each draft; its findings were checked against the sources and applied.
+- Decision (Phill 2026-11-26, Inbox): the round-3 retrospective's action items 4 and 5 become entries 15 and 16 in this epic, not the backlog. Entry 15 fixes F5–F8; entry 16 is the deferred refactor (F10–F13) and follows 15 because it refactors code 15 changes and reuses 15's path rule. Phill decides when 16 is built. bmad-ticket's draft check ran in a fresh subagent; its fixes were applied.
