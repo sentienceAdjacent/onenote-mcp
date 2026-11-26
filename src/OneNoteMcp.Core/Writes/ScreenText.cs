@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace OneNoteMcp.Core.Writes;
 
@@ -10,16 +11,27 @@ public static class ScreenText
 {
     /// <summary>
     /// True for a control character (line breaks, tabs, bell…), an invisible formatting character (bidi overrides,
-    /// zero-width marks: Unicode category Cf), and the line and paragraph separators (U+2028, U+2029).
+    /// zero-width marks, the U+E0000 tag block: Unicode category Cf), and the line and paragraph separators (U+2028, U+2029).
     /// </summary>
-    public static bool IsHidden(char c) =>
-        char.IsControl(c)
-        || CharUnicodeInfo.GetUnicodeCategory(c) is UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
+    public static bool IsHidden(Rune r) =>
+        Rune.IsControl(r)
+        || Rune.GetUnicodeCategory(r) is UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
 
-    /// <summary>True when <paramref name="text"/> holds any character <see cref="IsHidden(char)"/> is true for.</summary>
+    /// <summary>
+    /// True when <paramref name="text"/> holds any code point <see cref="IsHidden(Rune)"/> is true for, or a lone surrogate.
+    /// It reads by code point, not by UTF-16 unit, so a hidden character outside the BMP (a tag character) is caught too.
+    /// </summary>
     public static bool HasHidden(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        return text.Any(IsHidden);
+        for (var i = 0; i < text.Length;)
+        {
+            if (Rune.DecodeFromUtf16(text.AsSpan(i), out var r, out var used) != System.Buffers.OperationStatus.Done)
+                return true;
+            if (IsHidden(r))
+                return true;
+            i += used;
+        }
+        return false;
     }
 }

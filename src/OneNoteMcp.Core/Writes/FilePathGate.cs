@@ -92,7 +92,7 @@ public static class FilePathGate
         }
 
         // The dialog shows the path verbatim, so nothing in it may hide characters or start a new line.
-        if (path.Any(c => ScreenText.IsHidden(c) || c is '<' or '>' or '"' or '|' or '?' or '*'))
+        if (ScreenText.HasHidden(path) || path.Any(c => c is '<' or '>' or '"' or '|' or '?' or '*'))
         {
             return FilePathRefusal.InvalidCharacters;
         }
