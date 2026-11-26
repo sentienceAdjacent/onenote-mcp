@@ -107,6 +107,18 @@ Before: 4.7 and 4.9 merged, CI green. OneNote open on an MCP Test page, VS Code 
 7. A fresh subagent given only `README.md` and the tools closes and reopens Throwaway b: new ID, its test grant active in `list_grants`, OneNote's view unchanged.
 8. He notes every open notebook's Sync Status. "Close MCP Test Throwaway Cloud": `notebookClosed` with the reopen-in-OneNote advice. He reopens it in OneNote by the README's steps, presses Sync Now (reports `0xE0000644` if seen), and checks the other notebooks' Sync Status again. `get_hierarchy` lists it with a new ID.
 
+**Sitting record (Phill, 2026-11-26, plugin loaded from the packed zip with the installed plugin disabled):**
+
+- Step 1 passed: harness read-only on MCP Test, 844 comparisons, 0 mismatches, 39 large results reassembled, none over 100,000 chars.
+- Step 2 passed: "which page am I looking at" was answered from `get_windows` and reads only; nothing was shown.
+- Step 3 passed: Text Page landed in the first window, Table Page in the second (checked with `get_windows`). The agent's reply wrongly said a window had been closed; the tool did the right thing.
+- Step 4 passed: `navigate_to_url` on the MCP Test Cloud link reported `landed` on Image Page. For the local MCP Test link the agent, from the skill, didn't call `navigate_to_url`; it found the page by name and called `navigate_to` directly instead of offering first (the user had asked to open it). The refusal itself is unit-tested. Side note: Phill's own click on the cloud link opened Text Page, not Image Page, in a browser-style OneNote; OneNote desktop's windows didn't change.
+- Step 5 passed: the pick returned MCP Test > Probes; the second picker, cancelled, returned `pickerCancelled`.
+- Step 6 passed: `syncRequested`; View Sync Status showed MCP Test Cloud synced at the current time.
+- Step 7 passed: a fresh subagent given only README.md closed and reopened Throwaway b with no errors. The ID changed, the `writeNotebook` grant stayed active and unchanged, and the subagent cited the README's tool table, "Opening, closing and syncing notebooks" and "Write grants". New measurement: the reopen reset the notebook's colour (`#4DBCCA` to `none`); see the Plan Change Log.
+- Step 8 passed: `close_notebook` on MCP Test Throwaway Cloud gave `notebookClosed` with the reopen-in-OneNote advice; Phill reopened it in OneNote and pressed Sync Now: no `0xE0000644`, and every notebook's sync status was the same as before. It came back with a new ID and kept its colour (`#4DBCCA`).
+- Before step 7 Phill closed the OneNote app by hand (a misread of the step); OneNote ran its clean-up on restart and the test session's next calls worked with no error.
+
 ## Verification
 
 **Commands:**
