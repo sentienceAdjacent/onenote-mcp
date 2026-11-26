@@ -1,3 +1,4 @@
+using System.Globalization;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Xml;
@@ -14,6 +15,24 @@ namespace OneNoteMcp.Core.UseCases;
 internal sealed class WindowPages(IOneNoteGateway gateway, ReadAccess access, DateTimeOffset callStart)
 {
     private readonly Dictionary<string, bool> readable = new(StringComparer.Ordinal);
+
+    /// <summary>The <c>readNotGranted</c> warning's message: the count only, never an ID or a name (backlog 15).</summary>
+    public static string WithheldMessage(int count) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"{count} window(s) show a page whose ID was left out: its section is protected, and reading it needs the user's permission, or its section couldn't be checked.");
+
+    /// <summary>OneNote's <c>DockLocation</c> as <c>meta.windows[].dockedLocation</c> shows it.</summary>
+    public static string DockedLocationName(int value) => value switch
+    {
+        -1 => "default",
+        0 => "none",
+        1 => "left",
+        2 => "right",
+        3 => "top",
+        4 => "bottom",
+        _ => value.ToString(CultureInfo.InvariantCulture),
+    };
 
     /// <summary>An ID OneNote returned empty is null, so omitted on the wire, never an empty ID (W5).</summary>
     public static string? Present(string id) => id.Length == 0 ? null : id;
@@ -45,7 +64,7 @@ internal sealed class WindowPages(IOneNoteGateway gateway, ReadAccess access, Da
             window.Current,
             window.Active,
             window.FullPageView,
-            GetWindowsUseCase.DockedLocationName(window.DockedLocation),
+            DockedLocationName(window.DockedLocation),
             window.SideNote,
             Present(window.NotebookId),
             Present(window.SectionGroupId),

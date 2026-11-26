@@ -1,4 +1,3 @@
-using System.Globalization;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Results;
@@ -50,27 +49,9 @@ public sealed class GetWindowsUseCase(IOneNoteGateway gateway, AppStatePipeline 
 
         IReadOnlyList<ToolWarning> warnings = listed.Withheld == 0
             ? []
-            : [new ToolWarning(ToolWarnings.ReadNotGranted, WithheldMessage(listed.Withheld), ReadAccess.WithheldUserAction)];
+            : [new ToolWarning(ToolWarnings.ReadNotGranted, WindowPages.WithheldMessage(listed.Withheld), ReadAccess.WithheldUserAction)];
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId, Windows: listed.Windows), warnings);
     }
-
-    /// <summary>The <c>readNotGranted</c> warning's message: the count only, never an ID or a name (backlog 15).</summary>
-    public static string WithheldMessage(int count) =>
-        string.Create(
-            CultureInfo.InvariantCulture,
-            $"{count} window(s) show a page whose ID was left out: its section is protected, and reading it needs the user's permission, or its section couldn't be checked.");
-
-    /// <summary>OneNote's <c>DockLocation</c> as <c>meta.windows[].dockedLocation</c> shows it.</summary>
-    public static string DockedLocationName(int value) => value switch
-    {
-        -1 => "default",
-        0 => "none",
-        1 => "left",
-        2 => "right",
-        3 => "top",
-        4 => "bottom",
-        _ => value.ToString(CultureInfo.InvariantCulture),
-    };
 
     private static bool RetryableAsARead(OneNoteException ex) =>
         ex.Code is ErrorCode.Timeout or ErrorCode.ComUnavailable or ErrorCode.Cancelled && !ex.OutcomeUnknown && ex.Retryable is null;

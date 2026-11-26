@@ -41,9 +41,9 @@ public sealed class NavigateToUseCase(IOneNoteGateway gateway, AppStatePipeline 
         {
             await pipeline.RunAsync(new Navigate(gateway, hierarchyId ?? string.Empty, objectId ?? string.Empty, window), ct).ConfigureAwait(false);
         }
-        catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound && ex.ComHResult == OneNoteHResults.ObjectDoesNotExist)
+        catch (OneNoteException ex) when (AppStateChecks.WithUserAction(ex, ObjectNotFoundUserAction) is { } stale)
         {
-            throw new OneNoteException(ex.Code, ex.Message, ex.ComHResult, ex, ex.OutcomeUnknown, ObjectNotFoundUserAction);
+            throw stale;
         }
 
         return new ToolSuccess(null, new ToolMeta(context.CorrelationId), []);
@@ -51,25 +51,12 @@ public sealed class NavigateToUseCase(IOneNoteGateway gateway, AppStatePipeline 
 
     private sealed class Navigate(IOneNoteGateway gateway, string hierarchyId, string objectId, int? window) : AppStateOperation<bool>
     {
-        public override void Validate()
-        {
-            if (hierarchyId.Length == 0)
-            {
-                throw new OneNoteException(ErrorCode.InvalidArgument, "hierarchyId is empty: pass the ID of a notebook, section group, section or page.");
-            }
-        }
+        public override void Validate() => AppStateChecks.RequireHierarchyId(hierarchyId);
 
         public override async Task<bool> CallAsync(CancellationToken ct)
         {
-            if (window is { } handle)
-            {
-                await gateway.NavigateToAsync(hierarchyId, objectId, handle, ct).ConfigureAwait(false);
-            }
-            else
-            {
-                await gateway.NavigateToAsync(hierarchyId, objectId, ct).ConfigureAwait(false);
-            }
-
+            // A null window falls back to the app-level NavigateTo in the gateway (IOneNoteGateway's window overload).
+            await gateway.NavigateToAsync(hierarchyId, objectId, window, ct).ConfigureAwait(false);
             return true;
         }
     }

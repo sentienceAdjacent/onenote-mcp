@@ -64,7 +64,7 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
         ArgumentNullException.ThrowIfNull(pipeline);
 
         var closed = await pipeline.RunAsync(new Close(gateway, notebookId ?? string.Empty, settle ?? DelayAsync), ct, context.CorrelationId).ConfigureAwait(false);
-        var cloud = closed.Path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || closed.Path.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+        var cloud = UrlPath.IsHttp(closed.Path);
         return new ToolSuccess(
             closed.Xml,
             new ToolMeta(context.CorrelationId, Path: closed.Path, ObjectId: closed.Id),
