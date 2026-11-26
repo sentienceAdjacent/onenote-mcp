@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace OneNoteMcp.Core.Writes;
 
 /// <summary>Why <see cref="FilePathGate.Canonical"/> refused a path.</summary>
@@ -48,7 +46,7 @@ public static class FilePathGate
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(links);
         refusal = default;
-        if (Classify(path) is { } early)
+        if (Classify(path, links) is { } early)
         {
             refusal = early;
             return null;
@@ -70,7 +68,7 @@ public static class FilePathGate
             return null;
         }
 
-        if (Classify(resolved) is { } late)
+        if (Classify(resolved, links) is { } late)
         {
             refusal = late;
             return null;
@@ -79,7 +77,7 @@ public static class FilePathGate
         return resolved;
     }
 
-    private static FilePathRefusal? Classify(string path)
+    private static FilePathRefusal? Classify(string path, ILinkReader links)
     {
         var slashed = path.Replace('/', '\\');
         if (slashed.StartsWith(@"\\?\", StringComparison.Ordinal) || slashed.StartsWith(@"\\.\", StringComparison.Ordinal)
@@ -94,9 +92,7 @@ public static class FilePathGate
         }
 
         // The dialog shows the path verbatim, so nothing in it may hide characters or start a new line.
-        if (path.Any(c => char.IsControl(c)
-            || CharUnicodeInfo.GetUnicodeCategory(c) is UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator
-            || c is '<' or '>' or '"' or '|' or '?' or '*'))
+        if (path.Any(c => ScreenText.IsHidden(c) || c is '<' or '>' or '"' or '|' or '?' or '*'))
         {
             return FilePathRefusal.InvalidCharacters;
         }
@@ -106,7 +102,7 @@ public static class FilePathGate
             return FilePathRefusal.NotFullyQualified;
         }
 
-        return IsNetworkDrive(slashed[..3]) ? FilePathRefusal.Network : null;
+        return links.IsNetworkDrive(slashed[..3]) ? FilePathRefusal.Network : null;
     }
 
     private static bool IsNetworkDrive(string root)
@@ -152,7 +148,7 @@ public static class FilePathGate
             }
 
             var target = Absolute(raw, Path.GetDirectoryName(next) ?? root);
-            if (Classify(target) is { } refused)
+            if (Classify(target, links) is { } refused)
             {
                 // Refused before anything touches the target (the security review of 0f38576).
                 refusal = refused;
@@ -211,6 +207,9 @@ public static class FilePathGate
     {
         /// <summary>The raw immediate target of <paramref name="path"/> when it is a link or junction; null when it isn't one or doesn't exist. Never follows the link.</summary>
         string? ImmediateTarget(string path);
+
+        /// <summary>True when the drive root <paramref name="root"/> (<c>X:\</c>) is a mapped network drive; the real drive type unless a test overrides it.</summary>
+        bool IsNetworkDrive(string root) => FilePathGate.IsNetworkDrive(root);
     }
 
     /// <summary>The real file system: <see cref="FileSystemInfo.LinkTarget"/> reads the link's own reparse data only.</summary>

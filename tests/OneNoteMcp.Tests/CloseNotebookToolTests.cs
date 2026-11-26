@@ -91,10 +91,9 @@ public sealed class CloseNotebookToolTests
     }
 
     [Theory]
-    [InlineData("HTTP://d.docs.live.net/0000000000000000/Documents/Notebook B", true)]
-    [InlineData("http://d.docs.live.net/0000000000000000/Documents/Notebook B", true)]
-    [InlineData(@"\\server\share\Notebook B", false)]
-    public async Task CloseOk_TheReopenRoute_FollowsThePathsScheme_InAnyCase(string path, bool cloud)
+    [InlineData("HTTP://d.docs.live.net/0000000000000000/Documents/Notebook B")]
+    [InlineData("http://d.docs.live.net/0000000000000000/Documents/Notebook B")]
+    public async Task CloseOk_TheCloudRoute_FollowsThePathsScheme_InAnyCase(string path)
     {
         var gateway = new FakeGateway();
         gateway.Hierarchies[(string.Empty, HierarchyScope.Notebooks)] = NotebooksXml.Replace(CloudPath, path, StringComparison.Ordinal);
@@ -102,9 +101,7 @@ public sealed class CloseNotebookToolTests
         var root = Ok(await Tool(gateway).CloseNotebook(CloudId, Ct));
 
         var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
-        Assert.Equal(
-            cloud ? CloseNotebookUseCase.ReopenCloudUserAction : CloseNotebookUseCase.ReopenLocalUserAction,
-            warning.GetProperty("userAction").GetString());
+        Assert.Equal(CloseNotebookUseCase.ReopenCloudUserAction, warning.GetProperty("userAction").GetString());
     }
 
     [Fact]
@@ -337,6 +334,68 @@ public sealed class CloseNotebookToolTests
         Assert.True(await AppStatePipelineTests.CanTakeAsync(writeLock));
     }
 
+    public static readonly TheoryData<ErrorCode, bool> RefusedCloseWording = new()
+    {
+        { ErrorCode.ComBusy, true },
+        { ErrorCode.ModalDialogOpen, true },
+        { ErrorCode.ObjectNotFound, false },
+    };
+
+    [Theory]
+    [MemberData(nameof(RefusedCloseWording))]
+    public async Task ARefusedClose_SaysStillOpen_OnlyWhenOneNoteRefusedWhileHoldingIt(ErrorCode code, bool stillOpen)
+    {
+        // Retrospective F8: only ComBusy and ModalDialogOpen mean OneNote refused while holding the notebook; any other
+        // code (a notebook closed by hand during the sync or settle, say) can't promise that it is still open.
+        var gateway = Gateway();
+        gateway.CloseFailure = new OneNoteException(code, "CloseNotebook failed.");
+
+        var error = Error(await Tool(gateway).CloseNotebook(LocalId, Ct), code.ToString());
+
+        var message = error.GetProperty("message").GetString()!;
+        Assert.False(error.TryGetProperty("outcomeUnknown", out _));
+        Assert.Equal(CloseNotebookUseCase.CloseUserAction, error.GetProperty("userAction").GetString());
+        if (stillOpen)
+        {
+            Assert.EndsWith("The notebook is still open.", message, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.DoesNotContain("The notebook is still open.", message, StringComparison.Ordinal);
+            Assert.EndsWith("Re-read the open notebooks to see whether it is still open.", message, StringComparison.Ordinal);
+        }
+
+        Assert.Single(gateway.CloseCalls);
+    }
+
+    [Fact]
+    public async Task MalformedNotebooksXml_IsInvalidXml_NothingSyncedOrClosed()
+    {
+        // Retrospective F7: AD-9 maps XML the server can't read to InvalidXml, not Internal.
+        var gateway = new FakeGateway();
+        gateway.Hierarchies[(string.Empty, HierarchyScope.Notebooks)] = "<one:Notebooks";
+
+        var error = Error(await Tool(gateway).CloseNotebook(LocalId, Ct), "InvalidXml");
+
+        Assert.StartsWith("GetHierarchy returned XML the server can't read", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(gateway.AppStateLog);
+        Assert.Empty(gateway.CloseCalls);
+    }
+
+    [Fact]
+    public async Task MalformedSelfXml_ForAnUnknownId_IsInvalidXml_NothingSyncedOrClosed()
+    {
+        var gateway = Gateway();
+        const string id = "{4B0B0000-0000-4000-8000-0000000044EE}{1}{B0}";
+        gateway.Hierarchies[(id, HierarchyScope.Self)] = "<one:Section xmlns:one=\"" + Ns + "\" name=\"S\"";
+
+        var error = Error(await Tool(gateway).CloseNotebook(id, Ct), "InvalidXml");
+
+        Assert.StartsWith("GetHierarchy returned XML the server can't read", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(gateway.AppStateLog);
+        Assert.Empty(gateway.CloseCalls);
+    }
+
     [Fact]
     public void UseCase_IsAppState()
     {
@@ -408,7 +467,15 @@ public sealed class CloseNotebookToolTests
             {
                 gateway.AppStateLog.Add("settle " + time.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 return Task.CompletedTask;
-            })));
+            }), oneDrive: null, links: new NoLinks()));
+    }
+
+    /// <summary>No links and no network drives, so a close's reopen route never depends on the machine running the tests.</summary>
+    private sealed class NoLinks : FilePathGate.ILinkReader
+    {
+        public string? ImmediateTarget(string path) => null;
+
+        public bool IsNetworkDrive(string root) => false;
     }
 
     private static ServiceProvider BuildServer()

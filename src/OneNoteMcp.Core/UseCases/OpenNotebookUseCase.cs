@@ -42,7 +42,7 @@ public sealed record OpenNotebookLogEntry(string CorrelationId, string PathKind,
 /// turned an empty folder into a notebook), so every check runs before COM. No grant is needed and none is given (AD-6);
 /// what it opens is protected or not by AD-21's What's protected on the canonical path.
 /// <list type="bullet">
-/// <item>Step 1: the path is made canonical (<see cref="FilePathGate.Canonical(string, out FilePathRefusal)"/>, as
+/// <item>Step 1: the path is made canonical by <see cref="NotebookFolderPath"/>'s rule (<see cref="FilePathGate.Canonical(string, out FilePathRefusal)"/>, as
 /// <c>PageWrite</c> does); every check and the COM call use that form. <see cref="ErrorCode.InvalidArgument"/> with a
 /// userAction for an empty path, a URL, every <see cref="FilePathRefusal"/>, a <c>.one</c>, <c>.onepkg</c> or
 /// <c>.onetoc2</c> path, a missing path, a file, and a folder inside a OneDrive-synced folder.</item>
@@ -276,7 +276,7 @@ public sealed partial class OpenNotebookUseCase : IUseCase
                 throw Refuse(Rules.Url, "path is a URL, and open_notebook never opens one (OneNote can turn a cloud folder into a new notebook), so nothing was opened.", UrlUserAction);
             }
 
-            var canonical = (owner.links is null ? FilePathGate.Canonical(path, out var refusal) : FilePathGate.Canonical(path, owner.links, out refusal))
+            var canonical = NotebookFolderPath.Canonical(path, owner.links, out var refusal)
                 ?? throw Refuse(RuleOf(refusal), $"path is {Describe(refusal)}, so nothing was opened.", PathUserAction);
             Canonical = canonical;
 
@@ -375,7 +375,7 @@ public sealed partial class OpenNotebookUseCase : IUseCase
 
         private void CheckOneDrive(string canonical)
         {
-            if (owner.oneDrive().Holds(canonical))
+            if (NotebookFolderPath.InOneDrive(canonical, owner.oneDrive()))
             {
                 throw Refuse(Rules.OneDrive, "The folder is inside a OneDrive-synced folder, so nothing was opened.", OneDriveUserAction);
             }
