@@ -269,6 +269,16 @@ public sealed class PluginPackagingTests
     }
 
     [Fact]
+    public void GuideSkill_DescriptionFitsTheLimit()
+    {
+        // Story 2.12's convention: the frontmatter description stays within 1,024 characters (story 4.10 rewrote it to fit).
+        var lines = ReadText(GuideSkill).ReplaceLineEndings("\n").Split('\n');
+        var description = Assert.Single(lines[1..Array.IndexOf(lines, "---", 1)], l => l.StartsWith("description:", StringComparison.Ordinal));
+        var text = description["description:".Length..].Trim();
+        Assert.True(text.Length <= 1024, $"{GuideSkill}'s description is {text.Length} characters; the limit is 1,024.");
+    }
+
+    [Fact]
     public void GuideSkill_MentionsEveryContractTool()
     {
         // AD-14: a tool added to the contract snapshot fails here until the skill covers it.

@@ -93,9 +93,9 @@ static async Task<int> MainAsync(string[] args)
 
     await using var client = await McpClient.CreateAsync(transport);
 
-    // Startup check, before any read: exactly the contract tools (thirty-one since story 4.6 added get_windows, which is
-    // read-only; story 3.10 listed round 2's six write tools), each readOnlyHint: true except the AppState tools navigate_to and sync_hierarchy
-    // and the write tools, none of which the harness ever calls (ToolClient refuses them).
+    // Startup check, before any read: exactly the contract tools (35 since round 3), each readOnlyHint: true except the AppState
+    // tools other than get_windows (navigate_to, navigate_to_url, quick_filing, sync_hierarchy, close_notebook, open_notebook)
+    // and the write tools. The harness never calls an AppState or write tool, get_windows included (ToolClient refuses them).
     var listed = await client.ListToolsAsync();
     var names = listed.Select(t => t.Name).ToList();
     var unexpected = names.Count(n => !contract.Contains(n, StringComparer.Ordinal));
@@ -103,7 +103,7 @@ static async Task<int> MainAsync(string[] args)
     var notReadOnly = listed.Count(t => !ToolClient.MayWrite(t.Name) && t.ProtocolTool.Annotations?.ReadOnlyHint != true);
     if (unexpected > 0 || missing > 0 || notReadOnly > 0 || names.Count != contract.Count)
     {
-        Console.Error.WriteLine($"refused: tools/list is not exactly the {contract.Count} contract tools, each with readOnlyHint but {ToolClient.NavigateTo}, {ToolClient.SyncHierarchy} and the write tools (listed {names.Count}, unexpected {unexpected}, missing {missing}, not read-only {notReadOnly})");
+        Console.Error.WriteLine($"refused: tools/list is not exactly the {contract.Count} contract tools, each with readOnlyHint but the AppState tools (other than {ToolClient.GetWindows}) and the write tools (listed {names.Count}, unexpected {unexpected}, missing {missing}, not read-only {notReadOnly})");
         DeleteSettingsDir(settingsDir);
         return Exit.UnexpectedTools;
     }

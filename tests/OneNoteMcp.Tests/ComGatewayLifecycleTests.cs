@@ -838,6 +838,118 @@ public sealed class ComGatewayLifecycleTests
     }
 
     [Fact]
+    public async Task NavigateToUrl_PassesTheLink_WithFNewWindowFalse_AndRefusesAnEmptyOneBeforeCom()
+    {
+        // Story 4.7: fNewWindow is always false (AD-11; epic 4 Q7 a).
+        var app = new FakeApplication { OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        await gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x/Probes.one", Ct);
+        var empty = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync(string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, empty.Code);
+        Assert.Equal([["onenote:https://d.docs.live.net/x/Probes.one", false]], app.Calls.Where(c => c.Method == "NavigateToUrl").Select(c => c.Args));
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_IsNotRetriedAfterADisconnect_AndFailuresMapLikeAnyCall()
+    {
+        // AppState, not a read: a disconnect that reached COM isn't repeated (AD-3).
+        var app = new FakeApplication { OnCall = _ => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls);
+
+        app.OnCall = _ => throw new COMException("gone", unchecked((int)0x80042014));
+        var missing = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", Ct));
+        Assert.Equal((ErrorCode.ObjectNotFound, (int?)unchecked((int)0x80042014)), (missing.Code, missing.ComHResult));
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_WithAWindow_CallsThatWindowsNavigateToUrlOnly_AndReleasesEveryWrapper()
+    {
+        // Story 4.7: Window.NavigateToUrl on the window found by handle, in one STA call, as story 4.6's Window.NavigateTo.
+        var first = new FakeWindow(0x10);
+        var second = new FakeWindow(0x20);
+        var third = new FakeWindow(0x30);
+        var collection = new FakeWindows(first, second, third) { Current = first };
+        var app = new FakeApplication { OnWindows = () => collection, OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<(object Wrapper, int ThreadId)>();
+        gateway.ReleaseWrapper = w => released.Add((w, Environment.CurrentManagedThreadId));
+
+        await gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x/Probes.one", 0x20, Ct);
+
+        Assert.Equal(["onenote:https://d.docs.live.net/x/Probes.one"], second.UrlNavigations);
+        Assert.Empty(first.UrlNavigations);
+        Assert.Empty(third.UrlNavigations);
+        Assert.Empty(second.Navigations);
+        Assert.DoesNotContain(app.Calls, c => c.Method == "NavigateToUrl"); // Application.NavigateToUrl isn't called
+        Assert.Equal([0u, 1u], collection.Indices); // stops at the match
+        var sta = Assert.Single(app.Calls, c => c.Method == "Windows").ThreadId;
+        Assert.Equal(3, released.Count); // the collection, Item(0) and Item(1)
+        Assert.All(released, r => Assert.Equal(sta, r.ThreadId));
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_WithAHandleNoWindowHas_IsInvalidArgument_AndSendsNothing()
+    {
+        var first = new FakeWindow(0x10);
+        var collection = new FakeWindows(first);
+        var app = new FakeApplication { OnWindows = () => collection, OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = released.Add;
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", 0x99, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Equal(OneNoteWindow.UnknownHandleUserAction, ex.UserAction);
+        Assert.False(ex.OutcomeUnknown);
+        Assert.Empty(first.UrlNavigations);
+        Assert.DoesNotContain(app.Calls, c => c.Method == "NavigateToUrl");
+        Assert.Equal([0u], collection.Indices); // never Item(Count)
+        Assert.Equal(2, released.Count);
+    }
+
+    [Fact]
+    public async Task NavigateToUrl_WithAWindow_RefusesAnEmptyLinkBeforeCom()
+    {
+        var app = new FakeApplication { OnWindows = () => new FakeWindows(new FakeWindow(0x10)), OnCall = _ => string.Empty };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync(string.Empty, 0x10, Ct));
+
+        Assert.Equal(ErrorCode.InvalidArgument, ex.Code);
+        Assert.Contains("Window.NavigateToUrl", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(app.Calls);
+    }
+
+    [Fact]
+    public async Task ATimedOutNavigateToUrl_IsNotAnAbandonedWrite()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var app = new FakeApplication();
+        app.OnCall = c => c.Method == "NavigateToUrl" && !gate.IsSet ? Hang(gate) : "<ok/>";
+        using var gateway = Gateway(app, Settings(callMs: 300));
+
+        try
+        {
+            var timeout = await Assert.ThrowsAsync<OneNoteException>(() => gateway.NavigateToUrlAsync("onenote:https://d.docs.live.net/x", Ct));
+            Assert.Equal(ErrorCode.Timeout, timeout.Code);
+            Assert.Equal(0, gateway.AbandonedWritesTracked);
+            Assert.True(gateway.WaitForAbandonedWritesAsync(Ct).IsCompleted);
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [Fact]
     public async Task ATimedOutSyncHierarchy_IsNotAnAbandonedWrite_SoAWriteAfterItIsNotComBusy()
     {
         // Story 4.3 acceptance: an AppState call abandoned at step 7 doesn't hold back the writes after it (AD-3, AD-7).
@@ -1113,6 +1225,8 @@ public sealed class ComGatewayLifecycleTests
 
         public void NavigateTo(string bstrHierarchyObjectID, string bstrObjectID) => throw new NotSupportedException();
 
+        public void NavigateToUrl(string bstrUrl) => throw new NotSupportedException();
+
         public bool GetFullPageView() => false;
 
         public bool GetActive() => throw new COMException("modal", unchecked((int)0x80042030));
@@ -1128,8 +1242,6 @@ public sealed class ComGatewayLifecycleTests
         void IWindow.SetDockedLocationPlaceholder() => throw new NotSupportedException();
 
         void IWindow.ApplicationPlaceholder() => throw new NotSupportedException();
-
-        void IWindow.NavigateToUrlPlaceholder() => throw new NotSupportedException();
 
         void IWindow.SetDockedLocationMethodPlaceholder() => throw new NotSupportedException();
     }
@@ -2076,6 +2188,325 @@ public sealed class ComGatewayLifecycleTests
         Assert.Equal(calls, app.Calls.Count);
         await WaitUntil(() => !gateway.HasApplication);
         Assert.Equal(1, app.Activations);
+    }
+
+    // --- QuickFiling (story 4.9) ------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task QuickFiling_OneStaDelegate_SetsTitleDescriptionDepthAndOneButton_ThenRun_AndReturnsBeforeTheAnswer()
+    {
+        var dialog = new FakeQuickFilingDialog();
+        var app = new FakeApplication { OnQuickFiling = () => dialog };
+        using var gateway = Gateway(app, Settings());
+
+        var picker = await gateway.ShowQuickFilingAsync("Choose a section", "For the notes", Ct);
+
+        Assert.False(picker.Answer.IsCompleted);
+        var sta = Assert.Single(app.Calls, c => c.Method == "QuickFiling").ThreadId;
+        Assert.Equal(["put_Title", "put_Description", "put_TreeDepth", "AddButton", "Run"], dialog.Members.Select(m => m.Member));
+        Assert.All(dialog.Members, m => Assert.Equal(sta, m.ThreadId));
+        Assert.Equal("Choose a section", dialog.Title);
+        Assert.Equal("For the notes", dialog.Description);
+        Assert.Equal(OneNoteMcp.Com.Interop.HierarchyElement.heSections, dialog.TreeDepth);
+        Assert.Equal(
+            [(ComGateway.QuickFilingButton, OneNoteMcp.Com.Interop.HierarchyElement.heSections, OneNoteMcp.Com.Interop.HierarchyElement.heNone, true)],
+            dialog.Buttons);
+        Assert.IsType<QuickFilingCallback>(dialog.Callback);
+        Assert.Equal(1, gateway.PickerHolds);
+        picker.Release();
+    }
+
+    [Fact]
+    public async Task QuickFiling_WhileAPickerIsHeld_IdleTimeDoesNotRelease_AfterLettingGoItDoes_AndTheDialogIsReleasedOnTheSta()
+    {
+        // Acceptance 1 (AD-3, epic 4 A8): a waiting picker keeps the COM reference; once the wait ends, idle release applies.
+        var dialog = new FakeQuickFilingDialog();
+        var app = new FakeApplication { OnQuickFiling = () => dialog };
+        using var gateway = Gateway(app, Settings(idleMs: 100));
+        var released = new List<(object Wrapper, int ThreadId)>();
+        gateway.ReleaseWrapper = w =>
+        {
+            lock (released)
+            {
+                released.Add((w, Environment.CurrentManagedThreadId));
+            }
+        };
+
+        var picker = await gateway.ShowQuickFilingAsync("t", string.Empty, Ct);
+        await Task.Delay(500, Ct);
+        Assert.True(gateway.HasApplication);
+        Assert.Empty(released);
+
+        picker.Release();
+        picker.Release(); // idempotent
+        await WaitUntil(() => !gateway.HasApplication);
+        Assert.Equal(0, gateway.PickerHolds);
+        var sta = Assert.Single(app.Calls, c => c.Method == "QuickFiling").ThreadId;
+        lock (released)
+        {
+            var dropped = Assert.Single(released);
+            Assert.Same(dialog, dropped.Wrapper);
+            Assert.Equal(sta, dropped.ThreadId);
+        }
+    }
+
+    [Fact]
+    public async Task QuickFiling_TheCallbackOnAnotherThread_CompletesTheAnswer_QueuesNoStaWork_AndEndsTheHold()
+    {
+        // Acceptance 2 (spike 4.13: OneNote calls back on an MTA thread, never the STA that called Run).
+        var dialog = new FakeQuickFilingDialog();
+        var app = new FakeApplication { OnQuickFiling = () => dialog };
+        using var gateway = Gateway(app, Settings(idleMs: 100));
+        var releasedCount = 0;
+        gateway.ReleaseWrapper = _ => Interlocked.Increment(ref releasedCount);
+
+        var picker = await gateway.ShowQuickFilingAsync("t", string.Empty, Ct);
+        var sta = Assert.Single(app.Calls, c => c.Method == "QuickFiling").ThreadId;
+        var callsBefore = app.Calls.Count;
+        var callbackThread = 0;
+        var mta = new Thread(() =>
+        {
+            callbackThread = Environment.CurrentManagedThreadId;
+            dialog.Answer("{S}{1}{B0}", 0);
+        });
+        mta.SetApartmentState(ApartmentState.MTA);
+        mta.Start();
+        Assert.True(mta.Join(TimeSpan.FromSeconds(5)));
+
+        var answer = await picker.Answer.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.Equal(new QuickFilingAnswer("{S}{1}{B0}", 0), answer);
+        Assert.NotEqual(sta, callbackThread);
+        Assert.All(dialog.Members.Where(m => m.Member is "get_SelectedItem" or "get_PressedButton"), m => Assert.Equal(callbackThread, m.ThreadId));
+        Assert.Equal(callsBefore, app.Calls.Count); // nothing sent to the application
+        Assert.Equal(0, Volatile.Read(ref releasedCount)); // no STA work queued by the callback
+
+        // The answer ended the hold: idle release applies even before the caller lets go.
+        await WaitUntil(() => gateway.PickerHolds == 0);
+        await WaitUntil(() => !gateway.HasApplication);
+        picker.Release();
+    }
+
+    [Fact]
+    public async Task QuickFiling_ALateAnswerAfterLettingGo_IsANoOp()
+    {
+        var dialog = new FakeQuickFilingDialog();
+        var app = new FakeApplication { OnQuickFiling = () => dialog };
+        using var gateway = Gateway(app, Settings());
+        gateway.ReleaseWrapper = _ => { };
+
+        var picker = await gateway.ShowQuickFilingAsync("t", string.Empty, Ct);
+        picker.Release();
+        Assert.Equal(0, gateway.PickerHolds);
+
+        var ex = Record.Exception(() => dialog.Answer("{S}{1}{B0}", 0));
+
+        Assert.Null(ex);
+        await Task.Delay(100, Ct);
+        Assert.Equal(0, gateway.PickerHolds);
+        Assert.True(picker.Released);
+    }
+
+    [Fact]
+    public async Task QuickFiling_AGetterThatFailsInTheCallback_FaultsTheAnswerWithItsMappedError_AndNeverThrowsIntoOneNote()
+    {
+        var dialog = new FakeQuickFilingDialog { GetterFailure = new COMException("dialog", unchecked((int)0x80042030)) };
+        var app = new FakeApplication { OnQuickFiling = () => dialog };
+        using var gateway = Gateway(app, Settings());
+        gateway.ReleaseWrapper = _ => { };
+
+        var picker = await gateway.ShowQuickFilingAsync("t", string.Empty, Ct);
+        var thrown = Record.Exception(() => dialog.Callback!.OnDialogClosed(dialog));
+        var nullDialog = Record.Exception(() => dialog.Callback!.OnDialogClosed(null!));
+
+        Assert.Null(thrown);
+        Assert.Null(nullDialog);
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => picker.Answer);
+        Assert.Equal(ErrorCode.ModalDialogOpen, ex.Code);
+        Assert.False(ex.OutcomeUnknown);
+        picker.Release();
+    }
+
+    [Fact]
+    public async Task QuickFiling_RunThatFails_IsMapped_EndsTheHold_AndReleasesTheDialog()
+    {
+        var dialog = new FakeQuickFilingDialog { OnRun = () => throw new COMException("dialog", unchecked((int)0x80042030)) };
+        var app = new FakeApplication { OnQuickFiling = () => dialog };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = w =>
+        {
+            lock (released)
+            {
+                released.Add(w);
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.ShowQuickFilingAsync("t", string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.ModalDialogOpen, ex.Code);
+        Assert.Equal(0, gateway.PickerHolds);
+        await WaitUntil(() =>
+        {
+            lock (released)
+            {
+                return released.Count == 1;
+            }
+        });
+    }
+
+    [Fact]
+    public async Task QuickFiling_ASetterThatFails_ReleasesTheDialog_AndNeverRuns()
+    {
+        var app = new FakeApplication { OnQuickFiling = () => new ThrowingTitleDialog() };
+        using var gateway = Gateway(app, Settings());
+        var released = new List<object>();
+        gateway.ReleaseWrapper = released.Add;
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.ShowQuickFilingAsync("t", string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.ModalDialogOpen, ex.Code);
+        Assert.IsType<ThrowingTitleDialog>(Assert.Single(released));
+        Assert.Equal(0, gateway.PickerHolds);
+    }
+
+    [Fact]
+    public async Task QuickFiling_IsNotRetriedAfterADisconnect()
+    {
+        var app = new FakeApplication { OnQuickFiling = () => throw new COMException("gone", RpcServerUnavailable) };
+        using var gateway = Gateway(app, Settings());
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.ShowQuickFilingAsync("t", string.Empty, Ct));
+
+        Assert.Equal(ErrorCode.ComUnavailable, ex.Code);
+        Assert.Single(app.Calls, c => c.Method == "QuickFiling");
+        Assert.Equal(0, gateway.PickerHolds);
+    }
+
+    [Fact]
+    public async Task QuickFiling_ATimedOutRun_IsTimeout_AndLetsGo()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var dialog = new FakeQuickFilingDialog { OnRun = () => gate.Wait() };
+        var app = new FakeApplication { OnQuickFiling = () => dialog };
+        using var gateway = Gateway(app, Settings(callMs: 300));
+        gateway.ReleaseWrapper = _ => { };
+
+        try
+        {
+            var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.ShowQuickFilingAsync("t", string.Empty, Ct));
+            Assert.Equal(ErrorCode.Timeout, ex.Code);
+            Assert.Equal(0, gateway.PickerHolds);
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
+    [Fact]
+    public async Task QuickFiling_ACallThatTimesOutBeforeRun_NeverRuns_AndReleasesTheDialog()
+    {
+        // Review: the caller let go (its deadline) while the STA call was still in QuickFiling: Run is skipped there.
+        using var gate = new ManualResetEventSlim(false);
+        var dialog = new FakeQuickFilingDialog();
+        var app = new FakeApplication
+        {
+            OnQuickFiling = () =>
+            {
+                gate.Wait();
+                return dialog;
+            },
+        };
+        using var gateway = Gateway(app, Settings(callMs: 300));
+        var released = new List<object>();
+        gateway.ReleaseWrapper = w =>
+        {
+            lock (released)
+            {
+                released.Add(w);
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => gateway.ShowQuickFilingAsync("t", string.Empty, Ct));
+        Assert.Equal(ErrorCode.Timeout, ex.Code);
+        gate.Set();
+
+        await WaitUntil(() =>
+        {
+            lock (released)
+            {
+                return released.Count == 1;
+            }
+        });
+        Assert.DoesNotContain(dialog.Members, m => m.Member == "Run");
+        Assert.Null(dialog.Callback);
+        Assert.Equal(0, gateway.PickerHolds);
+        lock (released)
+        {
+            Assert.Same(dialog, released[0]);
+        }
+    }
+
+    [Fact]
+    public void QuickFilingCallback_IsExposedToComThroughTheCallbackInterface()
+    {
+        // In-process only (a CCW of our own object): OneNote can QI the callback for its IID and IDispatch (spike 4.13).
+        var unknown = Marshal.GetIUnknownForObject(new QuickFilingCallback());
+        try
+        {
+            foreach (var iid in new[] { typeof(OneNoteMcp.Com.Interop.IQuickFilingDialogCallback).GUID, new Guid("00020400-0000-0000-C000-000000000046") })
+            {
+                Assert.Equal(0, Marshal.QueryInterface(unknown, iid, out var pointer));
+                Marshal.Release(pointer);
+            }
+        }
+        finally
+        {
+            Marshal.Release(unknown);
+        }
+    }
+
+    private sealed class ThrowingTitleDialog : OneNoteMcp.Com.Interop.IQuickFilingDialog
+    {
+        public string Title { get => string.Empty; set => throw new COMException("dialog", unchecked((int)0x80042030)); }
+
+        public string Description { get; set; } = string.Empty;
+
+        public OneNoteMcp.Com.Interop.HierarchyElement TreeDepth { get; set; }
+
+        public string SelectedItem => string.Empty;
+
+        public uint PressedButton => 0;
+
+        public void AddButton(string bstrText, OneNoteMcp.Com.Interop.HierarchyElement allowedElements, OneNoteMcp.Com.Interop.HierarchyElement allowedReadOnlyElements, bool fDefault) => throw new NotSupportedException();
+
+        public void Run(OneNoteMcp.Com.Interop.IQuickFilingDialogCallback piCallback) => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.GetCheckboxTextPlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.SetCheckboxTextPlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.GetCheckboxStatePlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.SetCheckboxStatePlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.GetWindowHandlePlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.GetParentWindowHandlePlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.SetParentWindowHandlePlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.GetPositionPlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.SetPositionPlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.SetRecentResultsPlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.SetTreeCollapsedStatePlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.SetNotebookFilterOutPlaceholder() => throw new NotSupportedException();
+
+        void OneNoteMcp.Com.Interop.IQuickFilingDialog.AddInitialEditorPlaceholder() => throw new NotSupportedException();
     }
 
     // --- Helpers ------------------------------------------------------------------------------------------------

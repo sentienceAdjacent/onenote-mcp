@@ -67,6 +67,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
   - Each process has one live `ComGateway` STA thread at a time, with a message pump, owning one COM reference. It serialises every COM call through its queue, except the QuickFiling callback, below.
   - The COM interop types are `internal` to `OneNoteMcp.Com`. Inside it, only `ComGateway` and its `StaThread` worker reference them: `ComGateway` creates the `IApplication` and makes every call, except the QuickFiling callback, below; the worker holds and releases it, on its own STA thread. The test projects also see them through `InternalsVisibleTo`, for the vtable smoke test and `FakeApplication` (AD-16).
   - **The one COM code path off the STA** (spike 4.13; Phill, 2026-11-22, epic 4 A8 reworded): OneNote calls QuickFiling's `OnDialogClosed` on an MTA thread of our process, never on the STA thread that called `Run` (nine of nine; one machine, one run, cause unknown; see Deferred), so the code can't count on any particular thread. The callback may only read `SelectedItem` and `PressedButton` on the dialog OneNote passes it (both answered from the calling thread, nine of nine), record them, signal the waiting call (its continuations run asynchronously) and return at once, because OneNote's UI thread waits for it (OneMore row 26). It never touches the STA's `IApplication` and never waits on the STA. It is the only code that runs a OneNote COM call off the STA.
+  - **The one public interop type** (Phill, 2026-11-23, story 4.9 plan OQ2 a): `IQuickFilingDialogCallback` is public, and so is the class that implements it (sealed, with an internal constructor, created only by `ComGateway`), because the runtime exposes a managed object to COM only through public interfaces: spike 4.13's unit test found the callback's CCW answering `E_NOINTERFACE` while its interface was internal. Its dialog parameter is typed `object`, so `IQuickFilingDialog` stays internal and the callback casts to it inside. Every other interop type stays internal.
   - Every `Windows` and `Window` wrapper is released in a `finally` on the STA, as soon as the call that read it ends (OneMore row 10; spike 4.12 Implication 9).
 
 ### AD-3 — Gateway lifecycle [ADOPTED]
@@ -873,7 +874,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ## Coverage of `IApplication`
 
-Every member of the hand-declared `IApplication` (`src/OneNoteMcp.Com/Interop/IApplication.cs`, slots 7–35) has a released tool or a dated Decision not to expose it (initiative Done when 4; epic 4 A10; round-3 spine amendments, 2026-11-22). Story 4.10 checks this table against the released tools. An epic 4 tool counts once its story ships.
+Every member of the hand-declared `IApplication` (`src/OneNoteMcp.Com/Interop/IApplication.cs`, slots 7–35) has a released tool or a dated Decision not to expose it (initiative Done when 4; epic 4 A10; round-3 spine amendments, 2026-11-22). Story 4.10 checks this table against the released tools: `CoverageTableTests` (`tests/OneNoteMcp.Tests`) parses it, reads `IApplication`'s slots by reflection and the tools from the contract snapshot, and fails CI on any gap, so it keeps holding at the release tag and after. An epic 4 tool counts once its story ships.
 
 | Slot | Member | Tool (epic) | Or: dated Decision |
 | --- | --- | --- | --- |

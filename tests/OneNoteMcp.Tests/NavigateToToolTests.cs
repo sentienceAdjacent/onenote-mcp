@@ -178,9 +178,12 @@ public sealed class NavigateToToolTests
 
         var navigate = Assert.Single(tools, t => t.Name == NavigateToTool.Name);
         Assert.StartsWith(
-            "User-visible: takes keyboard focus and changes what OneNote shows. Call only when the user explicitly asks.",
+            "User-visible: changes what OneNote shows, and may bring OneNote forward. Call only when the user explicitly asks.",
             navigate.Description,
             StringComparison.Ordinal);
+        // AD-11: no focus promise, and no claim about a windowless OneNote (spike 4.12 W6 opened a window in front).
+        Assert.DoesNotContain("keyboard focus", navigate.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("without one", navigate.Description, StringComparison.Ordinal);
         Assert.False(navigate.Annotations!.ReadOnlyHint);
         Assert.False(navigate.Annotations.DestructiveHint);
         Assert.True(navigate.Annotations.IdempotentHint);
@@ -192,9 +195,9 @@ public sealed class NavigateToToolTests
 
     /// <summary>
     /// The AppState tools other than navigate_to (story 4.3 on): not read-only. sync_hierarchy isn't user-visible (spike 4.1
-    /// S1); close_notebook (AD-11; story 4.4) and open_notebook (story 4.5) are, and their own tests check their descriptions say so.
+    /// S1); close_notebook (AD-11; story 4.4), open_notebook (story 4.5), navigate_to_url (story 4.7) and quick_filing (story 4.9) are, and their own tests check their descriptions say so.
     /// </summary>
-    internal static readonly string[] AppStateTools = [SyncHierarchyTool.Name, CloseNotebookTool.Name, OpenNotebookTool.Name];
+    internal static readonly string[] AppStateTools = [SyncHierarchyTool.Name, CloseNotebookTool.Name, OpenNotebookTool.Name, NavigateToUrlTool.Name, QuickFilingTool.Name];
 
     [Fact]
     public void SyncHierarchy_IsNotUserVisible_ButOnlyOnTheUsersRequest_AndIdempotent()
