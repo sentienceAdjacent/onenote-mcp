@@ -3,6 +3,7 @@
 # Cross-epic waits: the epic file's `after` gates every entry, the spikes (1, 12, 13) included, on epic 3 being done, and so on epics 2 and 5, which epic 3 waits on (Decision, Phill 2026-11-12). Entries name other epics' stories only as what they build on, never in `after`.
 # Entries 4, 5 and 7 refined 2026-11-22 (orchestrated) from the round-3 spine amendments (PR #120), per the ticket effects in story-spine-amendments-for-round-3-plan.md; approved by Phill, 2026-11-22 (Inbox), with entry 7's Window.NavigateToUrl fallback changed to stop and ask.
 # One lane: every story after the spine amendment touches the gateway port, the tool registration and contract snapshot, and the skill.
+# Entry 14 added 2026-11-26 (orchestrated) from story 4.11's live sitting: a parallel-test clash on throwaway b. Placed last; it waits only on entry 5, whose test class is one side of the clash.
 
 [[entry]]
 id = 1
@@ -148,3 +149,16 @@ after = [10]
 hitl = false
 risk = "medium"
 unknown = "Its scope, set when it starts."
+
+[[entry]]
+id = 14
+type = "story"
+title = "Keep integration tests that open or close a throwaway from running at once"
+description = "Test-only fix. In story 4.11's live sitting (2026-11-26), the integration tests run with ONENOTE_MCP_INTEGRATION=1 and filtered to SyncHierarchy, CloseNotebook and OpenNotebook skipped CloseNotebook_ThrowawayB_ClosesIt_ReopensByPath_AndItsWriteGrantIsActiveAgain with \"Open the throwaway notebook ... first\": xUnit runs test classes in parallel, and OpenNotebookIntegrationTests closed and reopened the same notebook, MCP Test Throwaway 1112-034716 b, at the same time. Run alone, the CloseNotebook filter passed 2 of 2. This story puts every integration test class that closes, opens or otherwise changes the open state of a throwaway notebook into one shared xUnit collection, so those classes never run at the same time. It first checks which classes need it: CloseNotebookIntegrationTests and OpenNotebookIntegrationTests at least, then the sync, quick filing and any other classes that touch throwaways b, c or a (a class that opens and closes a package copy beside throwaway a counts if it changes what another class expects to be open). It adds a cheap unit-level or reflection test, if one can be written, that fails when a class in the integration project closes or opens a notebook but is not in the collection. No product code changes, and no test's assertions change."
+verify = "With Phill present and ONENOTE_MCP_INTEGRATION=1, one integration run filtered to SyncHierarchy, CloseNotebook and OpenNotebook passes with no skips; the unit and integration suites without the variable still pass; and the guard test, if one was added, fails when the collection attribute is removed from one of the classes."
+covers = ["A3", "A4"]
+after = [5]
+hitl = true
+risk = "low"
+unknown = "Which classes beyond CloseNotebook and OpenNotebook change a throwaway's open state, and whether a reflection test can tell them apart from classes that only read or write pages."
+references = ["_bmad-output/initiative-onenote-mcp-v1/epic-round-3-app-state-and-ui/story-refactor-sweep-plan.md"]
