@@ -3,7 +3,7 @@ title: 'Keep integration tests that open or close a throwaway from running at on
 type: 'bugfix'
 ticket: '14'
 created: '2026-11-26'
-status: 'built'
+status: 'done'
 baseline_revision: '013316364406053959e8b349503ea0deef222d8d'
 route: 'oneshot'
 route_source: 'auto'
