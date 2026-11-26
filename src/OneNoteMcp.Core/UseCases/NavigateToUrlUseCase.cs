@@ -104,9 +104,9 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
         catch (OneNoteException ex)
         {
             Log(context, follow, follow.Rule == CloudLinks.Rules.None ? ex.Code.ToString() : "refused");
-            if (ex.Code == ErrorCode.ObjectNotFound && ex.ComHResult == OneNoteHResults.ObjectDoesNotExist)
+            if (AppStateChecks.WithUserAction(ex, ObjectNotFoundUserAction) is { } stale)
             {
-                throw new OneNoteException(ex.Code, ex.Message, ex.ComHResult, ex, ex.OutcomeUnknown, ObjectNotFoundUserAction);
+                throw stale;
             }
 
             throw;
@@ -216,7 +216,7 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
 
         if (withheld)
         {
-            warnings.Add(new ToolWarning(ToolWarnings.ReadNotGranted, GetWindowsUseCase.WithheldMessage(1), ReadAccess.WithheldUserAction));
+            warnings.Add(new ToolWarning(ToolWarnings.ReadNotGranted, WindowPages.WithheldMessage(1), ReadAccess.WithheldUserAction));
         }
 
         return new Landing(code, listed, warnings);
@@ -327,15 +327,9 @@ public sealed class NavigateToUrlUseCase(IOneNoteGateway gateway, AppStatePipeli
         {
             var matched = target ?? throw new InvalidOperationException("Step 3 didn't run.");
 
-            // Step 7: the link as given (trimmed), never retried; with a window, only that window moves.
-            if (window is { } handle)
-            {
-                await gateway.NavigateToUrlAsync(url.Trim(), handle, ct).ConfigureAwait(false);
-            }
-            else
-            {
-                await gateway.NavigateToUrlAsync(url.Trim(), ct).ConfigureAwait(false);
-            }
+            // Step 7: the link as given (trimmed), never retried; with a window, only that window moves, and a null window
+            // falls back to the app-level NavigateToUrl in the gateway (IOneNoteGateway's window overload).
+            await gateway.NavigateToUrlAsync(url.Trim(), window, ct).ConfigureAwait(false);
             return matched;
         }
 

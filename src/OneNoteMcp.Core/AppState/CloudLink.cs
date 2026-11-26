@@ -134,7 +134,7 @@ public static class CloudLinks
             return Kinds.Empty;
         }
 
-        if (IsHttp(text))
+        if (UrlPath.IsHttp(text))
         {
             return Kinds.Web;
         }
@@ -144,7 +144,7 @@ public static class CloudLinks
             return Kinds.Other;
         }
 
-        return IsHttp(text[OneNoteScheme.Length..]) ? Kinds.Cloud : Kinds.Local;
+        return UrlPath.IsHttp(text[OneNoteScheme.Length..]) ? Kinds.Cloud : Kinds.Local;
     }
 
     /// <summary>The name a link kind has in the log line.</summary>
@@ -179,7 +179,7 @@ public static class CloudLinks
         }
 
         var body = text[OneNoteScheme.Length..];
-        if (!IsHttp(body))
+        if (!UrlPath.IsHttp(body))
         {
             return new(Rules.LocalLink, "url is a link to a notebook on this PC or a network share, not to one stored online, so nothing was shown: such a link can raise a security dialog in OneNote that blocks the call.", LocalLinkUserAction);
         }
@@ -260,7 +260,7 @@ public static class CloudLinks
             var value = piece[(equals + 1)..];
             if (string.Equals(key, "base-path", StringComparison.OrdinalIgnoreCase) && basePathHost is null)
             {
-                if (value.Contains('?', StringComparison.Ordinal) || !IsHttp(value))
+                if (value.Contains('?', StringComparison.Ordinal) || !UrlPath.IsHttp(value))
                 {
                     return new(Rules.BasePath, "url's base-path isn't the web address of a notebook stored online, so nothing was shown.", MalformedUserAction);
                 }
@@ -472,11 +472,11 @@ public static class CloudLinks
     /// <summary>The text decoded once, or null when that isn't where four rounds of decoding settle (HtmlStopgap's discipline).</summary>
     private static string? Once(string text)
     {
-        var once = Unescape(text);
+        var once = UrlPath.Decode(text);
         var settled = once;
         for (var i = 0; i < 4; i++)
         {
-            var next = Unescape(settled);
+            var next = UrlPath.Decode(settled);
             if (next == settled)
             {
                 return settled == once ? once : null;
@@ -486,18 +486,6 @@ public static class CloudLinks
         }
 
         return null;
-    }
-
-    private static string Unescape(string text)
-    {
-        try
-        {
-            return Uri.UnescapeDataString(text);
-        }
-        catch (UriFormatException)
-        {
-            return text;
-        }
     }
 
     /// <summary>A <c>{GUID}</c> (braces required), or null.</summary>
@@ -514,9 +502,6 @@ public static class CloudLinks
     /// <summary>The scheme of an <c>http(s)://</c> address, lower case: <c>https</c> or <c>http</c>.</summary>
     private static string SchemeOf(string address) =>
         address.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? "https" : "http";
-
-    private static bool IsHttp(string text) =>
-        text.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
 
     private static bool HasControlCharacters(string text) =>
         text.Any(c => char.IsControl(c) || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.Format);

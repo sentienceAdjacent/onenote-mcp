@@ -90,6 +90,23 @@ public sealed class CloseNotebookToolTests
         Assert.Equal(CloseNotebookUseCase.ReopenCloudUserAction, warning.GetProperty("userAction").GetString());
     }
 
+    [Theory]
+    [InlineData("HTTP://d.docs.live.net/0000000000000000/Documents/Notebook B", true)]
+    [InlineData("http://d.docs.live.net/0000000000000000/Documents/Notebook B", true)]
+    [InlineData(@"\\server\share\Notebook B", false)]
+    public async Task CloseOk_TheReopenRoute_FollowsThePathsScheme_InAnyCase(string path, bool cloud)
+    {
+        var gateway = new FakeGateway();
+        gateway.Hierarchies[(string.Empty, HierarchyScope.Notebooks)] = NotebooksXml.Replace(CloudPath, path, StringComparison.Ordinal);
+
+        var root = Ok(await Tool(gateway).CloseNotebook(CloudId, Ct));
+
+        var warning = Assert.Single(root.GetProperty("warnings").EnumerateArray());
+        Assert.Equal(
+            cloud ? CloseNotebookUseCase.ReopenCloudUserAction : CloseNotebookUseCase.ReopenLocalUserAction,
+            warning.GetProperty("userAction").GetString());
+    }
+
     [Fact]
     public async Task TheLockIsHeld_FromTheReadThroughTheClose()
     {

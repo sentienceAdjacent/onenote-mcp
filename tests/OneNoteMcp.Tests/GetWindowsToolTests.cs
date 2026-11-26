@@ -122,7 +122,7 @@ public sealed class GetWindowsToolTests : IDisposable
         Assert.Equal([null, null, V.OpenPageId], windows.Select(w => w.PageId));
         var warning = Assert.Single(success.Warnings);
         Assert.Equal(ToolWarnings.ReadNotGranted, warning.Code);
-        Assert.Equal(GetWindowsUseCase.WithheldMessage(2), warning.Message);
+        Assert.Equal(WindowPages.WithheldMessage(2), warning.Message);
         Assert.StartsWith("2 window(s)", warning.Message, StringComparison.Ordinal);
         Assert.Equal(ReadAccess.WithheldUserAction, warning.UserAction);
         Assert.DoesNotContain(V.VaultPageId, warning.Message, StringComparison.Ordinal);
@@ -171,7 +171,7 @@ public sealed class GetWindowsToolTests : IDisposable
         var root = Ok(await Tool(gateway).GetWindows(Ct));
 
         Assert.All(root.GetProperty("meta").GetProperty("windows").EnumerateArray(), w => Assert.False(w.TryGetProperty("pageId", out _)));
-        Assert.Equal(GetWindowsUseCase.WithheldMessage(2), Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("message").GetString());
+        Assert.Equal(WindowPages.WithheldMessage(2), Assert.Single(root.GetProperty("warnings").EnumerateArray()).GetProperty("message").GetString());
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public sealed class GetWindowsToolTests : IDisposable
     [InlineData(4, "bottom")]
     [InlineData(7, "7")]
     public void DockedLocation_IsNamed(int value, string name) =>
-        Assert.Equal(name, GetWindowsUseCase.DockedLocationName(value));
+        Assert.Equal(name, WindowPages.DockedLocationName(value));
 
     private GetWindowsTool Tool(FakeGateway gateway) =>
         new(new ToolRunner(NullLogger<ToolRunner>.Instance), UseCase(gateway));

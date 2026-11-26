@@ -3,12 +3,13 @@ title: 'Refactor sweep (round 3)'
 type: 'refactor'
 ticket: '11'
 created: '2026-11-23'
-status: 'ready-for-dev'
+status: 'built'
+baseline_revision: 'ee89b5c133bcabe3cfebb0719eed608ad7a1b1a5'
 route: 'full'
 route_source: 'pinned'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-onenote-mcp-v1/epic-round-2-external-and-structural/story-refactor-sweep-plan.md'
@@ -68,12 +69,12 @@ Line numbers from a trial merge of 4.7 and 4.9 into `eb3a5d4`; recheck after the
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Record unit and integration test counts on the baseline (main with 4.7, 4.9 and entry 10 merged); do item 5's read.
-- [ ] `src/OneNoteMcp.Core/AppState/AppStateChecks.cs` and the two navigate and sync use cases -- items 1-2.
-- [ ] `Writes/UrlPath.cs`, `AppState/CloudLink.cs`, `UseCases/CloseNotebookUseCase.cs` -- item 3.
-- [ ] `UseCases/WindowPages.cs`, `GetWindowsUseCase.cs`, `NavigateToUrlUseCase.cs`, `GetWindowsToolTests.cs` -- item 4.
-- [ ] Unit tests: `AppStateChecksTests` for each matrix row the helpers carry (texts compared with today's literals); one `CloseNotebookToolTests` row for `HTTP://` if none exists.
-- [ ] Q1's outcome; `deferred-work.md` -- item 6.
+- [x] Record unit and integration test counts on the baseline (main with 4.7, 4.9 and entry 10 merged); do item 5's read.
+- [x] `src/OneNoteMcp.Core/AppState/AppStateChecks.cs` and the two navigate and sync use cases -- items 1-2.
+- [x] `Writes/UrlPath.cs`, `AppState/CloudLink.cs`, `UseCases/CloseNotebookUseCase.cs` -- item 3.
+- [x] `UseCases/WindowPages.cs`, `GetWindowsUseCase.cs`, `NavigateToUrlUseCase.cs`, `GetWindowsToolTests.cs` -- item 4.
+- [x] Unit tests: `AppStateChecksTests` for each matrix row the helpers carry (texts compared with today's literals); one `CloseNotebookToolTests` row for `HTTP://` if none exists.
+- [x] Q1's outcome; `deferred-work.md` -- item 6.
 
 **Acceptance Criteria:**
 - Given the branch, when the unit and integration suites run, then every test passes and the counts equal the baseline's plus the new helper tests.
@@ -102,3 +103,17 @@ Before: OneNote open in a window with MCP Test and throwaway b; nothing else on 
 - `pwsh -File scripts/pack-plugin.ps1`, then `claude plugin validate --strict dist/stage/onenote` -- passes.
 
 **Not in this sweep:** test-helper consolidation; `OpenNotebookUseCase.IsUrl`; the log wiring; `TestNotebookGuard.MapLocalhostAdminShare` (the integration guard keeps its own copy of `OpenNotebookUseCase`'s, so it doesn't depend on the code it guards); 4.7's note that a page title holding `=` can't be followed.
+
+## Review Triage Log
+
+| # | Lens | Finding | Verdict | Route / evidence |
+|---|---|---|---|---|
+| 1 | quick | The plan records no baseline test counts and no outcome of item 5's read, so the first acceptance criterion can't be checked from the work. | low | Rejected (its fix is to edit this build's plan); the counts and the read's outcome are recorded in Implementation Notes below anyway. The reviewer found the code identical in behaviour on every path traced, and no other finding. |
+
+## Implementation Notes
+
+- **Baseline (`ee89b5c`, main with 4.7, 4.9 and entry 10 merged):** unit 4201 passed, 3 skipped (4204); integration without the variable 415 passed, 137 skipped (552).
+- **Branch:** unit 4214 passed, 3 skipped (4217): the 13 new cases are 10 in `AppStateChecksTests` and 3 rows in `CloseNotebookToolTests` (`HTTP://`, `http://`, a UNC path). Integration unchanged: 415 passed, 137 skipped (552). Build `-warnaserror`: 0 warnings. Harness `--contract-only`: `contract-ok` exits 0 ("contract ok: 35 tools"), `contract-no-readonly` exits 3. `pack-plugin.ps1` packed `onenote-0.10.0-rc.1-win-x64.zip`; `claude plugin validate --strict dist/stage/onenote` passed. All builds and tests ran with a separate `--artifacts-path`.
+- **Item 5:** entry 10's Review Triage Log has three findings, all fixed in 4.10, so nothing joins this sweep; `deferred-work.md` gained nothing since this plan but 4.10's resolution entry.
+- **String literals:** no message, userAction or warning string was added, removed or changed in `src/`; the `window` branches and helper moves are code motion only. `RequireHierarchyId` and `UrlPath.IsHttp` refuse a null argument; every caller passes a non-null string (`?? string.Empty` or a parsed path), so no input reaches that.
+- **Not run here (left for Phill's sitting, per Q2):** the harness on MCP Test, the round-3 integration filters with `ONENOTE_MCP_INTEGRATION=1`, and the sync and navigate through Claude. Before it: stop any old `OneNoteMcp.exe` and re-point `onenote-dev` at the new build (the zip above was packed from this branch; repack after any later change).

@@ -31,13 +31,7 @@ public sealed class SyncHierarchyUseCase(IOneNoteGateway gateway, AppStatePipeli
 
     private sealed class Sync(IOneNoteGateway gateway, string hierarchyId) : AppStateOperation<bool>
     {
-        public override void Validate()
-        {
-            if (hierarchyId.Length == 0)
-            {
-                throw new OneNoteException(ErrorCode.InvalidArgument, "hierarchyId is empty: pass the ID of a notebook, section group, section or page.");
-            }
-        }
+        public override void Validate() => AppStateChecks.RequireHierarchyId(hierarchyId);
 
         public override async Task<bool> CallAsync(CancellationToken ct)
         {

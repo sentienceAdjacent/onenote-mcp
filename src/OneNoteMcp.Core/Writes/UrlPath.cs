@@ -150,7 +150,15 @@ public static class UrlPath
         return PathUnder.IsUnderPrefix(combined, prefix) ? combined.TrimEnd(Path.DirectorySeparatorChar) : null;
     }
 
-    private static string Decode(string value)
+    /// <summary>True when <paramref name="text"/> starts with <c>https://</c> or <c>http://</c>, in any case.</summary>
+    public static bool IsHttp(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return text.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || text.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary><paramref name="value"/> percent-decoded once, or as it is when it holds an invalid escape.</summary>
+    internal static string Decode(string value)
     {
         try
         {
