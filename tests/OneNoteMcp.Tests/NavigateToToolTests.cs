@@ -178,9 +178,12 @@ public sealed class NavigateToToolTests
 
         var navigate = Assert.Single(tools, t => t.Name == NavigateToTool.Name);
         Assert.StartsWith(
-            "User-visible: takes keyboard focus and changes what OneNote shows. Call only when the user explicitly asks.",
+            "User-visible: changes what OneNote shows, and may bring OneNote forward. Call only when the user explicitly asks.",
             navigate.Description,
             StringComparison.Ordinal);
+        // AD-11: no focus promise, and no claim about a windowless OneNote (spike 4.12 W6 opened a window in front).
+        Assert.DoesNotContain("keyboard focus", navigate.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("without one", navigate.Description, StringComparison.Ordinal);
         Assert.False(navigate.Annotations!.ReadOnlyHint);
         Assert.False(navigate.Annotations.DestructiveHint);
         Assert.True(navigate.Annotations.IdempotentHint);

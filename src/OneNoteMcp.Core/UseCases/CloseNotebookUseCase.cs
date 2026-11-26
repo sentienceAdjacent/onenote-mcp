@@ -45,7 +45,7 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
     public static readonly string ClosedMessage = string.Create(
         CultureInfo.InvariantCulture,
         $"OneNote closed the notebook. The server asked OneNote to sync it and waited about {SettleTime.TotalSeconds:0} s before closing it. ")
-        + "Every ID in the notebook changes when it is opened again: the old IDs then fail with ObjectNotFound. "
+        + "Every ID in the notebook changes when it is opened again: the old IDs then fail with ObjectNotFound. OneNote may also reset its colour. "
         + "If OneNote was showing the notebook, its view may now be blank. Its read and write grants are kept, matched by its path.";
 
     /// <summary>How to reopen a local notebook.</summary>

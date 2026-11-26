@@ -30,7 +30,7 @@ public sealed class GetBinaryPageContentUseCase(IOneNoteGateway gateway, ReadAcc
     public const string NotOnThisPcUserAction =
         "Check the callbackID against a fresh get_page_content read. If it is current, the image isn't on this PC. "
         + "The user can turn on File > Options > Sync > \"Download all files and images\" in OneNote so images are kept on this PC. "
-        + "Or, only if the user asks for it, show the page in OneNote with navigate_to (user-visible: it takes focus), which makes OneNote download the page's images, then retry.";
+        + "Or, only if the user asks for it, show the page in OneNote with navigate_to (user-visible: it changes what OneNote shows and may bring it forward), which makes OneNote download the page's images, then retry.";
 
     public OperationClass Class => OperationClass.Read;
 

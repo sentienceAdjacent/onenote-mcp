@@ -874,7 +874,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
 
 ## Coverage of `IApplication`
 
-Every member of the hand-declared `IApplication` (`src/OneNoteMcp.Com/Interop/IApplication.cs`, slots 7–35) has a released tool or a dated Decision not to expose it (initiative Done when 4; epic 4 A10; round-3 spine amendments, 2026-11-22). Story 4.10 checks this table against the released tools. An epic 4 tool counts once its story ships.
+Every member of the hand-declared `IApplication` (`src/OneNoteMcp.Com/Interop/IApplication.cs`, slots 7–35) has a released tool or a dated Decision not to expose it (initiative Done when 4; epic 4 A10; round-3 spine amendments, 2026-11-22). Story 4.10 checks this table against the released tools: `CoverageTableTests` (`tests/OneNoteMcp.Tests`) parses it, reads `IApplication`'s slots by reflection and the tools from the contract snapshot, and fails CI on any gap, so it keeps holding at the release tag and after. An epic 4 tool counts once its story ships.
 
 | Slot | Member | Tool (epic) | Or: dated Decision |
 | --- | --- | --- | --- |

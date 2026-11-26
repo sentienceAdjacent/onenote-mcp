@@ -84,7 +84,7 @@ internal interface IApplication
         DateTime dateExpectedLastModified,
         [MarshalAs(UnmanagedType.VariantBool)] bool force);
 
-    // slot 18 (user-visible: takes focus, AD-11)
+    // slot 18 (user-visible: changes what OneNote shows, may bring it forward, AD-11)
     void NavigateTo(
         [MarshalAs(UnmanagedType.BStr)] string bstrHierarchyObjectID,
         [MarshalAs(UnmanagedType.BStr)] string bstrObjectID,

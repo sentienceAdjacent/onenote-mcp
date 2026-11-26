@@ -5,7 +5,7 @@ namespace OneNoteMcp.Core.UseCases;
 
 /// <summary>
 /// <c>NavigateTo</c>: shows a notebook, section or page in OneNote, optionally selecting one object on the page. It is
-/// user-visible, since it takes keyboard focus and changes what OneNote shows, so it is an <c>AppState</c> call (AD-7) that
+/// user-visible, since it changes what OneNote shows and may bring OneNote forward, so it is an <c>AppState</c> call (AD-7) that
 /// the skill makes only when the user explicitly asks (AD-11). Showing a page makes OneNote download its images that
 /// aren't on this PC (story 1.21's probe, 2026-11-07), which is how a user gets a <c>binaryUnavailable</c> image.
 /// Since story 4.3 it runs through the <see cref="AppStatePipeline"/>: <c>ComBusy</c> at the start while an abandoned write
