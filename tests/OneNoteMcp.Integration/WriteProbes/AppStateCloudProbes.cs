@@ -9,6 +9,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// by URL (O2), and the same close offline (C3). A Sync Now check follows each step, and a settle follows every cloud
 /// close and open (spike 3.1, Implication 16). Calls time out at 180 s.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class AppStateCloudProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "app-state-cloud";

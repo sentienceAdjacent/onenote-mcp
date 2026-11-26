@@ -17,6 +17,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// path, backs it up, soft-deletes it, permanently deletes it, and opens the backup. Phill then checks OneDrive.</item>
 /// </list>
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class NotebookDeleteProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-notebook-delete";

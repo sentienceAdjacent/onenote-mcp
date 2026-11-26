@@ -16,6 +16,7 @@ internal sealed record ProbeTarget(string Label, string NotebookId, string Noteb
 /// <see cref="TestNotebookGuard.CheckHierarchyXml"/>). Hitl: the displayed-page date probes and File &gt; Options.
 /// Matrix rows: Create, HierarchyWrite, Soft delete, Permanent delete, Backup, Dates, Modal dialog, HRESULTs.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class HierarchyLocalProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-hierarchy-local";
@@ -50,6 +51,7 @@ public sealed class HierarchyLocalProbes(ITestOutputHelper output)
 /// probes on MCP Test Cloud (found, never created), inside the run's own <c>probe run &lt;stamp&gt;</c> section group.
 /// Hitl: one pause to make the date probe pages' two dates differ, and the displayed-page date probes.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class HierarchyCloudProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-hierarchy-cloud";

@@ -36,6 +36,7 @@ namespace OneNoteMcp.Integration;
 /// </list>
 /// The output carries IDs, codes and the probes' own stamped names only.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class UpdateHierarchyIntegrationTests(ITestOutputHelper output) : IDisposable
 {
     private const string ProtectedProbeName = "Probe 5.4 Protected";

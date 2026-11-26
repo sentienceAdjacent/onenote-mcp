@@ -24,6 +24,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// Product code is not used: every call goes through the probe harness's guarded COM seam. Nothing is written into the
 /// throwaway or any test notebook.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class OpenPackageProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "open-package-p1-p2";

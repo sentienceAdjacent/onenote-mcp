@@ -32,6 +32,7 @@ namespace OneNoteMcp.Integration;
 /// </list>
 /// The output carries IDs, codes and the throwaway names only.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class CreateHierarchyIntegrationTests(ITestOutputHelper output) : IDisposable
 {
     private static readonly XNamespace One = OneNoteXml.Namespace2013;

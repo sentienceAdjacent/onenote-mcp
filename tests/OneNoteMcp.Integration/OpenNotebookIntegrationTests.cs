@@ -37,6 +37,7 @@ namespace OneNoteMcp.Integration;
 /// </list>
 /// The output carries IDs, codes and statuses only.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class OpenNotebookIntegrationTests(ITestOutputHelper output) : IDisposable
 {
     private const string ThrowawayB = "MCP Test Throwaway 1112-034716 b";

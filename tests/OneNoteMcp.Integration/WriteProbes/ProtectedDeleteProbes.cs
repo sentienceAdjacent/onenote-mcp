@@ -13,6 +13,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// the section soft-deleted whole and its recycle-bin copy read locked and unlocked; its permanent delete; the backup
 /// opened and compared.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class ProtectedDeleteProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-protected-delete";

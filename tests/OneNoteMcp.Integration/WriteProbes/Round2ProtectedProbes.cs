@@ -9,6 +9,7 @@ namespace OneNoteMcp.Integration.WriteProbes;
 /// group and a new throwaway notebook, <c>MCP Test Throwaway &lt;stamp&gt; p</c>, which holds the packaged protected
 /// section (a test notebook is never packaged whole: it holds Ballast Vault).
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class Round2ProtectedLocalProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-r2-protected-local";
@@ -36,6 +37,7 @@ public sealed class Round2ProtectedLocalProbes(ITestOutputHelper output)
 /// Spike 3.1, scenario <c>write-probes-r2-protected-cloud</c> (sitting B): XP1–2, SP, MP and RP on MCP Test Cloud's run
 /// group and <c>MCP Test Throwaway Cloud</c> (Q2 a), with a Sync Now check after each step.
 /// </summary>
+[Collection(ThrowawayOpenState.Name)]
 public sealed class Round2ProtectedCloudProbes(ITestOutputHelper output)
 {
     public const string ScenarioName = "write-probes-r2-protected-cloud";
