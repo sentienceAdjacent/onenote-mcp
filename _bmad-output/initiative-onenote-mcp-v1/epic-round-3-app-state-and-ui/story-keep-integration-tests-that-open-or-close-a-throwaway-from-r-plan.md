@@ -44,6 +44,8 @@ Oneshot: about 160 lines, nearly all one new file (a collection definition and o
   - medium, patch: the guard read only the class and its nested types, so probe classes that open or close through top-level helpers (AppStateCloud, AppStateNav, NotebookDelete, Round2Cloud, Round2Protected*, Hierarchy*) were outside the collection. Fixed: transitive scan within the assembly; those classes joined.
   - low, patch (comment only): `IApplication.OpenHierarchy` isn't a marker, and the doc comment overstated coverage. Counting it would flag every section-creating class; the doc comment now says it isn't counted and why.
 
+**Sitting record (2026-11-26):** with MCP Test on screen and throwaway b open, the combined run with `ONENOTE_MCP_INTEGRATION=1` filtered to SyncHierarchy, CloseNotebook and OpenNotebook passed 6 of 6, none skipped (CloseNotebook 2, OpenNotebook 2, SyncHierarchy 2). Before the fix, the same run skipped CloseNotebook_ThrowawayB.
+
 ## Verification
 
 **Commands:**
