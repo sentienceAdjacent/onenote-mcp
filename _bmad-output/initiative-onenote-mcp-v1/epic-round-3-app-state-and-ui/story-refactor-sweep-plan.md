@@ -94,6 +94,13 @@ Before: OneNote open in a window with MCP Test and throwaway b; nothing else on 
 2. He runs `ONENOTE_MCP_INTEGRATION=1 dotnet test tests/OneNoteMcp.Integration --filter "FullyQualifiedName~SyncHierarchy|FullyQualifiedName~CloseNotebook|FullyQualifiedName~OpenNotebook"`. Expect all pass; b closes and reopens (about 10 s each, as in 4.4's sitting).
 3. In Claude Code he asks "sync MCP Test", then "show me an MCP Test page". Expect `ok` with `syncRequested`, then OneNote showing the page.
 
+**Sitting record (2026-11-26, against the 4.11 build; onenote-dev re-pointed and reconnected, old server stopped):**
+
+- Harness, read-only on MCP Test: 844 comparisons, 0 mismatches, 39 large results reassembled, none over 100,000 chars.
+- Integration tests with `ONENOTE_MCP_INTEGRATION=1`, filtered to SyncHierarchy, CloseNotebook and OpenNotebook: 5 passed, 1 skipped. The skip was `CloseNotebook_ThrowawayB_…` ("Open the throwaway notebook … first"): in the combined run the OpenNotebook class closes and reopens Throwaway b at the same time (xUnit runs classes in parallel). Run alone, the CloseNotebook filter passed 2 of 2. This is a test-ordering race between two classes on one notebook, not a behaviour change.
+- "Sync MCP Test" through the 4.11 server: `syncRequested`.
+- "Show me an MCP Test page": `navigate_to` on probe quickstyle 1110-131501 returned ok with no warnings, and `get_windows` then showed that page in OneNote's window.
+
 ## Verification
 
 **Commands:**
