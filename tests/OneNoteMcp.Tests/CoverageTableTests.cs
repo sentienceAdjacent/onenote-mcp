@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using OneNoteMcp.Com.Interop;
 using Xunit;
@@ -15,7 +14,6 @@ namespace OneNoteMcp.Tests;
 public sealed class CoverageTableTests
 {
     private const string Spine = "_bmad-output/initiative-onenote-mcp-v1/architecture-onenote-mcp/architecture-onenote-mcp.md";
-    private const string ToolContract = "tests/OneNoteMcp.Tests/Contract/tool-contract.json";
     private const string TableHeading = "## Coverage of `IApplication`";
     private const int FirstSlot = 7;
 
@@ -159,9 +157,6 @@ public sealed class CoverageTableTests
             .OrderBy(m => m.MetadataToken)
             .Select(m => m.Name.StartsWith("get_", StringComparison.Ordinal) ? m.Name["get_".Length..] : m.Name)];
 
-    private static HashSet<string> ContractTools()
-    {
-        using var doc = JsonDocument.Parse(File.ReadAllText(RepoPaths.Combine(ToolContract.Split('/'))));
-        return doc.RootElement.GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToHashSet(StringComparer.Ordinal);
-    }
+    private static HashSet<string> ContractTools() =>
+        ContractSnapshot.Tools().Select(t => t!["name"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
 }

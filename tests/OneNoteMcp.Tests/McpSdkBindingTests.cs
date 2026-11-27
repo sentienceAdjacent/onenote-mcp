@@ -86,8 +86,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
 
         // Each wire tool as the snapshot records it (name, inputSchema, outputSchema, annotations, _meta; descriptions
         // stripped), so a schema the SDK serialises differently from the registration fails here too.
-        var snapshot = JsonNode.Parse(await File.ReadAllTextAsync(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json"), Ct))!;
-        var expected = snapshot["tools"]!.AsArray();
+        var expected = ContractSnapshot.Tools();
         var actual = tools.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
         Assert.Equal(35, actual.Count);
         Assert.Equal(expected.Count, actual.Count);
@@ -560,8 +559,7 @@ public sealed class McpSdkBindingTests : IAsyncLifetime
         return error;
     }
 
-    private static JsonArray SnapshotTools() =>
-        JsonNode.Parse(File.ReadAllText(RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json")))!["tools"]!.AsArray();
+    private static JsonArray SnapshotTools() => ContractSnapshot.Tools();
 
     /// <summary>What the client sees, whether the SDK answers with a JSON-RPC error or a tool result.</summary>
     private async Task<string> Outcome(string tool, Dictionary<string, object?> arguments)

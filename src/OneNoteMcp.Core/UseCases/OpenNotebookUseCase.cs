@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Results;
@@ -58,7 +57,7 @@ public sealed record OpenNotebookLogEntry(string CorrelationId, string PathKind,
 /// The result is <c>meta.objectId</c>, <c>meta.path</c> (canonical) and the warning
 /// <see cref="ToolWarnings.NotebookListMayLag"/>. Messages and logs never carry the path (AD-13).
 /// </summary>
-public sealed partial class OpenNotebookUseCase : IUseCase
+public sealed class OpenNotebookUseCase : IUseCase
 {
     /// <summary>The tool's name (AD-14).</summary>
     public const string OperationName = "open_notebook";
@@ -197,47 +196,18 @@ public sealed partial class OpenNotebookUseCase : IUseCase
         log?.Invoke(new OpenNotebookLogEntry(context.CorrelationId, open.PathKind, open.Rule, outcome));
 
     /// <summary>
-    /// True when an open notebook's <paramref name="notebookPath"/> names the folder <paramref name="canonical"/>: its
-    /// <c>NotebookKey</c>, its <c>\\localhost\X$</c> form read as <c>X:\</c>, or either made canonical, equals it ignoring
-    /// case (AD-7 <c>AppState</c>, Already open; spike 4.1 O9, O10). A URL never does.
+    /// True when an open notebook's <paramref name="notebookPath"/> names the folder <paramref name="canonical"/>: one of its
+    /// <see cref="NotebookFolderPath.OpenForms"/> equals its <c>NotebookKey</c> ignoring case (AD-7 <c>AppState</c>, Already
+    /// open; spike 4.1 O9, O10). A URL never does.
     /// </summary>
     internal static bool Names(string? notebookPath, string canonical, FilePathGate.ILinkReader? links)
     {
-        if (string.IsNullOrWhiteSpace(notebookPath) || CloudNotebookCreate.IsUrl(notebookPath))
-        {
-            return false;
-        }
-
         var target = GrantKeys.NotebookKey(canonical);
-        var forms = new List<string> { GrantKeys.NotebookKey(notebookPath) };
-        if (MapLocalhostAdminShare(notebookPath) is { } mapped)
-        {
-            forms.Add(GrantKeys.NotebookKey(mapped));
-        }
-
-        foreach (var form in forms.ToList())
-        {
-            var resolved = links is null ? FilePathGate.Canonical(form, out _) : FilePathGate.Canonical(form, links, out _);
-            if (resolved is not null)
-            {
-                forms.Add(GrantKeys.NotebookKey(resolved));
-            }
-        }
-
-        return forms.Any(f => string.Equals(f, target, StringComparison.OrdinalIgnoreCase));
+        return NotebookFolderPath.OpenForms(notebookPath, links).Any(f => string.Equals(f, target, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary><c>\\localhost\X$\rest</c> as <c>X:\rest</c>, ignoring case; null for anything else (other servers or shares).</summary>
-    internal static string? MapLocalhostAdminShare(string path)
-    {
-        var match = LocalhostAdminShare().Match(path.Replace('/', '\\'));
-        return match.Success
-            ? char.ToUpperInvariant(match.Groups["drive"].Value[0]) + ":" + (match.Groups["rest"].Value.Length == 0 ? "\\" : match.Groups["rest"].Value)
-            : null;
-    }
-
-    [GeneratedRegex(@"^\\\\localhost\\(?<drive>[A-Za-z])\$(?<rest>\\.*)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex LocalhostAdminShare();
+    /// <summary><see cref="NotebookFolderPath.MapLocalhostAdminShare"/>, kept here for this class's callers.</summary>
+    internal static string? MapLocalhostAdminShare(string path) => NotebookFolderPath.MapLocalhostAdminShare(path);
 
     private static bool IsUrl(string path)
     {

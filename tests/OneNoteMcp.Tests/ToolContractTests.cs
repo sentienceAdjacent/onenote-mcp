@@ -11,25 +11,67 @@ namespace OneNoteMcp.Tests;
 
 /// <summary>
 /// AD-14: tool names, parameter schemas, output schemas, annotations and _meta (AD-20) are a public contract. The snapshot is
-/// <c>Contract/tool-contract.json</c>; <c>description</c> keys are stripped so wording can change freely. On a
-/// deliberate change, bump <c>&lt;Version&gt;</c> by AD-14's rules and paste the printed JSON into the snapshot.
+/// <c>Contract/tool-contract.json</c>, in <see cref="ContractSnapshot"/>'s compact layout (the shared output schema kept
+/// once); <c>description</c> keys are stripped so wording can change freely. On a deliberate change, bump
+/// <c>&lt;Version&gt;</c> by AD-14's rules and paste the printed JSON into the snapshot.
 /// </summary>
 public sealed class ToolContractTests
 {
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
-    private static string SnapshotPath => RepoPaths.Combine("tests", "OneNoteMcp.Tests", "Contract", "tool-contract.json");
+    private static string SnapshotPath => ContractSnapshot.Path;
 
     [Fact]
     public void Tools_MatchTheContractSnapshot()
     {
         using var services = BuildServer();
-        var expected = JsonNode.Parse(File.ReadAllText(SnapshotPath))!;
+        var expected = ContractSnapshot.ReadCompact();
         var actual = BuildSnapshot(services, expected["contractVersion"]!.GetValue<string>());
 
         Assert.True(
-            JsonNode.DeepEquals(expected, actual),
-            $"The tool contract changed. If that is deliberate, bump <Version> per AD-14 and replace {SnapshotPath} with:\n{actual.ToJsonString(Indented)}");
+            MatchesSnapshot(expected, actual, out var replacement),
+            $"The tool contract changed. If that is deliberate, bump <Version> per AD-14 and replace {SnapshotPath} with:\n{replacement}");
+    }
+
+    [Fact]
+    public void Snapshot_WithOneToolsMetaSchemaEdited_FailsTheComparison()
+    {
+        // The envelope is stored once, so a change to one tool's copy of it must not hide behind the shared one.
+        using var services = BuildServer();
+        var expected = ContractSnapshot.ReadCompact();
+        var actual = BuildSnapshot(services, expected["contractVersion"]!.GetValue<string>());
+        var edited = actual["tools"]!.AsArray().Single(t => t!["name"]!.GetValue<string>() == "get_page_content")!;
+        edited["outputSchema"]!["properties"]!["meta"]!["properties"]!["addedForTheTest"] = new JsonObject { ["type"] = "string" };
+
+        Assert.False(MatchesSnapshot(expected, actual, out var replacement));
+        Assert.Contains("addedForTheTest", replacement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Snapshot_WithTheSharedMetaSchemaEdited_FailsTheComparison()
+    {
+        using var services = BuildServer();
+        var expected = ContractSnapshot.ReadCompact();
+        var actual = BuildSnapshot(services, expected["contractVersion"]!.GetValue<string>());
+        foreach (var tool in actual["tools"]!.AsArray())
+        {
+            tool!["outputSchema"]!["properties"]!["meta"]!["properties"]!["addedForTheTest"] = new JsonObject { ["type"] = "string" };
+        }
+
+        Assert.False(MatchesSnapshot(expected, actual, out var replacement));
+        Assert.Contains("addedForTheTest", replacement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Snapshot_ExpandsToEveryToolWithItsFullOutputSchema_AndCompactsBackToTheFile()
+    {
+        using var services = BuildServer();
+        var compact = ContractSnapshot.ReadCompact();
+        var expanded = ContractSnapshot.Load();
+
+        Assert.True(JsonNode.DeepEquals(BuildSnapshot(services, compact["contractVersion"]!.GetValue<string>()), expanded));
+        Assert.All(expanded["tools"]!.AsArray(), t => Assert.IsType<JsonObject>(t!["outputSchema"]));
+        Assert.True(JsonNode.DeepEquals(compact, ContractSnapshot.Compact(expanded)));
     }
 
     [Fact]
@@ -98,6 +140,14 @@ public sealed class ToolContractTests
             var json = JsonSerializer.Serialize(tool, McpJsonUtilities.DefaultOptions);
             Assert.Contains("\"_meta\":{\"anthropic/maxResultSizeChars\":500000}", json, StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>Compares in the file's compact layout; <paramref name="replacement"/> is the file <paramref name="actual"/> would need.</summary>
+    private static bool MatchesSnapshot(JsonObject expectedCompact, JsonObject actual, out string replacement)
+    {
+        var compact = ContractSnapshot.Compact(actual);
+        replacement = compact.ToJsonString(Indented);
+        return JsonNode.DeepEquals(expectedCompact, compact);
     }
 
     private static void AssertRequiredPresent(JsonNode schema, JsonNode payload)
