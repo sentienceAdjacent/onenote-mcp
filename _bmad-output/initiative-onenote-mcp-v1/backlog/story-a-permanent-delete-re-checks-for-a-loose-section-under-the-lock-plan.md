@@ -3,7 +3,7 @@ title: 'A permanent delete re-checks for a loose section under the lock'
 type: 'bugfix'
 ticket: '33'
 created: '2026-11-27'
-status: 'built'
+status: done
 route: 'oneshot'
 route_source: 'auto'
 review: 'quick'
