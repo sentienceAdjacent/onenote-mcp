@@ -3,7 +3,7 @@ title: 'Refactor: shared pipeline core, ComGateway split, one notebook-folder ch
 type: 'refactor'
 ticket: '16'
 created: '2026-11-27'
-status: 'built'
+status: done
 baseline_revision: '38a797dda64799de7d00c526cba68fc0291cb68b'
 route: 'full'
 route_source: 'auto'
