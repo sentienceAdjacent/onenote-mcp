@@ -187,28 +187,19 @@ public sealed class WritePipeline
 
             // 2. The write lock.
             var call = settings().Timeouts.Call;
-            var remaining = deadline - (clock.GetElapsedTime(start) - paused);
-            var cappedByDeadline = remaining <= call;
-            var wait = cappedByDeadline ? (remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero) : call;
-            try
-            {
-                hold = await writeLock.AcquireAsync(context.CorrelationId, wait, token).ConfigureAwait(false);
-            }
-            catch (OneNoteException ex) when (ex.Code == ErrorCode.ComBusy && cappedByDeadline)
-            {
-                // The wait ended because the deadline did, not the lock wait.
-                throw DeadlineExpired(deadline, written: false, ex);
-            }
+            hold = await LockAndDeadline.AcquireAsync(
+                writeLock,
+                context.CorrelationId,
+                call,
+                deadline - (clock.GetElapsedTime(start) - paused),
+                ex => DeadlineExpired(deadline, written: false, ex),
+                token).ConfigureAwait(false);
 
             // AD-3: while an abandoned write is still outstanding in this process, a new write is ComBusy, before it
             // reads anything (story 2.9; the 2.7 forward note).
-            if (!AbandonedWrites().IsCompleted)
-            {
-                throw new OneNoteException(
-                    ErrorCode.ComBusy,
-                    "An earlier write that OneNote may still be making hasn't finished, so nothing was read or written.",
-                    retryable: true);
-            }
+            LockAndDeadline.ThrowIfAbandonedWriteOutstanding(
+                gateway,
+                "An earlier write that OneNote may still be making hasn't finished, so nothing was read or written.");
 
             // AD-7: every notebook step 1 granted is re-resolved under the lock, so a section moved to another notebook
             // since can't take that grant (story 3.12; epic 2's create-page race). The move tool does its own.
@@ -298,16 +289,18 @@ public sealed class WritePipeline
                 // (create_page's subpage placement, story 3.14 review), and OneNote may still be making it. Step 2 refused
                 // any write outstanding before, so one outstanding once step 7 started is this write's.
                 var settling = callFailed || (calling && !AbandonedWrites().IsCompleted) ? AbandonedWrites() : Task.CompletedTask;
-                if (settling.IsCompleted)
+
+                // The result isn't held back: when the call is still running, the lock goes in the background, when it
+                // returns or at the deadline (which doesn't count time spent on the grant dialog), after dropping the
+                // written pages from the cache again (the abandoned call may have written after the first removal).
+                IReadOnlyList<string> writtenPageIds = [.. operation.WrittenPageIds];
+                LockAndDeadline.Release(hold, settling, deadline - (clock.GetElapsedTime(start) - paused), clock, () =>
                 {
-                    hold.Dispose();
-                }
-                else
-                {
-                    // The result isn't held back: the lock goes in the background, when the call returns or at the deadline
-                    // (which doesn't count time spent on the grant dialog).
-                    _ = ReleaseWhenSettledAsync(hold, settling, deadline - (clock.GetElapsedTime(start) - paused), [.. operation.WrittenPageIds]);
-                }
+                    foreach (var pageId in writtenPageIds)
+                    {
+                        cache?.Remove(pageId);
+                    }
+                });
             }
         }
     }
@@ -320,57 +313,15 @@ public sealed class WritePipeline
             || exception.ComHResult == CallFailedHResult;
     }
 
-    /// <summary>The gateway's wait for abandoned writes; a gateway that fails to answer releases the lock as before.</summary>
-    private Task AbandonedWrites()
-    {
-        try
-        {
-            return gateway.WaitForAbandonedWritesAsync(CancellationToken.None);
-        }
-#pragma warning disable CA1031 // Called from finally: it must never replace the write's own outcome.
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return Task.CompletedTask;
-        }
-    }
-
-    /// <summary>
-    /// Keeps the lock until the abandoned call settles or <paramref name="remaining"/> (what is left of the deadline)
-    /// runs out, whichever is first, then drops the written pages from the cache again and releases it.
-    /// </summary>
-    private async Task ReleaseWhenSettledAsync(WriteLockHold hold, Task settling, TimeSpan remaining, IReadOnlyList<string> writtenPageIds)
-    {
-        try
-        {
-            await settling.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, clock).ConfigureAwait(false);
-        }
-#pragma warning disable CA1031 // The deadline ran out, or the wait failed: release either way.
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-        }
-        finally
-        {
-            // The abandoned call may have written after the first removal.
-            foreach (var pageId in writtenPageIds)
-            {
-                cache?.Remove(pageId);
-            }
-
-            hold.Dispose();
-        }
-    }
+    private Task AbandonedWrites() => LockAndDeadline.AbandonedWrites(gateway);
 
     private static string WithNote(string message, string? note) => string.IsNullOrEmpty(note) ? message : message + " " + note;
 
-    private static OneNoteException DeadlineExpired(TimeSpan deadline, bool written, Exception inner, string? note = null) => new(
-        ErrorCode.Timeout,
+    private static OneNoteException DeadlineExpired(TimeSpan deadline, bool written, Exception inner, string? note = null) => LockAndDeadline.Timeout(
         WithNote(
             string.Create(CultureInfo.InvariantCulture, $"The write didn't finish within its {deadline.TotalSeconds:0.###} s deadline")
                 + (written ? ", while OneNote was making it." : "; nothing was written."),
             note),
-        innerException: inner,
-        outcomeUnknown: written,
-        retryable: written ? null : true); // nothing was written: safe to retry (AD-18)
+        written,
+        inner);
 }

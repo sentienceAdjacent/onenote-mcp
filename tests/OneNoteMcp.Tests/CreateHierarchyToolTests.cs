@@ -577,6 +577,34 @@ public sealed class CreateHierarchyToolTests : IDisposable
         Assert.Empty(gateway.CreateNotebookCalls);
     }
 
+    // Round-3 retrospective F12: OneNote keeps the path a notebook was opened by, so an open notebook's folder may be
+    // named through the admin share \\localhost\X$ (spike 4.1 O10); create_notebook reads it as X:\, as open_notebook does.
+
+    [Fact]
+    public async Task Notebook_AnOpenNotebooksFolder_ThroughTheAdminShare_IsFileExists()
+    {
+        OpenNotebooksAre(("Other", AdminShare(Target), "{NBO00000-0000-4000-8000-000000000001}{1}{B0}"));
+
+        var error = Error(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(NewNotebook, NotebooksFolder, Ct), "FileExists");
+
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+        Assert.Empty(gateway.CreateNotebookCalls);
+    }
+
+    [Fact]
+    public async Task Notebook_InsideAnOpenNotebook_ThroughTheAdminShare_IsInvalidArgument()
+    {
+        OpenNotebooksAre(("Other", AdminShare(Path.GetDirectoryName(Target)!), "{NBO00000-0000-4000-8000-000000000001}{1}{B0}"));
+
+        var error = Error(await NotebookTool(Location(NotebooksFolder)).CreateNotebook(NewNotebook, NotebooksFolder, Ct), "InvalidArgument");
+
+        AssertNoPathOrName(error);
+        Assert.Empty(gateway.CreateNotebookCalls);
+    }
+
+    /// <summary><paramref name="local"/> (<c>X:\rest</c>) through the admin share, <c>\\localhost\x$\rest</c>.</summary>
+    private static string AdminShare(string local) => @"\\localhost\" + char.ToLowerInvariant(local[0]) + "$" + local[2..];
+
     [Fact]
     public async Task Notebook_InsideAnOpenNotebook_IsInvalidArgument()
     {

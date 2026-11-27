@@ -242,11 +242,10 @@ public sealed class PluginPackagingTests
     }
 
     private const string GuideSkill = "plugin/skills/guide/SKILL.md";
-    private const string ToolContract = "tests/OneNoteMcp.Tests/Contract/tool-contract.json";
     private const string ToolPrefix = "mcp__plugin_onenote_desktop__";
 
     private static IReadOnlyList<string> ContractToolNames() =>
-        ReadJson(ToolContract).GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToList();
+        ContractSnapshot.Tools().Select(t => t!["name"]!.GetValue<string>()).ToList();
 
     /// <summary>
     /// The contract's tools that the skill and the README must name: all of them since story 3.10 documented round 2

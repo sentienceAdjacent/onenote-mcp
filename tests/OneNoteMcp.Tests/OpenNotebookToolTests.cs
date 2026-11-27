@@ -169,6 +169,27 @@ public sealed class OpenNotebookToolTests
         Assert.Equal(@"D:\", OpenNotebookUseCase.MapLocalhostAdminShare(@"\\localhost\d$"));
     }
 
+    [Fact]
+    public void OpenForms_NameTheFolder_AsWritten_ThroughTheAdminShare_AndCanonical()
+    {
+        var links = new FakeLinks(new() { [@"C:\Links\NB"] = ClosedPath });
+
+        Assert.Empty(NotebookFolderPath.OpenForms(CloudPath, links));
+        Assert.Empty(NotebookFolderPath.OpenForms(string.Empty, links));
+        Assert.Empty(NotebookFolderPath.OpenForms("  ", links));
+        Assert.Empty(NotebookFolderPath.OpenForms(null, links));
+
+        var share = NotebookFolderPath.OpenForms(@"\\LOCALHOST\C$\Notebooks\Notebook C\", links);
+        Assert.Contains(@"\\LOCALHOST\C$\Notebooks\Notebook C", share);
+        Assert.Contains(ClosedPath, share);
+
+        Assert.Contains(ClosedPath, NotebookFolderPath.OpenForms(@"C:\Links\NB", links));
+        Assert.Contains(ClosedPath, NotebookFolderPath.OpenForms(@"\\localhost\c$\Links\NB", links));
+
+        var other = NotebookFolderPath.OpenForms(@"\\otherhost\c$\Notebooks\Notebook C", links);
+        Assert.DoesNotContain(other, f => string.Equals(f, ClosedPath, StringComparison.OrdinalIgnoreCase));
+    }
+
     public static readonly TheoryData<string, string, string> StepOneRefusals = new()
     {
         { CloudPath, OpenNotebookUseCase.Rules.Url, OpenNotebookUseCase.UrlUserAction },

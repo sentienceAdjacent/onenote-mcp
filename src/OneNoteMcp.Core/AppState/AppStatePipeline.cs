@@ -140,15 +140,8 @@ public sealed class AppStatePipeline
             // write outstanding before, so one outstanding once step 7 started is this call's.
             if (hold is not null)
             {
-                var settling = calling ? AbandonedWrites() : Task.CompletedTask;
-                if (settling.IsCompleted)
-                {
-                    hold.Dispose();
-                }
-                else
-                {
-                    _ = ReleaseWhenSettledAsync(hold, settling, Deadline - clock.GetElapsedTime(start));
-                }
+                var settling = calling ? LockAndDeadline.AbandonedWrites(gateway) : Task.CompletedTask;
+                LockAndDeadline.Release(hold, settling, Deadline - clock.GetElapsedTime(start), clock);
             }
         }
     }
@@ -161,69 +154,20 @@ public sealed class AppStatePipeline
             throw new OneNoteException(ErrorCode.Internal, "This call takes the write lock, but the AppState pipeline was built without one; nothing was sent to OneNote.");
         }
 
-        var call = lockWait();
-        var remaining = Deadline - clock.GetElapsedTime(start);
-        var cappedByDeadline = remaining <= call;
-        var wait = cappedByDeadline ? (remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero) : call;
-        try
-        {
-            return await writeLock.AcquireAsync(correlationId, wait, token).ConfigureAwait(false);
-        }
-        catch (OneNoteException ex) when (ex.Code == ErrorCode.ComBusy && cappedByDeadline)
-        {
-            // The wait ended because the deadline did, not the lock wait.
-            throw DeadlineExpired("; nothing was sent to OneNote.", unknown: false, ex);
-        }
+        return await LockAndDeadline.AcquireAsync(
+            writeLock,
+            correlationId,
+            lockWait(),
+            Deadline - clock.GetElapsedTime(start),
+            ex => DeadlineExpired("; nothing was sent to OneNote.", unknown: false, ex),
+            token).ConfigureAwait(false);
     }
 
-    private void ThrowIfAbandonedWriteOutstanding(string what)
-    {
-        if (!AbandonedWrites().IsCompleted)
-        {
-            throw new OneNoteException(
-                ErrorCode.ComBusy,
-                $"An earlier write that OneNote may still be making hasn't finished, so {what}.",
-                retryable: true);
-        }
-    }
+    private void ThrowIfAbandonedWriteOutstanding(string what) =>
+        LockAndDeadline.ThrowIfAbandonedWriteOutstanding(gateway, $"An earlier write that OneNote may still be making hasn't finished, so {what}.");
 
-    /// <summary>The gateway's wait for abandoned writes; a gateway that fails to answer counts as having none outstanding, as the write pipeline does.</summary>
-    private Task AbandonedWrites()
-    {
-        try
-        {
-            return gateway.WaitForAbandonedWritesAsync(CancellationToken.None);
-        }
-#pragma warning disable CA1031 // The gateway itself refuses every non-read call while a write is outstanding (AD-3).
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return Task.CompletedTask;
-        }
-    }
-
-    /// <summary>Keeps the lock until the abandoned call settles or <paramref name="remaining"/> (what is left of the deadline) runs out, whichever is first.</summary>
-    private async Task ReleaseWhenSettledAsync(WriteLockHold hold, Task settling, TimeSpan remaining)
-    {
-        try
-        {
-            await settling.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, clock).ConfigureAwait(false);
-        }
-#pragma warning disable CA1031 // The deadline ran out, or the wait failed: release either way.
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-        }
-        finally
-        {
-            hold.Dispose();
-        }
-    }
-
-    private OneNoteException DeadlineExpired(string tail, bool unknown, Exception inner) => new(
-        ErrorCode.Timeout,
+    private OneNoteException DeadlineExpired(string tail, bool unknown, Exception inner) => LockAndDeadline.Timeout(
         string.Create(CultureInfo.InvariantCulture, $"The call didn't finish within its {Deadline.TotalSeconds:0.###} s deadline") + tail,
-        innerException: inner,
-        outcomeUnknown: unknown,
-        retryable: unknown ? null : true); // nothing sent, or nothing changed: safe to retry
+        unknown,
+        inner);
 }

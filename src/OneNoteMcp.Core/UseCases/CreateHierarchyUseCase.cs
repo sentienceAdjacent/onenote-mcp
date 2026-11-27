@@ -384,7 +384,7 @@ public sealed class CreateHierarchyUseCase : IUseCase
             var xml = await owner.gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, ct).ConfigureAwait(false);
             var open = OpenNotebooks.Find(xml);
             openIds = new HashSet<string>(open.Select(n => n.Id), StringComparer.Ordinal);
-            openPaths = NotebookFolders.WithCanonical(open.Select(n => n.Path));
+            openPaths = NotebookFolders.WithCanonical(open.SelectMany(n => NotebookFolderPath.OpenForms(n.Path, null)));
             state = NotebookFolders.State(target);
         }
 
