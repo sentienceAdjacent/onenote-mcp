@@ -2,7 +2,7 @@
 title: 'Findings: one shared server for all sessions'
 type: 'spike-findings'
 findings_for: '30'
-status: 'draft'
+status: 'final'
 created: '2026-11-27'
 evidence: 'Desk research only: the spine (architecture-onenote-mcp.md, updated 2026-11-27), the code at ca2aa59, deferred-work.md (the 2026-11-10 shared-server note), and current external docs read through context7 on 2026-11-27 (MCP specification 2026-07-28, the MCP C# SDK docs and source, the Claude Code docs). No code, no prototype, no OneNote probe.'
 ---
@@ -142,6 +142,8 @@ Should a shared server be planned as a future epic?
 
 Recommended: A
 :::
+
+Decision (Phill, 2026-11-27, Inbox): option A. Keep one stdio server per session; no shared-server epic. The two follow-ups are filed as backlog 31 (abandoned-write visibility across processes) and backlog 32 (grant dialogs under MCP 2026-07-28).
 
 Whatever is chosen goes in the spine's memlog as a dated line (the ticket's Verify), after this doc's Fable final review.
 
