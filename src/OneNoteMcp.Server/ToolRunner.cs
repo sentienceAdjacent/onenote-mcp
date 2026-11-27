@@ -123,7 +123,8 @@ public sealed partial class ToolRunner
         var inlineMax = settings.InlineMaxChars;
         if (textChars > inlineMax)
         {
-            // AD-20 sizes every response to fit; only an envelope whose meta alone is over the threshold gets here (Deferred).
+            // AD-20 moves meta.filtered and then meta.withheld out of the header; a header still over the threshold after both
+            // (warnings or other meta) is only logged (spine Deferred row "A header line over the inline threshold").
             LogOversize(logger, context.CorrelationId, tool, textChars, inlineMax);
         }
 
