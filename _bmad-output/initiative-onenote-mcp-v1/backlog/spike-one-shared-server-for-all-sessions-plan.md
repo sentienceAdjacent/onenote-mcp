@@ -47,3 +47,5 @@ Pass 1 (quick lens): 9 findings; high 0, medium 4, low 4, false 0, maybe-false 0
 - low, patched: AD-12 missing from option B's amendment list; added.
 - low, patched: "one log stream" and the signed `requestState` need were unlabelled inferences; labelled.
 - by design, no change: the ticket's Verify needs a dated memlog line; the task defers it until Phill decides, and the doc and plan say so.
+
+Pass 2 (Fable final review, run by the main session; Phill chose to fix all 13 findings and the editorial suggestions, 2026-11-27): all patched in the findings doc. External facts re-checked through context7 the same day (csharp-sdk MRTR and stateless docs and `StreamableHttpHandler.cs`; code.claude.com mcp, env-vars and plugins/manifest-reference).
