@@ -1031,6 +1031,21 @@ public sealed class PermanentDeleteToolTests : IDisposable
         await AssertRefusedAsync();
     }
 
+    [Fact]
+    public async Task ASectionThatBecameLooseAfterStep1_IsNotSupported_UnderTheLock_NothingWritten()
+    {
+        // Backlog 33 (Fable 1): step 1 passes the section's loose check and grants W; before the lock the section is left
+        // open outside any notebook. Step 4 refuses it as loose (NotSupported), not as a notebook change (WriteNotGranted).
+        var loosened = NotebookMoveKit.MoveOnRead(gateway, NotebookId, HierarchyScope.Self, () => gateway.Parents[SectionId] = string.Empty);
+
+        var error = Error(await Tool().PermanentlyDeleteHierarchyObject(SectionId, null, Ct), "NotSupported");
+
+        Assert.True(loosened.Moved(), "the section never became loose: the test's trigger read didn't happen");
+        LooseRefusal.Matches(error, SectionId, SectionId);
+        Assert.Single(holds);
+        await AssertRefusedAsync();
+    }
+
     // --- Helpers --------------------------------------------------------------------------------------------------------
 
     private void Self(string id, string xml) => gateway.Hierarchies[(id, HierarchyScope.Self)] = "<?xml version=\"1.0\"?>\n" + xml;

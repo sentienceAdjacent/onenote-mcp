@@ -9,7 +9,7 @@ route_source: 'auto'
 review: 'quick'
 review_source: 'pinned'
 lenses_ran: ['quick']
-review_loop_iteration: 0
+review_loop_iteration: 2
 baseline_revision: '557911f8746aef0684b2f31cc0b8783fe9fcd819'
 context: []
 ---
@@ -40,9 +40,13 @@ Review fixes: the spine bullet and memlog line now say the step-4 loose check is
 
 ## Review Triage Log
 
-Quick review, pass 1: high 0, medium 1, low 3, false 0, maybe-false 0.
+Pass 1 (quick review): high 0, medium 1, low 3, false 0, maybe-false 0.
 
 - medium, patch: the spine and memlog wording claimed every loose section answers `NotSupported` in step 4; the check runs only for a page target. Reworded both to say "a page whose section".
 - low, patch: no test covered the write's own re-resolve for a section or group target after `ReResolvesNotebooks => true`. Added `ASectionOrGroupMovedToAnotherGrantedNotebookAfterStep1_IsStillWriteNotGranted_Retryable_NothingWritten`.
 - low, rejected: the write rebuilds one `GrantedNotebook` from `grantTarget` instead of the pipeline's ledger, so a second step-1 grant added later would go unchecked. Step 1 records exactly one grant today (`CheckPermanentDeleteAsync`), the move writes use the same pattern, and a fix would add new API to expose the ledger.
 - low, rejected: in step 4 a page with no owning section still gets the re-resolve's `WriteNotGranted` before the "isn't in a section" `ObjectNotFound` that step 1 gives. Behaviour unchanged from before this change, and out of the ticket's scope (the loose-section check only).
+
+Follow-up (Phill, 2026-11-27, Fable 1): the step-4 loose-section check now runs for every target, not only a page, so a section target left open outside any notebook since step 1 also answers `NotSupported` under the lock. `RefuseLooseAsync` reads a section itself when its chain finds no section, and does nothing for a section group (a group can't be loose; one with no notebook still gets the re-resolve's `WriteNotGranted`). New test `ASectionThatBecameLooseAfterStep1_IsNotSupported_UnderTheLock_NothingWritten`. Spine: the check-order bullet covers sections; the loose-section bullet (AD-6 notebook resolution) and the re-resolve bullet now name the permanent delete. Assumption A3: for a section, the loose check runs before `RefuseUndeletable` under the lock; a section protected or recycled at step 1 is refused there, so this only changes the answer for one that became both loose and protected after step 1 (still `NotSupported`, with the loose message).
+
+Pass 2 (Fable review, run by the main session): finding 1 (a section target that became loose still answered `WriteNotGranted`) patched as above, by Phill's choice; the extra-walk finding skipped by Phill.
