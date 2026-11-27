@@ -1,4 +1,5 @@
 using System.Globalization;
+using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Results;
 using OneNoteMcp.Core.Writes;
@@ -25,11 +26,43 @@ namespace OneNoteMcp.Core.UseCases;
 /// <c>CloseNotebook</c> failure keeps its AD-9 code, with <see cref="CloseUserAction"/>.</item>
 /// </list>
 /// The result's <c>xml</c> is the notebook's <c>one:Notebook</c> element as read under the lock, with <c>meta.objectId</c>,
-/// <c>meta.path</c> and the warning <see cref="ToolWarnings.NotebookClosed"/> (4.4 plan Q1 a). The search page-text cache is
-/// left alone (OQ6 a). Nothing is retried.
+/// <c>meta.path</c> and the warning <see cref="ToolWarnings.NotebookClosed"/> (4.4 plan Q1 a), whose userAction gives the
+/// reopen route by <see cref="NotebookFolderPath"/>'s rule, the one <c>open_notebook</c> applies (round-3 retrospective F5):
+/// an http path in OneNote, a path that rule takes through <c>open_notebook</c>, any other in OneNote. The search page-text
+/// cache is left alone (OQ6 a). Nothing is retried.
 /// </summary>
-public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeline pipeline, Func<TimeSpan, CancellationToken, Task>? settle = null) : IUseCase
+public sealed class CloseNotebookUseCase : IUseCase
 {
+    private readonly IOneNoteGateway gateway;
+    private readonly AppStatePipeline pipeline;
+    private readonly Func<TimeSpan, CancellationToken, Task>? settle;
+    private readonly Func<OneDriveFolders> oneDrive;
+    private readonly FilePathGate.ILinkReader? links;
+
+    /// <param name="gateway">Reads the open notebooks, syncs and closes.</param>
+    /// <param name="pipeline">The AD-7 <c>AppState</c> step runner, with the write lock.</param>
+    /// <param name="settle">The wait between the sync and the close; <see cref="Task.Delay(TimeSpan, CancellationToken)"/> when null.</param>
+    /// <param name="oneDrive">The OneDrive folders on this machine, for the reopen route; none known when null.</param>
+    public CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeline pipeline, Func<TimeSpan, CancellationToken, Task>? settle = null, Func<OneDriveFolders>? oneDrive = null)
+        : this(gateway, pipeline, settle, oneDrive, links: null)
+    {
+    }
+
+    /// <summary>The seam unit tests use: links and drive types faked.</summary>
+    internal CloseNotebookUseCase(
+        IOneNoteGateway gateway,
+        AppStatePipeline pipeline,
+        Func<TimeSpan, CancellationToken, Task>? settle,
+        Func<OneDriveFolders>? oneDrive,
+        FilePathGate.ILinkReader? links)
+    {
+        this.gateway = gateway;
+        this.pipeline = pipeline;
+        this.settle = settle;
+        this.oneDrive = oneDrive ?? (() => OneDriveFolders.None);
+        this.links = links;
+    }
+
     /// <summary>The settle between the sync and the close: about 10 s (AD-7 <c>AppState</c>; Phill, 2026-11-22, OQ2 b). Unmeasured; the sitting checks it.</summary>
     public static readonly TimeSpan SettleTime = TimeSpan.FromSeconds(10);
 
@@ -48,9 +81,16 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
         + "Every ID in the notebook changes when it is opened again: the old IDs then fail with ObjectNotFound. OneNote may also reset its colour. "
         + "If OneNote was showing the notebook, its view may now be blank. Its read and write grants are kept, matched by its path.";
 
-    /// <summary>How to reopen a local notebook.</summary>
+    /// <summary>How to reopen a local notebook whose path <c>open_notebook</c> takes.</summary>
     public const string ReopenLocalUserAction =
         "To reopen it, use open_notebook with meta.path, or the user opens it in OneNote (File > Open > Browse, then the notebook's folder). Then re-read the hierarchy for its new IDs.";
+
+    /// <summary>
+    /// How to reopen a notebook whose path <c>open_notebook</c> refuses (<see cref="NotebookFolderPath"/>): a network, device
+    /// or relative path, or a folder inside OneDrive (round-3 retrospective F5).
+    /// </summary>
+    public const string ReopenInOneNoteUserAction =
+        "It is kept at a network path, inside a OneDrive-synced folder, or at another path open_notebook refuses, so the user reopens it in OneNote (File > Open > Browse, then the notebook's folder). Then re-read the hierarchy for its new IDs.";
 
     /// <summary>How to reopen a cloud notebook: the server refuses URLs (AD-7 <c>AppState</c>).</summary>
     public const string ReopenCloudUserAction =
@@ -64,11 +104,32 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
         ArgumentNullException.ThrowIfNull(pipeline);
 
         var closed = await pipeline.RunAsync(new Close(gateway, notebookId ?? string.Empty, settle ?? DelayAsync), ct, context.CorrelationId).ConfigureAwait(false);
-        var cloud = UrlPath.IsHttp(closed.Path);
         return new ToolSuccess(
             closed.Xml,
             new ToolMeta(context.CorrelationId, Path: closed.Path, ObjectId: closed.Id),
-            [new ToolWarning(ToolWarnings.NotebookClosed, ClosedMessage, cloud ? ReopenCloudUserAction : ReopenLocalUserAction)]);
+            [new ToolWarning(ToolWarnings.NotebookClosed, ClosedMessage, ReopenRoute(closed.Path))]);
+    }
+
+    /// <summary>
+    /// The reopen route for a closed notebook's path: in OneNote for an http path; through <c>open_notebook</c> when
+    /// <see cref="NotebookFolderPath"/>'s rule takes it; otherwise in OneNote. The rule only reads the file system; any failure
+    /// there gives the OneNote route, never an error, as the close has already happened.
+    /// </summary>
+    private string ReopenRoute(string path)
+    {
+        if (UrlPath.IsHttp(path))
+        {
+            return ReopenCloudUserAction;
+        }
+
+        try
+        {
+            return NotebookFolderPath.Openable(path, oneDrive(), links) ? ReopenLocalUserAction : ReopenInOneNoteUserAction;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        {
+            return ReopenInOneNoteUserAction;
+        }
     }
 
     private static Task DelayAsync(TimeSpan delay, CancellationToken ct) => Task.Delay(delay, ct);
@@ -96,7 +157,7 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
         {
             // One read of the open notebooks, under the lock (AD-7 AppState).
             var notebooksXml = await gateway.GetHierarchyAsync(string.Empty, HierarchyScope.Notebooks, ct).ConfigureAwait(false);
-            var open = HierarchyNode.Notebooks(notebooksXml).FirstOrDefault(n => string.Equals(n.Id, notebookId, StringComparison.Ordinal));
+            var open = XmlReads.Readable(() => HierarchyNode.Notebooks(notebooksXml), "GetHierarchy").FirstOrDefault(n => string.Equals(n.Id, notebookId, StringComparison.Ordinal));
             if (open is not null)
             {
                 notebook = new Closed(open.Id, open.Path, HierarchyNode.NotebookElement(notebooksXml, notebookId)!);
@@ -107,7 +168,8 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
             HierarchyKind kind;
             try
             {
-                kind = HierarchyTarget.Read(await gateway.GetHierarchyAsync(notebookId, HierarchyScope.Self, ct).ConfigureAwait(false)).Kind;
+                var selfXml = await gateway.GetHierarchyAsync(notebookId, HierarchyScope.Self, ct).ConfigureAwait(false);
+                kind = XmlReads.Readable(() => HierarchyTarget.Read(selfXml), "GetHierarchy").Kind;
             }
             catch (OneNoteException ex) when (ex.Code == ErrorCode.ObjectNotFound)
             {
@@ -172,7 +234,12 @@ public sealed class CloseNotebookUseCase(IOneNoteGateway gateway, AppStatePipeli
             }
             catch (OneNoteException ex)
             {
-                throw new OneNoteException(ex.Code, $"{ex.Message} The notebook is still open.", ex.ComHResult, ex, ex.OutcomeUnknown, CloseUserAction, ex.Retryable);
+                // Only a refusal made while OneNote held the notebook shows it is still open (round-3 retrospective F8): the
+                // user may have closed it by hand during the sync or settle, and that HRESULT was never probed.
+                var after = ex.Code is ErrorCode.ComBusy or ErrorCode.ModalDialogOpen
+                    ? "The notebook is still open."
+                    : "Re-read the open notebooks to see whether it is still open.";
+                throw new OneNoteException(ex.Code, $"{ex.Message} {after}", ex.ComHResult, ex, ex.OutcomeUnknown, CloseUserAction, ex.Retryable);
             }
 
             return target;

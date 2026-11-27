@@ -281,14 +281,21 @@ public sealed class QuickFilingToolTests
     [InlineData("two\nlines", null)]
     [InlineData(null, "a\ttab")]
     [InlineData("bell\a", null)]
+    [InlineData("line\u2028separator", null)]
+    [InlineData(null, "para\u2029separator")]
+    [InlineData("bidi \u202Eoverride", null)]
+    [InlineData(null, "zero\u200Bwidth")]
     public async Task ControlCharacters_AreInvalidArgument_BeforeCom(string? title, string? description)
     {
-        var gateway = new FakeGateway();
+        // An answer is scripted so that, if the check ever lets the text through, the call returns and fails here
+        // rather than waiting at the picker.
+        var gateway = new FakeGateway { QuickFilingAnswer = new QuickFilingAnswer(string.Empty, NoButton) };
 
         var error = Error(await Tool(gateway).QuickFiling(title, description, Ct));
 
         Assert.Equal("InvalidArgument", error.GetProperty("code").GetString());
         Assert.Contains("control character", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("invisible formatting character", error.GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Empty(gateway.QuickFilingCalls);
     }
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using OneNoteMcp.Core.AppState;
 using OneNoteMcp.Core.Results;
+using OneNoteMcp.Core.Writes;
 using OneNoteMcp.Xml;
 
 namespace OneNoteMcp.Core.UseCases;
@@ -28,7 +29,7 @@ public sealed record QuickFilingLogEntry(
 /// <list type="number">
 /// <item>The <see cref="AppStatePipeline"/>, with no lock, grant, basis or snapshot: step 1 checks the title (at most
 /// <see cref="MaxTitleLength"/> characters) and the description (at most <see cref="MaxDescriptionLength"/>), refusing
-/// control characters, with <see cref="ErrorCode.InvalidArgument"/>; step 7 is the gateway's one STA call ending in
+/// control and invisible formatting characters (<see cref="OneNoteMcp.Core.Writes.ScreenText"/>), with <see cref="ErrorCode.InvalidArgument"/>; step 7 is the gateway's one STA call ending in
 /// <c>Run</c>, under the 120 s deadline. A step-7 <see cref="ErrorCode.Timeout"/>, <see cref="ErrorCode.ComUnavailable"/>,
 /// <see cref="ErrorCode.Cancelled"/> or <c>0x800706BE</c> is <c>outcomeUnknown</c>: a picker may be on screen.</item>
 /// <item>The wait for the user, outside the deadline: a fixed <see cref="DefaultWaitLimit"/> (a test may override it) and the
@@ -265,11 +266,12 @@ public sealed class QuickFilingUseCase : IUseCase
                     retryable: false);
             }
 
-            if (value.Any(char.IsControl))
+            // The screen-text rule FilePathGate uses too (round-3 retrospective F6).
+            if (ScreenText.HasHidden(value))
             {
                 throw new OneNoteException(
                     ErrorCode.InvalidArgument,
-                    $"{name} contains a control character (a line break, tab or similar); pass plain text on one line. Nothing was shown.",
+                    $"{name} contains a control character or an invisible formatting character (a line break, tab, line separator, bidi override or similar); pass plain text on one line. Nothing was shown.",
                     retryable: false);
             }
         }

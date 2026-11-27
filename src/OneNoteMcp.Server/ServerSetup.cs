@@ -120,7 +120,11 @@ public static class ServerSetup
                 sp.GetRequiredService<ReadAccess>(),
                 entry => NavigateToUrlLog.Called(logger, entry));
         });
-        services.AddSingleton<CloseNotebookUseCase>();
+        // Story 4.4: close_notebook; its reopen route follows open_notebook's path rule, OneDrive folders included (round-3 F5).
+        services.AddSingleton(sp => new CloseNotebookUseCase(
+            sp.GetRequiredService<IOneNoteGateway>(),
+            sp.GetRequiredService<AppStatePipeline>(),
+            oneDrive: sp.GetRequiredService<OneDriveAccounts>().Current));
         // Story 4.9: quick_filing, one waiting call per process (the use case is the slot); its log line has lengths, never text (AD-13).
         services.AddSingleton(sp =>
         {
