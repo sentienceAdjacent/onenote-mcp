@@ -3,7 +3,7 @@ title: 'Plugins repo checks its validator pin matches this repo'
 type: 'chore'
 ticket: '25'
 created: '2026-11-27'
-status: 'built'
+status: done
 baseline_revision: '09298b4c525a5074753911de6d66cb93584fd670' # sentienceAdjacent/plugins (chore/validator-pin-check); this repo's base is e17c4fac8d17702a56bf5145c571952d78beada0
 route: 'oneshot'
 route_source: 'auto'

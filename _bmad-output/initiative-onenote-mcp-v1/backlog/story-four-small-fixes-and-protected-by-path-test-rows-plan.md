@@ -3,7 +3,7 @@ title: 'Four small fixes and the missing protected-by-path test rows'
 type: 'bugfix'
 ticket: '23'
 created: '2026-11-27'
-status: 'built'
+status: done
 route: 'full'
 route_source: 'auto'
 review: 'quick'
