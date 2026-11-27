@@ -85,7 +85,9 @@ public sealed record PermanentDeleteServices(
 /// write grant (its dialog, AD-6), then the permanent-delete grant: without a stored one, the one-call confirmation
 /// (<see cref="PermanentDeleteUnconfirmed"/>; 5.6 plan Q1 c).</item>
 /// <item value="3">Step 3 reads the target at <c>self</c>, a section or group also at <c>pages</c> scope, a page its section
-/// and piBasic XML. Step 4's refusals run in AD-7's order as soon as what each needs is read: the recycle bin itself
+/// and piBasic XML. A page in a section open outside any notebook is <see cref="ErrorCode.NotSupported"/> first (backlog
+/// 33), then the notebook step 1 granted is re-resolved here, not by the pipeline. Step 4's refusals run in AD-7's order as
+/// soon as what each needs is read: the recycle bin itself
 /// (<see cref="ErrorCode.ObjectNotFound"/>); a notebook, a protected section, a non-empty group, a recycled page (each
 /// <see cref="ErrorCode.NotSupported"/>); the Deleted Pages section (<see cref="ErrorCode.NotSupported"/>, Q4 a); a locked
 /// section holding the page (<see cref="ErrorCode.SectionLocked"/>); a page with subpages
@@ -178,6 +180,14 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     }
 
     public override OperationClass Class => OperationClass.PermanentDelete;
+
+    /// <summary>
+    /// Re-resolves its own notebook under the lock (AD-7; story 3.12), in <see cref="ReadAsync"/>, after a page's
+    /// loose-section check (backlog 33): the pipeline's generic re-resolve would refuse a section left open outside any
+    /// notebook since step 1 as a notebook change (<see cref="ErrorCode.WriteNotGranted"/>) before step 4 could refuse it as
+    /// loose (<see cref="ErrorCode.NotSupported"/>), as step 1 does.
+    /// </summary>
+    public override bool ReResolvesNotebooks => true;
 
     /// <summary>The entry <c>meta.journalEntryId</c> reports: the page, <c>hierarchy</c> or <c>onenoteBackup</c> entry; null until step 6 stores it.</summary>
     public Guid? JournalEntryId { get; private set; }
@@ -300,6 +310,17 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
     {
         var found = await ReadTargetAsync(ct).ConfigureAwait(false);
         target = found;
+
+        // Backlog 33 (D182 under the lock): a page whose section is now open outside any notebook is refused as loose, as in
+        // step 1, before the notebook re-resolve would call it a notebook change. A page is none of RefuseUndeletable's kinds.
+        if (found.Kind == HierarchyKind.Page)
+        {
+            await services.WriteAccess.RefuseLooseAsync(objectId, ct).ConfigureAwait(false);
+        }
+
+        // AD-7: the notebook step 1 granted, re-resolved under the lock, as the pipeline would (ReResolvesNotebooks).
+        var granted = grantTarget ?? throw new InvalidOperationException("Step 1 hasn't run.");
+        await WriteAccess.ReResolveAsync(services.Gateway, [new GrantedNotebook(objectId, Container: false, granted)], ct).ConfigureAwait(false);
 
         // Step 4's refusals, in AD-7's order, each as soon as what it needs is read.
         RefuseUndeletable(found);

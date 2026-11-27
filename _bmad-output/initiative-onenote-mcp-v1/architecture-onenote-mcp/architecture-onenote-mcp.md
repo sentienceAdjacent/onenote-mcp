@@ -333,7 +333,7 @@ The arrows are the only dependencies allowed. Core never references Com or Serve
     - The order of the checks (5.6 plan and build review):
       - First a `pageHash` on a target that isn't a page; then the recycle bin, a notebook, a password-protected section, Deleted Pages; then a non-empty section group, or a section with no pages; then, for a page, a page in a section open outside any notebook (AD-6), a `pageHash` without a read grant, a recycled page, a locked section (`SectionLocked`) and subpages; each refused as below.
       - Step 1 runs every one of them before any dialog (the write grant's or the confirmation's), so no grant is asked for a delete that can't run (ratified by Phill, 2026-11-27, backlog 22).
-      - Step 4 runs them again under the lock, all but the first and the section open outside any notebook (as built, Phill, 2026-11-27, backlog 22 Q2). Backlog 33 adds the loose-section check to step 4.
+      - Step 4 runs them again under the lock, all but the first (as built, Phill, 2026-11-27, backlog 22 Q2). For a page, its section open outside any notebook is checked before the notebook is re-resolved there, so a page whose section was left open outside any notebook since step 1 answers `NotSupported`, not a notebook change (backlog 33).
       - A locked section is always protected, so the protected-section refusal covers it, and the `0x80042014` a locked section's `Publish` returns is never reached (spike 5.1 constraint 16).
     - A section, live or recycled, gets a `Publish` `pfOneNote` backup first:
       - The pipeline creates the backup folder first (AD-8), because `Publish` into a missing folder raises a modal and blocks, and it publishes to a new file name, because `Publish` refuses an existing file.

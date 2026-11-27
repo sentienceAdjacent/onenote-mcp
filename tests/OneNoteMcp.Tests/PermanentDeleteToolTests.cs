@@ -996,6 +996,41 @@ public sealed class PermanentDeleteToolTests : IDisposable
         await AssertRefusedAsync();
     }
 
+    [Fact]
+    public async Task APageWhoseSectionBecameLooseAfterStep1_IsNotSupported_UnderTheLock_NothingWritten()
+    {
+        // Backlog 33: step 1 passes the loose-section check and grants W; before the lock the page's section is left open
+        // outside any notebook. Step 4 refuses it as loose (NotSupported), not as a notebook change (WriteNotGranted).
+        // The second read of W: the first is D182's loose-section check, the second step 1's grant walk.
+        var loosened = NotebookMoveKit.MoveOnRead(gateway, NotebookId, HierarchyScope.Self, () => gateway.Parents[SectionId] = string.Empty, nth: 2);
+
+        var error = Error(await Tool().PermanentlyDeleteHierarchyObject(PageId, PageBasis(), Ct), "NotSupported");
+
+        Assert.True(loosened.Moved(), "the section never became loose: the test's trigger read didn't happen");
+        LooseRefusal.Matches(error, SectionId, PageId);
+        Assert.Single(holds);
+        await AssertRefusedAsync();
+    }
+
+    [Theory]
+    [InlineData(SectionId)]
+    [InlineData(EmptyGroupId)]
+    public async Task ASectionOrGroupMovedToAnotherGrantedNotebookAfterStep1_IsStillWriteNotGranted_Retryable_NothingWritten(string id)
+    {
+        // Backlog 33: the permanent delete now re-resolves its own notebook under the lock (ReResolvesNotebooks), for
+        // every kind of target; a section or group moved to X after step 1 must still be refused as a notebook change.
+        NotebookMoveKit.AddGrantedX(gateway, Store, clock);
+        var moved = NotebookMoveKit.MoveOnRead(gateway, NotebookId, HierarchyScope.Self, () => gateway.Parents[id] = NotebookMoveKit.XId);
+
+        var error = Error(await Tool().PermanentlyDeleteHierarchyObject(id, null, Ct), "WriteNotGranted");
+
+        Assert.True(moved.Moved(), "the target never moved: the test's trigger read didn't happen");
+        Assert.True(error.GetProperty("retryable").GetBoolean());
+        Assert.Equal(WriteAccess.NotebookChangedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Single(holds);
+        await AssertRefusedAsync();
+    }
+
     // --- Helpers --------------------------------------------------------------------------------------------------------
 
     private void Self(string id, string xml) => gateway.Hierarchies[(id, HierarchyScope.Self)] = "<?xml version=\"1.0\"?>\n" + xml;
