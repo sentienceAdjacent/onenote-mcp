@@ -3,7 +3,7 @@ title: 'Round-3 follow-up: close''s reopen route, quick filing''s text check, cl
 type: 'bugfix'
 ticket: '15'
 created: '2026-11-26'
-status: 'built'
+status: done
 baseline_revision: '81909f7be4b7fb81d9c614ddd4cad6754f6ef37b'
 route: 'full'
 route_source: 'auto'
