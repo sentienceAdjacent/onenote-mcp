@@ -18,8 +18,9 @@ public abstract class WriteOperation<TResult>
     public abstract Task AuthorizeAsync(CancellationToken ct);
 
     /// <summary>
-    /// True when the operation re-resolves its own notebooks under the lock (the move tool, story 3.4), so the pipeline's
-    /// generic re-resolve of every grant step 1 checked is skipped (AD-7; story 3.12). False by default.
+    /// True when the operation re-resolves its own notebooks under the lock (the move tools, story 3.4; the permanent
+    /// delete, backlog 33), so the pipeline's generic re-resolve of every grant step 1 checked is skipped (AD-7; story
+    /// 3.12). False by default.
     /// </summary>
     public virtual bool ReResolvesNotebooks => false;
 

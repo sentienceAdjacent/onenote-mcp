@@ -202,7 +202,8 @@ public sealed class WritePipeline
                 "An earlier write that OneNote may still be making hasn't finished, so nothing was read or written.");
 
             // AD-7: every notebook step 1 granted is re-resolved under the lock, so a section moved to another notebook
-            // since can't take that grant (story 3.12; epic 2's create-page race). The move tool does its own.
+            // since can't take that grant (story 3.12; epic 2's create-page race). The moves and the permanent delete do
+            // their own (ReResolvesNotebooks).
             if (!operation.ReResolvesNotebooks)
             {
                 await WriteAccess.ReResolveAsync(gateway, [.. granted], token).ConfigureAwait(false);
