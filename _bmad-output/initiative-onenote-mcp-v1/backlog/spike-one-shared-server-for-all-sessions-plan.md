@@ -3,7 +3,7 @@ title: 'One shared server for all sessions: design comparison'
 type: 'chore'
 ticket: '30'
 created: '2026-11-27'
-status: 'built'
+status: done
 route: 'oneshot'
 route_source: 'auto'
 review: 'quick'

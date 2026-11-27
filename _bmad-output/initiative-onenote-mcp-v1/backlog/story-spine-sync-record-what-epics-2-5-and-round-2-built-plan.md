@@ -3,7 +3,7 @@ title: 'Spine sync: record what epics 2, 5 and round 2 built'
 type: 'chore'
 ticket: '22'
 created: '2026-11-27'
-status: 'built'
+status: done
 route: 'oneshot'
 route_source: 'auto'
 review: 'quick'
