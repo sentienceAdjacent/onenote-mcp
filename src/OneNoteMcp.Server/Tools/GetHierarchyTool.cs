@@ -27,10 +27,10 @@ public sealed class GetHierarchyTool(ToolRunner runner, GetHierarchyUseCase useC
     [Description(
         "Read-only. Returns OneNote hierarchy XML (notebooks, section groups, sections, pages) in the OneNote 2013 schema, unchanged. "
         + "Each password-locked section in it adds a warning with code sectionLocked naming the section's ID. "
-        + "A password-protected section's pages are left out unless the user has granted a read of it: its one:Section stays, its ID goes in meta.withheld, and one warning with code readNotGranted, for all such sections, says how the user grants it (you can't grant it yourself). "
+        + "A password-protected section's pages are left out unless the user has granted a read of it: its one:Section stays, its ID goes in meta.withheld, and one warning with code readNotGranted, for all such sections, says how the user grants it (you can't grant it yourself). When meta.withheld would make a too-large result's header too long, it comes as meta.withheldCount plus meta.withheldResultId instead: read the list (a JSON array of the section IDs) with read_result(withheldResultId, ref \"/\", offset). "
         + "Starting at a protected section with scope children or pages, or at a page in one, needs that grant: the user may be shown a dialog to grant it, and without a grant the call fails with ReadNotGranted. "
         + ToolMetaKeys.LargeResultNote
-        + "Success: {ok:true, xml, meta:{correlationId, withheld?}, warnings:[{code, message, userAction?}]}. "
+        + "Success: {ok:true, xml, meta:{correlationId, withheld? (or withheldCount and withheldResultId)}, warnings:[{code, message, userAction?}]}. "
         + "Failure (isError): {ok:false, error:{code, hresult?, retryable, outcomeUnknown?, userAction, message}, meta:{correlationId}}.")]
     public Task<CallToolResult> GetHierarchy(
         [Description("OneNote object ID to start from. Omit or leave empty for all notebooks.")] string startNodeId = "",

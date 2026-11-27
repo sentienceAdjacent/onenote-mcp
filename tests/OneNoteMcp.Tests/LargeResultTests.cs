@@ -664,7 +664,7 @@ public sealed partial class LargeResultTests
     [GeneratedRegex("<one:T>.*?</one:T>", RegexOptions.Singleline)]
     private static partial Regex OneT();
 
-    private sealed class ListLogger : ILogger<ToolRunner>
+    internal sealed class ListLogger : ILogger<ToolRunner>
     {
         public List<string> Lines { get; } = [];
 

@@ -1182,6 +1182,56 @@ public sealed class CreatePageToolTests : IDisposable
     }
 
     [Fact]
+    public async Task D180_ASectionProtectedByAnExportRoot_WithAParent_WithoutAReadGrant_IsReadNotGranted_SayingWhy_NeverAsked_NoPageCreated()
+    {
+        // D180: Locket in notebook W, unmarked, protected only by its path under an export root (entry 15).
+        Grant();
+        LocketIs("P:1");
+        foreach (var scope in new[] { HierarchyScope.Self, HierarchyScope.Children })
+        {
+            gateway.Hierarchies[(LocketId, scope)] = gateway.Hierarchies[(LocketId, scope)]
+                .Replace("encrypted=\"true\"", string.Empty, StringComparison.Ordinal)
+                .Replace(@"C:\notebooks\W\Locket.one", @"C:\exports\Locket.one", StringComparison.Ordinal);
+        }
+
+        TestSettings.SetExportRoots(temp.Combine("settings.json"), @"C:\exports");
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "W"));
+
+        var error = Error(await CreateUnderParentWithPrompt(prompt, LocketPage("P"), LocketId), "ReadNotGranted");
+
+        Assert.Equal(CreatePageUseCase.ProtectedParentUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains(LocketId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("an export root", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
+        AssertNoWrite();
+        Assert.Empty(holds);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task D182_ALooseProtectedSection_WithAParent_IsNotSupported_NotReadNotGranted_NeverAsked_NoPageCreated(bool byPath)
+    {
+        // A protected .one opened by hand (one:OpenSections) once got ReadNotGranted, not backlog 12's loose refusal.
+        Grant();
+        LocketIs("P:1");
+        Parents[LocketId] = string.Empty;
+        if (byPath)
+        {
+            Self(LocketId, $"<one:Section {Ns} name=\"Locket\" ID=\"{LocketId}\" path=\"C:\\exports\\Locket.one\" lastModifiedTime=\"{TreeLmt}\" />");
+            TestSettings.SetExportRoots(temp.Combine("settings.json"), @"C:\exports");
+        }
+
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "W"));
+
+        LooseRefusal.Matches(Error(await CreateUnderParentWithPrompt(prompt, LocketPage("P"), LocketId), "NotSupported"), LocketId, LocketId);
+
+        Assert.Empty(prompt.Order);
+        AssertNoWrite();
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task ALockedSection_WithAParent_IsSectionLocked_BeforeReadNotGranted()
     {
         Grant();

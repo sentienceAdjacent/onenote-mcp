@@ -240,6 +240,9 @@ public sealed class PermanentDeleteWrite : WriteOperation<IReadOnlyList<ToolWarn
             case HierarchyKind.Page:
                 owner = await new HierarchyWalk(gateway).OwningSectionAsync(objectId, ct).ConfigureAwait(false)
                     ?? throw NotATarget("isn't in a section");
+
+                // D182: a page of a loose section is refused as such first, never as protected, locked or subpaged.
+                await services.WriteAccess.RefuseLooseAsync(objectId, ct).ConfigureAwait(false);
                 readGrant = services.ReadAccess.HoldsReadGrant(owner, callStart);
                 if (!readGrant)
                 {

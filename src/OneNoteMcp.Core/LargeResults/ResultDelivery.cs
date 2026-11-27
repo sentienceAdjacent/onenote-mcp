@@ -7,8 +7,19 @@ namespace OneNoteMcp.Core.LargeResults;
 /// <summary>A result the store took, for the log (AD-13: the ID and sizes only).</summary>
 public sealed record StoredEvent(string ResultId, int TotalChars, StoreChange Change);
 
-/// <summary>What <see cref="ResultDelivery.Deliver"/> returns: the success to send, and the store event when it stored one.</summary>
-public sealed record DeliveryOutcome(ToolSuccess Success, StoredEvent? Stored);
+/// <summary>
+/// What <see cref="ResultDelivery.Deliver"/> returns: the success to send, the store event when it stored one, and the
+/// events of the lists moved out of its header into results of their own (backlog 15's <c>meta.filtered</c>, then D189's
+/// <c>meta.withheld</c>), in the
+/// order they were stored, all before <paramref name="Stored"/>. Each is logged like the main one (AD-13).
+/// </summary>
+public sealed record DeliveryOutcome(ToolSuccess Success, StoredEvent? Stored, IReadOnlyList<StoredEvent> MovedLists)
+{
+    public DeliveryOutcome(ToolSuccess success, StoredEvent? stored)
+        : this(success, stored, [])
+    {
+    }
+}
 
 /// <summary>
 /// AD-20's over-threshold decision, made once for every tool in the runner: a success whose text block (AD-9) is
@@ -59,6 +70,7 @@ public sealed class ResultDelivery
         var hashChars = SubtreeHashChars(tree, success.Meta.Basis);
         var grants = success.Grants ?? ResultGrants.None;
         var entry = new StoredResult(resultId, source.Kind, tree, source.PiBasicXml, original, hashChars, grants);
+        var moved = new List<StoredEvent>();
 
         // Backlog 15 (Phill, 2026-11-19, Q1 a, Q3 a): a header too long for the first index loses meta.filtered to a second
         // stored result, JSON text read with read_result, and keeps its count and resultId. Every index of the result shows
@@ -66,22 +78,34 @@ public sealed class ResultDelivery
         if (original.Meta.Filtered is { Count: > 0 } filtered
             && measure.TextBlock(responses.FirstIndex(entry, DateTimeOffset.MaxValue, inlineMax)) > inlineMax)
         {
-            var listId = StoreFilteredList(original.Meta.CorrelationId, filtered, grants, settings);
-            original = original with { Meta = original.Meta with { Filtered = null, FilteredCount = filtered.Count, FilteredResultId = listId } };
+            var list = StoreList(original.Meta.CorrelationId, filtered, grants, settings);
+            moved.Add(list);
+            original = original with { Meta = original.Meta with { Filtered = null, FilteredCount = filtered.Count, FilteredResultId = list.ResultId } };
+            entry = new StoredResult(resultId, source.Kind, tree, source.PiBasicXml, original, hashChars, grants);
+        }
+
+        // D189: after any filtered move, a header still too long loses meta.withheld the same way, to a JSON array of the
+        // section IDs under the same grants, and keeps its count and resultId. Every withheld ID stays reachable (AD-21).
+        if (original.Meta.Withheld is { Count: > 0 } withheld
+            && measure.TextBlock(responses.FirstIndex(entry, DateTimeOffset.MaxValue, inlineMax)) > inlineMax)
+        {
+            var list = StoreList(original.Meta.CorrelationId, withheld, grants, settings);
+            moved.Add(list);
+            original = original with { Meta = original.Meta with { Withheld = null, WithheldCount = withheld.Count, WithheldResultId = list.ResultId } };
             entry = new StoredResult(resultId, source.Kind, tree, source.PiBasicXml, original, hashChars, grants);
         }
 
         var (expiresAt, change) = store.Add(entry, settings);
-        return new DeliveryOutcome(responses.FirstIndex(entry, expiresAt, inlineMax), new StoredEvent(entry.ResultId, body.Length, change));
+        return new DeliveryOutcome(responses.FirstIndex(entry, expiresAt, inlineMax), new StoredEvent(entry.ResultId, body.Length, change), moved);
     }
 
-    /// <summary>The camelCase of the envelope, so the stored list reads as <c>meta.filtered</c> would have.</summary>
+    /// <summary>The camelCase of the envelope, so a stored list reads as <c>meta.filtered</c> or <c>meta.withheld</c> would have.</summary>
     private static readonly System.Text.Json.JsonSerializerOptions ListJson = new() { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
 
-    /// <summary>Stores <paramref name="filtered"/> as JSON text, under the parent's grants, and returns its resultId.</summary>
-    private string StoreFilteredList(string correlationId, IReadOnlyList<FilteredPage> filtered, ResultGrants grants, ResultSettings settings)
+    /// <summary>Stores <paramref name="items"/> as JSON text, under the parent's grants, and returns its store event (D188).</summary>
+    private StoredEvent StoreList<T>(string correlationId, IReadOnlyList<T> items, ResultGrants grants, ResultSettings settings)
     {
-        var json = System.Text.Json.JsonSerializer.Serialize(filtered, ListJson);
+        var json = System.Text.Json.JsonSerializer.Serialize(items, ListJson);
         var tree = ElementSpans.Text(json);
         var list = new StoredResult(
             Guid.NewGuid().ToString("N"),
@@ -91,8 +115,8 @@ public sealed class ResultDelivery
             new ToolSuccess(null, new ToolMeta(correlationId, Binary: json), []),
             new int[tree.Nodes.Count],
             grants);
-        store.Add(list, settings);
-        return list.ResultId;
+        var (_, change) = store.Add(list, settings);
+        return new StoredEvent(list.ResultId, json.Length, change);
     }
 
     /// <summary>

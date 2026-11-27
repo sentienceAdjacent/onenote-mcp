@@ -176,6 +176,8 @@ public sealed class MovePageWrite : WriteOperation<MoveResult>
             var target = XmlReads.Readable(() => HierarchyTarget.Read(targetSelf), "GetHierarchy");
             if (target.Kind == HierarchyKind.Section)
             {
+                // D182: a loose target is refused as such first, never as locked or protected (backlog 12's answer).
+                await services.WriteAccess.RefuseLooseAsync(TargetId, ct).ConfigureAwait(false);
                 if (target.Locked)
                 {
                     throw new OneNoteException(ErrorCode.SectionLocked, $"Section {TargetId} is locked, so page {PageId} wasn't moved.");

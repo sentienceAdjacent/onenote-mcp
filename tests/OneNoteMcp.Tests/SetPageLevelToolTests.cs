@@ -320,6 +320,44 @@ public sealed class SetPageLevelToolTests : IDisposable
     }
 
     [Fact]
+    public async Task D180_ASectionProtectedByAnExportRoot_WithoutAReadGrant_IsReadNotGranted_SayingWhy_NeverAsked_NothingSent()
+    {
+        // D180: the Vault stays in notebook A, unmarked, protected only by its path under an export root (entry 15).
+        Grant();
+        const string vault = $"name=\"Vault\" ID=\"{VaultId}\" path=\"C:\\exports\\Vault.one\" lastModifiedTime=\"{Lmt}\"";
+        Self(VaultId, $"<one:Section {Ns} {vault} />");
+        Children(VaultId, $"<one:Section {Ns} {vault}>{Page(V1, 1)}{Page(V2, 1)}</one:Section>");
+        TestSettings.SetExportRoots(Path.Combine(temp.Combine("cfg"), "settings.json"), @"C:\exports");
+        var prompt = new FakePrompt(Typed("A"));
+
+        var error = Error(await SetWithPrompt(prompt, V2, 2), "ReadNotGranted");
+
+        Assert.Equal(SetPageLevelWrite.ProtectedUserAction, error.GetProperty("userAction").GetString());
+        Assert.Contains(VaultId, error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("an export root", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Empty(prompt.Order);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task D182_APageOfALooseProtectedSection_IsNotSupported_NotReadNotGranted_NeverAsked_NothingSent(bool byPath)
+    {
+        // A protected .one opened by hand (one:OpenSections) once got ReadNotGranted, not backlog 12's loose refusal.
+        Grant();
+        MakeVaultLoose(byPath);
+        var prompt = new FakePrompt(Typed("A"));
+
+        LooseRefusal.Matches(Error(await SetWithPrompt(prompt, V2, 2), "NotSupported"), VaultId, V2);
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
+    [Fact]
     public async Task AProtectedSection_ReadNotGranted_ComesBeforeTheLevelRules()
     {
         // V1 is the Vault's first page: without a grant the caller learns nothing about where it sits.
@@ -591,6 +629,19 @@ public sealed class SetPageLevelToolTests : IDisposable
     };
 
     private void Parent(string id, string parent) => gateway.Parents[id] = parent;
+
+    /// <summary>D182: the Vault opened by hand, outside the notebook; by its path under an export root, or by its marker.</summary>
+    private void MakeVaultLoose(bool byPath)
+    {
+        Parent(VaultId, string.Empty);
+        if (byPath)
+        {
+            const string vault = $"name=\"Vault\" ID=\"{VaultId}\" path=\"C:\\exports\\Vault.one\" lastModifiedTime=\"{Lmt}\"";
+            Self(VaultId, $"<one:Section {Ns} {vault} />");
+            Children(VaultId, $"<one:Section {Ns} {vault}>{Page(V1, 1)}{Page(V2, 1)}</one:Section>");
+            TestSettings.SetExportRoots(Path.Combine(temp.Combine("cfg"), "settings.json"), @"C:\exports");
+        }
+    }
 
     private void Self(string id, string xml) =>
         gateway.Hierarchies[(id, HierarchyScope.Self)] = "<?xml version=\"1.0\"?>\n" + xml;

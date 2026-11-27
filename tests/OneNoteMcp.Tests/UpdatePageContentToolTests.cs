@@ -511,6 +511,26 @@ public sealed class UpdatePageContentToolTests : IDisposable
     }
 
     [Fact]
+    public async Task D180_ProtectedByAnExportRoot_WithoutAReadGrant_AnObjectId_IsReadNotGranted_SayingWhy_BeforeThePageIsRead()
+    {
+        // D180: the Vault carries no marker; it is protected only by its path under an export root (entry 15).
+        Self(ProtectedId, $"<one:Section {Ns} name=\"Vault\" ID=\"{ProtectedId}\" path=\"C:\\exports\\Vault.one\" />");
+        TestSettings.SetExportRoots(temp.Combine("settings.json"), @"C:\exports");
+        var prompt = new FakePrompt();
+
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() =>
+            UseCase().ExecuteAsync(new ToolCallContext("c", Prompt: prompt), VaultPageId, Sent(OutlineAsRead(40), VaultPageId), null, null, Ct));
+
+        Assert.Equal(ErrorCode.ReadNotGranted, ex.Code);
+        Assert.Equal(UpdatePageContentWrite.ReadFirstUserAction, ex.UserAction);
+        Assert.Contains(ProtectedId, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("an export root", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(gateway.PageCalls);
+        Assert.Empty(prompt.Order);
+        await AssertRefusedAsync();
+    }
+
+    [Fact]
     public async Task ProtectedWithAStoredReadGrant_MayCarryHashesAndObjectIds()
     {
         GrantVaultRead();

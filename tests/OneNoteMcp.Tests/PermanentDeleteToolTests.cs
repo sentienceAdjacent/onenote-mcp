@@ -723,6 +723,39 @@ public sealed class PermanentDeleteToolTests : IDisposable
         AssertNothingWritten();
     }
 
+    [Theory]
+    [InlineData("marker")]
+    [InlineData("path")]
+    [InlineData("locked")]
+    [InlineData("subpages")]
+    public async Task D182_APageOfALooseSection_ProtectedLockedOrSubpaged_IsNotSupported_BeforeAnyOtherRefusal_NeverAsked(string kind)
+    {
+        // A page of a .one opened by hand (one:OpenSections) once got ReadNotGranted, SectionLocked or the subpage error,
+        // not backlog 12's loose refusal.
+        var (sectionId, pageId) = kind switch
+        {
+            "locked" => (LockedId, LockedPageId),
+            "subpages" => (TreeId, ParentPageId),
+            _ => (ProtectedId, VaultPageId),
+        };
+        gateway.Parents[sectionId] = string.Empty;
+        if (kind == "path")
+        {
+            Section(ProtectedId, "Vault", string.Empty, VaultPageId);
+            Self(ProtectedId, $"<one:Section {Ns} name=\"Vault\" ID=\"{ProtectedId}\" path=\"C:\\exports\\Vault.one\" lastModifiedTime=\"{SectionDate}\" />");
+            TestSettings.SetExportRoots(temp.Combine("settings.json"), @"C:\exports");
+        }
+
+        var prompt = new FakePrompt(new GrantPromptResult(GrantPromptStatus.Accepted, "Synthetic Update"));
+        var basis = kind == "subpages" ? null : PageBasis(pageId).ToCore();
+
+        LooseRefusal.Matches(Error(await RunAsync(pageId, basis, prompt), "NotSupported"), sectionId, pageId);
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(holds);
+        AssertNothingWritten();
+    }
+
     [Fact]
     public async Task AProtectedPage_WithoutAReadGrant_OrAStoredGrant_IsPermanentDeleteNotGranted_WithNoDialog_AndNoTitleAnywhere()
     {
@@ -952,7 +985,8 @@ public sealed class PermanentDeleteToolTests : IDisposable
         // section moves to X, granted the same way.
         Grant(permanentDelete: true);
         NotebookMoveKit.AddGrantedX(gateway, Store, clock);
-        var moved = NotebookMoveKit.MoveOnRead(gateway, NotebookId, HierarchyScope.Self, () => gateway.Parents[SectionId] = NotebookMoveKit.XId);
+        // The second read of W: the first is D182's loose-section check, the second step 1's grant walk.
+        var moved = NotebookMoveKit.MoveOnRead(gateway, NotebookId, HierarchyScope.Self, () => gateway.Parents[SectionId] = NotebookMoveKit.XId, nth: 2);
 
         var error = Error(await Tool().PermanentlyDeleteHierarchyObject(PageId, PageBasis(), Ct), "WriteNotGranted");
 
