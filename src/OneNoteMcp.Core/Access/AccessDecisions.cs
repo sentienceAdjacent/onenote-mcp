@@ -68,7 +68,7 @@ public sealed record BroadAccess(IReadOnlyList<string> Withheld, IReadOnlyList<R
             (0, _) => string.Create(CultureInfo.InvariantCulture, $"{byPath} under an export root or the backups folder, so treated as password-protected"),
             _ => string.Create(CultureInfo.InvariantCulture, $"{marked} password-protected and {byPath} under an export root or the backups folder, so treated as password-protected"),
         };
-        return string.Create(CultureInfo.InvariantCulture, $"{Withheld.Count} protected section(s) were left out ({kinds}): reading their pages needs the user's permission. meta.withheld lists their IDs.");
+        return string.Create(CultureInfo.InvariantCulture, $"{Withheld.Count} protected section(s) were left out ({kinds}): reading their pages needs the user's permission. meta.withheld lists their IDs (in a result too large for it, the stored list meta.withheldResultId names).");
     }
 
     /// <summary><c>meta.withheld</c>: the section IDs, or null when nothing was withheld, so the field is omitted.</summary>

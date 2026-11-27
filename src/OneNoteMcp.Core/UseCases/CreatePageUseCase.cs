@@ -124,6 +124,8 @@ public sealed class CreatePageUseCase(IOneNoteGateway gateway, WriteAccess acces
                 var node = XmlReads.Readable(() => HierarchyTarget.Read(self), "GetHierarchy");
                 if (node.Kind == HierarchyKind.Section)
                 {
+                    // D182: a loose section is refused as such first, never as locked or protected (backlog 12's answer).
+                    await access.RefuseLooseAsync(sectionId, ct).ConfigureAwait(false);
                     CheckLockedAndReadGrant(node);
                 }
             }

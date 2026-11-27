@@ -32,7 +32,8 @@ namespace OneNoteMcp.Core.Results;
 /// (Q6) and when the read-back failed.
 /// A stored result whose first index wouldn't fit with its <see cref="Filtered"/> list (backlog 15; Phill, 2026-11-19, Q1 a)
 /// carries <see cref="FilteredCount"/> and <see cref="FilteredResultId"/> instead: the list is a second stored result,
-/// JSON text read with <c>read_result</c> (AD-20).
+/// JSON text read with <c>read_result</c> (AD-20). When it still wouldn't fit, its <see cref="Withheld"/> list moves the same way
+/// (D189), as <see cref="WithheldCount"/> and <see cref="WithheldResultId"/>: a JSON array of the section IDs.
 /// <c>get_windows</c> (story 4.6) reports OneNote's open windows in <see cref="Windows"/>, an empty list when none is open.
 /// They are null, and so omitted on the wire, on every other result.
 /// </summary>
@@ -60,7 +61,9 @@ public sealed record ToolMeta(
     IReadOnlyList<string>? PageIds = null,
     int? FilteredCount = null,
     string? FilteredResultId = null,
-    IReadOnlyList<WindowListing>? Windows = null);
+    IReadOnlyList<WindowListing>? Windows = null,
+    int? WithheldCount = null,
+    string? WithheldResultId = null);
 
 /// <summary>
 /// One grant as <c>list_grants</c> shows it (AD-6, AD-10). <see cref="Kind"/> is <c>readSection</c> for an AD-21 read

@@ -312,6 +312,37 @@ public sealed class RestoreFromJournalToolTests : IDisposable
         await AssertLockFreeAsync();
     }
 
+    [Theory]
+    [InlineData("exportRoot")]
+    [InlineData("backups")]
+    public async Task D180_ProtectedByPath_SectionLive_IsRestoredThere_WithTheWriteGrantOnly_NoReadDialog_AndNothingNamesItsContent(string root)
+    {
+        // D180: the Vault carries no marker; it is protected only by its path, under an export root or the journal's
+        // backups folder (entry 15), so its entry is protected and goes back only into it.
+        var at = root == "exportRoot" ? @"C:\exports\Vault.one" : Path.Combine(Folder, JournalFiles.BackupsFolderName, "Vault.one");
+        if (root == "exportRoot")
+        {
+            TestSettings.SetExportRoots(temp.Combine("settings.json"), @"C:\exports");
+        }
+
+        var vault = new SectionSpec(ProtectedId, "Vault", null, string.Empty, at);
+        Replace(ProtectedId, vault);
+        Self(ProtectedId, vault.Xml(withNs: true));
+        var entryId = await EntryAsync(ProtectedId, Protection.From(Store.Read()));
+        Assert.Contains("\"protected\"", RawEntry(entryId), StringComparison.Ordinal); // DPAPI on disk
+        var prompt = new FakePrompt();
+
+        var result = await RestoreWithPrompt(prompt, entryId);
+
+        var ok = Ok(result);
+        Assert.Equal(ProtectedId, Assert.Single(gateway.CreateCalls).SectionId);
+        Assert.Equal(ProtectedId, ok.GetProperty("meta").GetProperty("parentId").GetString());
+        Assert.Empty(prompt.Order);
+        Assert.Single(gateway.UpdateCalls);
+        AssertNamesNothing(result);
+        await AssertLockFreeAsync();
+    }
+
     [Fact]
     public async Task Protected_SectionLocked_IsSectionLocked_RetryableAfterUnlock()
     {
@@ -877,9 +908,9 @@ public sealed class RestoreFromJournalToolTests : IDisposable
 
     private string? notebookPathOverride;
 
-    private sealed record SectionSpec(string Id, string Name, string? Group, string Extra)
+    private sealed record SectionSpec(string Id, string Name, string? Group, string Extra, string? At = null)
     {
-        public string Path => Group is null ? $"C:\\notebooks\\W\\{Name}.one" : $"C:\\notebooks\\W\\{Group}\\{Name}.one";
+        public string Path => At ?? (Group is null ? $"C:\\notebooks\\W\\{Name}.one" : $"C:\\notebooks\\W\\{Group}\\{Name}.one");
 
         public string Xml(bool withNs = false) =>
             $"<one:Section {(withNs ? Ns : string.Empty)} name=\"{Name}\" ID=\"{Id}\" path=\"{Path}\" {Extra} />";
@@ -956,11 +987,11 @@ public sealed class RestoreFromJournalToolTests : IDisposable
     }
 
     /// <summary>A real snapshot of the synthetic page in <paramref name="sectionId"/>; returns the entry's ID. Clears the calls it made.</summary>
-    private async Task<string> EntryAsync(string sectionId)
+    private async Task<string> EntryAsync(string sectionId, Protection? protection = null)
     {
         gateway.Parents[PageId] = sectionId;
         var written = await new PageSnapshot(gateway, new JournalStore(Store.Read), clock)
-            .TakeAsync(new PageSnapshotRequest("snapshot", UpdatePageContentWrite.OperationName, OperationClass.PageWrite, PageId, Read, new Protection([])), Ct);
+            .TakeAsync(new PageSnapshotRequest("snapshot", UpdatePageContentWrite.OperationName, OperationClass.PageWrite, PageId, Read, protection ?? new Protection([])), Ct);
         gateway.Calls.Clear();
         gateway.PageCalls.Clear();
         return written.EntryId.ToString("D");

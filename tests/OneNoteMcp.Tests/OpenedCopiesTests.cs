@@ -239,6 +239,117 @@ public sealed class OpenedCopiesTests : IDisposable
         Assert.True(Directory.Exists(old));
     }
 
+    // --- D186: a copy goes entry by entry, retried, its marker last -----------------------------------------------------
+
+    [Fact]
+    public async Task AnEntryRefusedOnce_IsTriedAgain_AndTheCopyGoes()
+    {
+        var copy = Copy("Busy 20261101-100000", Now.AddDays(-8));
+        var section = Path.Combine(copy, "Section.one");
+        var tries = 0;
+
+        var deleted = await OpenedCopySweep.SweepAsync(gateway, Folder, Now, path =>
+        {
+            if (string.Equals(path, section, StringComparison.OrdinalIgnoreCase) && ++tries == 1)
+            {
+                throw new IOException("The process cannot access the file because it is being used by another process.");
+            }
+
+            OpenedCopySweep.DeleteEntry(path);
+        }, Ct);
+
+        Assert.Equal(1, deleted);
+        Assert.Equal(2, tries);
+        Assert.False(Directory.Exists(copy));
+    }
+
+    [Fact]
+    public async Task TheMarkerIsDeletedLast_ThenTheEmptyFolder()
+    {
+        var copy = Copy("Ordered 20261101-100000", Now.AddDays(-8));
+        var inner = Path.Combine(copy, "Group");
+        Directory.CreateDirectory(inner);
+        File.WriteAllText(Path.Combine(inner, "Inner.one"), "y");
+        File.WriteAllText(Path.Combine(copy, "Zz.one"), "z");
+        Age(copy, Now.AddDays(-8));
+        var order = new List<string>();
+
+        await OpenedCopySweep.SweepAsync(gateway, Folder, Now, path =>
+        {
+            order.Add(Path.GetRelativePath(Folder, path));
+            OpenedCopySweep.DeleteEntry(path);
+        }, Ct);
+
+        Assert.Equal(5, order.Count);
+        Assert.Equal(Path.Combine("Ordered 20261101-100000", ExportRootGuard.MarkerFileName), order[^2]);
+        Assert.Equal("Ordered 20261101-100000", order[^1]);
+        Assert.False(Directory.Exists(copy));
+    }
+
+    [Fact]
+    public async Task AnEntryThatStaysLocked_LeavesTheMarker_SoTheNextSweepStillSeesTheCopy()
+    {
+        // A real lock: on main, one recursive delete took the marker (it sorts first) and then failed on the locked file,
+        // leaving a folder no later sweep would look at.
+        var copy = Copy("Locked 20261101-100000", Now.AddDays(-8));
+        var locked = Path.Combine(copy, "Zz.one");
+        File.WriteAllText(locked, "z");
+        Age(copy, Now.AddDays(-8));
+
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Equal(0, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        }
+
+        Assert.True(File.Exists(Path.Combine(copy, ExportRootGuard.MarkerFileName)));
+        Assert.Contains(copy, OpenedCopies.MarkedCopies(Folder));
+
+        // Once the lock is gone (and nothing changed: the failed sweep only removed entries), the next sweep deletes it.
+        Age(copy, Now.AddDays(-8));
+        Assert.Equal(1, await OpenedCopySweep.SweepAsync(gateway, Folder, Now, Ct));
+        Assert.False(Directory.Exists(copy));
+    }
+
+    [Fact]
+    public async Task AFolderDeleteThatStaysRefused_WritesTheMarkerBack_SoTheNextSweepStillSeesTheCopy()
+    {
+        var copy = Copy("Held 20261101-100000", Now.AddDays(-8));
+
+        var deleted = await OpenedCopySweep.SweepAsync(gateway, Folder, Now, path =>
+        {
+            if (string.Equals(path, copy, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("The process cannot access the file because it is being used by another process.");
+            }
+
+            OpenedCopySweep.DeleteEntry(path);
+        }, Ct);
+
+        Assert.Equal(0, deleted);
+        Assert.True(File.Exists(Path.Combine(copy, ExportRootGuard.MarkerFileName)));
+        Assert.Contains(copy, OpenedCopies.MarkedCopies(Folder));
+    }
+
+    [Fact]
+    public async Task AnEntryThatAppearsAfterTheListing_KeepsTheFolder_AndItsMarker()
+    {
+        var copy = Copy("Late 20261101-100000", Now.AddDays(-8));
+        var late = Path.Combine(copy, "Late.one");
+
+        var deleted = await OpenedCopySweep.SweepAsync(gateway, Folder, Now, path =>
+        {
+            OpenedCopySweep.DeleteEntry(path);
+            if (path.EndsWith(ExportRootGuard.MarkerFileName, StringComparison.OrdinalIgnoreCase) && !File.Exists(late))
+            {
+                File.WriteAllText(late, "late");
+            }
+        }, Ct);
+
+        Assert.Equal(0, deleted);
+        Assert.True(File.Exists(late));
+        Assert.True(File.Exists(Path.Combine(copy, ExportRootGuard.MarkerFileName)));
+    }
+
     [Fact]
     public async Task NoFolder_IsNothingToDo()
     {

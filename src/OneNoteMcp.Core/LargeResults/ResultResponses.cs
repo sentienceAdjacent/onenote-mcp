@@ -209,12 +209,24 @@ internal sealed class ResultResponses(ITextBlockMeasure measure)
 
     /// <summary>
     /// Every index of a result whose <c>meta.filtered</c> moved to a second stored result carries its count and resultId
-    /// (backlog 15; Phill, 2026-11-19, Q1 a), so the list stays findable from any page of the index.
+    /// (backlog 15; Phill, 2026-11-19, Q1 a), and likewise a moved <c>meta.withheld</c> (D189), so each list stays findable
+    /// from any page of the index.
     /// </summary>
-    private static ToolMeta WithMovedList(ToolMeta meta, StoredResult entry) =>
-        entry.Original.Meta.FilteredResultId is { } listId
-            ? meta with { FilteredCount = entry.Original.Meta.FilteredCount, FilteredResultId = listId }
-            : meta;
+    private static ToolMeta WithMovedList(ToolMeta meta, StoredResult entry)
+    {
+        var original = entry.Original.Meta;
+        if (original.FilteredResultId is { } listId)
+        {
+            meta = meta with { FilteredCount = original.FilteredCount, FilteredResultId = listId };
+        }
+
+        if (original.WithheldResultId is { } withheldId)
+        {
+            meta = meta with { WithheldCount = original.WithheldCount, WithheldResultId = withheldId };
+        }
+
+        return meta;
+    }
 
     private static ToolSuccess ExpandResponse(StoredResult entry, string correlationId, DateTimeOffset expiresAt, SpanNode node, int page, List<IndexEntry> entries, int pages)
     {

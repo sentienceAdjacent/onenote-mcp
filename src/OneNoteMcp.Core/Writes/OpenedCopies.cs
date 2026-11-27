@@ -109,15 +109,33 @@ public static class OpenedCopies
 /// read, OneNote not running (a closed OneNote still lists its notebooks and reopens them; "not running" also covers one
 /// with no window yet) included, deletes nothing (the review of 6fe92b3). A copy that can't be deleted is left for the
 /// next start.
+/// D186 (2026-11-27): a copy is deleted entry by entry, its marker last and then its empty folder, each step tried for
+/// about half a second (Windows briefly refuses a file an antivirus or the indexer still holds, or a folder a junction was
+/// just removed from). An entry that stays refused stops that copy with its marker still in place, so the next sweep
+/// still sees it; a single recursive delete could take the marker first and leave a folder no sweep would touch again.
 /// </summary>
 public static class OpenedCopySweep
 {
     /// <summary>How long a copy must go unchanged before it is deleted.</summary>
     public static readonly TimeSpan MaxAge = TimeSpan.FromDays(7);
 
+    /// <summary>How many times each delete is tried, and how long the sweep waits between tries: about half a second (D186).</summary>
+    internal const int DeleteAttempts = 10;
+
+    internal static readonly TimeSpan DeleteDelay = TimeSpan.FromMilliseconds(50);
+
     /// <summary>Deletes the expired copies in <paramref name="folder"/> as of <paramref name="now"/>; returns how many went.</summary>
-    public static async Task<int> SweepAsync(IOneNoteGateway gateway, string folder, DateTimeOffset now, CancellationToken ct)
+    public static Task<int> SweepAsync(IOneNoteGateway gateway, string folder, DateTimeOffset now, CancellationToken ct) =>
+        SweepAsync(gateway, folder, now, DeleteEntry, ct);
+
+    /// <summary>
+    /// <see cref="SweepAsync(IOneNoteGateway, string, DateTimeOffset, CancellationToken)"/> with
+    /// <paramref name="deleteEntry"/> standing in for <see cref="DeleteEntry"/> (D186's test seam). It is given each entry
+    /// of a copy, then the marker, then the copy's own (by then empty) folder.
+    /// </summary>
+    internal static async Task<int> SweepAsync(IOneNoteGateway gateway, string folder, DateTimeOffset now, Action<string> deleteEntry, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(deleteEntry);
         ArgumentNullException.ThrowIfNull(gateway);
         ArgumentNullException.ThrowIfNull(folder);
         var old = OpenedCopies.MarkedCopies(folder).Where(c => IsOld(c, now)).ToList();
@@ -140,19 +158,130 @@ public static class OpenedCopySweep
         var deleted = 0;
         foreach (var copy in old.Where(c => !OpenedCopies.IsOpen(c, open)))
         {
-            try
+            if (await DeleteCopyAsync(copy, deleteEntry, ct).ConfigureAwait(false))
             {
-                // Recursive delete removes a link or junction inside the copy without following it.
-                Directory.Delete(copy, recursive: true);
                 deleted++;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Left for the next start.
             }
         }
 
         return deleted;
+    }
+
+    /// <summary>
+    /// Deletes <paramref name="copy"/>: every entry but the marker, then the marker, then the empty folder, each tried
+    /// <see cref="DeleteAttempts"/> times. False when a step still fails; the copy is then left for the next start, with
+    /// its marker: the folder itself is only ever deleted empty, and when that is refused the marker is written back, so
+    /// the next sweep still sees the copy.
+    /// </summary>
+    private static async Task<bool> DeleteCopyAsync(string copy, Action<string> deleteEntry, CancellationToken ct)
+    {
+        var marker = Path.Combine(copy, ExportRootGuard.MarkerFileName);
+        try
+        {
+            // The entries are listed as entries: a link or junction is deleted itself, never followed.
+            var entries = new DirectoryInfo(copy).EnumerateFileSystemInfos("*", OneLevel)
+                .Select(e => e.FullName)
+                .Where(e => !string.Equals(e, marker, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var entry in entries)
+            {
+                if (!await TryDeleteAsync(entry, deleteEntry, ct).ConfigureAwait(false))
+                {
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // The copy couldn't be listed: left whole, marker included, for the next start.
+            return false;
+        }
+
+        if (!await TryDeleteAsync(marker, deleteEntry, ct).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        // The folder goes only while it is empty: anything that appeared since the entries were listed keeps it.
+        if (await TryDeleteAsync(copy, path => DeleteEmptyFolder(path, deleteEntry), ct).ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        RestoreMarker(marker);
+        return false;
+    }
+
+    /// <summary>Calls <paramref name="deleteEntry"/> on the copy's folder only while it holds nothing; otherwise refuses like Windows.</summary>
+    private static void DeleteEmptyFolder(string folder, Action<string> deleteEntry)
+    {
+        if (Directory.Exists(folder) && Directory.EnumerateFileSystemEntries(folder).Any())
+        {
+            throw new IOException("The opened copy's folder isn't empty.");
+        }
+
+        deleteEntry(folder);
+    }
+
+    /// <summary>Writes the empty marker back into a copy whose folder couldn't be deleted, so a later sweep still finds it. Best effort.</summary>
+    private static void RestoreMarker(string marker)
+    {
+        try
+        {
+            using (new FileStream(marker, FileMode.OpenOrCreate, FileAccess.Write))
+            {
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // The folder may be half gone or held; it is left as it is.
+        }
+    }
+
+    /// <summary>Calls <paramref name="deleteEntry"/> on <paramref name="path"/> up to <see cref="DeleteAttempts"/> times; true once it succeeds.</summary>
+    private static async Task<bool> TryDeleteAsync(string path, Action<string> deleteEntry, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                deleteEntry(path);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= DeleteAttempts)
+                {
+                    return false;
+                }
+            }
+
+            await Task.Delay(DeleteDelay, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Deletes one entry of a copy, or the copy's empty folder: a file; a link or junction itself, never what it points at;
+    /// a plain folder with everything in it (.NET's recursive delete removes a link or junction inside without following
+    /// it). An entry already gone counts as deleted.
+    /// </summary>
+    internal static void DeleteEntry(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var info = new FileInfo(path);
+        if (!info.Exists && !Directory.Exists(path))
+        {
+            return;
+        }
+
+        if ((info.Attributes & FileAttributes.Directory) == 0)
+        {
+            File.Delete(path);
+        }
+        else
+        {
+            Directory.Delete(path, recursive: (info.Attributes & FileAttributes.ReparsePoint) == 0);
+        }
     }
 
     /// <summary>

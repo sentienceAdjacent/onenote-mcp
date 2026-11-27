@@ -219,6 +219,7 @@ To find pages by an add-in tag, use `mcp__plugin_onenote_desktop__find_meta` wit
 - When that list is too long to return with the result, it comes as `meta.filteredCount` and `meta.filteredResultId` instead. Read it, if you need it, with `mcp__plugin_onenote_desktop__read_result` on `filteredResultId`, `ref` `/`, from `offset` 0: it is the same `{pageId, reason}` list, as JSON.
 - An empty result with many `noMatch` entries usually means one of the words is wrong. Try fewer words.
 - `meta.withheld` lists password-protected sections the search skipped because the user hasn't granted a read of them. Their pages may or may not match; never guess.
+- When that list is too long to return with the result, it comes as `meta.withheldCount` and `meta.withheldResultId` instead, the same way, also from `mcp__plugin_onenote_desktop__get_hierarchy`. Read it, if you need the IDs, with `mcp__plugin_onenote_desktop__read_result` on `withheldResultId`, `ref` `/`, from `offset` 0: it is a JSON array of the section IDs. The count alone is enough to say how many sections were skipped.
 
 ## Errors and warnings
 

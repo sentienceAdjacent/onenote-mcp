@@ -1,3 +1,4 @@
+using System.Text.Json;
 using OneNoteMcp.Core;
 using OneNoteMcp.Core.Access;
 using OneNoteMcp.Core.Settings;
@@ -102,6 +103,35 @@ public sealed class LooseSectionWriteTests : IDisposable
         Assert.Equal("the caller's fallback", ex.Message);
     }
 
+    [Theory]
+    [InlineData(LoosePageId, null, "Page")]
+    [InlineData(LooseSubpageId, null, "Page")]
+    [InlineData(LooseId, null, "Section")]
+    [InlineData(LooseId, LoosePageId, "Page")]
+    public async Task RefuseLooseAsync_InOrOfALooseSection_IsNotSupported(string objectId, string? subjectId, string kind)
+    {
+        // D182: the one shared check the protected, locked and subpage refusals now run after.
+        var ex = await Assert.ThrowsAsync<OneNoteException>(() => access.RefuseLooseAsync(objectId, Ct, subjectId));
+
+        AssertLoose(ex, subjectId ?? objectId, kind);
+    }
+
+    [Fact]
+    public async Task RefuseLooseAsync_InANotebook_OrForANotebook_DoesNothing()
+    {
+        // D182's in-notebook guard: the check passes, so a notebook section's own refusals (locked, read grant) still run.
+        const string sectionId = "{NS000000-0000-4000-8000-000000000001}{1}{B0}";
+        const string pageId = "{NS000000-0000-4000-8000-000000000001}{1}{E1}";
+        gateway.Parents[sectionId] = NotebookId;
+        gateway.Parents[pageId] = sectionId;
+        gateway.Hierarchies[(sectionId, HierarchyScope.Self)] =
+            $"<?xml version=\"1.0\"?>\n<one:Section {Ns} name=\"S\" ID=\"{sectionId}\" path=\"C:\\notebooks\\A\\S.one\" encrypted=\"true\" />";
+
+        await access.RefuseLooseAsync(pageId, Ct);
+        await access.RefuseLooseAsync(sectionId, Ct, pageId);
+        await access.RefuseLooseAsync(NotebookId, Ct);
+    }
+
     private static void AssertLoose(OneNoteException ex, string objectId, string kind)
     {
         Assert.Equal(ErrorCode.NotSupported, ex.Code);
@@ -113,5 +143,23 @@ public sealed class LooseSectionWriteTests : IDisposable
         Assert.DoesNotContain("isn't a page", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("Loose", ex.Message.Replace(LooseId, string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Equal(WriteAccess.LooseSectionUserAction, ex.UserAction);
+    }
+}
+
+/// <summary>
+/// D182: a tool's error for a write in or to a loose section (backlog 12): <c>NotSupported</c>, not retryable, naming the
+/// section and the object, with backlog 12's message and user action; never a protected, locked or subpage refusal.
+/// </summary>
+internal static class LooseRefusal
+{
+    public static void Matches(JsonElement error, string sectionId, string objectId)
+    {
+        Assert.Equal("NotSupported", error.GetProperty("code").GetString());
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+        var message = error.GetProperty("message").GetString()!;
+        Assert.Contains(sectionId, message, StringComparison.Ordinal);
+        Assert.Contains(objectId, message, StringComparison.Ordinal);
+        Assert.Contains("open in OneNote outside any notebook (a .one file opened by hand), and the server can't write there, so nothing was written.", message, StringComparison.Ordinal);
+        Assert.Equal(WriteAccess.LooseSectionUserAction, error.GetProperty("userAction").GetString());
     }
 }

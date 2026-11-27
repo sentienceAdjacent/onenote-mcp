@@ -551,6 +551,29 @@ public sealed class MoveHierarchyObjectToolTests : IDisposable
         Assert.Empty(holds);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task D182_ALooseProtectedTarget_WithAPosition_IsNotSupported_NotReadNotGranted_NeverAsked_NothingSent(bool byPath)
+    {
+        // A protected .one opened by hand (one:OpenSections) as the target once got ReadNotGranted, not backlog 12's refusal.
+        Grant();
+        Parent(VaultId, string.Empty);
+        if (byPath)
+        {
+            Self(VaultId, $"<one:Section {Ns} name=\"Vault\" ID=\"{VaultId}\" path=\"C:\\exports\\Vault.one\" lastModifiedTime=\"{Lmt}\" />");
+            TestSettings.SetExportRoots(Path.Combine(temp.Combine("cfg"), "settings.json"), @"C:\exports");
+        }
+
+        var prompt = new FakePrompt(Typed("A"));
+
+        LooseRefusal.Matches(Error(await MoveWithPrompt(prompt, P2, VaultId, 1), "NotSupported"), VaultId, VaultId);
+
+        Assert.Empty(prompt.Order);
+        Assert.Empty(gateway.UpdateHierarchyCalls);
+        Assert.Empty(holds);
+    }
+
     [Fact]
     public async Task AProtectedTarget_WithAPosition_AndNeitherGrant_IsReadNotGranted_TheWriteGrantDialogNeverShown()
     {

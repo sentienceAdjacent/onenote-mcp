@@ -125,6 +125,9 @@ public sealed class SetPageLevelWrite : WriteOperation<HierarchyWriteResult>
             ?? throw HierarchyWriteSteps.Invalid($"Object {PageId} isn't a page in a section, so no level was changed.", PageUserAction);
         SectionId = section.Id;
 
+        // D182: a loose section is refused as such first, never as locked or protected (backlog 12's answer).
+        await services.WriteAccess.RefuseLooseAsync(PageId, ct).ConfigureAwait(false);
+
         // Phill, 2026-11-17 (3.14 Fable review): locked, then the read grant, before the write grant, so the user is never
         // shown the write-grant dialog for a call that will be refused. Only the section's own attributes are read here.
         var self = await services.Gateway.GetHierarchyAsync(section.Id, HierarchyScope.Self, ct).ConfigureAwait(false);

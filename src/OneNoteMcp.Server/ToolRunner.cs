@@ -52,6 +52,7 @@ public sealed partial class ToolRunner
         ToolEnvelope envelope;
         Exception? failure = null;
         StoredEvent? stored = null;
+        IReadOnlyList<StoredEvent> moved = [];
         PageTextCacheUse? searchCache = null;
         try
         {
@@ -59,6 +60,7 @@ public sealed partial class ToolRunner
             searchCache = success.SearchCache;
             var outcome = delivery.Deliver(success, settings);
             stored = outcome.Stored;
+            moved = outcome.MovedLists;
             envelope = ToolEnvelope.Success(outcome.Success);
         }
         catch (OneNoteException ex)
@@ -105,13 +107,15 @@ public sealed partial class ToolRunner
             LogSearchCache(logger, context.CorrelationId, tool, c.Hits, c.Misses, c.Evicted, c.Entries, c.Bytes);
         }
 
+        // A list moved out of the header (D188) was stored before the main result, so it is logged first, the same way.
+        foreach (var list in moved)
+        {
+            LogStoredEvent(context.CorrelationId, tool, list);
+        }
+
         if (stored is not null)
         {
-            LogStored(logger, context.CorrelationId, tool, stored.ResultId, stored.TotalChars, stored.Change.TotalBytes);
-            foreach (var evicted in stored.Change.Evicted)
-            {
-                LogEvicted(logger, evicted, stored.Change.TotalBytes);
-            }
+            LogStoredEvent(context.CorrelationId, tool, stored);
         }
 
         var result = ToResult(envelope);
@@ -119,11 +123,21 @@ public sealed partial class ToolRunner
         var inlineMax = settings.InlineMaxChars;
         if (textChars > inlineMax)
         {
-            // AD-20 sizes every response to fit; only an envelope whose meta alone is over the threshold gets here (Deferred).
+            // AD-20 moves meta.filtered and then meta.withheld out of the header; a header still over the threshold after both
+            // (warnings or other meta) is only logged (spine Deferred row "A header line over the inline threshold").
             LogOversize(logger, context.CorrelationId, tool, textChars, inlineMax);
         }
 
         return result;
+    }
+
+    private void LogStoredEvent(string correlationId, string tool, StoredEvent stored)
+    {
+        LogStored(logger, correlationId, tool, stored.ResultId, stored.TotalChars, stored.Change.TotalBytes);
+        foreach (var evicted in stored.Change.Evicted)
+        {
+            LogEvicted(logger, evicted, stored.Change.TotalBytes);
+        }
     }
 
     /// <summary>structuredContent with the full envelope, plus the AD-9 text block.</summary>

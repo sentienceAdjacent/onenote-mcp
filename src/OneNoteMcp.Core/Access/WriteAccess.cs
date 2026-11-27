@@ -139,21 +139,42 @@ public sealed class WriteAccess
             return notebook;
         }
 
-        if (section is null)
-        {
-            try
-            {
-                var xml = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Self, ct).ConfigureAwait(false);
-                var self = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
-                section = self.Kind == HierarchyKind.Section ? self : null;
-            }
-            catch (OneNoteException)
-            {
-                // The extra read only tells a loose section apart; when it fails, the caller's own error stands, as before.
-            }
-        }
+        throw Loose(subjectId ?? objectId, section ?? await SectionItselfAsync(objectId, ct).ConfigureAwait(false)) ?? notInsideANotebook();
+    }
 
-        throw Loose(subjectId ?? objectId, section) ?? notInsideANotebook();
+    /// <summary>
+    /// D182: refuses a write in or to a section open outside any notebook (backlog 12) with
+    /// <see cref="ErrorCode.NotSupported"/> and <see cref="LooseSectionUserAction"/>, before a write's own section checks
+    /// (locked, read grant, subpages), so a protected or subpaged loose section gets the same answer as any loose one. Does
+    /// nothing for an object a notebook owns, or one whose chain finds no section; the caller's checks then run as before.
+    /// </summary>
+    /// <param name="subjectId">The page the write is for, when <paramref name="objectId"/> is its section, so the refusal names the page.</param>
+    public async Task RefuseLooseAsync(string objectId, CancellationToken ct, string? subjectId = null)
+    {
+        var id = objectId ?? string.Empty;
+        var (notebook, section) = await walk.OwnersAsync(id, ct).ConfigureAwait(false);
+        if (notebook is null && Loose(subjectId ?? id, section ?? await SectionItselfAsync(id, ct).ConfigureAwait(false)) is { } loose)
+        {
+            throw loose;
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="objectId"/> itself when it reads as a <c>one:Section</c>; null otherwise. Read only when the chain found
+    /// no section, to tell a loose section from a notebook; when the read fails, the caller's own error stands, as before.
+    /// </summary>
+    private async Task<HierarchyNode?> SectionItselfAsync(string objectId, CancellationToken ct)
+    {
+        try
+        {
+            var xml = await gateway.GetHierarchyAsync(objectId, HierarchyScope.Self, ct).ConfigureAwait(false);
+            var self = XmlReads.Readable(() => HierarchyNode.Root(xml), "GetHierarchy");
+            return self.Kind == HierarchyKind.Section ? self : null;
+        }
+        catch (OneNoteException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The refusal for a write in or to the loose <paramref name="section"/>; null when there is none. IDs only (AD-9).</summary>
